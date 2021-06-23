@@ -58,7 +58,7 @@ jobs:
 
       - name: Login to quay.io
         if: ${{ steps.tag-in-repositories.outputs.exists == 'false' }}
-        uses: docker/login-action@f3364599c6aa293cdc2b8391b1b56d0c30e45c8a
+        uses: docker/login-action@f054a8b539a109f9f41c372932f1ae047eff08c9
         with:
           registry: quay.io
           username: ${{ secrets.QUAY_BASE_RELEASE_USERNAME }}
