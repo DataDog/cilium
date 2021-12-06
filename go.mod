@@ -3,7 +3,7 @@ module github.com/cilium/cilium
 go 1.17
 
 require (
-	github.com/Azure/azure-sdk-for-go v59.3.0+incompatible
+	github.com/Azure/azure-sdk-for-go v59.4.0+incompatible
 	github.com/Azure/go-autorest/autorest v0.11.22
 	github.com/Azure/go-autorest/autorest/adal v0.9.17
 	github.com/Azure/go-autorest/autorest/azure/auth v0.5.9
@@ -11,7 +11,7 @@ require (
 	github.com/aliyun/alibaba-cloud-sdk-go v1.61.1357
 	github.com/asaskevich/govalidator v0.0.0-20210307081110-f21760c49a8d
 	github.com/aws/aws-sdk-go-v2 v1.11.1
-	github.com/aws/aws-sdk-go-v2/config v1.10.0
+	github.com/aws/aws-sdk-go-v2/config v1.10.3
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.8.1
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.21.0
 	github.com/aws/smithy-go v1.9.0
@@ -62,7 +62,7 @@ require (
 	github.com/russross/blackfriday/v2 v2.1.0
 	github.com/sasha-s/go-deadlock v0.3.1
 	github.com/servak/go-fastping v0.0.0-20160802140958-5718d12e20a0
-	github.com/shirou/gopsutil/v3 v3.21.10
+	github.com/shirou/gopsutil/v3 v3.21.11
 	github.com/sirupsen/logrus v1.8.1
 	github.com/spf13/cobra v1.2.1
 	github.com/spf13/pflag v1.0.5
@@ -87,7 +87,7 @@ require (
 	google.golang.org/grpc v1.42.0
 	google.golang.org/protobuf v1.27.1
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c
-	gopkg.in/ini.v1 v1.64.0
+	gopkg.in/ini.v1 v1.66.2
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/api v0.24.0-alpha.0
@@ -111,15 +111,14 @@ require (
 	github.com/Microsoft/go-winio v0.5.1 // indirect
 	github.com/PuerkitoBio/purell v1.1.1 // indirect
 	github.com/PuerkitoBio/urlesc v0.0.0-20170810143723-de5bf2ad4578 // indirect
-	github.com/StackExchange/wmi v1.2.1 // indirect
 	github.com/armon/go-metrics v0.3.10 // indirect
-	github.com/aws/aws-sdk-go-v2/credentials v1.6.0 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.1.0 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.0.0 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/ini v1.3.0 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.5.0 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sso v1.6.0 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sts v1.9.0 // indirect
+	github.com/aws/aws-sdk-go-v2/credentials v1.6.3 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.1.1 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.0.1 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/ini v1.3.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.5.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sso v1.6.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sts v1.11.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/census-instrumentation/opencensus-proto v0.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
@@ -191,6 +190,7 @@ require (
 	github.com/pelletier/go-toml v1.9.4 // indirect
 	github.com/petermattis/goid v0.0.0-20180202154549-b0b1615b78e5 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
 	github.com/prometheus/common v0.32.1 // indirect
 	github.com/rogpeppe/go-internal v1.8.0 // indirect
 	github.com/spf13/afero v1.6.0 // indirect
@@ -199,6 +199,7 @@ require (
 	github.com/subosito/gotenv v1.2.0 // indirect
 	github.com/tklauser/go-sysconf v0.3.9 // indirect
 	github.com/tklauser/numcpus v0.3.0 // indirect
+	github.com/yusufpapurcu/wmi v1.2.2 // indirect
 	gitlab.com/golang-commonmark/puny v0.0.0-20191124015043-9f83538fa04f // indirect
 	go.mongodb.org/mongo-driver v1.7.5 // indirect
 	go.uber.org/atomic v1.9.0 // indirect
