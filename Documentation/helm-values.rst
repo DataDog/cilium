@@ -461,6 +461,10 @@
      - Enable endpoint status. Status can be: policy, health, controllers, log and / or state. For 2 or more options use a space.
      - object
      - ``{"enabled":false,"status":""}``
+   * - eni.awsEnablePrefixDelegation
+     - Enable ENI prefix delegation
+     - bool
+     - ``false``
    * - eni.awsReleaseExcessIPs
      - Release IPs not used from the ENI
      - bool

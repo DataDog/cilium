@@ -176,6 +176,7 @@ autoload
 autoscaler
 awk
 aws
+awsEnablePrefixDelegation
 awsReleaseExcessIPs
 backend
 backends
