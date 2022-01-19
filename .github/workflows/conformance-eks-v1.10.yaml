@@ -237,6 +237,11 @@ jobs:
         run: |
           cilium connectivity test --flow-validation=disabled
 
+      - name: Run e2e tests
+        run: |
+          cd test
+          ginkgo --focus "Eni" --tags=integration_tests  -- -cilium.provision=false -cilium.kubeconfig=`echo ~/.kube/config` -cilium.testScope=eni  -cilium.passCLIEnvironment=true
+
       - name: Clean up Cilium
         run: |
           cilium uninstall --wait
