@@ -124,6 +124,7 @@ cilium-agent [flags]
       --enable-session-affinity                                 Enable support for service session affinity
       --enable-svc-source-range-check                           Enable check of service source ranges (currently, only for LoadBalancer) (default true)
       --enable-tracing                                          Enable tracing while determining policy (debugging)
+      --enable-unreachable-routes                               Add unreachable routes on pod deletion
       --enable-well-known-identities                            Enable well-known identities for known Kubernetes components (default true)
       --enable-wireguard                                        Enable wireguard
       --enable-wireguard-userspace-fallback                     Enables the fallback to the wireguard userspace implementation
