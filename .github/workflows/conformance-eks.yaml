@@ -64,7 +64,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  clusterName: ${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ github.run_id }}
+  clusterName: datadog-${{ github.event.repository.name }}-${{ github.run_id }}
   region: us-east-2
   cilium_cli_version: v0.10.1
   check_url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -138,13 +138,13 @@ jobs:
           fi
 
           CILIUM_INSTALL_DEFAULTS="--cluster-name=${{ env.clusterName }} \
-            --agent-image=quay.io/${{ github.repository_owner }}/cilium-ci \
-            --operator-image=quay.io/${{ github.repository_owner }}/operator-aws-ci \
+            --agent-image=public.ecr.aws/b1o7r7e0/cilium/datadog/cilium-ci \
+            --operator-image=public.ecr.aws/b1o7r7e0/cilium/datadog/operator-aws-ci \
             --version=${SHA} \
             --wait=false \
             --rollback=false \
             --config monitor-aggregation=none"
-          HUBBLE_ENABLE_DEFAULTS="--relay-image=quay.io/${{ github.repository_owner }}/hubble-relay-ci \
+          HUBBLE_ENABLE_DEFAULTS="--relay-image=public.ecr.aws/b1o7r7e0/cilium/datadog/hubble-relay-ci \
             --relay-version=${SHA}"
           echo ::set-output name=cilium_install_defaults::${CILIUM_INSTALL_DEFAULTS}
           echo ::set-output name=hubble_enable_defaults::${HUBBLE_ENABLE_DEFAULTS}
@@ -192,7 +192,7 @@ jobs:
             name: ${{ env.clusterName }}
             region: ${{ env.region }}
             tags:
-             usage: "${{ github.repository_owner }}-${{ github.event.repository.name }}"
+             usage: "datadog-${{ github.event.repository.name }}"
              owner: "${{ steps.vars.outputs.owner }}"
 
           managedNodeGroups:
@@ -218,7 +218,7 @@ jobs:
         shell: bash
         run: |
           for image in cilium-ci operator-aws-ci hubble-relay-ci ; do
-            until curl --silent -f -lSL "https://quay.io/api/v1/repository/${{ github.repository_owner }}/$image/tag/${{ steps.vars.outputs.sha }}/images" &> /dev/null; do sleep 45s; done
+            until curl --silent -f -lSL "https://quay.io/api/v1/repository/datadog/$image/tag/${{ steps.vars.outputs.sha }}/images" &> /dev/null; do sleep 45s; done
           done
 
       - name: Install Cilium

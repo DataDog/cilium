@@ -39,13 +39,13 @@ jobs:
             SHA=${{ github.sha }}
           fi
 
-          CILIUM_INSTALL_DEFAULTS="--agent-image=quay.io/${{ github.repository_owner }}/cilium-ci \
-            --operator-image=quay.io/${{ github.repository_owner }}/operator-generic-ci \
+          CILIUM_INSTALL_DEFAULTS="--agent-image=public.ecr.aws/b1o7r7e0/cilium/datadog/cilium-ci \
+            --operator-image=public.ecr.aws/b1o7r7e0/cilium/datadog/operator-generic-ci \
             --version=${SHA} \
             --wait=false \
             --rollback=false \
             --config monitor-aggregation=none"
-          HUBBLE_ENABLE_DEFAULTS="--relay-image=quay.io/${{ github.repository_owner }}/hubble-relay-ci \
+          HUBBLE_ENABLE_DEFAULTS="--relay-image=public.ecr.aws/b1o7r7e0/cilium/datadog/hubble-relay-ci \
             --relay-version=${SHA}"
           echo ::set-output name=cilium_install_defaults::${CILIUM_INSTALL_DEFAULTS}
           echo ::set-output name=hubble_enable_defaults::${HUBBLE_ENABLE_DEFAULTS}
@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           for image in cilium-ci operator-generic-ci hubble-relay-ci ; do
-            until curl --silent -f -lSL "https://quay.io/api/v1/repository/${{ github.repository_owner }}/$image/tag/${{ steps.vars.outputs.sha }}/images" &> /dev/null; do sleep 45s; done
+            until curl --silent -f -lSL "https://quay.io/api/v1/repository/datadog/$image/tag/${{ steps.vars.outputs.sha }}/images" &> /dev/null; do sleep 45s; done
           done
 
       - name: Install Cilium

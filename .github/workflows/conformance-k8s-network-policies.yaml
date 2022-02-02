@@ -59,8 +59,8 @@ jobs:
         timeout-minutes: 10
         shell: bash
         run: |
-          until curl --silent -f -lSL "https://quay.io/api/v1/repository/${{ github.repository_owner }}/cilium-ci/tag/${{ steps.vars.outputs.tag }}/images" &> /dev/null; do sleep 45s; done
-          until curl --silent -f -lSL "https://quay.io/api/v1/repository/${{ github.repository_owner }}/operator-generic-ci/tag/${{ steps.vars.outputs.tag }}/images" &> /dev/null; do sleep 45s; done
+          until curl --silent -f -lSL "https://quay.io/api/v1/repository/datadog/cilium-ci/tag/${{ steps.vars.outputs.tag }}/images" &> /dev/null; do sleep 45s; done
+          until curl --silent -f -lSL "https://quay.io/api/v1/repository/datadog/operator-generic-ci/tag/${{ steps.vars.outputs.tag }}/images" &> /dev/null; do sleep 45s; done
 
       - name: Create kind cluster
         uses: helm/kind-action@94729529f85113b88f4f819c17ce61382e6d8478
@@ -81,11 +81,11 @@ jobs:
              --set hostPort.enabled=true \
              --set bpf.masquerade=false \
              --set ipam.mode=kubernetes \
-             --set image.repository=quay.io/${{ github.repository_owner }}/cilium-ci \
+             --set image.repository=public.ecr.aws/b1o7r7e0/cilium/datadog/cilium-ci \
              --set image.tag=${{ steps.vars.outputs.tag }} \
              --set image.pullPolicy=IfNotPresent \
              --set image.useDigest=false \
-             --set operator.image.repository=quay.io/${{ github.repository_owner }}/operator \
+             --set operator.image.repository=public.ecr.aws/b1o7r7e0/cilium/datadog/operator \
              --set operator.image.suffix=-ci \
              --set operator.image.tag=${{ steps.vars.outputs.tag }} \
              --set operator.image.pullPolicy=IfNotPresent \

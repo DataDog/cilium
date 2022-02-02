@@ -57,7 +57,7 @@ jobs:
         id: tag-in-repositories
         shell: bash
         run: |
-          if docker buildx imagetools inspect quay.io/${{ github.repository_owner }}/${{ matrix.name }}:${{  steps.tag.outputs.tag }} &>/dev/null; then
+          if docker buildx imagetools inspect public.ecr.aws/b1o7r7e0/cilium/datadog/${{ matrix.name }}:${{  steps.tag.outputs.tag }} &>/dev/null; then
             echo ::set-output name=exists::"true"
           else
             echo ::set-output name=exists::"false"
@@ -67,7 +67,7 @@ jobs:
         if: ${{ steps.tag-in-repositories.outputs.exists == 'false' }}
         uses: docker/login-action@42d299face0c5c43a0487c477f595ac9cf22f1a7
         with:
-          registry: quay.io
+          registry: public.ecr.aws
           username: ${{ secrets.QUAY_BASE_RELEASE_USERNAME }}
           password: ${{ secrets.QUAY_BASE_RELEASE_PASSWORD }}
 
@@ -81,7 +81,7 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            quay.io/${{ github.repository_owner }}/${{ matrix.name }}:${{ steps.tag.outputs.tag }}
+            public.ecr.aws/b1o7r7e0/cilium/datadog/${{ matrix.name }}:${{ steps.tag.outputs.tag }}
 
       - name: Image Release Digest
         if: ${{ steps.tag-in-repositories.outputs.exists == 'false' }}
@@ -90,7 +90,7 @@ jobs:
           mkdir -p image-digest/
           echo "## ${{ matrix.name }}" > image-digest/${{ matrix.name }}.txt
           echo "" >> image-digest/${{ matrix.name }}.txt
-          echo "\`quay.io/${{ github.repository_owner }}/${{ matrix.name }}:${{ steps.tag.outputs.tag }}@${{ steps.docker_build_release.outputs.digest }}\`" >> image-digest/${{ matrix.name }}.txt
+          echo "\`public.ecr.aws/b1o7r7e0/cilium/datadog/${{ matrix.name }}:${{ steps.tag.outputs.tag }}@${{ steps.docker_build_release.outputs.digest }}\`" >> image-digest/${{ matrix.name }}.txt
           echo "" >> image-digest/${{ matrix.name }}.txt
 
       - name: Upload artifact digests

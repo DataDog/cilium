@@ -61,8 +61,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  clusterName: ${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ github.run_id }}-vm
-  vmName: ${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ github.run_id }}-vm
+  clusterName: datadog-${{ github.event.repository.name }}-${{ github.run_id }}-vm
+  vmName: datadog-${{ github.event.repository.name }}-${{ github.run_id }}-vm
   zone: us-west2-a
   vmStartupScript: .github/gcp-vm-startup.sh
   cilium_cli_version: v0.10.1
@@ -137,8 +137,8 @@ jobs:
           fi
 
           CILIUM_INSTALL_DEFAULTS="--cluster-name=${{ env.clusterName }} \
-            --agent-image=quay.io/${{ github.repository_owner }}/cilium-ci \
-            --operator-image=quay.io/${{ github.repository_owner }}/operator-generic-ci \
+            --agent-image=public.ecr.aws/b1o7r7e0/cilium/datadog/cilium-ci \
+            --operator-image=public.ecr.aws/b1o7r7e0/cilium/datadog/operator-generic-ci \
             --version=${SHA} \
             --wait=false \
             --rollback=false \
@@ -146,9 +146,9 @@ jobs:
             --config tunnel=vxlan \
             --kube-proxy-replacement=strict \
             --base-version=v1.11"
-          HUBBLE_ENABLE_DEFAULTS="--relay-image=quay.io/${{ github.repository_owner }}/hubble-relay-ci \
+          HUBBLE_ENABLE_DEFAULTS="--relay-image=public.ecr.aws/b1o7r7e0/cilium/datadog/hubble-relay-ci \
             --relay-version=${SHA}"
-          CLUSTERMESH_ENABLE_DEFAULTS="--apiserver-image=quay.io/${{ github.repository_owner }}/clustermesh-apiserver-ci \
+          CLUSTERMESH_ENABLE_DEFAULTS="--apiserver-image=public.ecr.aws/b1o7r7e0/cilium/datadog/clustermesh-apiserver-ci \
             --apiserver-version=${SHA}"
           echo ::set-output name=cilium_install_defaults::${CILIUM_INSTALL_DEFAULTS}
           echo ::set-output name=hubble_enable_defaults::${HUBBLE_ENABLE_DEFAULTS}
@@ -198,7 +198,7 @@ jobs:
           max_attempts: 10
           command: |
             gcloud compute instances create ${{ env.vmName }} \
-              --labels "usage=${{ github.repository_owner }}-${{ github.event.repository.name }},owner=${{ steps.vars.outputs.owner }}" \
+              --labels "usage=datadog-${{ github.event.repository.name }},owner=${{ steps.vars.outputs.owner }}" \
               --zone ${{ env.zone }} \
               --machine-type e2-custom-2-4096 \
               --boot-disk-type pd-standard \
@@ -212,7 +212,7 @@ jobs:
       - name: Create GKE cluster
         run: |
           gcloud container clusters create ${{ env.clusterName }} \
-            --labels "usage=${{ github.repository_owner }}-${{ github.event.repository.name }},owner=${{ steps.vars.outputs.owner }}" \
+            --labels "usage=datadog-${{ github.event.repository.name }},owner=${{ steps.vars.outputs.owner }}" \
             --zone ${{ env.zone }} \
             --node-taints node.cilium.io/agent-not-ready=true:NoSchedule \
             --image-type COS_CONTAINERD \
@@ -231,7 +231,7 @@ jobs:
         shell: bash
         run: |
           for image in cilium-ci operator-generic-ci hubble-relay-ci clustermesh-apiserver-ci ; do
-            until curl --silent -f -lSL "https://quay.io/api/v1/repository/${{ github.repository_owner }}/$image/tag/${{ steps.vars.outputs.sha }}/images" &> /dev/null; do sleep 45s; done
+            until curl --silent -f -lSL "https://quay.io/api/v1/repository/datadog/$image/tag/${{ steps.vars.outputs.sha }}/images" &> /dev/null; do sleep 45s; done
           done
 
       - name: Install Cilium in cluster

@@ -88,7 +88,7 @@ jobs:
         shell: bash
         run: |
           for image in cilium-ci operator-generic-ci hubble-relay-ci ; do
-            until curl --silent -f -lSL "https://quay.io/api/v1/repository/${{ github.repository_owner }}/${image}/tag/${{ steps.vars.outputs.tag }}/images" &> /dev/null; do sleep 45s; done
+            until curl --silent -f -lSL "https://quay.io/api/v1/repository/datadog/${image}/tag/${{ steps.vars.outputs.tag }}/images" &> /dev/null; do sleep 45s; done
           done
 
       - name: Install cilium chart
@@ -98,16 +98,16 @@ jobs:
             --set nodeinit.enabled=true \
             --set kubeProxyReplacement=strict \
             --set ipam.mode=kubernetes \
-            --set image.repository=quay.io/${{ github.repository_owner }}/cilium-ci \
+            --set image.repository=public.ecr.aws/b1o7r7e0/cilium/datadog/cilium-ci \
             --set image.tag=${{ steps.vars.outputs.tag }} \
             --set image.pullPolicy=IfNotPresent \
             --set image.useDigest=false \
             --set hubble.relay.enabled=true \
-            --set hubble.relay.image.repository=quay.io/${{ github.repository_owner }}/hubble-relay-ci \
+            --set hubble.relay.image.repository=public.ecr.aws/b1o7r7e0/cilium/datadog/hubble-relay-ci \
             --set hubble.relay.image.tag=${{ steps.vars.outputs.tag }} \
             --set hubble.relay.image.pullPolicy=IfNotPresent \
             --set hubble.relay.image.useDigest=false \
-            --set operator.image.repository=quay.io/${{ github.repository_owner }}/operator \
+            --set operator.image.repository=public.ecr.aws/b1o7r7e0/cilium/datadog/operator \
             --set operator.image.suffix=-ci \
             --set operator.image.tag=${{ steps.vars.outputs.tag }} \
             --set operator.image.pullPolicy=IfNotPresent \
