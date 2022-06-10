@@ -524,6 +524,7 @@ func (n *NodeDiscovery) mutateNodeResource(nodeResource *ciliumv2.CiliumNode) er
 		// determine the appropriate value to place inside the resource.
 		nodeResource.Spec.ENI.VpcID = vpcID
 		nodeResource.Spec.ENI.FirstInterfaceIndex = getInt(defaults.ENIFirstInterfaceIndex)
+		nodeResource.Spec.ENI.UsePrimaryAddress = getBool(defaults.UseENIPrimaryAddress)
 
 		if c := n.NetConf; c != nil {
 			if c.IPAM.MinAllocate != 0 {
@@ -556,6 +557,10 @@ func (n *NodeDiscovery) mutateNodeResource(nodeResource *ciliumv2.CiliumNode) er
 
 			if c.ENI.VpcID != "" {
 				nodeResource.Spec.ENI.VpcID = c.ENI.VpcID
+			}
+
+			if c.ENI.UsePrimaryAddress != nil {
+				nodeResource.Spec.ENI.UsePrimaryAddress = c.ENI.UsePrimaryAddress
 			}
 
 			nodeResource.Spec.ENI.DeleteOnTermination = c.ENI.DeleteOnTermination
@@ -664,4 +669,24 @@ func (n *NodeDiscovery) RegisterK8sNodeGetter(k8sNodeGetter k8sNodeGetter) {
 
 func getInt(i int) *int {
 	return &i
+}
+
+func getBool(b bool) *bool {
+	return &b
+}
+
+func (nodeDiscovery *NodeDiscovery) UpdateKVNodeEntry(node *nodeTypes.Node) error {
+	if nodeDiscovery.Registrar.SharedStore == nil {
+		return nil
+	}
+
+	if err := nodeDiscovery.Registrar.UpdateLocalKeySync(node); err != nil {
+		return fmt.Errorf("failed to update KV node store entry: %w", err)
+	}
+
+	if err := nodeDiscovery.mutateNodeResource(node.ToCiliumNode()); err != nil {
+		return fmt.Errorf("failed to mutate node resource: %w", err)
+	}
+
+	return nil
 }

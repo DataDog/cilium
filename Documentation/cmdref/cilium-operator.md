@@ -15,6 +15,8 @@ cilium-operator [flags]
       --aws-enable-prefix-delegation              Allows operator to allocate prefixes to ENIs instead of individual IP addresses
       --aws-instance-limit-mapping map            Add or overwrite mappings of AWS instance limit in the form of {"AWS instance type": "Maximum Network Interfaces","IPv4 Addresses per Interface","IPv6 Addresses per Interface"}. cli example: --aws-instance-limit-mapping=a1.medium=2,4,4 --aws-instance-limit-mapping=a2.somecustomflavor=4,5,6 configmap example: {"a1.medium": "2,4,4", "a2.somecustomflavor": "4,5,6"}
       --aws-release-excess-ips                    Enable releasing excess free IP addresses from AWS ENI.
+      --azure-cloud-name string                   Name of the Azure cloud being used (default "AzurePublicCloud")
+      --aws-use-primary-address                   Allows for using primary address of the ENI for allocations on the node
       --azure-resource-group string               Resource group to use for Azure IPAM
       --azure-subscription-id string              Subscription ID to access Azure API
       --azure-use-primary-address                 Use Azure IP address from interface's primary IPConfigurations (default true)
@@ -92,6 +94,10 @@ cilium-operator [flags]
 
 ### SEE ALSO
 
+<<<<<<< HEAD
 * [cilium-operator completion](cilium-operator_completion.html)	 - generate the autocompletion script for the specified shell
 * [cilium-operator metrics](cilium-operator_metrics.html)	 - Access metric status of the operator
+=======
+* [cilium-operator metrics](cilium-operator_metrics.html)     - Access metric status of the operator
+>>>>>>> 4d393130a7 (Add support to opt-in for using ENI's primary IP for allocations)
 
