@@ -126,6 +126,10 @@ spec:
                       is not set the default behavior is to delete the ENI on instance
                       termination.
                     type: boolean
+                  disable-prefix-delegation:
+                    description: DisablePrefixDelegation determines whether ENI prefix
+                      delegation should be disabled on this node.
+                    type: boolean
                   first-interface-index:
                     description: FirstInterfaceIndex is the index of the first ENI
                       to use for IP allocation, e.g. if the node has eth0, eth1, eth2

@@ -120,6 +120,11 @@ func (in *ENISpec) DeepCopyInto(out *ENISpec) {
 		*out = new(bool)
 		**out = **in
 	}
+	if in.DisablePrefixDelegation != nil {
+		in, out := &in.DisablePrefixDelegation, &out.DisablePrefixDelegation
+		*out = new(bool)
+		**out = **in
+	}
 	return
 }
 
