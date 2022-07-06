@@ -64,7 +64,7 @@ type monitorNotify interface {
 type svcInfo struct {
 	hash                string
 	frontend            lb.L3n4AddrID
-	backends            []lb.Backend
+	backends            []*lb.Backend
 	activeBackendsCount int // Non-terminating backends count
 	backendByHash       map[string]*lb.Backend
 
@@ -81,9 +81,9 @@ type svcInfo struct {
 }
 
 func (svc *svcInfo) deepCopyToLBSVC() *lb.SVC {
-	backends := make([]lb.Backend, len(svc.backends))
+	backends := make([]*lb.Backend, len(svc.backends))
 	for i, backend := range svc.backends {
-		backends[i] = *backend.DeepCopy()
+		backends[i] = backend.DeepCopy()
 	}
 	return &lb.SVC{
 		Frontend:            *svc.frontend.DeepCopy(),
@@ -363,7 +363,7 @@ func (s *Service) UpsertService(params *lb.SVC) (bool, lb.ID, error) {
 	onlyLocalBackends, filterBackends := svc.requireNodeLocalBackends(params.Frontend)
 	prevActiveBackendCount := svc.activeBackendsCount
 
-	backendsCopy := []lb.Backend{}
+	backendsCopy := []*lb.Backend{}
 	for _, b := range params.Backends {
 		// Local redirect services or services with trafficPolicy=Local may
 		// only use node-local backends for external scope. We implement this by
@@ -371,7 +371,7 @@ func (s *Service) UpsertService(params *lb.SVC) (bool, lb.ID, error) {
 		if filterBackends && len(b.NodeName) > 0 && b.NodeName != nodeTypes.GetName() {
 			continue
 		}
-		backendsCopy = append(backendsCopy, *b.DeepCopy())
+		backendsCopy = append(backendsCopy, b.DeepCopy())
 	}
 
 	// TODO (Aditi) When we filter backends for LocalRedirect service, there
@@ -737,7 +737,7 @@ func (s *Service) addBackendsToAffinityMatchMap(svcID lb.ID, backendIDs []lb.Bac
 }
 
 func (s *Service) upsertServiceIntoLBMaps(svc *svcInfo, onlyLocalBackends bool,
-	prevActiveBackendCount int, newBackends []lb.Backend, obsoleteBackendIDs []lb.BackendID,
+	prevActiveBackendCount int, newBackends []*lb.Backend, obsoleteBackendIDs []lb.BackendID,
 	prevSessionAffinity bool, prevLoadBalancerSourceRanges []*cidr.CIDR,
 	obsoleteSVCBackendIDs []lb.BackendID, scopedLog *logrus.Entry) error {
 
@@ -977,7 +977,7 @@ func (s *Service) restoreServicesLocked(svcBackendsById map[lb.BackendID]struct{
 		for j, backend := range svc.Backends {
 			hash := backend.L3n4Addr.Hash()
 			s.backendRefCount.Add(hash)
-			newSVC.backendByHash[hash] = &svc.Backends[j]
+			newSVC.backendByHash[hash] = svc.Backends[j]
 			svcBackendsById[backend.ID] = struct{}{}
 		}
 
@@ -1067,12 +1067,12 @@ func (s *Service) deleteServiceLocked(svc *svcInfo) error {
 	return nil
 }
 
-func (s *Service) updateBackendsCacheLocked(svc *svcInfo, backends []lb.Backend) (
-	[]lb.Backend, []lb.BackendID, []lb.BackendID, error) {
+func (s *Service) updateBackendsCacheLocked(svc *svcInfo, backends []*lb.Backend) (
+	[]*lb.Backend, []lb.BackendID, []lb.BackendID, error) {
 
 	obsoleteBackendIDs := []lb.BackendID{}    // not used by any svc
 	obsoleteSVCBackendIDs := []lb.BackendID{} // removed from the svc, but might be used by other svc
-	newBackends := []lb.Backend{}             // previously not used by any svc
+	newBackends := []*lb.Backend{}            // previously not used by any svc
 	backendSet := map[string]struct{}{}
 
 	for i, backend := range backends {
@@ -1089,11 +1089,11 @@ func (s *Service) updateBackendsCacheLocked(svc *svcInfo, backends []lb.Backend)
 				backends[i].ID = id
 				newBackends = append(newBackends, backends[i])
 				// TODO make backendByHash by value not by ref
-				s.backendByHash[hash] = &backends[i]
+				s.backendByHash[hash] = backends[i]
 			} else {
 				backends[i].ID = s.backendByHash[hash].ID
 			}
-			svc.backendByHash[hash] = &backends[i]
+			svc.backendByHash[hash] = backends[i]
 		} else {
 			backends[i].ID = b.ID
 		}
@@ -1128,7 +1128,7 @@ func (s *Service) deleteBackendsFromCacheLocked(svc *svcInfo) []lb.BackendID {
 	return obsoleteBackendIDs
 }
 
-func (s *Service) notifyMonitorServiceUpsert(frontend lb.L3n4AddrID, backends []lb.Backend,
+func (s *Service) notifyMonitorServiceUpsert(frontend lb.L3n4AddrID, backends []*lb.Backend,
 	svcType lb.SVCType, svcTrafficPolicy lb.SVCTrafficPolicy, svcName, svcNamespace string) {
 	if s.monitorNotify == nil {
 		return

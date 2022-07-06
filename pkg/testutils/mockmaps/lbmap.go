@@ -31,13 +31,13 @@ func NewLBMockMap() *LBMockMap {
 }
 
 func (m *LBMockMap) UpsertService(p *lbmap.UpsertServiceParams) error {
-	backendsList := make([]lb.Backend, 0, len(p.Backends))
+	backendsList := make([]*lb.Backend, 0, len(p.Backends))
 	for name, backendID := range p.Backends {
 		b, found := m.BackendByID[backendID]
 		if !found {
 			return fmt.Errorf("Backend %s (%d) not found", name, p.ID)
 		}
-		backendsList = append(backendsList, *b)
+		backendsList = append(backendsList, b)
 	}
 	if p.UseMaglev && len(p.Backends) != 0 {
 		if err := m.UpsertMaglevLookupTable(p.ID, p.Backends, p.IPv6); err != nil {

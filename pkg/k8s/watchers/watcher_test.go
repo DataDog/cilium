@@ -344,7 +344,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ClusterIP(c *C) {
 		lb1.Hash(): {
 			Type:     loadbalancer.SVCTypeClusterIP,
 			Frontend: *lb1,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -362,7 +362,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ClusterIP(c *C) {
 		// lb2.Hash(): {
 		// 	Type:     loadbalancer.SVCTypeClusterIP,
 		// 	Frontend: *lb2,
-		// 	Backends: []loadbalancer.Backend{
+		// 	Backends: []*loadbalancer.Backend{
 		// 		{
 		// 			L3n4Addr: loadbalancer.L3n4Addr{
 		// 				IP: net.ParseIP("2.2.2.2"),
@@ -377,7 +377,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ClusterIP(c *C) {
 		lb3.Hash(): {
 			Type:     loadbalancer.SVCTypeClusterIP,
 			Frontend: *lb3,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -401,7 +401,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ClusterIP(c *C) {
 		lb1.Hash(): {
 			Type:     loadbalancer.SVCTypeClusterIP,
 			Frontend: *lb1,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -428,7 +428,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ClusterIP(c *C) {
 		// lb2.Hash(): {
 		// 	Type:     loadbalancer.SVCTypeClusterIP,
 		// 	Frontend: *lb2,
-		// 	Backends: []loadbalancer.Backend{
+		// 	Backends: []*loadbalancer.Backend{
 		// 		{
 		// 			L3n4Addr: loadbalancer.L3n4Addr{
 		// 				IP: net.ParseIP("2.2.2.2"),
@@ -452,7 +452,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ClusterIP(c *C) {
 		lb3.Hash(): {
 			Type:     loadbalancer.SVCTypeClusterIP,
 			Frontend: *lb3,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -610,7 +610,7 @@ func (s *K8sWatcherSuite) TestChangeSVCPort(c *C) {
 		{
 			Type:     loadbalancer.SVCTypeClusterIP,
 			Frontend: *lb1,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -625,7 +625,7 @@ func (s *K8sWatcherSuite) TestChangeSVCPort(c *C) {
 		{
 			Type:     loadbalancer.SVCTypeClusterIP,
 			Frontend: *lb2,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -787,7 +787,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_NodePort(c *C) {
 		clusterIP1.Hash(): {
 			Type:     loadbalancer.SVCTypeClusterIP,
 			Frontend: *clusterIP1,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -805,7 +805,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_NodePort(c *C) {
 		// clusterIP2.Hash(): {
 		// 	Type:     loadbalancer.SVCTypeClusterIP,
 		// 	Frontend: *clusterIP2,
-		// 	Backends: []loadbalancer.Backend{
+		// 	Backends: []*loadbalancer.Backend{
 		// 		{
 		// 			L3n4Addr: loadbalancer.L3n4Addr{
 		// 				IP: net.ParseIP("2.2.2.2"),
@@ -820,7 +820,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_NodePort(c *C) {
 		clusterIP3.Hash(): {
 			Type:     loadbalancer.SVCTypeClusterIP,
 			Frontend: *clusterIP3,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -843,7 +843,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_NodePort(c *C) {
 		upsert1stWanted[nodePort.Hash()] = loadbalancer.SVC{
 			Type:     loadbalancer.SVCTypeNodePort,
 			Frontend: *nodePort,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -865,7 +865,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_NodePort(c *C) {
 	// 	upsert1stWanted[nodePort.Hash()] = loadbalancer.SVC{
 	// 		Type:     loadbalancer.SVCTypeNodePort,
 	// 		Frontend: *nodePort,
-	// 		Backends: []loadbalancer.Backend{
+	// 		Backends: []*loadbalancer.Backend{
 	// 			{
 	// 				L3n4Addr: loadbalancer.L3n4Addr{
 	// 					IP: net.ParseIP("2.2.2.2"),
@@ -887,7 +887,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_NodePort(c *C) {
 		upsert1stWanted[nodePort.Hash()] = loadbalancer.SVC{
 			Type:     loadbalancer.SVCTypeNodePort,
 			Frontend: *nodePort,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -911,7 +911,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_NodePort(c *C) {
 		clusterIP1.Hash(): {
 			Type:     loadbalancer.SVCTypeClusterIP,
 			Frontend: *clusterIP1,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -938,7 +938,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_NodePort(c *C) {
 		// clusterIP2.Hash(): {
 		// 	Type:     loadbalancer.SVCTypeClusterIP,
 		// 	Frontend: *clusterIP2,
-		// 	Backends: []loadbalancer.Backend{
+		// 	Backends: []*loadbalancer.Backend{
 		// 		{
 		// 			L3n4Addr: loadbalancer.L3n4Addr{
 		// 				IP: net.ParseIP("2.2.2.2"),
@@ -962,7 +962,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_NodePort(c *C) {
 		clusterIP3.Hash(): {
 			Type:     loadbalancer.SVCTypeClusterIP,
 			Frontend: *clusterIP3,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -989,7 +989,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_NodePort(c *C) {
 		upsert2ndWanted[nodePort.Hash()] = loadbalancer.SVC{
 			Type:     loadbalancer.SVCTypeNodePort,
 			Frontend: *nodePort,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -1015,7 +1015,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_NodePort(c *C) {
 	// 	upsert2ndWanted[nodePort.Hash()] = loadbalancer.SVC{
 	// 		Type:     loadbalancer.SVCTypeNodePort,
 	// 		Frontend: *nodePort,
-	// 		Backends: []loadbalancer.Backend{
+	// 		Backends: []*loadbalancer.Backend{
 	// 			{
 	// 				L3n4Addr: loadbalancer.L3n4Addr{
 	// 					IP: net.ParseIP("2.2.2.2"),
@@ -1041,7 +1041,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_NodePort(c *C) {
 		upsert2ndWanted[nodePort.Hash()] = loadbalancer.SVC{
 			Type:     loadbalancer.SVCTypeNodePort,
 			Frontend: *nodePort,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -1262,7 +1262,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_GH9576_1(c *C) {
 		clusterIP1.Hash(): {
 			Type:     loadbalancer.SVCTypeClusterIP,
 			Frontend: *clusterIP1,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -1277,7 +1277,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_GH9576_1(c *C) {
 		clusterIP2.Hash(): {
 			Type:     loadbalancer.SVCTypeClusterIP,
 			Frontend: *clusterIP2,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -1294,7 +1294,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_GH9576_1(c *C) {
 		upsert1stWanted[nodePort.Hash()] = loadbalancer.SVC{
 			Type:     loadbalancer.SVCTypeNodePort,
 			Frontend: *nodePort,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -1311,7 +1311,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_GH9576_1(c *C) {
 		upsert1stWanted[nodePort.Hash()] = loadbalancer.SVC{
 			Type:     loadbalancer.SVCTypeNodePort,
 			Frontend: *nodePort,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -1331,7 +1331,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_GH9576_1(c *C) {
 		clusterIP2.Hash(): {
 			Type:     loadbalancer.SVCTypeClusterIP,
 			Frontend: *clusterIP2,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -1346,7 +1346,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_GH9576_1(c *C) {
 		clusterIP3.Hash(): {
 			Type:     loadbalancer.SVCTypeClusterIP,
 			Frontend: *clusterIP3,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -1547,7 +1547,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_GH9576_2(c *C) {
 		clusterIP1.Hash(): {
 			Type:     loadbalancer.SVCTypeClusterIP,
 			Frontend: *clusterIP1,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -1562,7 +1562,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_GH9576_2(c *C) {
 		clusterIP2.Hash(): {
 			Type:     loadbalancer.SVCTypeClusterIP,
 			Frontend: *clusterIP2,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -1579,7 +1579,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_GH9576_2(c *C) {
 		upsert1stWanted[nodePort.Hash()] = loadbalancer.SVC{
 			Type:     loadbalancer.SVCTypeNodePort,
 			Frontend: *nodePort,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -1596,7 +1596,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_GH9576_2(c *C) {
 		upsert1stWanted[nodePort.Hash()] = loadbalancer.SVC{
 			Type:     loadbalancer.SVCTypeNodePort,
 			Frontend: *nodePort,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -1614,7 +1614,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_GH9576_2(c *C) {
 		clusterIP1.Hash(): {
 			Type:     loadbalancer.SVCTypeClusterIP,
 			Frontend: *clusterIP1,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("3.3.3.3"),
@@ -1635,7 +1635,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_GH9576_2(c *C) {
 		upsert2ndWanted[nodePort.Hash()] = loadbalancer.SVC{
 			Type:     loadbalancer.SVCTypeNodePort,
 			Frontend: *nodePort,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("3.3.3.3"),
@@ -1835,7 +1835,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 		clusterIP1.Hash(): {
 			Type:     loadbalancer.SVCTypeClusterIP,
 			Frontend: *clusterIP1,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -1853,7 +1853,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 		// clusterIP2.Hash(): {
 		// 	Type:     loadbalancer.SVCTypeClusterIP,
 		// 	Frontend: *clusterIP2,
-		// 	Backends: []loadbalancer.Backend{
+		// 	Backends: []*loadbalancer.Backend{
 		// 		{
 		// 			L3n4Addr: loadbalancer.L3n4Addr{
 		// 				IP: net.ParseIP("2.2.2.2"),
@@ -1868,7 +1868,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 		clusterIP3.Hash(): {
 			Type:     loadbalancer.SVCTypeClusterIP,
 			Frontend: *clusterIP3,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -1892,7 +1892,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 		upsert1stWanted[externalIP.Hash()] = loadbalancer.SVC{
 			Type:     loadbalancer.SVCTypeExternalIPs,
 			Frontend: *externalIP,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -1909,7 +1909,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 	// 	upsert1stWanted[externalIP.Hash()] = loadbalancer.SVC{
 	// 		Type:     loadbalancer.SVCTypeExternalIPs,
 	// 		Frontend: *externalIP,
-	// 		Backends: []loadbalancer.Backend{
+	// 		Backends: []*loadbalancer.Backend{
 	// 			{
 	// 				L3n4Addr: loadbalancer.L3n4Addr{
 	// 					IP: net.ParseIP("2.2.2.2"),
@@ -1926,7 +1926,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 		upsert1stWanted[externalIP.Hash()] = loadbalancer.SVC{
 			Type:     loadbalancer.SVCTypeExternalIPs,
 			Frontend: *externalIP,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -1949,7 +1949,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 		upsert1stWanted[nodePort.Hash()] = loadbalancer.SVC{
 			Type:     loadbalancer.SVCTypeNodePort,
 			Frontend: *nodePort,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -1971,7 +1971,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 	// 	upsert1stWanted[nodePort.Hash()] = loadbalancer.SVC{
 	// 		Type:     loadbalancer.SVCTypeNodePort,
 	// 		Frontend: *nodePort,
-	// 		Backends: []loadbalancer.Backend{
+	// 		Backends: []*loadbalancer.Backend{
 	// 			{
 	// 				L3n4Addr: loadbalancer.L3n4Addr{
 	// 					IP: net.ParseIP("2.2.2.2"),
@@ -1993,7 +1993,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 		upsert1stWanted[nodePort.Hash()] = loadbalancer.SVC{
 			Type:     loadbalancer.SVCTypeNodePort,
 			Frontend: *nodePort,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -2011,7 +2011,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 		clusterIP1.Hash(): {
 			Type:     loadbalancer.SVCTypeClusterIP,
 			Frontend: *clusterIP1,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -2038,7 +2038,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 		// clusterIP2.Hash(): {
 		// 	Type:     loadbalancer.SVCTypeClusterIP,
 		// 	Frontend: *clusterIP2,
-		// 	Backends: []loadbalancer.Backend{
+		// 	Backends: []*loadbalancer.Backend{
 		// 		{
 		// 			L3n4Addr: loadbalancer.L3n4Addr{
 		// 				IP: net.ParseIP("2.2.2.2"),
@@ -2062,7 +2062,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 		clusterIP3.Hash(): {
 			Type:     loadbalancer.SVCTypeClusterIP,
 			Frontend: *clusterIP3,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -2089,7 +2089,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 		upsert2ndWanted[externalIP.Hash()] = loadbalancer.SVC{
 			Type:     loadbalancer.SVCTypeExternalIPs,
 			Frontend: *externalIP,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -2115,7 +2115,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 	// 	upsert2ndWanted[externalIP.Hash()] = loadbalancer.SVC{
 	// 		Type:     loadbalancer.SVCTypeExternalIPs,
 	// 		Frontend: *externalIP,
-	// 		Backends: []loadbalancer.Backend{
+	// 		Backends: []*loadbalancer.Backend{
 	// 			{
 	// 				L3n4Addr: loadbalancer.L3n4Addr{
 	// 					IP: net.ParseIP("2.2.2.2"),
@@ -2141,7 +2141,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 		upsert2ndWanted[externalIP.Hash()] = loadbalancer.SVC{
 			Type:     loadbalancer.SVCTypeExternalIPs,
 			Frontend: *externalIP,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -2168,7 +2168,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 		upsert2ndWanted[nodePort.Hash()] = loadbalancer.SVC{
 			Type:     loadbalancer.SVCTypeNodePort,
 			Frontend: *nodePort,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -2194,7 +2194,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 	// 	upsert2ndWanted[nodePort.Hash()] = loadbalancer.SVC{
 	// 		Type:     loadbalancer.SVCTypeNodePort,
 	// 		Frontend: *nodePort,
-	// 		Backends: []loadbalancer.Backend{
+	// 		Backends: []*loadbalancer.Backend{
 	// 			{
 	// 				L3n4Addr: loadbalancer.L3n4Addr{
 	// 					IP: net.ParseIP("2.2.2.2"),
@@ -2220,7 +2220,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 		upsert2ndWanted[nodePort.Hash()] = loadbalancer.SVC{
 			Type:     loadbalancer.SVCTypeNodePort,
 			Frontend: *nodePort,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -2247,7 +2247,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 		clusterIP1.Hash(): {
 			Type:     loadbalancer.SVCTypeClusterIP,
 			Frontend: *clusterIP1,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -2274,7 +2274,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 		// clusterIP2.Hash(): {
 		// 	Type:     loadbalancer.SVCTypeClusterIP,
 		// 	Frontend: *clusterIP2,
-		// 	Backends: []loadbalancer.Backend{
+		// 	Backends: []*loadbalancer.Backend{
 		// 		{
 		// 			L3n4Addr: loadbalancer.L3n4Addr{
 		// 				IP: net.ParseIP("2.2.2.2"),
@@ -2298,7 +2298,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 		clusterIP3.Hash(): {
 			Type:     loadbalancer.SVCTypeClusterIP,
 			Frontend: *clusterIP3,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -2325,7 +2325,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 		upsert3rdWanted[externalIP.Hash()] = loadbalancer.SVC{
 			Type:     loadbalancer.SVCTypeExternalIPs,
 			Frontend: *externalIP,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -2351,7 +2351,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 	// 	upsert3rdWanted[externalIP.Hash()] = loadbalancer.SVC{
 	// 		Type:     loadbalancer.SVCTypeExternalIPs,
 	// 		Frontend: *externalIP,
-	// 		Backends: []loadbalancer.Backend{
+	// 		Backends: []*loadbalancer.Backend{
 	// 			{
 	// 				L3n4Addr: loadbalancer.L3n4Addr{
 	// 					IP: net.ParseIP("2.2.2.2"),
@@ -2377,7 +2377,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 		upsert3rdWanted[externalIP.Hash()] = loadbalancer.SVC{
 			Type:     loadbalancer.SVCTypeExternalIPs,
 			Frontend: *externalIP,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -2404,7 +2404,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 		upsert3rdWanted[nodePort.Hash()] = loadbalancer.SVC{
 			Type:     loadbalancer.SVCTypeNodePort,
 			Frontend: *nodePort,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
@@ -2430,7 +2430,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 	// 	upsert3rdWanted[nodePort.Hash()] = loadbalancer.SVC{
 	// 		Type:     loadbalancer.SVCTypeNodePort,
 	// 		Frontend: *nodePort,
-	// 		Backends: []loadbalancer.Backend{
+	// 		Backends: []*loadbalancer.Backend{
 	// 			{
 	// 				L3n4Addr: loadbalancer.L3n4Addr{
 	// 					IP: net.ParseIP("2.2.2.2"),
@@ -2456,7 +2456,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 		upsert3rdWanted[nodePort.Hash()] = loadbalancer.SVC{
 			Type:     loadbalancer.SVCTypeNodePort,
 			Frontend: *nodePort,
-			Backends: []loadbalancer.Backend{
+			Backends: []*loadbalancer.Backend{
 				{
 					L3n4Addr: loadbalancer.L3n4Addr{
 						IP: net.ParseIP("2.2.2.2"),
