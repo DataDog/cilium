@@ -32,5 +32,5 @@ sphinx-tabs==3.3.1
 sphinx-version-warning==1.1.2
 typing==3.7.4.3
 urllib3==1.26.8
-yamllint==1.26.3
+yamllint==1.27.1
 rstcheck==3.3.1
