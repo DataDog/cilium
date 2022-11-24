@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/cilium/cilium/pkg/controller"
 	"github.com/cilium/cilium/pkg/identity"
@@ -562,6 +563,7 @@ func (ipc *IPCache) TriggerLabelInjection(src source.Source, sc identityUpdater,
 				}
 				return nil
 			},
+			MaxRetryInterval: 1 * time.Minute,
 		},
 	)
 }
