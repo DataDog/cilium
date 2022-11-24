@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 
@@ -579,6 +580,7 @@ func (ipc *IPCache) TriggerLabelInjection(src source.Source) {
 				}
 				return nil
 			},
+			MaxRetryInterval: 1 * time.Minute,
 		},
 	)
 }
