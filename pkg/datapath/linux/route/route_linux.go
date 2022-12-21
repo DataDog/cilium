@@ -392,6 +392,10 @@ func lookupRule(spec Rule, family int) (bool, error) {
 			continue
 		}
 
+		if spec.Mask != 0 && r.Mask != spec.Mask {
+			continue
+		}
+
 		if r.Table == spec.Table {
 			return true, nil
 		}
