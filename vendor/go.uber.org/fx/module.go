@@ -26,6 +26,7 @@ import (
 	"go.uber.org/dig"
 	"go.uber.org/fx/fxevent"
 	"go.uber.org/fx/internal/fxreflect"
+	"go.uber.org/multierr"
 )
 
 // A container represents a set of constructors to provide
@@ -40,6 +41,8 @@ type container interface {
 }
 
 // Module is a named group of zero or more fx.Options.
+// A Module creates a scope in which certain operations are taken
+// place. For more information, see [Decorate], [Replace], or [Invoke].
 func Module(name string, opts ...Option) Option {
 	mo := moduleOption{
 		name:    name,
@@ -77,14 +80,28 @@ func (o moduleOption) apply(mod *module) {
 }
 
 type module struct {
-	parent     *module
-	name       string
-	scope      *dig.Scope
-	provides   []provide
-	invokes    []invoke
-	decorators []decorator
-	modules    []*module
-	app        *App
+	parent         *module
+	name           string
+	scope          scope
+	provides       []provide
+	invokes        []invoke
+	decorators     []decorator
+	modules        []*module
+	app            *App
+	log            fxevent.Logger
+	fallbackLogger fxevent.Logger
+	logConstructor *provide
+}
+
+// scope is a private wrapper interface for dig.Container and dig.Scope.
+// We can consider moving this into Fx using type constraints after Go 1.20
+// is released and 1.17 is deprecated.
+type scope interface {
+	Decorate(f interface{}, opts ...dig.DecorateOption) error
+	Invoke(f interface{}, opts ...dig.InvokeOption) error
+	Provide(f interface{}, opts ...dig.ProvideOption) error
+	Scope(name string, opts ...dig.ScopeOption) *dig.Scope
+	String() string
 }
 
 // builds the Scopes using the App's Container. Note that this happens
@@ -93,12 +110,20 @@ type module struct {
 // before the Container can get initialized.
 func (m *module) build(app *App, root *dig.Container) {
 	if m.parent == nil {
-		m.scope = root.Scope(m.name)
-		// TODO: Once fx.Decorate is in-place,
-		// use the root container instead of subscope.
+		m.scope = root
 	} else {
 		parentScope := m.parent.scope
 		m.scope = parentScope.Scope(m.name)
+		// use parent module's logger by default
+		m.log = m.parent.log
+	}
+
+	if m.logConstructor != nil {
+		// Since user supplied a custom logger, use a buffered logger
+		// to hold all messages until user supplied logger is
+		// instantiated. Then we flush those messages after fully
+		// constructing the custom logger.
+		m.fallbackLogger, m.log = m.log, new(logBuffer)
 	}
 
 	for _, mod := range m.modules {
@@ -122,7 +147,7 @@ func (m *module) provide(p provide) {
 	}
 
 	var info dig.ProvideInfo
-	if err := runProvide(m.scope, p, dig.FillProvideInfo(&info), dig.Export(true)); err != nil {
+	if err := runProvide(m.scope, p, dig.FillProvideInfo(&info), dig.Export(!p.Private)); err != nil {
 		m.app.err = err
 	}
 	var ev fxevent.Event
@@ -145,34 +170,81 @@ func (m *module) provide(p provide) {
 			ModuleName:      m.name,
 			OutputTypeNames: outputNames,
 			Err:             m.app.err,
+			Private:         p.Private,
 		}
 	}
-	m.app.log.LogEvent(ev)
+	m.log.LogEvent(ev)
+}
+
+// Constructs custom loggers for all modules in the tree
+func (m *module) constructAllCustomLoggers() {
+	if m.logConstructor != nil {
+		if buffer, ok := m.log.(*logBuffer); ok {
+			// default to parent's logger if custom logger constructor fails
+			if err := m.constructCustomLogger(buffer); err != nil {
+				m.app.err = multierr.Append(m.app.err, err)
+				m.log = m.fallbackLogger
+				buffer.Connect(m.log)
+			}
+		}
+		m.fallbackLogger = nil
+	} else if m.parent != nil {
+		m.log = m.parent.log
+	}
+
+	for _, mod := range m.modules {
+		mod.constructAllCustomLoggers()
+	}
+}
+
+// Mirroring the behavior of app.constructCustomLogger
+func (m *module) constructCustomLogger(buffer *logBuffer) (err error) {
+	p := m.logConstructor
+	fname := fxreflect.FuncName(p.Target)
+	defer func() {
+		m.log.LogEvent(&fxevent.LoggerInitialized{
+			Err:             err,
+			ConstructorName: fname,
+		})
+	}()
+
+	// TODO: Use dig.FillProvideInfo to inspect the provided constructor
+	// and fail the application if its signature didn't match.
+	if err := m.scope.Provide(p.Target); err != nil {
+		return fmt.Errorf("fx.WithLogger(%v) from:\n%+v\nin Module: %q\nFailed: %w",
+			fname, p.Stack, m.name, err)
+	}
+
+	return m.scope.Invoke(func(log fxevent.Logger) {
+		m.log = log
+		buffer.Connect(log)
+	})
 }
 
 func (m *module) executeInvokes() error {
+	for _, m := range m.modules {
+		if err := m.executeInvokes(); err != nil {
+			return err
+		}
+	}
+
 	for _, invoke := range m.invokes {
 		if err := m.executeInvoke(invoke); err != nil {
 			return err
 		}
 	}
 
-	for _, m := range m.modules {
-		if err := m.executeInvokes(); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
 func (m *module) executeInvoke(i invoke) (err error) {
 	fnName := fxreflect.FuncName(i.Target)
-	m.app.log.LogEvent(&fxevent.Invoking{
+	m.log.LogEvent(&fxevent.Invoking{
 		FunctionName: fnName,
 		ModuleName:   m.name,
 	})
 	err = runInvoke(m.scope, i)
-	m.app.log.LogEvent(&fxevent.Invoked{
+	m.log.LogEvent(&fxevent.Invoked{
 		FunctionName: fnName,
 		ModuleName:   m.name,
 		Err:          err,
@@ -191,14 +263,14 @@ func (m *module) decorate() (err error) {
 		}
 
 		if decorator.IsReplace {
-			m.app.log.LogEvent(&fxevent.Replaced{
+			m.log.LogEvent(&fxevent.Replaced{
 				ModuleName:      m.name,
 				OutputTypeNames: outputNames,
 				Err:             err,
 			})
 		} else {
 
-			m.app.log.LogEvent(&fxevent.Decorated{
+			m.log.LogEvent(&fxevent.Decorated{
 				DecoratorName:   fxreflect.FuncName(decorator.Target),
 				ModuleName:      m.name,
 				OutputTypeNames: outputNames,
