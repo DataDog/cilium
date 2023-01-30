@@ -975,6 +975,11 @@ func (s *Service) restoreServicesLocked(svcBackendsById map[lb.BackendID]struct{
 		}
 
 		for j, backend := range svc.Backends {
+			// DumpServiceMaps() can return services with some empty (nil) backends.
+			if backend == nil {
+				continue
+			}
+
 			hash := backend.L3n4Addr.Hash()
 			s.backendRefCount.Add(hash)
 			newSVC.backendByHash[hash] = svc.Backends[j]
@@ -989,6 +994,10 @@ func (s *Service) restoreServicesLocked(svcBackendsById map[lb.BackendID]struct{
 
 			backends := make(map[string]lb.BackendID, len(newSVC.backends))
 			for _, b := range newSVC.backends {
+				// DumpServiceMaps() can return services with some empty (nil) backends.
+				if b == nil {
+					continue
+				}
 				backends[b.String()] = b.ID
 			}
 			if err := s.lbmap.UpsertMaglevLookupTable(uint16(newSVC.frontend.ID), backends, ipv6); err != nil {
