@@ -1192,12 +1192,19 @@ func (m *Map) resolveErrors(ctx context.Context) error {
 						"scanned":     scanned,
 						"duration":    time.Since(started),
 						"entry":       e,
-					}).Info("BPF map error resolver delete of map entry succeeded, but still present")
+					}).Warn("BPF map error resolver delete of map entry succeeded, but entry still present")
 					errors++
 				} else {
 					delete(m.cache, k)
 					resolved++
 					m.outstandingErrors--
+					scopedLogger.WithFields(logrus.Fields{
+						"outstanding": m.outstandingErrors,
+						"resolved":    resolved,
+						"scanned":     scanned,
+						"duration":    time.Since(started),
+						"entry":       e,
+					}).Info("BPF map error resolver delete of map entry succeeded and entry is gone")
 				}
 			} else {
 				e.LastError = err
