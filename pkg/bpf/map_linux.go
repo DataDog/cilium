@@ -983,6 +983,15 @@ func (m *Map) deleteMapEntry(key MapKey, ignoreMissing bool) (deleted bool, err 
 	if errno != 0 && handleError {
 		err = fmt.Errorf("unable to delete element %s from map %s: %w", key, m.name, errno)
 	}
+
+	// Check entry really was deleted without changing the function's outcome
+	_, errno2 := deleteElement(m.fd, key.GetKeyPtr())
+	if errno2 == 0 {
+		log.Warningf("delete element %s from map %s succeeded, 2nd delete also succeeded (BAD)", key, m.name)
+	} else {
+		log.Debugf("delete element %s from map %s succeeded, 2nd delete failed (GOOD) (%v)", key, m.name, errno2)
+	}
+
 	return
 }
 
@@ -1176,6 +1185,25 @@ func (m *Map) resolveErrors(ctx context.Context) error {
 				delete(m.cache, k)
 				resolved++
 				m.outstandingErrors--
+				// Check it really was deleted without changing the outcome
+				_, err2 := deleteElement(m.fd, e.Key.GetKeyPtr())
+				if err2 == 0 {
+					scopedLogger.WithFields(logrus.Fields{
+						"outstanding": m.outstandingErrors,
+						"resolved":    resolved,
+						"scanned":     scanned,
+						"duration":    time.Since(started),
+						"entry":       e,
+					}).Warn("BPF map error resolver delete of map entry succeeded, 2nd delete succeeded (BAD)")
+				} else {
+					scopedLogger.WithFields(logrus.Fields{
+						"outstanding": m.outstandingErrors,
+						"resolved":    resolved,
+						"scanned":     scanned,
+						"duration":    time.Since(started),
+						"entry":       e,
+					}).Debug("BPF map error resolver delete of map entry succeeded, 2nd delete failed (GOOD)")
+				}
 			} else {
 				e.LastError = err
 				errors++
@@ -1196,7 +1224,7 @@ func (m *Map) resolveErrors(ctx context.Context) error {
 		"resolved":  resolved,
 		"scanned":   scanned,
 		"duration":  time.Since(started),
-	}).Debug("BPF map error resolver completed")
+	}).Info("BPF map error resolver completed")
 
 	if m.outstandingErrors > 0 {
 		return fmt.Errorf("%d map sync errors", m.outstandingErrors)

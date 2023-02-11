@@ -880,7 +880,9 @@ func (s *Service) deleteOrphanBackends() error {
 
 			DeleteBackendID(b.ID)
 			if err := s.lbmap.DeleteBackendByID(b.ID, b.L3n4Addr.IsIPv6()); err != nil {
-				return fmt.Errorf("Unable to remove backend %d from map: %s", b.ID, err)
+				//return fmt.Errorf("Unable to remove backend %d from map: %s", b.ID, err)
+				log.Warningf("Unable to remove orphan backend %d from map (continuing): %s", b.ID, err)
+				continue
 			}
 			delete(s.backendByHash, hash)
 		}
