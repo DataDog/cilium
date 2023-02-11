@@ -861,8 +861,18 @@ func (s *Service) restoreBackendsLocked() error {
 			logfields.L3n4Addr:  b.L3n4Addr.String(),
 		}).Debug("Restoring backend")
 		if err := RestoreBackendID(b.L3n4Addr, b.ID); err != nil {
-			return fmt.Errorf("Unable to restore backend ID %d for %q: %s",
+			log.WithFields(logrus.Fields{
+				logfields.BackendID: b.ID,
+				logfields.L3n4Addr:  b.L3n4Addr.String(),
+			}).Warnf("Unable to restore backend ID %d for %q: %s",
 				b.ID, b.L3n4Addr, err)
+
+			// We need to continue, otherwise we leak backend entries since we abort on first error
+			// By letting the backend entry register in the map, we may benefit from orphan cleanup
+			// further down the line as well. Is that right?
+
+			//return fmt.Errorf("Unable to restore backend ID %d for %q: %s",
+			//	b.ID, b.L3n4Addr, err)
 		}
 
 		hash := b.L3n4Addr.Hash()
