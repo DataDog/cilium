@@ -1182,9 +1182,23 @@ func (m *Map) resolveErrors(ctx context.Context) error {
 				metrics.BPFMapOps.WithLabelValues(m.commonName(), metricOpDelete, metrics.Error2Outcome(err)).Inc()
 			}
 			if err == 0 || err == unix.ENOENT {
-				delete(m.cache, k)
-				resolved++
-				m.outstandingErrors--
+				// Check it really was deleted
+				value := e.Key.NewValue()
+				err2 := LookupElement(m.fd, e.Key.GetKeyPtr(), value.GetValuePtr())
+				if err2 == nil {
+					scopedLogger.WithFields(logrus.Fields{
+						"outstanding": m.outstandingErrors,
+						"resolved":    resolved,
+						"scanned":     scanned,
+						"duration":    time.Since(started),
+						"entry":       e,
+					}).Info("BPF map error resolver delete of map entry succeeded, but still present")
+					errors++
+				} else {
+					delete(m.cache, k)
+					resolved++
+					m.outstandingErrors--
+				}
 			} else {
 				e.LastError = err
 				errors++
