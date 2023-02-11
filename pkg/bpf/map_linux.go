@@ -983,6 +983,15 @@ func (m *Map) deleteMapEntry(key MapKey, ignoreMissing bool) (deleted bool, err 
 	if errno != 0 && handleError {
 		err = fmt.Errorf("unable to delete element %s from map %s: %w", key, m.name, errno)
 	}
+
+	// Check it really was deleted
+	value := key.NewValue()
+	err2 := LookupElement(m.fd, key.GetKeyPtr(), value.GetValuePtr())
+	if err2 == nil {
+		deleted = false
+		err = fmt.Errorf("delete element %s from map %s succeeded, but is still present", key, m.name)
+	}
+
 	return
 }
 
@@ -1196,7 +1205,7 @@ func (m *Map) resolveErrors(ctx context.Context) error {
 		"resolved":  resolved,
 		"scanned":   scanned,
 		"duration":  time.Since(started),
-	}).Debug("BPF map error resolver completed")
+	}).Info("BPF map error resolver completed")
 
 	if m.outstandingErrors > 0 {
 		return fmt.Errorf("%d map sync errors", m.outstandingErrors)
