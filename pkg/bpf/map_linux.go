@@ -985,9 +985,15 @@ func (m *Map) deleteMapEntry(key MapKey, ignoreMissing bool) (deleted bool, err 
 	}
 
 	// Check it really was deleted
+	_, errno2 := deleteElement(m.fd, key.GetKeyPtr())
+	if errno2 == 0 {
+		log.Warningf("delete element %s from map %s succeeded, but 2nd delete also succeeded", key, m.name)
+	} else {
+		log.Warningf("delete element %s from map %s succeeded, and 2nd delete failed (%w)", key, m.name, errno2)
+	}
 	value := key.NewValue()
 	err2 := LookupElement(m.fd, key.GetKeyPtr(), value.GetValuePtr())
-	if err2 == nil && m.name != "cilium_ipcache" {
+	if err2 == nil /* && m.name != "cilium_ipcache" */ {
 		deleted = false
 		err = fmt.Errorf("delete element %s from map %s succeeded, but is still present", key, m.name)
 	}
