@@ -987,7 +987,7 @@ func (m *Map) deleteMapEntry(key MapKey, ignoreMissing bool) (deleted bool, err 
 	// Check it really was deleted
 	value := key.NewValue()
 	err2 := LookupElement(m.fd, key.GetKeyPtr(), value.GetValuePtr())
-	if err2 == nil {
+	if err2 == nil && m.name != "cilium_ipcache" {
 		deleted = false
 		err = fmt.Errorf("delete element %s from map %s succeeded, but is still present", key, m.name)
 	}
@@ -1186,13 +1186,15 @@ func (m *Map) resolveErrors(ctx context.Context) error {
 				value := e.Key.NewValue()
 				err2 := LookupElement(m.fd, e.Key.GetKeyPtr(), value.GetValuePtr())
 				if err2 == nil {
-					scopedLogger.WithFields(logrus.Fields{
-						"outstanding": m.outstandingErrors,
-						"resolved":    resolved,
-						"scanned":     scanned,
-						"duration":    time.Since(started),
-						"entry":       e,
-					}).Warn("BPF map error resolver delete of map entry succeeded, but entry still present")
+					if m.name != "cilium_ipcache" {
+						scopedLogger.WithFields(logrus.Fields{
+							"outstanding": m.outstandingErrors,
+							"resolved":    resolved,
+							"scanned":     scanned,
+							"duration":    time.Since(started),
+							"entry":       e,
+						}).Warn("BPF map error resolver delete of map entry succeeded, but entry still present")
+					}
 					errors++
 				} else {
 					delete(m.cache, k)
