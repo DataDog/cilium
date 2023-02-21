@@ -986,7 +986,7 @@ func (s *Service) deleteServiceLocked(svc *svcInfo) error {
 	})
 	scopedLog.Debug("Deleting service")
 
-	if err := s.lbmap.DeleteService(svc.frontend, len(svc.backends), svc.useMaglev()); err != nil {
+	if err := s.lbmap.DeleteService(svc.frontend, svc.activeBackendsCount, svc.useMaglev()); err != nil {
 		return err
 	}
 
@@ -1043,8 +1043,8 @@ func (s *Service) updateBackendsCacheLocked(svc *svcInfo, backends []*lb.Backend
 	for i, backend := range backends {
 		hash := backend.L3n4Addr.Hash()
 		backendSet[hash] = struct{}{}
-
-		if b, found := svc.backendByHash[hash]; !found {
+		// Lookup if backend exists by hash globally
+		if b, found := s.backendByHash[hash]; !found {
 			if s.backendRefCount.Add(hash) {
 				id, err := AcquireBackendID(backend.L3n4Addr)
 				if err != nil {
