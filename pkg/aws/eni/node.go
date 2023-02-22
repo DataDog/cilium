@@ -24,13 +24,14 @@ import (
 	"github.com/cilium/cilium/pkg/defaults"
 	"github.com/cilium/cilium/pkg/ip"
 	"github.com/cilium/cilium/pkg/ipam"
-	"github.com/cilium/cilium/pkg/ipam/option"
+	ipamOption "github.com/cilium/cilium/pkg/ipam/option"
 	"github.com/cilium/cilium/pkg/ipam/stats"
 	ipamTypes "github.com/cilium/cilium/pkg/ipam/types"
 	v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/math"
+	"github.com/cilium/cilium/pkg/option"
 )
 
 const (
@@ -80,6 +81,16 @@ func NewNode(node *ipam.Node, k8sObj *v2.CiliumNode, manager *InstancesManager) 
 		manager:    manager,
 		instanceID: node.InstanceID(),
 	}
+}
+
+// IPFamily returns the IP family to consider for the node. It consider it based on
+// the first podCIDR being provided by the controlplane.
+func (n *Node) IPFamily() ipam.Family {
+	if option.Config.EnableIPv6 {
+		return ipam.IPv6
+	}
+
+	return ipam.IPv4
 }
 
 // UpdatedNode is called when an update to the CiliumNode is received.
@@ -200,7 +211,7 @@ func (n *Node) PrepareIPRelease(excessIPs int, scopedLog *logrus.Entry) *ipam.Re
 
 // ReleaseIPs performs the ENI IP release operation
 func (n *Node) ReleaseIPs(ctx context.Context, r *ipam.ReleaseAction) error {
-	return n.manager.api.UnassignPrivateIpAddresses(ctx, r.InterfaceID, r.IPsToRelease)
+	return n.manager.api.UnassignIPAddresses(ctx, r.InterfaceID, n.IPFamily(), r.IPsToRelease)
 }
 
 // PrepareIPAllocation returns the number of ENI IPs and interfaces that can be
@@ -230,6 +241,7 @@ func (n *Node) PrepareIPAllocation(scopedLog *logrus.Entry) (a *ipam.AllocationA
 			continue
 		}
 
+		//TODO(jared.ledvina) - Handle IPv6 limits seperately
 		_, effectiveLimits := n.getEffectiveIPLimits(&e, limits.IPv4)
 		availableOnENI := math.IntMax(effectiveLimits-len(e.Addresses), 0)
 		if availableOnENI <= 0 {
@@ -276,7 +288,7 @@ func isSubnetAtCapacity(err error) bool {
 	return false
 }
 
-// AllocateIPs performs the ENI allocation oepration
+// AllocateIPs performs the ENI allocation operation
 func (n *Node) AllocateIPs(ctx context.Context, a *ipam.AllocationAction) error {
 	// Check if the interface to allocate on is prefix delegated
 	n.mutex.RLock()
@@ -284,8 +296,8 @@ func (n *Node) AllocateIPs(ctx context.Context, a *ipam.AllocationAction) error 
 	n.mutex.RUnlock()
 
 	if isPrefixDelegated {
-		numPrefixes := ip.PrefixCeil(a.AvailableForAllocation, option.ENIPDBlockSizeIPv4)
-		err := n.manager.api.AssignENIPrefixes(ctx, a.InterfaceID, int32(numPrefixes))
+		numPrefixes := ip.PrefixCeil(a.AvailableForAllocation, ipamOption.ENIPDBlockSizeIPv4)
+		err := n.manager.api.AssignENIPrefixes(ctx, a.InterfaceID, n.IPFamily(), int32(numPrefixes))
 		if !isSubnetAtCapacity(err) {
 			return err
 		}
@@ -295,7 +307,7 @@ func (n *Node) AllocateIPs(ctx context.Context, a *ipam.AllocationAction) error 
 			logfields.Node: n.k8sObj.Name,
 		}).Warning("Subnet might be out of prefixes, Cilium will not allocate prefixes on this node anymore")
 	}
-	return n.manager.api.AssignPrivateIpAddresses(ctx, a.InterfaceID, int32(a.AvailableForAllocation))
+	return n.manager.api.AssignIPAddresses(ctx, a.InterfaceID, n.IPFamily(), int32(a.AvailableForAllocation))
 }
 
 func (n *Node) getSecurityGroupIDs(ctx context.Context, eniSpec eniTypes.ENISpec) ([]string, error) {
@@ -457,13 +469,13 @@ func (n *Node) CreateInterface(ctx context.Context, allocation *ipam.AllocationA
 	})
 	scopedLog.Info("No more IPs available, creating new ENI")
 
-	eniID, eni, err := n.manager.api.CreateNetworkInterface(ctx, int32(toAllocate), subnet.ID, desc, securityGroupIDs, isPrefixDelegated)
+	eniID, eni, err := n.manager.api.CreateNetworkInterface(ctx, n.IPFamily(), int32(toAllocate), subnet.ID, desc, securityGroupIDs, isPrefixDelegated)
 	if err != nil {
 		if isPrefixDelegated && isSubnetAtCapacity(err) {
 			// Subnet might be out of available /28 prefixes, but /32 IP addresses might be available.
 			// We should attempt to allocate /32 IPs.
 			scopedLog.WithField(logfields.Node, n.k8sObj.Name).Warning("Subnet might be out of prefixes, Cilium will not allocate prefixes on this node anymore")
-			eniID, eni, err = n.manager.api.CreateNetworkInterface(ctx, int32(toAllocate), subnet.ID, desc, securityGroupIDs, false)
+			eniID, eni, err = n.manager.api.CreateNetworkInterface(ctx, n.IPFamily(), int32(toAllocate), subnet.ID, desc, securityGroupIDs, false)
 		}
 		if err != nil {
 			return 0, unableToCreateENI, fmt.Errorf("%s %s", errUnableToCreateENI, err)
@@ -661,7 +673,7 @@ func (n *Node) GetMaximumAllocatableIPv4() int {
 	maxPerInterface := math.IntMax(limits.IPv4-1, 0)
 
 	if n.IsPrefixDelegated() {
-		maxPerInterface = maxPerInterface * option.ENIPDBlockSizeIPv4
+		maxPerInterface = maxPerInterface * ipamOption.ENIPDBlockSizeIPv4
 	}
 
 	// Return the maximum amount of IP addresses allocatable on the instance
@@ -810,7 +822,8 @@ func (n *Node) GetUsedIPWithPrefixes() int {
 		}
 		if prefixBased {
 			if !usedPfx[pfx] {
-				usedIps = usedIps + option.ENIPDBlockSizeIPv4
+				// TODO: Update this function to support IPv6
+				usedIps = usedIps + ipamOption.ENIPDBlockSizeIPv4
 				usedPfx[pfx] = true
 			}
 		} else {
@@ -832,12 +845,11 @@ func (n *Node) getEffectiveIPLimits(eni *eniTypes.ENI, limits int) (leftoverPref
 	if n.k8sObj.Spec.ENI.UsePrimaryAddress != nil && *n.k8sObj.Spec.ENI.UsePrimaryAddress {
 		effectiveLimits++
 	}
-
-	if n.IsPrefixDelegated() {
-		effectiveLimits = effectiveLimits * option.ENIPDBlockSizeIPv4
-	} else if eni != nil && len(eni.Prefixes) > 0 {
+	if n.node.Ops().IsPrefixDelegated() {
+		effectiveLimits = effectiveLimits * ipamOption.ENIPDBlockSizeIPv4
+	} else if len(eni.Prefixes) > 0 {
 		// If prefix delegation was previously enabled on this node, account for IPs from prefixes
-		leftoverPrefixCapacity = len(eni.Prefixes) * (option.ENIPDBlockSizeIPv4 - 1)
+		leftoverPrefixCapacity = len(eni.Prefixes) * (ipamOption.ENIPDBlockSizeIPv4 - 1)
 		effectiveLimits += leftoverPrefixCapacity
 	}
 	return leftoverPrefixCapacity, effectiveLimits

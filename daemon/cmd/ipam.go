@@ -282,7 +282,7 @@ func (d *Daemon) allocateDatapathIPs(family types.NodeAddressingFamily) (routerI
 func (d *Daemon) allocateHealthIPs() error {
 	bootstrapStats.healthCheck.Start()
 	if option.Config.EnableHealthChecking && option.Config.EnableEndpointHealthChecking {
-		if option.Config.EnableIPv4 {
+		if option.Config.EnableIPv4 && !(option.Config.IPAM == ipamOption.IPAMENI && option.Config.EnableIPv6) {
 			result, err := d.ipam.AllocateNextFamilyWithoutSyncUpstream(ipam.IPv4, "health", ipam.PoolDefault)
 			if err != nil {
 				return fmt.Errorf("unable to allocate health IPs: %s, see https://cilium.link/ipam-range-full", err)

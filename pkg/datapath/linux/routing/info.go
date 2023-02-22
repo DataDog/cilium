@@ -20,12 +20,12 @@ import (
 // This struct is mostly derived from the `ipam.AllocationResult` as the
 // information comes from IPAM.
 type RoutingInfo struct {
-	// IPv4Gateway is the gateway where outbound/egress traffic is directed.
-	IPv4Gateway net.IP
+	// GatewayIP is the gateway IP where outbound/egress traffic is directed.
+	GatewayIP net.IP
 
-	// IPv4CIDRs is a list of CIDRs which the interface has access to. In most
-	// cases, it'll at least contain the CIDR of the IPv4Gateway IP address.
-	IPv4CIDRs []net.IPNet
+	// CIDRs is a list of CIDRs which the interface has access to. In most
+	// cases, it'll at least contain the CIDR of the GatewayIP address.
+	CIDRs []net.IPNet
 
 	// MasterIfMAC is the MAC address of the master interface that egress
 	// traffic is directed to. This is the MAC of the interface itself which
@@ -44,8 +44,8 @@ type RoutingInfo struct {
 	IpamMode string
 }
 
-func (info *RoutingInfo) GetIPv4CIDRs() []net.IPNet {
-	return info.IPv4CIDRs
+func (info *RoutingInfo) GetCIDRs() []net.IPNet {
+	return info.CIDRs
 }
 
 func (info *RoutingInfo) GetMac() mac.MAC {
@@ -96,8 +96,8 @@ func parse(gateway string, cidrs []string, macAddr, ifaceNum, ipamMode string, m
 	}
 
 	return &RoutingInfo{
-		IPv4Gateway:     ip,
-		IPv4CIDRs:       parsedCIDRs,
+		GatewayIP:       ip,
+		CIDRs:           parsedCIDRs,
 		MasterIfMAC:     parsedMAC,
 		Masquerade:      masquerade,
 		InterfaceNumber: parsedIfaceNum,

@@ -573,7 +573,17 @@ func cmdAdd(args *skel.CmdArgs) (err error) {
 
 	switch conf.IpamMode {
 	case ipamOption.IPAMENI, ipamOption.IPAMAzure, ipamOption.IPAMAlibabaCloud:
-		err = interfaceAdd(ipConfig, ipam.IPV4, conf)
+		var iar *models.IPAMAddressResponse
+		if ipam.IPV4 != nil {
+			iar = ipam.IPV4
+		} else if ipam.IPV6 != nil {
+			iar = ipam.IPV6
+		} else {
+			err = fmt.Errorf("could not get a valid address response from IPAM")
+			return
+		}
+
+		err = interfaceAdd(ipConfig, iar, conf)
 		if err != nil {
 			err = fmt.Errorf("unable to setup interface datapath: %s", err)
 			return

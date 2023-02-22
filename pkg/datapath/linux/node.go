@@ -1678,7 +1678,7 @@ func (n *linuxNodeHandler) NodeConfigurationChanged(newConfig datapath.LocalNode
 			len(option.Config.IPv4PodSubnets) == 0 {
 			if info := node.GetRouterInfo(); info != nil {
 				var ipv4PodSubnets []*net.IPNet
-				for _, c := range info.GetIPv4CIDRs() {
+				for _, c := range info.GetCIDRs() {
 					cidr := c // create a copy to be able to take a reference
 					ipv4PodSubnets = append(ipv4PodSubnets, &cidr)
 				}

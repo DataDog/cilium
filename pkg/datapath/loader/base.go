@@ -128,6 +128,7 @@ func writePreFilterHeader(preFilter *prefilter.PreFilter, dir string) error {
 	return fw.Flush()
 }
 
+// TODO(jared.ledvina) - Configure https://github.com/aws/amazon-vpc-cni-k8s/blob/master/cmd/aws-vpc-cni-init/main.go#L104-L135
 func addENIRules(sysSettings []sysctl.Setting, nodeAddressing datapath.NodeAddressing) ([]sysctl.Setting, error) {
 	// AWS ENI mode requires symmetric routing, see
 	// iptables.addCiliumENIRules().
@@ -172,15 +173,28 @@ func addENIRules(sysSettings []sysctl.Setting, nodeAddressing datapath.NodeAddre
 
 	// Add rules for router (cilium_host).
 	info := node.GetRouterInfo()
-	cidrs := info.GetIPv4CIDRs()
-	routerIP := net.IPNet{
+	cidrs := info.GetCIDRs()
+
+	ipv4routerIP := net.IPNet{
 		IP:   nodeAddressing.IPv4().Router(),
 		Mask: net.CIDRMask(32, 32),
 	}
 
+	ipv6routerIP := net.IPNet{
+		IP:   nodeAddressing.IPv6().Router(),
+		Mask: net.CIDRMask(128, 128),
+	}
+
 	for _, cidr := range cidrs {
-		if err = linuxrouting.SetupRules(&routerIP, &cidr, info.GetMac().String(), info.GetInterfaceNumber()); err != nil {
-			return nil, fmt.Errorf("unable to install ip rule for cilium_host: %w", err)
+		if cidr.IP.To4() == nil {
+			if err = linuxrouting.SetupRules(&ipv6routerIP, &cidr, info.GetMac().String(), info.GetInterfaceNumber()); err != nil {
+				return nil, fmt.Errorf("unable to install ip rule (v6) for cilium_host: %w", err)
+			}
+			continue
+		}
+
+		if err = linuxrouting.SetupRules(&ipv4routerIP, &cidr, info.GetMac().String(), info.GetInterfaceNumber()); err != nil {
+			return nil, fmt.Errorf("unable to install ip rule (v4) for cilium_host: %w", err)
 		}
 	}
 

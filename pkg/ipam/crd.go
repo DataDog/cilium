@@ -308,8 +308,8 @@ func (n *nodeStore) hasMinimumIPsInPool() (minimumReached bool, required, numAva
 		}
 
 		if n.conf.IPAMMode() == ipamOption.IPAMENI || n.conf.IPAMMode() == ipamOption.IPAMAzure || n.conf.IPAMMode() == ipamOption.IPAMAlibabaCloud {
-			if !n.autoDetectIPv4NativeRoutingCIDR() {
-				minimumReached = false
+			if n.conf.IPv4Enabled() {
+				minimumReached = n.autoDetectIPv4NativeRoutingCIDR()
 			}
 		}
 	}

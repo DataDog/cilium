@@ -22,6 +22,7 @@ import (
 	"github.com/cilium/cilium/pkg/aws/types"
 	"github.com/cilium/cilium/pkg/cidr"
 	ipPkg "github.com/cilium/cilium/pkg/ip"
+	"github.com/cilium/cilium/pkg/ipam"
 	"github.com/cilium/cilium/pkg/ipam/option"
 	ipamTypes "github.com/cilium/cilium/pkg/ipam/types"
 	"github.com/cilium/cilium/pkg/spanstat"
@@ -305,15 +306,18 @@ func (c *Client) describeNetworkInterfacesFromInstances(ctx context.Context) ([]
 // parseENI parses a ec2.NetworkInterface as returned by the EC2 service API,
 // converts it into a eniTypes.ENI object
 func parseENI(iface *ec2_types.NetworkInterface, vpcs ipamTypes.VirtualNetworkMap, subnets ipamTypes.SubnetMap, usePrimary bool) (instanceID string, eni *eniTypes.ENI, err error) {
-	if iface.PrivateIpAddress == nil {
-		err = fmt.Errorf("ENI has no IP address")
-		return
-	}
-
 	eni = &eniTypes.ENI{
-		IP:             aws.ToString(iface.PrivateIpAddress),
 		SecurityGroups: []string{},
 		Addresses:      []string{},
+	}
+
+	if iface.PrivateIpAddress != nil {
+		eni.IP = aws.ToString(iface.PrivateIpAddress)
+	} else if iface.Ipv6Address != nil {
+		eni.IP = aws.ToString(iface.Ipv6Address)
+	} else {
+		err = fmt.Errorf("ENI has no IP address")
+		return
 	}
 
 	if iface.MacAddress != nil {
@@ -340,7 +344,7 @@ func parseENI(iface *ec2_types.NetworkInterface, vpcs ipamTypes.VirtualNetworkMa
 		eni.Subnet.ID = aws.ToString(iface.SubnetId)
 
 		if subnets != nil {
-			if subnet, ok := subnets[eni.Subnet.ID]; ok && subnet.CIDR != nil {
+			if subnet, ok := subnets[eni.Subnet.ID]; ok {
 				eni.Subnet.CIDR = subnet.CIDR.String()
 			}
 		}
@@ -363,6 +367,12 @@ func parseENI(iface *ec2_types.NetworkInterface, vpcs ipamTypes.VirtualNetworkMa
 		}
 		if ip.PrivateIpAddress != nil {
 			eni.Addresses = append(eni.Addresses, aws.ToString(ip.PrivateIpAddress))
+		}
+	}
+
+	for _, ip := range iface.Ipv6Addresses {
+		if ip.Ipv6Address != nil {
+			eni.Addresses = append(eni.Addresses, aws.ToString(ip.Ipv6Address))
 		}
 	}
 
@@ -498,15 +508,29 @@ func (c *Client) GetSubnets(ctx context.Context) (ipamTypes.SubnetMap, error) {
 	}
 
 	for _, s := range subnetList {
-		c, err := cidr.ParseCIDR(aws.ToString(s.CidrBlock))
+		var c *cidr.CIDR
+
+		if s.CidrBlock != nil {
+			c, err = cidr.ParseCIDR(aws.ToString(s.CidrBlock))
+		} else if len(s.Ipv6CidrBlockAssociationSet) > 0 {
+			c, err = cidr.ParseCIDR(aws.ToString(s.Ipv6CidrBlockAssociationSet[0].Ipv6CidrBlock))
+		}
+
 		if err != nil {
 			continue
+		}
+
+		availableAddresses := int(aws.ToInt32(s.AvailableIpAddressCount))
+
+		// TODO(jared.ledvina): Technically it's 18,446,744,073,709,551,616
+		if aws.ToBool(s.Ipv6Native) {
+			availableAddresses = 256 * 256 * 256 * 256
 		}
 
 		subnet := &ipamTypes.Subnet{
 			ID:                 aws.ToString(s.SubnetId),
 			CIDR:               c,
-			AvailableAddresses: int(aws.ToInt32(s.AvailableIpAddressCount)),
+			AvailableAddresses: availableAddresses,
 			Tags:               map[string]string{},
 		}
 
@@ -532,18 +556,28 @@ func (c *Client) GetSubnets(ctx context.Context) (ipamTypes.SubnetMap, error) {
 }
 
 // CreateNetworkInterface creates an ENI with the given parameters
-func (c *Client) CreateNetworkInterface(ctx context.Context, toAllocate int32, subnetID, desc string, groups []string, allocatePrefixes bool) (string, *eniTypes.ENI, error) {
+func (c *Client) CreateNetworkInterface(ctx context.Context, family ipam.Family, toAllocate int32, subnetID, desc string, groups []string, allocatePrefixes bool) (string, *eniTypes.ENI, error) {
 
 	input := &ec2.CreateNetworkInterfaceInput{
 		Description: aws.String(desc),
 		SubnetId:    aws.String(subnetID),
 		Groups:      groups,
 	}
-	if allocatePrefixes {
-		input.Ipv4PrefixCount = aws.Int32(int32(ipPkg.PrefixCeil(int(toAllocate), option.ENIPDBlockSizeIPv4)))
-		log.Debugf("Creating interface with %v prefixes", input.Ipv4PrefixCount)
-	} else {
-		input.SecondaryPrivateIpAddressCount = aws.Int32(toAllocate)
+
+	switch family {
+	case ipam.IPv6:
+		if allocatePrefixes {
+			// TODO: https://github.com/cilium/cilium/issues/19251
+			return "", nil, errors.New("IPv6 prefix delegation unsupported in AWS ENI mode (GH-19251)")
+		}
+		input.Ipv6AddressCount = aws.Int32(toAllocate)
+	default:
+		if allocatePrefixes {
+			input.Ipv4PrefixCount = aws.Int32(int32(ipPkg.PrefixCeil(int(toAllocate), option.ENIPDBlockSizeIPv4)))
+			log.Debugf("Creating interface with %v prefixes", input.Ipv4PrefixCount)
+		} else {
+			input.SecondaryPrivateIpAddressCount = aws.Int32(toAllocate)
+		}
 	}
 
 	if len(c.eniTagSpecification.Tags) > 0 {
@@ -624,9 +658,48 @@ func (c *Client) ModifyNetworkInterface(ctx context.Context, eniID, attachmentID
 	return err
 }
 
-// AssignPrivateIpAddresses assigns the specified number of secondary IP
-// addresses
-func (c *Client) AssignPrivateIpAddresses(ctx context.Context, eniID string, addresses int32) error {
+// AssignIPAddresses assigns the specified number of secondary IP addresses to the ENI
+func (c *Client) AssignIPAddresses(ctx context.Context, eniID string, family ipam.Family, addresses int32) error {
+	switch family {
+	case ipam.IPv6:
+		return c.assignIPv6Addresses(ctx, eniID, addresses)
+	default:
+		return c.assignIPv4Addresses(ctx, eniID, addresses)
+	}
+}
+
+// UnassignIPAddresses unassigns specified IP addresses from the ENI
+func (c *Client) UnassignIPAddresses(ctx context.Context, eniID string, family ipam.Family, addresses []string) error {
+	switch family {
+	case ipam.IPv6:
+		return c.unassignIPv6Addresses(ctx, eniID, addresses)
+	default:
+		return c.unassignIPv4Addresses(ctx, eniID, addresses)
+	}
+}
+
+// AssignENIPrefixes assigns the specified number of IP prefixes to the ENI
+func (c *Client) AssignENIPrefixes(ctx context.Context, eniID string, family ipam.Family, prefixes int32) error {
+	switch family {
+	case ipam.IPv6:
+		return c.assignIPv6Prefixes(ctx, eniID, prefixes)
+	default:
+		return c.assignIPv4Prefixes(ctx, eniID, prefixes)
+	}
+}
+
+// UnassignENIPrefixes unassigns specified IP prefixes from the ENI
+func (c *Client) UnassignENIPrefixes(ctx context.Context, eniID string, family ipam.Family, prefixes []string) error {
+	switch family {
+	case ipam.IPv6:
+		return c.unassignIPv6Prefixes(ctx, eniID, prefixes)
+	default:
+		return c.unassignIPv4Prefixes(ctx, eniID, prefixes)
+	}
+}
+
+// AssignIPv4Addresses assigns the specified number of secondary IP addresses
+func (c *Client) assignIPv4Addresses(ctx context.Context, eniID string, addresses int32) error {
 	input := &ec2.AssignPrivateIpAddressesInput{
 		NetworkInterfaceId:             aws.String(eniID),
 		SecondaryPrivateIpAddressCount: aws.Int32(addresses),
@@ -639,8 +712,8 @@ func (c *Client) AssignPrivateIpAddresses(ctx context.Context, eniID string, add
 	return err
 }
 
-// UnassignPrivateIpAddresses unassigns specified IP addresses from ENI
-func (c *Client) UnassignPrivateIpAddresses(ctx context.Context, eniID string, addresses []string) error {
+// UnassignIPv4Addresses unassigns specified IP addresses from ENI
+func (c *Client) unassignIPv4Addresses(ctx context.Context, eniID string, addresses []string) error {
 	input := &ec2.UnassignPrivateIpAddressesInput{
 		NetworkInterfaceId: aws.String(eniID),
 		PrivateIpAddresses: addresses,
@@ -653,7 +726,7 @@ func (c *Client) UnassignPrivateIpAddresses(ctx context.Context, eniID string, a
 	return err
 }
 
-func (c *Client) AssignENIPrefixes(ctx context.Context, eniID string, prefixes int32) error {
+func (c *Client) assignIPv4Prefixes(ctx context.Context, eniID string, prefixes int32) error {
 	input := &ec2.AssignPrivateIpAddressesInput{
 		NetworkInterfaceId: aws.String(eniID),
 		Ipv4PrefixCount:    aws.Int32(prefixes),
@@ -666,7 +739,7 @@ func (c *Client) AssignENIPrefixes(ctx context.Context, eniID string, prefixes i
 	return err
 }
 
-func (c *Client) UnassignENIPrefixes(ctx context.Context, eniID string, prefixes []string) error {
+func (c *Client) unassignIPv4Prefixes(ctx context.Context, eniID string, prefixes []string) error {
 	input := &ec2.UnassignPrivateIpAddressesInput{
 		NetworkInterfaceId: aws.String(eniID),
 		Ipv4Prefixes:       prefixes,
@@ -676,6 +749,60 @@ func (c *Client) UnassignENIPrefixes(ctx context.Context, eniID string, prefixes
 	sinceStart := spanstat.Start()
 	_, err := c.ec2Client.UnassignPrivateIpAddresses(ctx, input)
 	c.metricsAPI.ObserveAPICall("UnassignPrivateIpAddresses", deriveStatus(err), sinceStart.Seconds())
+	return err
+}
+
+// AssignIPv6Addresses assigns the specified number of secondary IP addresses
+func (c *Client) assignIPv6Addresses(ctx context.Context, eniID string, addresses int32) error {
+	input := &ec2.AssignIpv6AddressesInput{
+		NetworkInterfaceId: aws.String(eniID),
+		Ipv6AddressCount:   aws.Int32(addresses),
+	}
+
+	c.limiter.Limit(ctx, "AssignIpv6Addresses")
+	sinceStart := spanstat.Start()
+	_, err := c.ec2Client.AssignIpv6Addresses(ctx, input)
+	c.metricsAPI.ObserveAPICall("AssignIpv6Addresses", deriveStatus(err), sinceStart.Seconds())
+	return err
+}
+
+// UnassignIPv4Addresses unassigns specified IP addresses from ENI
+func (c *Client) unassignIPv6Addresses(ctx context.Context, eniID string, addresses []string) error {
+	input := &ec2.UnassignIpv6AddressesInput{
+		NetworkInterfaceId: aws.String(eniID),
+		Ipv6Addresses:      addresses,
+	}
+
+	c.limiter.Limit(ctx, "UnassignIpv6Addresses")
+	sinceStart := spanstat.Start()
+	_, err := c.ec2Client.UnassignIpv6Addresses(ctx, input)
+	c.metricsAPI.ObserveAPICall("UnassignIpv6Addresses", deriveStatus(err), sinceStart.Seconds())
+	return err
+}
+
+func (c *Client) assignIPv6Prefixes(ctx context.Context, eniID string, prefixes int32) error {
+	input := &ec2.AssignIpv6AddressesInput{
+		NetworkInterfaceId: aws.String(eniID),
+		Ipv6PrefixCount:    aws.Int32(prefixes),
+	}
+
+	c.limiter.Limit(ctx, "AssignIpv6Addresses")
+	sinceStart := spanstat.Start()
+	_, err := c.ec2Client.AssignIpv6Addresses(ctx, input)
+	c.metricsAPI.ObserveAPICall("AssignIpv6Addresses", deriveStatus(err), sinceStart.Seconds())
+	return err
+}
+
+func (c *Client) unassignIPv6Prefixes(ctx context.Context, eniID string, prefixes []string) error {
+	input := &ec2.UnassignIpv6AddressesInput{
+		NetworkInterfaceId: aws.String(eniID),
+		Ipv6Prefixes:       prefixes,
+	}
+
+	c.limiter.Limit(ctx, "UnassignIpv6Addresses")
+	sinceStart := spanstat.Start()
+	_, err := c.ec2Client.UnassignIpv6Addresses(ctx, input)
+	c.metricsAPI.ObserveAPICall("UnassignIpv6Addresses", deriveStatus(err), sinceStart.Seconds())
 	return err
 }
 

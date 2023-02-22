@@ -193,7 +193,7 @@ type ENI struct {
 	// +optional
 	Addresses []string `json:"addresses,omitempty"`
 
-	// Prefixes is the list of all /28 prefixes associated with the ENI
+	// Prefixes is the list of all /28 IPv4 or /80 IPv6 prefixes associated with the ENI
 	//
 	// +optional
 	Prefixes []string `json:"prefixes,omitempty"`

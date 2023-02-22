@@ -87,6 +87,8 @@ COPY --from=hubble /out/${TARGETOS}/${TARGETARCH}/bin/hubble /usr/bin/hubble
 COPY --from=hubble /out/linux/bash_completion /etc/bash_completion.d/hubble
 
 COPY --from=builder /tmp/install/${TARGETOS}/${TARGETARCH} /
+# TODO (jared.ledvina) - Debug only, remove this.
+RUN apt-get update && apt-get install -y --no-install-recommends curl jq
 WORKDIR /home/cilium
 
 ENV INITSYSTEM="SYSTEMD"

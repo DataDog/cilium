@@ -51,7 +51,7 @@ type addresses struct {
 }
 
 type RouterInfo interface {
-	GetIPv4CIDRs() []net.IPNet
+	GetCIDRs() []net.IPNet
 	GetMac() mac.MAC
 	GetInterfaceNumber() int
 }
@@ -517,7 +517,7 @@ func chooseHostIPsToRestore(ipv6 bool, fromK8s, fromFS net.IP, cidrs []*cidr.CID
 	}
 
 	for _, cidr := range cidrs {
-		if cidr != nil && cidr.Contains(ip) {
+		if cidr != nil && cidr.String() != "" && cidr.Contains(ip) {
 			return
 		}
 	}
@@ -618,17 +618,23 @@ func GetNodeAddressing() *models.NodeAddressing {
 
 	if option.Config.EnableIPv6 {
 		a.IPV6 = &models.NodeAddressingElement{
-			Enabled:    option.Config.EnableIPv6,
-			IP:         GetIPv6Router().String(),
-			AllocRange: GetIPv6AllocRange().String(),
+			Enabled: option.Config.EnableIPv6,
+			IP:      GetIPv6Router().String(),
+		}
+
+		if allocRange := GetIPv6AllocRange(); allocRange != nil {
+			a.IPV6.AllocRange = allocRange.String()
 		}
 	}
 
 	if option.Config.EnableIPv4 {
 		a.IPV4 = &models.NodeAddressingElement{
-			Enabled:    option.Config.EnableIPv4,
-			IP:         GetInternalIPv4Router().String(),
-			AllocRange: GetIPv4AllocRange().String(),
+			Enabled: option.Config.EnableIPv4,
+			IP:      GetInternalIPv4Router().String(),
+		}
+
+		if allocRange := GetIPv4AllocRange(); allocRange != nil {
+			a.IPV4.AllocRange = allocRange.String()
 		}
 	}
 
