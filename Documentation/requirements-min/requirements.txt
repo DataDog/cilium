@@ -8,7 +8,7 @@ git+https://github.com/cilium/sphinx_rtd_theme.git@v1.0#egg=sphinx-rtd-theme-cil
 semver==2.13.0
 
 # Sphinx extensions
-myst-parser==0.18.0
+myst-parser==0.19.1
 sphinx-tabs==3.4.0
 sphinx-version-warning==1.1.2
 sphinxcontrib-openapi==0.8.0
