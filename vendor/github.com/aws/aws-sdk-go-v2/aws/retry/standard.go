@@ -231,7 +231,8 @@ func (s *Standard) noRetryIncrement() error {
 // GetRetryToken attempts to deduct the retry cost from the retry token pool.
 // Returning the token release function, or error.
 func (s *Standard) GetRetryToken(ctx context.Context, opErr error) (func(error) error, error) {
-	cost := s.options.RetryCost
+	//cost := s.options.RetryCost
+	cost := uint(1)
 
 	if s.timeout.IsErrorTimeout(opErr).Bool() {
 		cost = s.options.RetryTimeoutCost
