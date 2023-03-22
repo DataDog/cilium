@@ -206,6 +206,11 @@ type ENI struct {
 	//
 	// +optional
 	Tags map[string]string `json:"tags,omitempty"`
+
+	// Ipv6Addresses is the list of all secondary IPv6 IPs associated with the ENI
+	//
+	// +optional
+	Ipv6Addresses []string `json:"ipv6-addresses,omitempty"`
 }
 
 // InterfaceID returns the identifier of the interface
@@ -255,6 +260,9 @@ type AwsSubnet struct {
 
 	// CIDR is the CIDR range associated with the subnet
 	CIDR string `json:"cidr,omitempty"`
+
+	// IPv6CIDR is the CIDR range associated with the subnet
+	IPv6CIDR string `json:"ipv6-cidr,omitempty"`
 }
 
 // AwsVPC stores information regarding an AWS VPC
@@ -267,4 +275,7 @@ type AwsVPC struct {
 
 	// CIDRs is the list of CIDR ranges associated with the VPC
 	CIDRs []string `json:"cidrs,omitempty"`
+
+	// IPv6CIDRS is the list of IPv6 CIDR ranges associated with the VPC
+	IPv6CIDRs []string `json:"ipv6-cidrs,omitempty"`
 }
