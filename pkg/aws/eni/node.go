@@ -432,9 +432,9 @@ func (n *Node) CreateInterface(ctx context.Context, allocation *ipam.AllocationA
 	desc := "Cilium-CNI (" + n.node.InstanceID() + ")"
 
 	// Must allocate secondary ENI IPs as needed, up to ENI instance limit - 1 (reserve 1 for primary IP)
-	toAllocate := math.IntMin(allocation.MaxIPsToAllocate, limits.IPv4-1)
+	toAllocateIPv4 := math.IntMin(allocation.MaxIPsToAllocate, limits.IPv4-1)
 	// Validate whether request has already been fulfilled in the meantime
-	if toAllocate == 0 {
+	if toAllocateIPv4 == 0 {
 		return 0, "", nil
 	}
 
@@ -443,18 +443,18 @@ func (n *Node) CreateInterface(ctx context.Context, allocation *ipam.AllocationA
 	scopedLog = scopedLog.WithFields(logrus.Fields{
 		"securityGroupIDs":  securityGroupIDs,
 		"subnetID":          subnet.ID,
-		"addresses":         toAllocate,
+		"ipv4-addresses":    toAllocateIPv4,
 		"isPrefixDelegated": isPrefixDelegated,
 	})
 	scopedLog.Info("No more IPs available, creating new ENI")
 
-	eniID, eni, err := n.manager.api.CreateNetworkInterface(ctx, int32(toAllocate), subnet.ID, desc, securityGroupIDs, isPrefixDelegated)
+	eniID, eni, err := n.manager.api.CreateNetworkInterface(ctx, int32(toAllocateIPv4), subnet.ID, desc, securityGroupIDs, isPrefixDelegated)
 	if err != nil {
 		if isPrefixDelegated && isSubnetAtCapacity(err) {
 			// Subnet might be out of available /28 prefixes, but /32 IP addresses might be available.
 			// We should attempt to allocate /32 IPs.
 			scopedLog.WithField(logfields.Node, n.k8sObj.Name).Warning("Subnet might be out of prefixes, Cilium will not allocate prefixes on this node anymore")
-			eniID, eni, err = n.manager.api.CreateNetworkInterface(ctx, int32(toAllocate), subnet.ID, desc, securityGroupIDs, false)
+			eniID, eni, err = n.manager.api.CreateNetworkInterface(ctx, int32(toAllocateIPv4), subnet.ID, desc, securityGroupIDs, false)
 		}
 		if err != nil {
 			return 0, unableToCreateENI, fmt.Errorf("%s %s", errUnableToCreateENI, err)
@@ -489,7 +489,7 @@ func (n *Node) CreateInterface(ctx context.Context, allocation *ipam.AllocationA
 		}
 
 		if n.errorInstanceNotRunning(err) {
-			return toAllocate, "", nil
+			return toAllocateIPv4, "", nil
 		}
 
 		return 0,
@@ -517,7 +517,7 @@ func (n *Node) CreateInterface(ctx context.Context, allocation *ipam.AllocationA
 			}
 
 			if n.errorInstanceNotRunning(err) {
-				return toAllocate, "", nil
+				return toAllocateIPv4, "", nil
 			}
 
 			return 0, unableToMarkENIForDeletion, fmt.Errorf("unable to mark ENI for deletion on termination: %s", err)
@@ -526,7 +526,7 @@ func (n *Node) CreateInterface(ctx context.Context, allocation *ipam.AllocationA
 
 	// Add the information of the created ENI to the instances manager
 	n.manager.UpdateENI(n.node.InstanceID(), eni)
-	return toAllocate, "", nil
+	return toAllocateIPv4, "", nil
 }
 
 // ResyncInterfacesAndIPs is called to retrieve and ENIs and IPs as known to

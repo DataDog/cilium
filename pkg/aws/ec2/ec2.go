@@ -22,6 +22,7 @@ import (
 	"github.com/cilium/cilium/pkg/aws/types"
 	"github.com/cilium/cilium/pkg/cidr"
 	ipPkg "github.com/cilium/cilium/pkg/ip"
+	"github.com/cilium/cilium/pkg/ipam"
 	"github.com/cilium/cilium/pkg/ipam/option"
 	ipamTypes "github.com/cilium/cilium/pkg/ipam/types"
 	"github.com/cilium/cilium/pkg/spanstat"
@@ -532,18 +533,30 @@ func (c *Client) GetSubnets(ctx context.Context) (ipamTypes.SubnetMap, error) {
 }
 
 // CreateNetworkInterface creates an ENI with the given parameters
-func (c *Client) CreateNetworkInterface(ctx context.Context, toAllocate int32, subnetID, desc string, groups []string, allocatePrefixes bool) (string, *eniTypes.ENI, error) {
+func (c *Client) CreateNetworkInterface(ctx context.Context, IPFamilies ipam.Family, toAllocate int32, subnetID, desc string, groups []string, allocateIPv4Prefixes bool) (string, *eniTypes.ENI, error) {
 
 	input := &ec2.CreateNetworkInterfaceInput{
 		Description: aws.String(desc),
 		SubnetId:    aws.String(subnetID),
 		Groups:      groups,
 	}
-	if allocatePrefixes {
-		input.Ipv4PrefixCount = aws.Int32(int32(ipPkg.PrefixCeil(int(toAllocate), option.ENIPDBlockSizeIPv4)))
-		log.Debugf("Creating interface with %v prefixes", input.Ipv4PrefixCount)
-	} else {
-		input.SecondaryPrivateIpAddressCount = aws.Int32(toAllocate)
+
+	if ipam.Configuration.IPv4Enabled() {
+		if allocateIPv4Prefixes {
+			input.Ipv4PrefixCount = aws.Int32(int32(ipPkg.PrefixCeil(int(toAllocate), option.ENIPDBlockSizeIPv4)))
+			log.Debugf("Creating interface with %v prefixes", input.Ipv4PrefixCount)
+		} else {
+			input.SecondaryPrivateIpAddressCount = aws.Int32(toAllocate)
+		}
+	}
+
+	if ipam.Configuration.IPv6Enabled() {
+		//TODO (jared.ledvina) - Determine how to best support this
+		if allocateIPv4Prefixes {
+			log.Error("IPv6 Prefix Delegation is not supported")
+		} else {
+			input.Ipv6AddressCount = aws.Int32(toAllocate)
+		}
 	}
 
 	if len(c.eniTagSpecification.Tags) > 0 {
