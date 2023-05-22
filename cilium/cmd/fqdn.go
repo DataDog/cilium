@@ -4,7 +4,10 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	pb "github.com/cilium/cilium/api/v1/dnsproxy"
+	"google.golang.org/grpc"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -56,12 +59,21 @@ var fqdnListCacheCmd = &cobra.Command{
 	},
 }
 
+var fqdnUpdateCacheCmd = &cobra.Command{
+	Use:   "update",
+	Short: "Update fqdn cache mappin",
+	Run: func(cmd *cobra.Command, args []string) {
+		updateFQDNCacheEntry()
+	},
+}
+
 var fqdnCacheMatchPattern string
 var fqdnEndpointID string
 var fqdnSource string
 
 func init() {
 	fqdnCacheCmd.AddCommand(fqdnListCacheCmd)
+	fqdnCacheCmd.AddCommand(fqdnUpdateCacheCmd)
 	fqdnCacheCmd.AddCommand(fqdnCleanCacheCmd)
 	fqdnCmd.AddCommand(fqdnCacheCmd)
 	fqdnCmd.AddCommand(fqdnNames)
@@ -178,5 +190,37 @@ func listFQDNNames() {
 	}
 	if err := command.PrintOutputWithType(result.Payload, "json"); err != nil {
 		Fatalf("Unable to print JSON output: %s\n", err)
+	}
+}
+
+func updateFQDNCacheEntry() {
+	serverAddr := "localhost:10000"
+	var opts []grpc.DialOption
+	opts = append(opts, grpc.WithInsecure())
+
+	opts = append(opts, grpc.WithBlock())
+	fmt.Println("Dailing...")
+	conn, err := grpc.Dial(serverAddr, opts...)
+	if err != nil {
+		fmt.Errorf("fail to dial: %v", err)
+	} else {
+		fmt.Println("Dail successful !!")
+	}
+	defer conn.Close()
+
+	client := pb.NewFQNDCollectorClient(conn)
+	ctx := context.TODO()
+	stream, err := client.UpdateMappings(ctx)
+	if err != nil {
+		fmt.Errorf("failed to create stream: %v", err)
+	}
+	var ips [][]byte
+	ips = append(ips, []byte("99.86.4.85"))
+	msg := pb.FQDNMapping{IPS: ips, FQDN: "datadoghq.com"}
+	err = stream.Send(&msg)
+	if err != nil {
+		fmt.Errorf("unable to send %w", err)
+	} else {
+		fmt.Println("Success !!")
 	}
 }

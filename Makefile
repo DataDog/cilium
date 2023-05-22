@@ -12,7 +12,7 @@ debug: all
 
 include Makefile.defs
 
-SUBDIRS_CILIUM_CONTAINER := envoy bpf cilium daemon cilium-health bugtool tools/mount tools/sysctlfix
+SUBDIRS_CILIUM_CONTAINER := envoy bpf cilium daemon cilium-health bugtool tools/mount tools/sysctlfix dns-proxy
 SUBDIR_OPERATOR_CONTAINER := operator
 
 # Add the ability to override variables
@@ -383,6 +383,9 @@ generate-k8s-api: ## Generate Cilium k8s API client, deepcopy and deepequal Go s
 
 	$(QUIET) cp -r "$(TMPDIR)/github.com/cilium/cilium/." ./
 	$(QUIET) rm -rf "$(TMPDIR)"
+
+generate-dnsproxy-api: api/v1/dnsproxy/dnsproxy.proto
+	$(QUIET) $(MAKE) $(SUBMAKEOPTS) -C api/v1/dnsproxy
 
 check-k8s-clusterrole: ## Ensures there is no diff between preflight's clusterrole and runtime's clusterrole.
 	./contrib/scripts/check-preflight-clusterrole.sh

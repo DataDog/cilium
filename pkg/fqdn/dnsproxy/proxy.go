@@ -97,6 +97,10 @@ type DNSProxy struct {
 	// endpoints that are larger than 512 Bytes or the EDNS0 option, if present.
 	EnableDNSCompression bool
 
+	// SkipDNSPolicy allows DNS proxy to skip enforcing policy on the DNS protocol. Added for prototyping standalone
+	// DNS proxy, will be removed once we decide how to enforce policy outside agent.
+	SkipDNSPolicy bool
+
 	// ConcurrencyLimit limits parallel goroutines number that serve DNS
 	ConcurrencyLimit *semaphore.Weighted
 	// ConcurrencyGracePeriod is the grace period for waiting on
@@ -602,14 +606,14 @@ func StartDNSProxy(
 	lookupSecIDFunc LookupSecIDByIPFunc,
 	lookupIPsFunc LookupIPsBySecIDFunc,
 	notifyFunc NotifyOnDNSMsgFunc,
-	concurrencyLimit int, concurrencyGracePeriod time.Duration,
+	concurrencyLimit int, concurrencyGracePeriod time.Duration, skipDNSPolicy bool,
 ) (*DNSProxy, error) {
 	if port == 0 {
 		log.Debug("DNS Proxy port is configured to 0. A random port will be assigned by the OS.")
 	}
 
-	if lookupEPFunc == nil || notifyFunc == nil {
-		return nil, errors.New("DNS proxy must have lookupEPFunc and notifyFunc provided")
+	if notifyFunc == nil {
+		return nil, errors.New("DNS proxy must have notifyFunc provided")
 	}
 
 	p := &DNSProxy{
@@ -626,6 +630,7 @@ func StartDNSProxy(
 		cache:                    make(regexCache),
 		EnableDNSCompression:     enableDNSCompression,
 		maxIPsPerRestoredDNSRule: maxRestoreDNSIPs,
+		SkipDNSPolicy:            skipDNSPolicy,
 	}
 	if concurrencyLimit > 0 {
 		p.ConcurrencyLimit = semaphore.NewWeighted(int64(concurrencyLimit))
@@ -825,20 +830,10 @@ func (p *DNSProxy) ServeDNS(w dns.ResponseWriter, request *dns.Msg) {
 		p.sendRefused(scopedLog, w, request)
 		return
 	}
-	ep, err := p.LookupEndpointByIP(net.ParseIP(addr))
-	if err != nil {
-		scopedLog.WithError(err).Error("cannot extract endpoint ID from DNS request")
-		stat.Err = fmt.Errorf("Cannot extract endpoint ID from DNS request: %w", err)
-		stat.ProcessingTime.End(false)
-		p.NotifyOnDNSMsg(time.Now(), nil, epIPPort, 0, "", request, protocol, false, &stat)
-		p.sendRefused(scopedLog, w, request)
-		return
-	}
-
-	scopedLog = scopedLog.WithFields(logrus.Fields{
-		logfields.EndpointID: ep.StringID(),
-		logfields.Identity:   ep.GetIdentity(),
-	})
+	var ep *endpoint.Endpoint
+	var targetServerAddrStr string
+	var targetServerIP net.IP
+	targetServerID := identity.ReservedIdentityWorld
 
 	targetServerIP, targetServerPort, targetServerAddrStr, err := p.lookupTargetDNSServer(w)
 	if err != nil {
@@ -850,45 +845,63 @@ func (p *DNSProxy) ServeDNS(w dns.ResponseWriter, request *dns.Msg) {
 		return
 	}
 
-	targetServerID := identity.ReservedIdentityWorld
 	// Ignore invalid IP - getter will handle invalid value.
 	targetServerAddr, _ := ippkg.AddrFromIP(targetServerIP)
-	if serverSecID, exists := p.LookupSecIDByIP(targetServerAddr); !exists {
-		scopedLog.WithField("server", targetServerAddrStr).Debug("cannot find server ip in ipcache, defaulting to WORLD")
-	} else {
-		targetServerID = serverSecID.ID
-		scopedLog.WithField("server", targetServerAddrStr).Debugf("Found target server to of DNS request secID %+v", serverSecID)
+
+	if p.LookupRegisteredEndpoint != nil {
+		ep, err = p.LookupEndpointByIP(net.ParseIP(addr))
+		if err != nil {
+			scopedLog.WithError(err).Error("cannot extract endpoint ID from DNS request")
+			stat.Err = fmt.Errorf("Cannot extract endpoint ID from DNS request: %w", err)
+			stat.ProcessingTime.End(false)
+			p.NotifyOnDNSMsg(time.Now(), nil, epIPPort, 0, "", request, protocol, false, &stat)
+			p.sendRefused(scopedLog, w, request)
+			return
+		}
 	}
 
-	// The allowed check is first because we don't want to use DNS responses that
-	// endpoints are not allowed to see.
-	// Note: The cache doesn't know about the source of the DNS data (yet) and so
-	// it won't enforce any separation between results from different endpoints.
-	// This isn't ideal but we are trusting the DNS responses anyway.
-	stat.PolicyCheckTime.Start()
-	allowed, err := p.CheckAllowed(uint64(ep.ID), targetServerPort, targetServerID, targetServerIP, qname)
-	stat.PolicyCheckTime.End(err == nil)
-	switch {
-	case err != nil:
-		scopedLog.WithError(err).Error("Rejecting DNS query from endpoint due to error")
-		stat.Err = fmt.Errorf("Rejecting DNS query from endpoint due to error: %w", err)
-		stat.ProcessingTime.End(false)
-		p.NotifyOnDNSMsg(time.Now(), ep, epIPPort, targetServerID, targetServerAddrStr, request, protocol, false, &stat)
-		p.sendRefused(scopedLog, w, request)
-		return
+	if !p.SkipDNSPolicy {
+		scopedLog = scopedLog.WithFields(logrus.Fields{
+			logfields.EndpointID: ep.StringID(),
+			logfields.Identity:   ep.GetIdentity(),
+		})
 
-	case !allowed:
-		scopedLog.Debug("Rejecting DNS query from endpoint due to policy")
-		// Send refused msg before calling NotifyOnDNSMsg() because we know
-		// that this DNS request is rejected anyway. NotifyOnDNSMsg depends on
-		// stat.Err field to be set in order to propagate the correct
-		// information for metrics.
-		stat.Err = p.sendRefused(scopedLog, w, request)
-		stat.ProcessingTime.End(true)
-		p.NotifyOnDNSMsg(time.Now(), ep, epIPPort, targetServerID, targetServerAddrStr, request, protocol, false, &stat)
-		return
+		if serverSecID, exists := p.LookupSecIDByIP(targetServerAddr); !exists {
+			scopedLog.WithField("server", targetServerAddrStr).Debug("cannot find server ip in ipcache, defaulting to WORLD")
+		} else {
+			targetServerID = serverSecID.ID
+			scopedLog.WithField("server", targetServerAddrStr).Debugf("Found target server to of DNS request secID %+v", serverSecID)
+		}
+
+		// The allowed check is first because we don't want to use DNS responses that
+		// endpoints are not allowed to see.
+		// Note: The cache doesn't know about the source of the DNS data (yet) and so
+		// it won't enforce any separation between results from different endpoints.
+		// This isn't ideal but we are trusting the DNS responses anyway.
+		stat.PolicyCheckTime.Start()
+		allowed, err := p.CheckAllowed(uint64(ep.ID), targetServerPort, targetServerID, targetServerIP, qname)
+		stat.PolicyCheckTime.End(err == nil)
+		switch {
+		case err != nil:
+			scopedLog.WithError(err).Error("Rejecting DNS query from endpoint due to error")
+			stat.Err = fmt.Errorf("Rejecting DNS query from endpoint due to error: %w", err)
+			stat.ProcessingTime.End(false)
+			p.NotifyOnDNSMsg(time.Now(), ep, epIPPort, targetServerID, targetServerAddrStr, request, protocol, false, &stat)
+			p.sendRefused(scopedLog, w, request)
+			return
+
+		case !allowed:
+			scopedLog.Debug("Rejecting DNS query from endpoint due to policy")
+			// Send refused msg before calling NotifyOnDNSMsg() because we know
+			// that this DNS request is rejected anyway. NotifyOnDNSMsg depends on
+			// stat.Err field to be set in order to propagate the correct
+			// information for metrics.
+			stat.Err = p.sendRefused(scopedLog, w, request)
+			stat.ProcessingTime.End(true)
+			p.NotifyOnDNSMsg(time.Now(), ep, epIPPort, targetServerID, targetServerAddrStr, request, protocol, false, &stat)
+			return
+		}
 	}
-
 	scopedLog.Debug("Forwarding DNS request for a name that is allowed")
 	p.NotifyOnDNSMsg(time.Now(), ep, epIPPort, targetServerID, targetServerAddrStr, request, protocol, true, &stat)
 
@@ -916,7 +929,9 @@ func (p *DNSProxy) ServeDNS(w dns.ResponseWriter, request *dns.Msg) {
 		Control: func(network, address string, c syscall.RawConn) error {
 			var soerr error
 			if err := c.Control(func(su uintptr) {
-				soerr = setSoMark(int(su), ep.GetIdentity())
+				if !p.SkipDNSPolicy {
+					soerr = setSoMark(int(su), ep.GetIdentity())
+				}
 			}); err != nil {
 				return err
 			}

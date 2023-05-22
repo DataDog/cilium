@@ -838,6 +838,7 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params *daemonParams
 	}
 
 	bootstrapStats.fqdn.End(true)
+	d.bootstrapFqdnCollector()
 
 	if params.Clientset.IsEnabled() {
 		bootstrapStats.k8sInit.Start()
