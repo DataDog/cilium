@@ -20,6 +20,7 @@ When running Cilium using the container image ``cilium/cilium``, the host
 system must meet these requirements:
 
 - `Linux kernel`_ >= 4.9.17
+- Hosts with either AMD64 or AArch64 architecture
 
 When running Cilium as a native process on your host (i.e. **not** running the
 ``cilium/cilium`` container image) these additional requirements must be met:
@@ -46,6 +47,14 @@ iproute2                 >= 5.9.0 [#iproute2_foot]_ yes
 
 .. [#iproute2_foot] Requires support for eBPF templating as documented
    :ref:`below <iproute2_requirements>`.
+
+Architecture Support
+====================
+
+Cilium images are built for the following platforms:
+
+- AMD64
+- AArch64
 
 Linux Distribution Compatibility & Considerations 
 =================================================
@@ -173,6 +182,7 @@ linked, either choice is valid.
         CONFIG_CRYPTO_USER_API_HASH=y
         CONFIG_CGROUPS=y
         CONFIG_CGROUP_BPF=y
+        CONFIG_PERF_EVENTS=y
 
 .. note::
 
@@ -231,7 +241,7 @@ Requirements for IPsec
 The :ref:`encryption_ipsec` feature requires a lot of kernel configuration
 options, most of which to enable the actual encryption. Note that the
 specific options required depend on the algorithm. The list below
-corresponds to requirements for GMC-128-AES.
+corresponds to requirements for GCM-128-AES.
 
 ::
 

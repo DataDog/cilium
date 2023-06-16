@@ -194,6 +194,10 @@ const (
 	// EnableIPSec is the default value for IPSec enablement
 	EnableIPSec = false
 
+	// Enable watcher for IPsec key. If disabled, a restart of the agent will
+	// be necessary on key rotations.
+	EnableIPsecKeyWatcher = true
+
 	// EncryptNode enables encrypting traffic from host networking applications
 	// which are not part of Cilium manged pods.
 	EncryptNode = false
@@ -458,6 +462,9 @@ const (
 
 	// EnableICMPRules enables ICMP-based rule support for Cilium Network Policies.
 	EnableICMPRules = false
+
+	// Use the CiliumInternalIPs (vs. NodeInternalIPs) for IPsec encapsulation.
+	UseCiliumInternalIPForIPsec = false
 
 	// TunnelPortVXLAN is the default VXLAN port
 	TunnelPortVXLAN = 8472

@@ -92,7 +92,9 @@
 #define CILIUM_CALL_IPV4_FROM_HOST		22
 #define CILIUM_CALL_IPV6_FROM_HOST		23
 #define CILIUM_CALL_IPV6_ENCAP_NODEPORT_NAT	24
-#define CILIUM_CALL_SIZE			25
+#define CILIUM_CALL_IPV4_FROM_LXC_CONT		25
+#define CILIUM_CALL_IPV6_FROM_LXC_CONT		26
+#define CILIUM_CALL_SIZE			27
 
 typedef __u64 mac_t;
 
@@ -204,10 +206,8 @@ __revalidate_data_pull(struct __ctx_buff *ctx, void **data, void **data_end,
 #define ENDPOINT_KEY_IPV4 1
 #define ENDPOINT_KEY_IPV6 2
 
-/* Structure representing an IPv4 or IPv6 address, being used for:
- *  - key as endpoints map
- *  - key for tunnel endpoint map
- *  - value for tunnel endpoint map
+/* Structure representing an IPv4 or IPv6 address, being used as the key
+ * for the endpoints map.
  */
 struct endpoint_key {
 	union {
@@ -222,6 +222,36 @@ struct endpoint_key {
 	__u8 family;
 	__u8 key;
 	__u16 pad5;
+} __packed;
+
+struct tunnel_key {
+	union {
+		struct {
+			__u32		ip4;
+			__u32		pad1;
+			__u32		pad2;
+			__u32		pad3;
+		};
+		union v6addr	ip6;
+	};
+	__u8 family;
+	__u8 cluster_id;
+	__u16 pad;
+} __packed;
+
+struct tunnel_value {
+	union {
+		struct {
+			__u32		ip4;
+			__u32		pad1;
+			__u32		pad2;
+			__u32		pad3;
+		};
+		union v6addr	ip6;
+	};
+	__u8 family;
+	__u8 key;
+	__u16 node_id;
 } __packed;
 
 #define ENDPOINT_F_HOST		1 /* Special endpoint representing local host */
@@ -251,6 +281,7 @@ struct edt_info {
 struct remote_endpoint_info {
 	__u32		sec_label;
 	__u32		tunnel_endpoint;
+	__u16		node_id;
 	__u8		key;
 };
 
@@ -576,18 +607,22 @@ enum {
 	CB_IFINDEX,
 #define	CB_ADDR_V4		CB_IFINDEX	/* Alias, non-overlapping */
 #define	CB_ADDR_V6_1		CB_IFINDEX	/* Alias, non-overlapping */
-#define	CB_ENCRYPT_IDENTITY	CB_IFINDEX	/* Alias, non-overlapping */
 #define	CB_IPCACHE_SRC_LABEL	CB_IFINDEX	/* Alias, non-overlapping */
 	CB_POLICY,
 #define	CB_ADDR_V6_2		CB_POLICY	/* Alias, non-overlapping */
+#define	CB_BACKEND_ID		CB_POLICY	/* Alias, non-overlapping */
 	CB_NAT46_STATE,
 #define CB_NAT			CB_NAT46_STATE	/* Alias, non-overlapping */
 #define	CB_ADDR_V6_3		CB_NAT46_STATE	/* Alias, non-overlapping */
 #define	CB_FROM_HOST		CB_NAT46_STATE	/* Alias, non-overlapping */
 	CB_CT_STATE,
 #define	CB_ADDR_V6_4		CB_CT_STATE	/* Alias, non-overlapping */
+#define	CB_ENCRYPT_IDENTITY	CB_CT_STATE	/* Alias, non-overlapping,
+						 * Not used by xfrm.
+						 */
 #define	CB_ENCRYPT_DST		CB_CT_STATE	/* Alias, non-overlapping,
 						 * Not used by xfrm.
+						 * Can be removed in v1.15.
 						 */
 #define	CB_CUSTOM_CALLS		CB_CT_STATE	/* Alias, non-overlapping */
 };

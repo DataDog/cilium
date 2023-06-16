@@ -263,6 +263,23 @@ var _ = Describe("K8sDatapathConfig", func() {
 			}
 		})
 
+		SkipItIf(func() bool {
+			// IPsec + encapsulation requires Linux 4.19.
+			// We also can't disable KPR on GKE at the moment (cf. #16597).
+			return helpers.RunsWithoutKubeProxy() || helpers.DoesNotRunOn419OrLaterKernel() || helpers.RunsOnGKE()
+		}, "Check connectivity with transparent encryption, VXLAN, and endpoint routes", func() {
+			deploymentManager.Deploy(helpers.CiliumNamespace, IPSecSecret)
+			options := map[string]string{
+				"kubeProxyReplacement":   "disabled",
+				"encryption.enabled":     "true",
+				"endpointRoutes.enabled": "true",
+			}
+			enableVXLANTunneling(options)
+			deploymentManager.DeployCilium(options, DeployCiliumOptionsAndDNS)
+			validateBPFTunnelMap()
+			Expect(testPodConnectivityAcrossNodes(kubectl)).Should(BeTrue(), "Connectivity test with IPsec between nodes failed")
+		}, 600)
+
 		It("Check iptables masquerading with random-fully", func() {
 			options := map[string]string{
 				"bpf.masquerade":      "false",
@@ -826,10 +843,6 @@ var _ = Describe("K8sDatapathConfig", func() {
 			kubectl.Exec("kubectl label nodes --all status-")
 		})
 
-		AfterEach(func() {
-			kubectl.Exec(fmt.Sprintf("%s delete --all ccnp", helpers.KubectlCmd))
-		})
-
 		SkipItIf(func() bool {
 			return !helpers.IsIntegration(helpers.CIIntegrationGKE)
 		}, "Check connectivity with IPv6 disabled", func() {
@@ -946,6 +959,10 @@ func testHostFirewall(kubectl *helpers.Kubectl) {
 	By(fmt.Sprintf("Applying policies %s", demoHostPolicies))
 	_, err := kubectl.CiliumClusterwidePolicyAction(demoHostPolicies, helpers.KubectlApply, helpers.HelperTimeout)
 	ExpectWithOffset(1, err).Should(BeNil(), fmt.Sprintf("Error creating resource %s: %s", demoHostPolicies, err))
+	defer func() {
+		_, err := kubectl.CiliumClusterwidePolicyAction(demoHostPolicies, helpers.KubectlDelete, helpers.HelperTimeout)
+		ExpectWithOffset(1, err).Should(BeNil(), fmt.Sprintf("Error deleting resource %s: %s", demoHostPolicies, err))
+	}()
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -1077,18 +1094,24 @@ func fetchPodsWithOffset(kubectl *helpers.Kubectl, namespace, name, filter, host
 	return targetPod, targetPodJSON
 }
 
-func applyL3Policy(kubectl *helpers.Kubectl, ns string) {
+func applyL3Policy(kubectl *helpers.Kubectl, ns string) (withdrawPolicy func()) {
 	demoPolicyL3 := helpers.ManifestGet(kubectl.BasePath(), "l3-policy-demo.yaml")
 	By(fmt.Sprintf("Applying policy %s", demoPolicyL3))
 	_, err := kubectl.CiliumPolicyAction(ns, demoPolicyL3, helpers.KubectlApply, helpers.HelperTimeout)
 	ExpectWithOffset(1, err).Should(BeNil(), fmt.Sprintf("Error creating resource %s: %s", demoPolicyL3, err))
+
+	return func() {
+		_, err := kubectl.CiliumPolicyAction(ns, demoPolicyL3, helpers.KubectlDelete, helpers.HelperTimeout)
+		ExpectWithOffset(1, err).Should(BeNil(), fmt.Sprintf("Error deleting resource %s: %s", demoPolicyL3, err))
+	}
 }
 
 func testPodConnectivityAndReturnIP(kubectl *helpers.Kubectl, requireMultiNode bool, callOffset int) (bool, string) {
 	callOffset++
 
 	randomNamespace := deploymentManager.DeployRandomNamespaceShared(DemoDaemonSet)
-	applyL3Policy(kubectl, randomNamespace)
+	withdrawPolicy := applyL3Policy(kubectl, randomNamespace)
+	defer withdrawPolicy()
 	deploymentManager.WaitUntilReady()
 
 	By("Checking pod connectivity between nodes")
@@ -1144,7 +1167,8 @@ func testPodHTTPToOutside(kubectl *helpers.Kubectl, outsideURL string, expectNod
 	var podIPs map[string]string
 
 	namespace := deploymentManager.DeployRandomNamespaceShared(DemoDaemonSet)
-	applyL3Policy(kubectl, namespace)
+	withdrawPolicy := applyL3Policy(kubectl, namespace)
+	defer withdrawPolicy()
 	deploymentManager.WaitUntilReady()
 
 	label := "zgroup=testDSClient"

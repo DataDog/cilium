@@ -512,6 +512,8 @@ func NewDaemon(ctx context.Context, cancel context.CancelFunc, epMgr *endpointma
 	ipcache.IdentityAllocator = d.identityAllocator
 	proxy.Allocator = d.identityAllocator
 
+	ipcache.NodeHandler = dp.NodeIDs()
+
 	// Preallocate IDs for old CIDRs. This must be done before any Identity allocations are
 	// possible so that the old IDs are still available. That is why we do this ASAP after the
 	// new (userspace) ipcache is created above.
@@ -627,6 +629,10 @@ func NewDaemon(ctx context.Context, cancel context.CancelFunc, epMgr *endpointma
 		ipcache.UpsertGeneratedIdentities(restoredCIDRidentities, nil)
 	}
 
+	// Now that BPF maps are opened, we can restore node IDs to the node
+	// manager.
+	d.datapath.NodeIDs().RestoreNodeIDs()
+
 	// Read the service IDs of existing services from the BPF map and
 	// reserve them. This must be done *before* connecting to the
 	// Kubernetes apiserver and serving the API to ensure service IDs are
@@ -728,6 +734,8 @@ func NewDaemon(ctx context.Context, cancel context.CancelFunc, epMgr *endpointma
 		if err := wgAgent.Init(mtuConfig); err != nil {
 			log.WithError(err).Error("failed to initialize wireguard agent")
 		}
+
+		d.nodeDiscovery.Manager.Subscribe(wgAgent)
 	}
 
 	// Perform an early probe on the underlying kernel on whether BandwidthManager

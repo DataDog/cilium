@@ -159,8 +159,20 @@ resolve_srcid_ipv6(struct __ctx_buff *ctx, __u32 srcid_from_proxy,
 	if (identity_is_reserved(srcid_from_ipcache)) {
 		src = (union v6addr *) &ip6->saddr;
 		info = lookup_ip6_remote_endpoint(src);
-		if (info != NULL && info->sec_label)
-			srcid_from_ipcache = info->sec_label;
+		if (info) {
+			if (info->sec_label) {
+				/* When SNAT is enabled on traffic ingressing
+				 * into Cilium, all traffic from the world will
+				 * have a source IP of the host. It will only
+				 * actually be from the host if "srcid_from_proxy"
+				 * (passed into this function) reports the src as
+				 * the host. So we can ignore the ipcache if it
+				 * reports the source as HOST_ID.
+				 */
+				if (info->sec_label != HOST_ID)
+					srcid_from_ipcache = info->sec_label;
+			}
+		}
 		cilium_dbg(ctx, info ? DBG_IP_ID_MAP_SUCCEED6 : DBG_IP_ID_MAP_FAILED6,
 			   ((__u32 *) src)[3], srcid_from_ipcache);
 	}
@@ -277,7 +289,7 @@ skip_host_firewall:
 	info = ipcache_lookup6(&IPCACHE_MAP, dst, V6_CACHE_KEY_LEN);
 	if (info != NULL && info->tunnel_endpoint != 0) {
 		ret = encap_and_redirect_with_nodeid(ctx, info->tunnel_endpoint,
-							 info->key,
+							 info->key, info->node_id,
 							 secctx, TRACE_PAYLOAD_LEN);
 
 		/* If IPSEC is needed recirc through ingress to use xfrm stack
@@ -289,7 +301,7 @@ skip_host_firewall:
 		else
 			return ret;
 	} else {
-		struct endpoint_key key = {};
+		struct tunnel_key key = {};
 
 		/* IPv6 lookup key: daddr/96 */
 		dst = (union v6addr *) &ip6->daddr;
@@ -318,12 +330,8 @@ skip_host_firewall:
 	if (info && info->key && info->tunnel_endpoint) {
 		__u8 key = get_min_encrypt_key(info->key);
 
-		set_encrypt_key_meta(ctx, key);
-#ifdef IP_POOLS
-		set_encrypt_dip(ctx, info->tunnel_endpoint);
-#else
+		set_encrypt_key_meta(ctx, key, info->node_id);
 		set_identity_meta(ctx, secctx);
-#endif
 	}
 #endif
 	return CTX_ACT_OK;
@@ -556,8 +564,8 @@ handle_ipv4(struct __ctx_buff *ctx, __u32 secctx,
 	info = ipcache_lookup4(&IPCACHE_MAP, ip4->daddr, V4_CACHE_KEY_LEN);
 	if (info != NULL && info->tunnel_endpoint != 0) {
 		ret = encap_and_redirect_with_nodeid(ctx, info->tunnel_endpoint,
-						     info->key, secctx,
-						     TRACE_PAYLOAD_LEN);
+						     info->key, info->node_id,
+						     secctx, TRACE_PAYLOAD_LEN);
 
 		if (ret == IPSEC_ENDPOINT)
 			return CTX_ACT_OK;
@@ -565,7 +573,7 @@ handle_ipv4(struct __ctx_buff *ctx, __u32 secctx,
 			return ret;
 	} else {
 		/* IPv4 lookup key: daddr & IPV4_MASK */
-		struct endpoint_key key = {};
+		struct tunnel_key key = {};
 
 		key.ip4 = ip4->daddr & IPV4_MASK;
 		key.family = ENDPOINT_KEY_IPV4;
@@ -597,12 +605,8 @@ handle_ipv4(struct __ctx_buff *ctx, __u32 secctx,
 	if (info && info->key && info->tunnel_endpoint) {
 		__u8 key = get_min_encrypt_key(info->key);
 
-		set_encrypt_key_meta(ctx, key);
-#ifdef IP_POOLS
-		set_encrypt_dip(ctx, info->tunnel_endpoint);
-#else
+		set_encrypt_key_meta(ctx, key, info->node_id);
 		set_identity_meta(ctx, secctx);
-#endif
 	}
 #endif
 	return CTX_ACT_OK;
@@ -672,63 +676,63 @@ static __always_inline int
 do_netdev_encrypt_pools(struct __ctx_buff *ctx __maybe_unused)
 {
 	int ret = 0;
-#ifdef IP_POOLS
 	__u32 tunnel_endpoint = 0;
 	void *data, *data_end;
 	__u32 tunnel_source = IPV4_ENCRYPT_IFACE;
-	struct iphdr *iphdr;
+	struct iphdr *ip4;
 	__be32 sum;
 
-	tunnel_endpoint = ctx_load_meta(ctx, 4);
+	tunnel_endpoint = ctx_load_meta(ctx, CB_ENCRYPT_DST);
 	ctx->mark = 0;
 
-	if (!revalidate_data(ctx, &data, &data_end, &iphdr)) {
-		ret = DROP_INVALID;
-		goto drop_err;
-	}
+	if (!revalidate_data(ctx, &data, &data_end, &ip4))
+		return DROP_INVALID;
+
+	/* We only need to replace the IPsec outer IP addresses if they are set to
+	 * 0.0.0.0 -> 192.168.0.0. In that case, it means the packet was
+	 * encapsulated by the old XFRM OUT state and we need this BPF logic.
+	 * Otherwise, it means the packet was encapsulated by the new XFRM OUT
+	 * states, which already set the proper outer IP addresses; nothing needed
+	 * here.
+	 * This whole function can be removed in 1.15.
+	 */
+	if (ip4->saddr != 0)
+		return 0;
 
 	/* When IP_POOLS is enabled ip addresses are not
 	 * assigned on a per node basis so lacking node
 	 * affinity we can not use IP address to assign the
 	 * destination IP. Instead rewrite it here from cb[].
 	 */
-	sum = csum_diff(&iphdr->daddr, 4, &tunnel_endpoint, 4, 0);
+	sum = csum_diff(&ip4->daddr, sizeof(__u32), &tunnel_endpoint,
+			sizeof(tunnel_endpoint), 0);
 	if (ctx_store_bytes(ctx, ETH_HLEN + offsetof(struct iphdr, daddr),
-	    &tunnel_endpoint, 4, 0) < 0) {
-		ret = DROP_WRITE_ERROR;
-		goto drop_err;
-	}
+			    &tunnel_endpoint, sizeof(tunnel_endpoint), 0) < 0)
+		return DROP_WRITE_ERROR;
 	if (l3_csum_replace(ctx, ETH_HLEN + offsetof(struct iphdr, check),
-	    0, sum, 0) < 0) {
-		ret = DROP_CSUM_L3;
-		goto drop_err;
-	}
+			    0, sum, 0) < 0)
+		return DROP_CSUM_L3;
 
-	if (!revalidate_data(ctx, &data, &data_end, &iphdr)) {
-		ret = DROP_INVALID;
-		goto drop_err;
-	}
+	if (!revalidate_data(ctx, &data, &data_end, &ip4))
+		return DROP_INVALID;
 
-	sum = csum_diff(&iphdr->saddr, 4, &tunnel_source, 4, 0);
+	sum = csum_diff(&ip4->saddr, sizeof(__u32), &tunnel_source,
+			sizeof(tunnel_source), 0);
 	if (ctx_store_bytes(ctx, ETH_HLEN + offsetof(struct iphdr, saddr),
-	    &tunnel_source, 4, 0) < 0) {
-		ret = DROP_WRITE_ERROR;
-		goto drop_err;
-	}
+			    &tunnel_source, sizeof(tunnel_source), 0) < 0)
+		return DROP_WRITE_ERROR;
 	if (l3_csum_replace(ctx, ETH_HLEN + offsetof(struct iphdr, check),
-	    0, sum, 0) < 0) {
-		ret = DROP_CSUM_L3;
-		goto drop_err;
-	}
-drop_err:
-#endif /* IP_POOLS */
+			    0, sum, 0) < 0)
+		return DROP_CSUM_L3;
+
 	return ret;
 }
 
-static __always_inline int do_netdev_encrypt(struct __ctx_buff *ctx,
-					     __u32 src_id)
+static __always_inline int
+do_netdev_encrypt(struct __ctx_buff *ctx __maybe_unused,
+		  __u32 src_id __maybe_unused)
 {
-	int ret = 0;
+	int ret;
 
 	ret = do_netdev_encrypt_pools(ctx);
 	if (ret)
@@ -740,13 +744,39 @@ static __always_inline int do_netdev_encrypt(struct __ctx_buff *ctx,
 #else /* TUNNEL_MODE */
 static __always_inline int do_netdev_encrypt_encap(struct __ctx_buff *ctx, __u32 src_id)
 {
-	__u32 tunnel_endpoint = 0;
+	struct remote_endpoint_info *ep = NULL;
+	void *data, *data_end;
+	struct ipv6hdr *ip6 __maybe_unused;
+	struct iphdr *ip4 __maybe_unused;
+	__u16 proto;
 
-	tunnel_endpoint = ctx_load_meta(ctx, 4);
+	if (!validate_ethertype(ctx, &proto))
+		return DROP_UNSUPPORTED_L2;
+
+	switch (proto) {
+# ifdef ENABLE_IPV6
+	case bpf_htons(ETH_P_IPV6):
+		if (!revalidate_data(ctx, &data, &data_end, &ip6))
+			return DROP_INVALID;
+		ep = lookup_ip6_remote_endpoint((union v6addr *)&ip6->daddr);
+		break;
+# endif /* ENABLE_IPV6 */
+# ifdef ENABLE_IPV4
+	case bpf_htons(ETH_P_IP):
+		if (!revalidate_data(ctx, &data, &data_end, &ip4))
+			return DROP_INVALID;
+		ep = lookup_ip4_remote_endpoint(ip4->daddr);
+		break;
+# endif /* ENABLE_IPV4 */
+	}
+	if (!ep)
+		return send_drop_notify_error(ctx, src_id,
+					      DROP_NO_TUNNEL_ENDPOINT,
+					      CTX_ACT_DROP, METRIC_EGRESS);
+
 	ctx->mark = 0;
-
 	bpf_clear_meta(ctx);
-	return __encap_and_redirect_with_nodeid(ctx, tunnel_endpoint, src_id, TRACE_PAYLOAD_LEN);
+	return __encap_and_redirect_with_nodeid(ctx, ep->tunnel_endpoint, src_id, TRACE_PAYLOAD_LEN);
 }
 
 static __always_inline int do_netdev_encrypt(struct __ctx_buff *ctx,
@@ -1049,7 +1079,6 @@ int to_host(struct __ctx_buff *ctx)
 	if ((magic & MARK_MAGIC_HOST_MASK) == MARK_MAGIC_ENCRYPT) {
 		ctx->mark = magic; /* CB_ENCRYPT_MAGIC */
 		src_id = ctx_load_meta(ctx, CB_ENCRYPT_IDENTITY);
-		set_identity_mark(ctx, src_id);
 	} else if ((magic & 0xFFFF) == MARK_MAGIC_TO_PROXY) {
 		/* Upper 16 bits may carry proxy port number */
 		__be16 port = magic >> 16;

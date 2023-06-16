@@ -97,7 +97,7 @@ pipeline {
                         env.DOCKER_TAG = env.DOCKER_TAG + "-race"
                         env.RACE = 1
                         env.LOCKDEBUG = 1
-                        env.BASE_IMAGE = "quay.io/cilium/cilium-runtime:b5e10ea2b8f77207faa36132169309053d6be68c@sha256:ccabdbdd6dcbe4ec1167b880d81aef0eabe2e516e4fa36e25497a51ac835ac8a"
+                        env.BASE_IMAGE = "quay.io/cilium/cilium-runtime:26167abd7b6518f8f61423002fa2b7fc380b6c7f@sha256:b12bc03ba455d3165f7a969fc1b507fd9370445bf78a1e20a8f4c8c544bd28a7"
                     }
                 }
             }
@@ -199,7 +199,7 @@ pipeline {
         }
         stage ("BDD-Test-PR"){
             options {
-                timeout(time: 180, unit: 'MINUTES')
+                timeout(time: 210, unit: 'MINUTES')
             }
             environment {
                 KUBECONFIG="${TESTDIR}/vagrant-kubeconfig"

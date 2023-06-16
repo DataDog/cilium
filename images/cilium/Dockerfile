@@ -3,18 +3,18 @@
 # Copyright 2020-2021 Authors of Cilium
 # SPDX-License-Identifier: Apache-2.0
 
-ARG CILIUM_BUILDER_IMAGE=quay.io/cilium/cilium-builder:fa81c6a1224623533eb3d63753f9527f1fe3b5cd@sha256:01cbcfdc1416d8aeb0fac9cfd1c40e506a86054d5e789dbda78697ef354301fe
-ARG CILIUM_RUNTIME_IMAGE=quay.io/cilium/cilium-runtime:b5e10ea2b8f77207faa36132169309053d6be68c@sha256:ccabdbdd6dcbe4ec1167b880d81aef0eabe2e516e4fa36e25497a51ac835ac8a
+ARG CILIUM_BUILDER_IMAGE=quay.io/cilium/cilium-builder:4f893ca18085968d9bdaad5404bda0ffaf9cff98@sha256:ea993d559de47411c0a4c960cfa6e14bc0dcaa90604b364cbe2160498f8c790f
+ARG CILIUM_RUNTIME_IMAGE=quay.io/cilium/cilium-runtime:26167abd7b6518f8f61423002fa2b7fc380b6c7f@sha256:b12bc03ba455d3165f7a969fc1b507fd9370445bf78a1e20a8f4c8c544bd28a7
+
 
 # cilium-envoy from github.com/cilium/proxy
 #
-FROM quay.io/cilium/cilium-envoy:3b70fad0b9514720f33db82841907821202c1f02@sha256:8cca16ce66a0960a207cbf518ee2e0d923ae2a49207b154cdc37c2d95f583180 as cilium-envoy
+FROM quay.io/cilium/cilium-envoy:v1.23-0c056b5821621f5407fd4844a333f25b1157556f@sha256:61a274f0beebc84fb0d752e8847353e697203bd851237f2d11090115c48e4e8e as cilium-envoy
 
 #
 # Hubble CLI
 #
 FROM --platform=${BUILDPLATFORM} ${CILIUM_BUILDER_IMAGE} as hubble
-COPY images/cilium/hubble-version.sh /tmp/hubble-version.sh
 COPY images/cilium/download-hubble.sh /tmp/download-hubble.sh
 RUN /tmp/download-hubble.sh
 RUN /out/linux/amd64/bin/hubble completion bash > /out/linux/bash_completion
@@ -61,6 +61,7 @@ RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium --mount=
 
 COPY images/cilium/init-container.sh \
      plugins/cilium-cni/cni-install.sh \
+     plugins/cilium-cni/install-plugin.sh \
      plugins/cilium-cni/cni-uninstall.sh \
        /tmp/install/${TARGETOS}/${TARGETARCH}
 

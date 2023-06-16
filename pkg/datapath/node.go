@@ -7,6 +7,7 @@ import (
 	"context"
 	"net"
 
+	"github.com/cilium/cilium/api/v1/models"
 	"github.com/cilium/cilium/pkg/cidr"
 	"github.com/cilium/cilium/pkg/mtu"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
@@ -124,7 +125,9 @@ type NodeHandler interface {
 	// NodeConfigurationChanged is called when the local node configuration
 	// has changed
 	NodeConfigurationChanged(config LocalNodeConfiguration) error
+}
 
+type NodeNeighbors interface {
 	// NodeNeighDiscoveryEnabled returns whether node neighbor discovery is enabled
 	NodeNeighDiscoveryEnabled() bool
 
@@ -134,4 +137,17 @@ type NodeHandler interface {
 	// NodeCleanNeighbors cleans all neighbor entries for the direct routing device
 	// and the encrypt interface.
 	NodeCleanNeighbors(migrateOnly bool)
+}
+
+type NodeIDHandler interface {
+	// AllocateNodeID allocates a new ID for the given node (by IP) if one wasn't
+	// already assigned.
+	AllocateNodeID(net.IP) uint16
+
+	// DumpNodeIDs returns all node IDs and their associated IP addresses.
+	DumpNodeIDs() []*models.NodeID
+
+	// RestoreNodeIDs restores node IDs and their associated IP addresses from the
+	// BPF map and into the node handler in-memory copy.
+	RestoreNodeIDs()
 }

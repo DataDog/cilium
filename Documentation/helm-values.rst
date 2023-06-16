@@ -96,7 +96,15 @@
    * - certgen
      - Configure certificate generation for Hubble integration. If hubble.tls.auto.method=cronJob, these values are used for the Kubernetes CronJob which will be scheduled regularly to (re)generate any certificates not provided manually.
      - object
-     - ``{"image":{"override":null,"pullPolicy":"IfNotPresent","repository":"quay.io/cilium/certgen","tag":"v0.1.5@sha256:0c2b71bb3469990e7990e7e26243617aa344b5a69a4ce465740b8577f9d48ab9"},"podLabels":{},"ttlSecondsAfterFinished":1800}``
+     - ``{"extraVolumeMounts":[],"extraVolumes":[],"image":{"override":null,"pullPolicy":"IfNotPresent","repository":"quay.io/cilium/certgen","tag":"v0.1.5@sha256:0c2b71bb3469990e7990e7e26243617aa344b5a69a4ce465740b8577f9d48ab9"},"podLabels":{},"ttlSecondsAfterFinished":1800}``
+   * - certgen.extraVolumeMounts
+     - Additional certgen volumeMounts.
+     - list
+     - ``[]``
+   * - certgen.extraVolumes
+     - Additional certgen volumes.
+     - list
+     - ``[]``
    * - certgen.podLabels
      - Labels to be added to hubble-certgen pods
      - object
@@ -118,11 +126,11 @@
      - string
      - ``"/run/cilium/cgroupv2"``
    * - cleanBpfState
-     - Clean all eBPF datapath state from the initContainer of the cilium-agent DaemonSet. WARNING: Use with care!
+     - Clean all eBPF datapath state from the initContainer of the cilium-agent DaemonSet.  WARNING: Use with care!
      - bool
      - ``false``
    * - cleanState
-     - Clean all local Cilium state from the initContainer of the cilium-agent DaemonSet. Implies cleanBpfState: true. WARNING: Use with care!
+     - Clean all local Cilium state from the initContainer of the cilium-agent DaemonSet. Implies cleanBpfState: true.  WARNING: Use with care!
      - bool
      - ``false``
    * - cluster.id
@@ -137,10 +145,22 @@
      - Clustermesh API server etcd image.
      - object
      - ``{"override":null,"pullPolicy":"IfNotPresent","repository":"quay.io/coreos/etcd","tag":"v3.4.13@sha256:04833b601fa130512450afa45c4fe484fee1293634f34c7ddc231bd193c74017"}``
+   * - clustermesh.apiserver.etcd.securityContext
+     - Security context to be added to clustermesh-apiserver etcd containers
+     - object
+     - ``{}``
+   * - clustermesh.apiserver.extraVolumeMounts
+     - Additional clustermesh-apiserver volumeMounts.
+     - list
+     - ``[]``
+   * - clustermesh.apiserver.extraVolumes
+     - Additional clustermesh-apiserver volumes.
+     - list
+     - ``[]``
    * - clustermesh.apiserver.image
      - Clustermesh API server image.
      - object
-     - ``{"digest":"","override":null,"pullPolicy":"IfNotPresent","repository":"quay.io/cilium/clustermesh-apiserver","tag":"v1.11.13","useDigest":false}``
+     - ``{"digest":"","override":null,"pullPolicy":"IfNotPresent","repository":"quay.io/cilium/clustermesh-apiserver","tag":"v1.11.18","useDigest":false}``
    * - clustermesh.apiserver.nodeSelector
      - Node labels for pod assignment ref: https://kubernetes.io/docs/user-guide/node-selection/
      - object
@@ -151,6 +171,10 @@
      - ``{}``
    * - clustermesh.apiserver.podLabels
      - Labels to be added to clustermesh-apiserver pods
+     - object
+     - ``{}``
+   * - clustermesh.apiserver.podSecurityContext
+     - Security context to be added to clustermesh-apiserver pods
      - object
      - ``{}``
    * - clustermesh.apiserver.priorityClassName
@@ -165,12 +189,16 @@
      - Resource requests and limits for the clustermesh-apiserver container of the clustermesh-apiserver deployment, such as     resources:       limits:         cpu: 1000m         memory: 1024M       requests:         cpu: 100m         memory: 64Mi
      - object
      - ``{}``
+   * - clustermesh.apiserver.securityContext
+     - Security context to be added to clustermesh-apiserver containers
+     - object
+     - ``{}``
    * - clustermesh.apiserver.service.annotations
      - Annotations for the clustermesh-apiserver For GKE LoadBalancer, use annotation cloud.google.com/load-balancer-type: "Internal" For EKS LoadBalancer, use annotation service.beta.kubernetes.io/aws-load-balancer-internal: 0.0.0.0/0
      - object
      - ``{}``
    * - clustermesh.apiserver.service.nodePort
-     - Optional port to use as the node port for apiserver access.
+     - Optional port to use as the node port for apiserver access.  WARNING: make sure to configure a different NodePort in each cluster if kube-proxy replacement is enabled, as Cilium is currently affected by a known bug (#24692) when NodePorts are handled by the KPR implementation. If a service with the same NodePort exists both in the local and the remote cluster, all traffic originating from inside the cluster and targeting the corresponding NodePort will be redirected to a local backend, regardless of whether the destination node belongs to the local or the remote cluster.
      - int
      - ``32379``
    * - clustermesh.apiserver.service.type
@@ -293,6 +321,10 @@
      - Install the CNI configuration and binary files into the filesystem.
      - bool
      - ``true``
+   * - cni.uninstall
+     - Remove the CNI configuration and binary files on agent shutdown. Enable this if you're removing Cilium from the cluster. Disable this to prevent the CNI configuration file from being removed during agent upgrade, which can cause nodes to go unmanageable.
+     - bool
+     - ``true``
    * - containerRuntime
      - Configure container runtime specific integration.
      - object
@@ -381,6 +413,10 @@
      - Name of the key file inside the Kubernetes secret configured via secretName.
      - string
      - ``""``
+   * - encryption.ipsec.keyWatcher
+     - Enable the key watcher. If disabled, a restart of the agent will be necessary on key rotations.
+     - bool
+     - ``true``
    * - encryption.ipsec.mountPath
      - Path to mount the secret inside the Cilium pod.
      - string
@@ -489,6 +525,14 @@
      - Additional InitContainers to initialize the pod.
      - list
      - ``[]``
+   * - etcd.extraVolumeMounts
+     - Additional cilium-etcd-operator volumeMounts.
+     - list
+     - ``[]``
+   * - etcd.extraVolumes
+     - Additional cilium-etcd-operator volumes.
+     - list
+     - ``[]``
    * - etcd.image
      - cilium-etcd-operator image.
      - object
@@ -511,6 +555,10 @@
      - ``{"enabled":true,"maxUnavailable":2}``
    * - etcd.podLabels
      - Labels to be added to cilium-etcd-operator pods
+     - object
+     - ``{}``
+   * - etcd.podSecurityContext
+     - Security context to be added to cilium-etcd-operator pods
      - object
      - ``{}``
    * - etcd.priorityClassName
@@ -622,7 +670,7 @@
      - object
      - ``{"enabled":null,"port":9091,"serviceAnnotations":{},"serviceMonitor":{"annotations":{},"enabled":false,"labels":{}}}``
    * - hubble.metrics.enabled
-     - Configures the list of metrics to collect. If empty or null, metrics are disabled. Example:   enabled:   - dns:query;ignoreAAAA   - drop   - tcp   - flow   - icmp   - http You can specify the list of metrics from the helm CLI:   --set metrics.enabled="{dns:query;ignoreAAAA,drop,tcp,flow,icmp,http}"
+     - Configures the list of metrics to collect. If empty or null, metrics are disabled. Example:    enabled:   - dns:query;ignoreAAAA   - drop   - tcp   - flow   - icmp   - http  You can specify the list of metrics from the helm CLI:    --set metrics.enabled="{dns:query;ignoreAAAA,drop,tcp,flow,icmp,http}"
      - string
      - ``nil``
    * - hubble.metrics.port
@@ -668,7 +716,7 @@
    * - hubble.relay.image
      - Hubble-relay container image.
      - object
-     - ``{"digest":"","override":null,"pullPolicy":"IfNotPresent","repository":"quay.io/cilium/hubble-relay","tag":"v1.11.13","useDigest":false}``
+     - ``{"digest":"","override":null,"pullPolicy":"IfNotPresent","repository":"quay.io/cilium/hubble-relay","tag":"v1.11.18","useDigest":false}``
    * - hubble.relay.listenHost
      - Host to listen to. Specify an empty string to bind to all the interfaces.
      - string
@@ -774,7 +822,7 @@
      - string
      - ``"helm"``
    * - hubble.tls.auto.schedule
-     - Schedule for certificates regeneration (regardless of their expiration date). Only used if method is "cronJob". If nil, then no recurring job will be created. Instead, only the one-shot job is deployed to generate the certificates at installation time. Defaults to midnight of the first day of every fourth month. For syntax, see https://kubernetes.io/docs/tasks/job/automated-tasks-with-cron-jobs/#schedule
+     - Schedule for certificates regeneration (regardless of their expiration date). Only used if method is "cronJob". If nil, then no recurring job will be created. Instead, only the one-shot job is deployed to generate the certificates at installation time.  Defaults to midnight of the first day of every fourth month. For syntax, see https://kubernetes.io/docs/tasks/job/automated-tasks-with-cron-jobs/#schedule
      - string
      - ``"0 0 1 */4 *"``
    * - hubble.tls.ca
@@ -801,22 +849,42 @@
      - Extra IP addresses added to certificate when it's auto generated
      - list
      - ``[]``
+   * - hubble.ui.backend.extraVolumeMounts
+     - Additional hubble-ui backend volumeMounts.
+     - list
+     - ``[]``
+   * - hubble.ui.backend.extraVolumes
+     - Additional hubble-ui backend volumes.
+     - list
+     - ``[]``
    * - hubble.ui.backend.image
      - Hubble-ui backend image.
      - object
-     - ``{"override":null,"pullPolicy":"IfNotPresent","repository":"quay.io/cilium/hubble-ui-backend","tag":"v0.9.2@sha256:a3ac4d5b87889c9f7cc6323e86d3126b0d382933bd64f44382a92778b0cde5d7"}``
+     - ``{"override":null,"pullPolicy":"IfNotPresent","repository":"quay.io/cilium/hubble-ui-backend","tag":"v0.11.0@sha256:14c04d11f78da5c363f88592abae8d2ecee3cbe009f443ef11df6ac5f692d839"}``
    * - hubble.ui.backend.resources
      - Resource requests and limits for the 'backend' container of the 'hubble-ui' deployment.
      - object
      - ``{}``
+   * - hubble.ui.baseUrl
+     - Defines base url prefix for all hubble-ui http requests. It needs to be changed in case if ingress for hubble-ui is configured under some sub-path. Trailing ``/`` is required for custom path, ex. ``/service-map/``
+     - string
+     - ``"/"``
    * - hubble.ui.enabled
      - Whether to enable the Hubble UI.
      - bool
      - ``false``
+   * - hubble.ui.frontend.extraVolumeMounts
+     - Additional hubble-ui frontend volumeMounts.
+     - list
+     - ``[]``
+   * - hubble.ui.frontend.extraVolumes
+     - Additional hubble-ui frontend volumes.
+     - list
+     - ``[]``
    * - hubble.ui.frontend.image
      - Hubble-ui frontend image.
      - object
-     - ``{"override":null,"pullPolicy":"IfNotPresent","repository":"quay.io/cilium/hubble-ui","tag":"v0.9.2@sha256:d3596efc94a41c6b772b9afe6fe47c17417658956e04c3e2a28d293f2670663e"}``
+     - ``{"override":null,"pullPolicy":"IfNotPresent","repository":"quay.io/cilium/hubble-ui","tag":"v0.11.0@sha256:bcb369c47cada2d4257d63d3749f7f87c91dde32e010b223597306de95d1ecc8"}``
    * - hubble.ui.frontend.resources
      - Resource requests and limits for the 'frontend' container of the 'hubble-ui' deployment.
      - object
@@ -884,7 +952,7 @@
    * - image
      - Agent container image.
      - object
-     - ``{"digest":"","override":null,"pullPolicy":"IfNotPresent","repository":"quay.io/cilium/cilium","tag":"v1.11.13","useDigest":false}``
+     - ``{"digest":"","override":null,"pullPolicy":"IfNotPresent","repository":"quay.io/cilium/cilium","tag":"v1.11.18","useDigest":false}``
    * - imagePullSecrets
      - Configure image pull secrets for pulling container images
      - string
@@ -1048,7 +1116,7 @@
    * - nodeinit.image
      - node-init image.
      - object
-     - ``{"override":null,"pullPolicy":"IfNotPresent","repository":"quay.io/cilium/startup-script","tag":"62bfbe88c17778aad7bef9fa57ff9e2d4a9ba0d8"}``
+     - ``{"override":null,"pullPolicy":"IfNotPresent","repository":"quay.io/cilium/startup-script","tag":"62093c5c233ea914bfa26a10ba41f8780d9b737f"}``
    * - nodeinit.nodeSelector
      - Node labels for nodeinit pod assignment ref: https://kubernetes.io/docs/user-guide/node-selection/
      - object
@@ -1132,7 +1200,7 @@
    * - operator.image
      - cilium-operator image.
      - object
-     - ``{"alibabacloudDigest":"","awsDigest":"","azureDigest":"","genericDigest":"","override":null,"pullPolicy":"IfNotPresent","repository":"quay.io/cilium/operator","suffix":"","tag":"v1.11.13","useDigest":false}``
+     - ``{"alibabacloudDigest":"","awsDigest":"","azureDigest":"","genericDigest":"","override":null,"pullPolicy":"IfNotPresent","repository":"quay.io/cilium/operator","suffix":"","tag":"v1.11.18","useDigest":false}``
    * - operator.nodeGCInterval
      - Interval for cilium node garbage collection.
      - string
@@ -1151,6 +1219,10 @@
      - ``{"enabled":false,"maxUnavailable":1}``
    * - operator.podLabels
      - Labels to be added to cilium-operator pods
+     - object
+     - ``{}``
+   * - operator.podSecurityContext
+     - Security context to be added to cilium-operator pods
      - object
      - ``{}``
    * - operator.priorityClassName
@@ -1237,6 +1309,10 @@
      - Labels to be added to agent pods
      - object
      - ``{}``
+   * - podSecurityContext
+     - Security Context for cilium-agent pods.
+     - object
+     - ``{}``
    * - policyEnforcementMode
      - The agent can be put into one of the three policy enforcement modes: default, always and never. ref: https://docs.cilium.io/en/stable/policy/intro/#policy-enforcement-modes
      - string
@@ -1265,10 +1341,18 @@
      - Additional preflight init containers.
      - list
      - ``[]``
+   * - preflight.extraVolumeMounts
+     - Additional preflight volumeMounts.
+     - list
+     - ``[]``
+   * - preflight.extraVolumes
+     - Additional preflight volumes.
+     - list
+     - ``[]``
    * - preflight.image
      - Cilium pre-flight image.
      - object
-     - ``{"digest":"","override":null,"pullPolicy":"IfNotPresent","repository":"quay.io/cilium/cilium","tag":"v1.11.13","useDigest":false}``
+     - ``{"digest":"","override":null,"pullPolicy":"IfNotPresent","repository":"quay.io/cilium/cilium","tag":"v1.11.18","useDigest":false}``
    * - preflight.nodeSelector
      - Node labels for preflight pod assignment ref: https://kubernetes.io/docs/user-guide/node-selection/
      - object
@@ -1283,6 +1367,10 @@
      - ``{"enabled":true,"maxUnavailable":2}``
    * - preflight.podLabels
      - Labels to be added to the preflight pod.
+     - object
+     - ``{}``
+   * - preflight.podSecurityContext
+     - Security context to be added to preflight pods.
      - object
      - ``{}``
    * - preflight.priorityClassName
@@ -1384,11 +1472,11 @@
    * - serviceAccounts.clustermeshcertgen
      - Clustermeshcertgen is used if clustermesh.apiserver.tls.auto.method=cronJob
      - object
-     - ``{"annotations":{},"create":true,"name":"clustermesh-apiserver-generate-certs"}``
+     - ``{"annotations":{},"automount":true,"create":true,"name":"clustermesh-apiserver-generate-certs"}``
    * - serviceAccounts.hubblecertgen
      - Hubblecertgen is used if hubble.tls.auto.method=cronJob
      - object
-     - ``{"annotations":{},"create":true,"name":"hubble-generate-certs"}``
+     - ``{"annotations":{},"automount":true,"create":true,"name":"hubble-generate-certs"}``
    * - sleepAfterInit
      - Do not run Cilium agent when running with clean mode. Useful to completely uninstall Cilium as it will stop Cilium from starting and create artifacts in the node.
      - bool

@@ -51,6 +51,7 @@ Benjamin Pineau                         benjamin.pineau@datadoghq.com
 Bill Mulligan                           billmulligan516@gmail.com
 Bingshen Wang                           bingshen.wbs@alibaba-inc.com
 Bingwu Yang                             detailyang@gmail.com
+Birol Bilgin                            birol@cilium.io
 Bob Bouteillier                         bob.bouteillier@datadoghq.com
 Bokang Li                               libokang.dev@gmail.com
 Bolun Zhao                              blzhao@google.com
@@ -90,6 +91,7 @@ Daniel T. Lee                           danieltimlee@gmail.com
 Danni Skov Høglund                      skuffe@pwnz.dk
 Dan Sexton                              dan.b.sexton@gmail.com
 Dan Wendlandt                           dan@covalent.io
+darox                                   maderdario@gmail.com
 Darren Foo                              darren.foo@shopify.com
 Darren Mackintosh                       unixdaddy@gmail.com
 Darshan Chaudhary                       deathbullet@gmail.com
@@ -148,9 +150,11 @@ Gilberto Bertin                         jibi@cilium.io
 Glib Smaga                              code@gsmaga.com
 Gobinath Krishnamoorthy                 gobinathk@google.com
 Gowtham Sundara                         gowtham.sundara@rapyuta-robotics.com
+gray                                    gray.liang@isovalent.com
 Guilherme Oki                           guilherme.oki@wildlifestudios.com
 Guilherme Souza                         101073+guilhermef@users.noreply.github.com
 Han Zhou                                hzhou8@ebay.com
+harsimran pabla                         hpabla@isovalent.com
 Hart Hoover                             hart.hoover@gmail.com
 Hemanth Malla                           hemanth.malla@datadoghq.com
 Hemslo Wang                             hemslo.wang@gmail.com
@@ -169,6 +173,7 @@ Jan-Erik Rediger                        janerik@fnordig.de
 Jarno Rajahalme                         jarno@isovalent.com
 Jean Raby                               jean@raby.sh
 Jed Salazar                             jed@isovalent.com
+Jef Spaleta                             jspaleta@gmail.com
 Jerry J. Muzsik                         jerrymuzsik@icloud.com
 Jess Frazelle                           acidburn@microsoft.com
 Jianlin Lv                              Jianlin.Lv@arm.com
@@ -223,6 +228,7 @@ Li Yi                                   denverdino@gmail.com
 Liz Rice                                liz@lizrice.com
 Lorenzo Fundaró                         lorenzofundaro@gmail.com
 Louis DeLosSantos                       louis@isovalent.com
+Maartje Eyskens                         maartje.eyskens@isovalent.com
 Maciej Fijalkowski                      maciej.fijalkowski@intel.com
 Maciej Kwiek                            maciej@isovalent.com
 Maciej Skrocki                          maciejskrocki@google.com
@@ -233,12 +239,16 @@ Maksym Lushpenko                        iviakciivi@gmail.com
 Manali Bhutiyani                        manali@covalent.io
 Mandar U Jog                            mjog@google.com
 Manuel Buil                             mbuil@suse.com
+Marcel Zieba                            marcel.zieba@isovalent.com
 Marcin Skarbek                          git@skarbek.name
+Marco Iorio                             marco.iorio@isovalent.com
 Marc Stulz                              m@footek.ch
+Marga Manterola                         marga@isovalent.com
 Marius Gerling                          marius.gerling@uniberg.com
 Mark deVilliers                         markdevilliers@gmail.com
 Martin Charles                          martincharles07@gmail.com
 Martin Koppehel                         martin.koppehel@st.ovgu.de
+Martin Odstrcilik                       martin.odstrcilik@gmail.com
 Martynas Pumputis                       m@lambda.lt
 Matej Gera                              matejgera@gmail.com
 Mathias Herzog                          mathu@gmx.ch
@@ -249,6 +259,7 @@ Mauricio Vásquez                        mauricio@kinvolk.io
 Maxime Visonneau                        maxime.visonneau@gmail.com
 Maximilian Bischoff                     maximilian.bischoff@inovex.de
 Maximilian Mack                         max@mack.io
+Maxim Mikityanskiy                      maxim@isovalent.com
 Melissa Peiffer                         mbp83@nau.edu
 Michael Fischer                         fiscmi@amazon.com
 Michael Fornaro                         20387402+xUnholy@users.noreply.github.com
@@ -285,7 +296,7 @@ Patrice Chalin                          chalin@cncf.io
 Patrice Peterson                        patrice.peterson@mailbox.org
 Patrick Mahoney                         pmahoney@greenkeytech.com
 Patrik Cyvoct                           patrik@ptrk.io
-Paul Chaignon                           paul@cilium.io
+Paul Chaignon                           paul.chaignon@gmail.com
 Paweł Prażak                            pawelprazak@users.noreply.github.com
 Peiqi Shi                               uestc.shi@gmail.com
 Peter Slovak                            slovak.peto@gmail.com
@@ -338,6 +349,7 @@ Smaine Kahlouch                         smainklh@gmail.com
 Stephen Martin                          lockwood@opperline.com
 Steven Ceuppens                         steven.ceuppens@icloud.com
 Steven Dake                             steven.dake@gmail.com
+Steven Johnson                          sjdot@protonmail.com
 Steven Normore                          snormore@digitalocean.com
 Stevo Slavić                            sslavic@gmail.com
 Stijn Smits                             stijn@stijn98s.nl

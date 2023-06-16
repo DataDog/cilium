@@ -12,8 +12,8 @@
 #ifdef ENCAP_IFINDEX
 #ifdef ENABLE_IPSEC
 static __always_inline int
-encap_and_redirect_nomark_ipsec(struct __ctx_buff *ctx, __u32 tunnel_endpoint,
-				__u8 key, __u32 seclabel)
+encap_and_redirect_nomark_ipsec(struct __ctx_buff *ctx, __u8 key,
+				__u16 node_id, __u32 seclabel)
 {
 	/* Traffic from local host in tunnel mode will be passed to
 	 * cilium_host. In non-IPSec case traffic with non-local dst
@@ -29,15 +29,14 @@ encap_and_redirect_nomark_ipsec(struct __ctx_buff *ctx, __u32 tunnel_endpoint,
 	 * use cb[4] here so it doesn't need to be reset by
 	 * bpf_host.
 	 */
-	ctx_store_meta(ctx, CB_ENCRYPT_MAGIC, or_encrypt_key(key));
+	set_encrypt_key_meta(ctx, key, node_id);
 	ctx_store_meta(ctx, CB_ENCRYPT_IDENTITY, seclabel);
-	ctx_store_meta(ctx, CB_ENCRYPT_DST, tunnel_endpoint);
 	return IPSEC_ENDPOINT;
 }
 
 static __always_inline int
-encap_and_redirect_ipsec(struct __ctx_buff *ctx, __u32 tunnel_endpoint,
-			 __u8 key, __u32 seclabel)
+encap_and_redirect_ipsec(struct __ctx_buff *ctx, __u8 key, __u16 node_id,
+			 __u32 seclabel)
 {
 	/* IPSec is performed by the stack on any packets with the
 	 * MARK_MAGIC_ENCRYPT bit set. During the process though we
@@ -46,9 +45,8 @@ encap_and_redirect_ipsec(struct __ctx_buff *ctx, __u32 tunnel_endpoint,
 	 * label is stashed in the mark and extracted in bpf_host
 	 * to send ctx onto tunnel for encap.
 	 */
-	set_encrypt_key_mark(ctx, key);
-	set_identity_mark(ctx, seclabel);
-	ctx_store_meta(ctx, CB_ENCRYPT_DST, tunnel_endpoint);
+	set_encrypt_key_mark(ctx, key, node_id);
+	set_identity_meta(ctx, seclabel);
 	return IPSEC_ENDPOINT;
 }
 #endif /* ENABLE_IPSEC */
@@ -161,12 +159,13 @@ __encap_and_redirect_with_nodeid(struct __ctx_buff *ctx, __u32 tunnel_endpoint,
  */
 static __always_inline int
 encap_and_redirect_with_nodeid(struct __ctx_buff *ctx, __u32 tunnel_endpoint,
-			       __u8 key __maybe_unused, __u32 seclabel,
+			       __u8 key __maybe_unused,
+			       __u16 node_id __maybe_unused, __u32 seclabel,
 			       __u32 monitor)
 {
 #ifdef ENABLE_IPSEC
 	if (key)
-		return encap_and_redirect_nomark_ipsec(ctx, tunnel_endpoint, key, seclabel);
+		return encap_and_redirect_nomark_ipsec(ctx, key, node_id, seclabel);
 #endif
 	return __encap_and_redirect_with_nodeid(ctx, tunnel_endpoint, seclabel, monitor);
 }
@@ -184,15 +183,16 @@ encap_and_redirect_with_nodeid(struct __ctx_buff *ctx, __u32 tunnel_endpoint,
 static __always_inline int
 encap_and_redirect_lxc(struct __ctx_buff *ctx, __u32 tunnel_endpoint,
 		       __u8 encrypt_key __maybe_unused,
-		       struct endpoint_key *key, __u32 seclabel, __u32 monitor)
+		       struct tunnel_key *key, __u16 node_id __maybe_unused,
+		       __u32 seclabel, __u32 monitor)
 {
 	struct endpoint_key *tunnel;
 
 	if (tunnel_endpoint) {
 #ifdef ENABLE_IPSEC
 		if (encrypt_key)
-			return encap_and_redirect_ipsec(ctx, tunnel_endpoint,
-							encrypt_key, seclabel);
+			return encap_and_redirect_ipsec(ctx, encrypt_key,
+						        node_id, seclabel);
 #endif
 #if !defined(ENABLE_NODEPORT) && (defined(ENABLE_IPSEC) || defined(ENABLE_HOST_FIREWALL))
 		/* For IPSec and the host firewall, traffic from a pod to a remote node
@@ -216,8 +216,7 @@ encap_and_redirect_lxc(struct __ctx_buff *ctx, __u32 tunnel_endpoint,
 	if (tunnel->key) {
 		__u8 min_encrypt_key = get_min_encrypt_key(tunnel->key);
 
-		return encap_and_redirect_ipsec(ctx, tunnel->ip4,
-						min_encrypt_key,
+		return encap_and_redirect_ipsec(ctx, min_encrypt_key, node_id,
 						seclabel);
 	}
 #endif
@@ -225,10 +224,10 @@ encap_and_redirect_lxc(struct __ctx_buff *ctx, __u32 tunnel_endpoint,
 }
 
 static __always_inline int
-encap_and_redirect_netdev(struct __ctx_buff *ctx, struct endpoint_key *k,
+encap_and_redirect_netdev(struct __ctx_buff *ctx, struct tunnel_key *k,
 			  __u32 seclabel, __u32 monitor)
 {
-	struct endpoint_key *tunnel;
+	struct tunnel_value *tunnel;
 
 	tunnel = map_lookup_elem(&TUNNEL_MAP, k);
 	if (!tunnel)
@@ -238,8 +237,9 @@ encap_and_redirect_netdev(struct __ctx_buff *ctx, struct endpoint_key *k,
 	if (tunnel->key) {
 		__u8 key = get_min_encrypt_key(tunnel->key);
 
-		return encap_and_redirect_nomark_ipsec(ctx, tunnel->ip4,
-						       key, seclabel);
+		return encap_and_redirect_nomark_ipsec(ctx, key,
+						       tunnel->node_id,
+						       seclabel);
 	}
 #endif
 	return __encap_and_redirect_with_nodeid(ctx, tunnel->ip4, seclabel, monitor);

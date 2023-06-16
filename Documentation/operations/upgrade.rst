@@ -163,12 +163,7 @@ file.
 
 To minimize datapath disruption during the upgrade, the
 ``upgradeCompatibility`` option should be set to the initial Cilium
-version which was installed in this cluster. Valid options are:
-
-* ``1.7`` if the initial install was Cilium 1.7.x or earlier.
-* ``1.8`` if the initial install was Cilium 1.8.x.
-* ``1.9`` if the initial install was Cilium 1.9.x.
-* ``1.10`` if the initial install was Cilium 1.10.x.
+version which was installed in this cluster.
 
 .. tabs::
   .. group-tab:: kubectl
@@ -308,6 +303,44 @@ Annotations:
 .. _current_release_required_changes:
 
 .. _1.11_upgrade_notes:
+
+1.11.x Known Regressions
+------------------------
+
+* Cilium version 1.11 prioritizes ConfigMap values over command line arguments,
+  whereas in versions 1.10, 1.12, and later, command line arguments are given
+  higher precedence, which aligns with the expected behavior.
+
+  Cilium committers have decided that implementing a fix for this issue may
+  result in additional problems since it would involve a significant change in
+  behavior for a patch release, particularly given that version 1.11 has been in
+  use for a considerable period and is expected to be stable.
+
+1.11.18+ Upgrade Notes
+----------------------
+
+* When downgrading from 1.11.18+ to <=1.11.1 it is possible that connections
+  are interrupted/reset.  This should be taken into consideration during
+  upgrade planning shall a rollback ever be necessary.
+
+1.11.16+ Upgrade Notes
+----------------------
+
+* When upgrading from Cilium v1.10 or <v1.11.15 to Cilium >=v1.11.16 with
+  IPsec enabled, packet drops may occur during the upgrade. These drops are
+  expected to stop as soon as the Cilium agent is ready. IPsec error counters
+  ``XfrmInNoStates`` and ``XfrmOutPolBlock`` may increase as a result of these
+  drops.
+
+1.11.15 Upgrade Notes
+---------------------
+
+* In upgrades to Cilium v1.11.15 with IPsec enabled, the IPsec state is not
+  refreshed, which causes dropped connections in the cluster. As such, we
+  recommend staying at v1.11.14. This issue can be mitigated by either
+  replacing workload nodes in the cluster (to get a fresh IPsec state) or by
+  flushing the current state by running the following command on each node:
+  ``ip xfrm state flush && ip xfrm policy flush``.
 
 1.11.5 Upgrade Notes
 --------------------

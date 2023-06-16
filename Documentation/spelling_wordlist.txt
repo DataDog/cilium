@@ -1,3 +1,4 @@
+AArch
 ACK
 AKS
 APIEndpoint
@@ -189,6 +190,7 @@ backports
 balancer
 balancers
 bandwidthManager
+baseUrl
 battlestation
 bcc
 behaviour
@@ -381,6 +383,8 @@ extraEnv
 extraHostPathMounts
 extraInitContainers
 extraIpAddresses
+extraVolumeMounts
+extraVolumes
 facto
 failureThreshold
 fallback
@@ -528,6 +532,7 @@ kata
 keepDeprecatedLabels
 keepDeprecatedProbes
 keyFile
+keyWatcher
 keypair
 keyspace
 keyspaces
@@ -661,6 +666,7 @@ nodePort
 nodeSelector
 nodeX
 nodegroup
+nodeid
 nodeinit
 nonMasqueradeCIDRs
 numReplicas
@@ -695,6 +701,7 @@ podAnnotations
 podCIDR
 podDisruptionBudget
 podLabels
+podSecurityContext
 podcasts
 policyAuditMode
 policyEnforcementMode
@@ -938,6 +945,7 @@ virtualbox
 virtualization
 vlan
 vmlinux
+volumeMounts
 vxlan
 waitForKubeProxy
 waitForMount
