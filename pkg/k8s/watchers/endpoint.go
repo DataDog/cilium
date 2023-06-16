@@ -108,6 +108,9 @@ func (k *K8sWatcher) deleteK8sEndpointV1(ep *slim_corev1.Endpoints, swg *lock.St
 // The actual implementation of this logic down to the datapath is handled
 // asynchronously.
 func (k *K8sWatcher) handleKubeAPIServerServiceEPChanges(desiredIPs map[string]struct{}) {
+	// TODO(hemanthmalla): Quick hack to skip adding API server IPs in IP cache
+	// Warning: This will break API server policy matching.
+	return
 	// Use CustomResource as the source similar to the way the CiliumNode
 	// (pkg/node/manager.Manager) handler does because the ipcache entry needs
 	// to be overwrite-able by this handler and the CiliumNode handler. If we
