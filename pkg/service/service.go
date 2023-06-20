@@ -977,7 +977,7 @@ func (s *Service) restoreServicesLocked(svcBackendsById map[lb.BackendID]struct{
 		for j, backend := range svc.Backends {
 			hash := backend.L3n4Addr.Hash()
 			s.backendRefCount.Add(hash)
-			newSVC.backendByHash[hash] = &svc.Backends[j]
+			newSVC.backendByHash[hash] = svc.Backends[j]
 			svcBackendsById[backend.ID] = struct{}{}
 		}
 
