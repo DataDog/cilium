@@ -36,6 +36,7 @@ spec:
       priorityClassName: {{ .Values.hubble.ui.priorityClassName }}
       serviceAccount: {{ .Values.serviceAccounts.ui.name | quote }}
       serviceAccountName: {{ .Values.serviceAccounts.ui.name | quote }}
+      automountServiceAccountToken: {{ .Values.serviceAccounts.ui.automount }}
       {{- with .Values.hubble.ui.nodeSelector }}
       nodeSelector:
         {{- toYaml . | trim | nindent 8 }}
@@ -64,6 +65,10 @@ spec:
             mountPath: /etc/nginx/conf.d/default.conf
             subPath: nginx.conf
         terminationMessagePolicy: FallbackToLogsOnError
+        {{- with .Values.hubble.ui.frontend.securityContext }}
+        securityContext:
+          {{- toYaml . | trim | nindent 10 }}
+        {{- end }}
       - name: backend
         image: {{ include "cilium.image" .Values.hubble.ui.backend.image | quote }}
         imagePullPolicy: {{ .Values.hubble.ui.backend.image.pullPolicy }}
@@ -100,7 +105,14 @@ spec:
           mountPath: /var/lib/hubble-ui/certs
           readOnly: true
         {{- end }}
+        {{- with .Values.hubble.ui.backend.extraVolumeMounts }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
         terminationMessagePolicy: FallbackToLogsOnError
+        {{- with .Values.hubble.ui.backend.securityContext }}
+        securityContext:
+          {{- toYaml . | trim | nindent 10 }}
+        {{- end }}
       volumes:
       - configMap:
           defaultMode: 420
@@ -125,5 +137,11 @@ spec:
                 - key: tls.key
                   path: client.key
       {{- end }}
+      {{- end }}
+      {{- with .Values.hubble.ui.frontend.extraVolumes }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
+      {{- with .Values.hubble.ui.backend.extraVolumes }}
+      {{- toYaml . | nindent 6 }}
       {{- end }}
 {{- end }}

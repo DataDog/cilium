@@ -37,40 +37,49 @@ serviceAccounts:
   cilium:
     create: true
     name: cilium
+    automount: true
     annotations: {}
   etcd:
     create: true
     name: cilium-etcd-operator
+    automount: true
     annotations: {}
   operator:
     create: true
     name: cilium-operator
+    automount: true
     annotations: {}
   preflight:
     create: true
     name: cilium-pre-flight
+    automount: true
     annotations: {}
   relay:
     create: true
     name: hubble-relay
+    automount: false
     annotations: {}
   ui:
     create: true
     name: hubble-ui
+    automount: true
     annotations: {}
   clustermeshApiserver:
     create: true
     name: clustermesh-apiserver
+    automount: true
     annotations: {}
   # -- Clustermeshcertgen is used if clustermesh.apiserver.tls.auto.method=cronJob
   clustermeshcertgen:
     create: true
     name: clustermesh-apiserver-generate-certs
+    automount: true
     annotations: {}
   # -- Hubblecertgen is used if hubble.tls.auto.method=cronJob
   hubblecertgen:
     create: true
     name: hubble-generate-certs
+    automount: true
     annotations: {}
 
 # -- Install the cilium agent resources.
@@ -86,7 +95,7 @@ rollOutCiliumPods: false
 image:
   override: ~
   repository: "quay.io/cilium/cilium"
-  tag: "v1.11.13"
+  tag: "v1.11.18"
   pullPolicy: "IfNotPresent"
   # cilium-digest
   digest: ""
@@ -167,6 +176,9 @@ tolerations:
   #   operator: "Equal|Exists"
   #   value: "value"
   #   effect: "NoSchedule|PreferNoSchedule|NoExecute(1.6 only)"
+
+# -- Security Context for cilium-agent pods.
+podSecurityContext: {}
 
 # -- Annotations to be added to agent pods
 podAnnotations: {}
@@ -338,6 +350,12 @@ cni:
   # -- Install the CNI configuration and binary files into the filesystem.
   install: true
 
+  # -- Remove the CNI configuration and binary files on agent shutdown. Enable this
+  # if you're removing Cilium from the cluster. Disable this to prevent the CNI
+  # configuration file from being removed during agent upgrade, which can cause
+  # nodes to go unmanageable.
+  uninstall: true
+
   # -- Configure chaining on top of other CNI plugins. Possible values:
   #  - none
   #  - generic-veth
@@ -473,6 +491,10 @@ encryption:
     # -- The interface to use for encrypted traffic.
     interface: ""
 
+    # -- Enable the key watcher. If disabled, a restart of the agent will be
+    # necessary on key rotations.
+    keyWatcher: true
+
   wireguard:
     # -- Enables the fallback to the user-space implementation.
     userspaceFallback: false
@@ -593,6 +615,12 @@ certgen:
   # -- Labels to be added to hubble-certgen pods
   podLabels: {}
 
+  # -- Additional certgen volumes.
+  extraVolumes: []
+
+  # -- Additional certgen volumeMounts.
+  extraVolumeMounts: []
+
 hubble:
   # -- Enable Hubble (true by default).
   enabled: true
@@ -693,7 +721,7 @@ hubble:
       # Defaults to midnight of the first day of every fourth month. For syntax, see
       # https://kubernetes.io/docs/tasks/job/automated-tasks-with-cron-jobs/#schedule
       schedule: "0 0 1 */4 *"
-      
+
       # [Example]
       # certManagerIssuerRef:
       #   group: cert-manager.io
@@ -729,7 +757,7 @@ hubble:
     image:
       override: ~
       repository: "quay.io/cilium/hubble-relay"
-      tag: "v1.11.13"
+      tag: "v1.11.18"
        # hubble-relay-digest
       digest: ""
       useDigest: false
@@ -856,8 +884,15 @@ hubble:
       image:
         override: ~
         repository: "quay.io/cilium/hubble-ui-backend"
-        tag: "v0.9.2@sha256:a3ac4d5b87889c9f7cc6323e86d3126b0d382933bd64f44382a92778b0cde5d7"
+        tag: "v0.11.0@sha256:14c04d11f78da5c363f88592abae8d2ecee3cbe009f443ef11df6ac5f692d839"
         pullPolicy: "IfNotPresent"
+
+      # -- Additional hubble-ui backend volumes.
+      extraVolumes: []
+
+      # -- Additional hubble-ui backend volumeMounts.
+      extraVolumeMounts: []
+
       # [Example]
       # resources:
       #   limits:
@@ -874,8 +909,15 @@ hubble:
       image:
         override: ~
         repository: "quay.io/cilium/hubble-ui"
-        tag: "v0.9.2@sha256:d3596efc94a41c6b772b9afe6fe47c17417658956e04c3e2a28d293f2670663e"
+        tag: "v0.11.0@sha256:bcb369c47cada2d4257d63d3749f7f87c91dde32e010b223597306de95d1ecc8"
         pullPolicy: "IfNotPresent"
+
+      # -- Additional hubble-ui frontend volumes.
+      extraVolumes: []
+
+      # -- Additional hubble-ui frontend volumeMounts.
+      extraVolumeMounts: []
+
       # [Example]
       # resources:
       #   limits:
@@ -921,6 +963,11 @@ hubble:
     securityContext:
       # -- Whether to set the security context on the Hubble UI pods.
       enabled: true
+
+    # -- Defines base url prefix for all hubble-ui http requests.
+    # It needs to be changed in case if ingress for hubble-ui is configured under some sub-path.
+    # Trailing `/` is required for custom path, ex. `/service-map/`
+    baseUrl: "/"
 
     # -- hubble-ui ingress configuration.
     ingress:
@@ -1278,6 +1325,12 @@ etcd:
     #   configMap: certs-configmap
     #   readOnly: true
 
+  # -- Additional cilium-etcd-operator volumes.
+  extraVolumes: []
+
+  # -- Additional cilium-etcd-operator volumeMounts.
+  extraVolumeMounts: []
+
   # -- Node tolerations for cilium-etcd-operator scheduling to nodes with taints
   # ref: https://kubernetes.io/docs/concepts/configuration/assign-pod-node/
   tolerations:
@@ -1290,6 +1343,9 @@ etcd:
   # -- Node labels for cilium-etcd-operator pod assignment
   # ref: https://kubernetes.io/docs/user-guide/node-selection/
   nodeSelector: {}
+
+  # -- Security context to be added to cilium-etcd-operator pods
+  podSecurityContext: {}
 
   # -- Annotations to be added to cilium-etcd-operator pods
   podAnnotations: {}
@@ -1351,7 +1407,7 @@ operator:
   image:
     override: ~
     repository: "quay.io/cilium/operator"
-    tag: "v1.11.13"
+    tag: "v1.11.18"
     # operator-generic-digest
     genericDigest: ""
     # operator-azure-digest
@@ -1435,6 +1491,9 @@ operator:
   # ref: https://kubernetes.io/docs/user-guide/node-selection/
   nodeSelector: {}
 
+  # -- Security context to be added to cilium-operator pods
+  podSecurityContext: {}
+
   # -- Annotations to be added to cilium-operator pods
   podAnnotations: {}
 
@@ -1516,7 +1575,7 @@ nodeinit:
   image:
     override: ~
     repository: "quay.io/cilium/startup-script"
-    tag: "62bfbe88c17778aad7bef9fa57ff9e2d4a9ba0d8"
+    tag: "62093c5c233ea914bfa26a10ba41f8780d9b737f"
     pullPolicy: "IfNotPresent"
 
   # -- The priority class to use for the nodeinit pod.
@@ -1595,7 +1654,7 @@ preflight:
   image:
     override: ~
     repository: "quay.io/cilium/cilium"
-    tag: "v1.11.13"
+    tag: "v1.11.18"
     # cilium-digest
     digest: ""
     useDigest: false
@@ -1610,6 +1669,12 @@ preflight:
 
   # -- Additional preflight environment variables.
   extraEnv: {}
+
+  # -- Additional preflight volumes.
+  extraVolumes: []
+
+  # -- Additional preflight volumeMounts.
+  extraVolumeMounts: []
 
   # -- Additional preflight init containers.
   extraInitContainers: []
@@ -1649,6 +1714,9 @@ preflight:
   # -- Node labels for preflight pod assignment
   # ref: https://kubernetes.io/docs/user-guide/node-selection/
   nodeSelector: {}
+
+  # -- Security context to be added to preflight pods.
+  podSecurityContext: {}
 
   # -- Annotations to be added to preflight pods
   podAnnotations: {}
@@ -1730,7 +1798,7 @@ clustermesh:
     image:
       override: ~
       repository: "quay.io/cilium/clustermesh-apiserver"
-      tag: "v1.11.13"
+      tag: "v1.11.18"
       # clustermesh-apiserver-digest
       digest: ""
       useDigest: false
@@ -1744,10 +1812,21 @@ clustermesh:
         tag: "v3.4.13@sha256:04833b601fa130512450afa45c4fe484fee1293634f34c7ddc231bd193c74017"
         pullPolicy: "IfNotPresent"
 
+      # -- Security context to be added to clustermesh-apiserver etcd containers
+      securityContext: {}
+
     service:
       # -- The type of service used for apiserver access.
       type: NodePort
       # -- Optional port to use as the node port for apiserver access.
+      #
+      # WARNING: make sure to configure a different NodePort in each cluster if
+      # kube-proxy replacement is enabled, as Cilium is currently affected by a known
+      # bug (#24692) when NodePorts are handled by the KPR implementation. If a service
+      # with the same NodePort exists both in the local and the remote cluster, all
+      # traffic originating from inside the cluster and targeting the corresponding
+      # NodePort will be redirected to a local backend, regardless of whether the
+      # destination node belongs to the local or the remote cluster.
       nodePort: 32379
       # -- Optional loadBalancer IP address to use with type LoadBalancer.
       # loadBalancerIP:
@@ -1763,6 +1842,18 @@ clustermesh:
     # -- Node labels for pod assignment
     # ref: https://kubernetes.io/docs/user-guide/node-selection/
     nodeSelector: {}
+
+    # -- Additional clustermesh-apiserver volumes.
+    extraVolumes: []
+
+    # -- Additional clustermesh-apiserver volumeMounts.
+    extraVolumeMounts: []
+
+    # -- Security context to be added to clustermesh-apiserver containers
+    securityContext: {}
+
+    # -- Security context to be added to clustermesh-apiserver pods
+    podSecurityContext: {}
 
     # -- Annotations to be added to clustermesh-apiserver pods
     podAnnotations: {}
@@ -1825,7 +1916,7 @@ clustermesh:
         # fourth month. For syntax, see
         # https://kubernetes.io/docs/tasks/job/automated-tasks-with-cron-jobs/#schedule
         # schedule: "0 0 1 */4 *"
-        
+
         # [Example]
         # certManagerIssuerRef:
         #   group: cert-manager.io

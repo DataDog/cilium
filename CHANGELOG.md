@@ -1,5 +1,240 @@
 # Changelog
 
+## v1.11.18
+
+Summary of Changes
+------------------
+
+**Major Changes:**
+* policy: Promote Deny Policies from Beta to Stable (#25496, @nathanjsweet)
+
+**Minor Changes:**
+* Add agent flag `enable-ipsec-key-watcher` to allow users to disable the IPsec key watcher and thus require an agent restart for the key rotation to take effect. (Backport PR #26007, Upstream PR #25893, @pchaigno)
+* docs: fix wording for the upgrade guide (#26164, @aspsk)
+
+**Bugfixes:**
+* Fix a bug due to which we would leak Linux XFRM policies, potentially leading to increased CPU consumption, when IPsec is enabled with Azure or ENI IPAM. (Backport PR #26021, Upstream PR #25784, @pchaigno)
+* Fix a bug that would cause connectivity drops of type XfrmInNoStates on upgrade when IPsec is enabled with ENI or Azure IPAM mode. (Backport PR #26021, Upstream PR #25724, @pchaigno)
+* Fix a bug that would cause connectivity drops of type XfrmOutPolBlock on upgrade when IPsec is enabled. (Backport PR #26021, Upstream PR #25735, @pchaigno)
+* Fix a possible deadlock when using WireGuard transparent encryption. (Backport PR #25935, Upstream PR #25419, @bimmlerd)
+* Fix bug affecting EKS installations with IPsec encryption enabled, where Cilium wouldn't attach its IPsec BPF program to new ENI interfaces, resulting in connectivity loss between pods on remote nodes. (Backport PR #26021, Upstream PR #25744, @joamaki)
+* Fix false error log message when IPsec is enabled with IPAM modes ENI or Azure and a remote node is deleted. (Backport PR #26021, Upstream PR #26093, @pchaigno)
+* Fix incorrect hubble flow data when HTTP requests contain an `x-forwarded-for` header by adding an explicit `use_remote_address: true` config to Envoy HTTP configuration to always use the actual remote address of the incoming connection rather than the value of `x-forwarded-for` header, which may originate from an untrusted source. This change has no effect on Cilium policy enforcement where the source security identity is always resolved before HTTP headers are parsed. Previous Cilium behavior of not adding `x-forwarded-for` headers is retained via an explicit `skip_xff_append: true` config setting, except for Cilium Ingress where the source IP address is now appended to `x-forwarded-for` header. (Backport PR #25733, Upstream PR #25674, @jrajahalme)
+* Fix leak of IPsec XFRM FWD policies in IPAM modes `cluster-pool`, `kubernetes`, and `crd` when nodes are deleted. Fix incorrect catch-all default-drop XFRM OUT policy for IPsec IPv6 traffic that could lead to leaking plain-text IPv6 traffic if combined with some other bug. (Backport PR #26021, Upstream PR #25953, @pchaigno)
+* Fix three issues in the bug fix to attach IPsec BPF programs to ENI interfaces: do not fatal if loading unexpectedly fails (which may happen if the device is suddenly deleted), ignore veth device changes in order not to reinitialize when new endpoints appear and wait 1 second for further device state changes between reinitializations. (Backport PR #26021, Upstream PR #25936, @joamaki)
+
+**CI Changes:**
+* [v1.11 backport] test: Switch target FQDN (#25586, @nbusseneau)
+* Add github workflow to push development helm charts to quay.io (Backport PR #26089, Upstream PR #25205, @chancez)
+* Pick up the latest startup-script image (Backport PR #25920, Upstream PR #25774, @michi-covalent)
+* Re-enable the smoke test and the conformance-kind test for the CI. (#26153, @aspsk)
+* Temporarily disable part of the conformance-kind test. (#25983, @aspsk)
+* test: Collect sysdump as part of artifacts (Backport PR #25920, Upstream PR #25079, @pchaigno)
+
+**Misc Changes:**
+* backport (v1.11): docs: Promote Deny Policies out of Beta (#26149, @nathanjsweet)
+* chore(deps): update dependency cilium/hubble to v0.11.6 (v1.11) (#26044, @renovate[bot])
+* chore(deps): update quay.io/cilium/hubble docker tag to v0.11.6 (v1.11) (#26000, @renovate[bot])
+* install: Fail helm if kube-proxy-replacement is not valid (Backport PR #26007, Upstream PR #25907, @jrajahalme)
+* ipsec: Fix cleanup of XFRM states and policies (Backport PR #26021, Upstream PR #26072, @pchaigno)
+* Slim down Node handler interface (Backport PR #25935, Upstream PR #25450, @bimmlerd)
+
+**Other Changes:**
+* install: Update image digests for v0.11.17 (#25515, @jrajahalme)
+* Reduce complexity of bpf_lxc by splitting per-packet lb to its own tail call (#25993, @aspsk)
+* v1.11: Fix L4LB GHA (#25528, @brb)
+
+## v1.11.17
+
+Summary of Changes
+------------------
+
+**Bugfixes:**
+* Filter ipv6 advertisements when using metallb as BGP speaker. (Backport PR #25139, Upstream PR #25043, @harsimran-pabla)
+* Fix connectivity issue if nodes share the same name across the clustermesh and wireguard is enabled (Backport PR #25011, Upstream PR #24785, @giorio94)
+* Fix incorrect network policy ebpf setup that may lead to incorrect packets denies when CEP is present in multiple CES (Backport PR #25382, Upstream PR #24838, @alan-kut)
+* Fix spurious errors containing "Failed to map node IP address to allocated ID". (Backport PR #25382, Upstream PR #25222, @bimmlerd)
+* helm chart: restore setting nodeSelector and tolerations on hubble-ui deployment via `values.yaml` (#25182, @BryanStenson-okta)
+* ipsec: Fix packet mark for FWD XFRM policy (Backport PR #25382, Upstream PR #23254, @pchaigno)
+* pkg/kvstore: Fix for deadlock in etcd status checker (Backport PR #25011, Upstream PR #24786, @hemanthmalla)
+
+**CI Changes:**
+* ci: remove `STATUS` commands from upstream tests' Jenkinsfile (Backport PR #25139, Upstream PR #25046, @nbusseneau)
+* Delete "Cilium monitor verbose mode" test (Backport PR #25382, Upstream PR #25212, @michi-covalent)
+* inctimer: fix test flake where timer does not fire within time. (Backport PR #25349, Upstream PR #25219, @tommyp1ckles)
+* jenkins: bump timeout to 210 minutes (#24938, @aanm)
+* vagrant: Bump 4.9 Vagrant box (Linux 4.9.326, to fix a kernel bug) (Backport PR #25247, Upstream PR #21106, @qmonnet)
+
+**Misc Changes:**
+* chore(deps): update hubble cli to v0.11.5 (v1.11) (patch) (#25127, @renovate[bot])
+* daemon: Mark CES feature as beta in agent flag (Backport PR #25011, Upstream PR #24850, @pchaigno)
+* docs: Add matrix version between envoy and cilium (Backport PR #25349, Upstream PR #25109, @sayboras)
+* docs: Add platform support to docs (Backport PR #25349, Upstream PR #25174, @joestringer)
+* helm: add clustermesh nodeport config warning about known bug #24692 (Backport PR #25349, Upstream PR #25033, @giorio94)
+* ipsec: Install default-drop XFRM policy sooner (Backport PR #25382, Upstream PR #25257, @pchaigno)
+* Makefile: use a specific template for mktemp files (Backport PR #25349, Upstream PR #25192, @kaworu)
+* Misc Makefile improvements for quiet mode V=0 (Backport PR #25011, Upstream PR #20031, @joestringer)
+* Update CNI to 1.3.0 (#25441, @jrajahalme)
+
+**Other Changes:**
+* [backport-v1.11] agent: dump stack on stale probes (#24977, @squeed)
+* [v1.11] contrib/backporting: Fix main branch reference (#25093, @joestringer)
+* Add helm-toolbox image for helm docs, lint (#25420, @jrajahalme)
+* contrib/backporting: Fix main branch reference (#25141, @sayboras)
+* envoy: Upgrade to v1.23.9 (#25210, @sayboras)
+* install: Update image digests for v1.11.16 (#24954, @gentoo-root)
+* v1.11: docs: Document upgrade impact for IPsec (#24974, @pchaigno)
+
+## v1.11.16
+
+Summary of Changes
+------------------
+
+**Minor Changes:**
+* envoy: Bump envoy to v1.23.8 (#24911, @sayboras)
+* envoy: Bump envoy version to v1.23.7 (#24748, @sayboras)
+
+**Bugfixes:**
+* Add missing xfrm-no-track rules for IPv6 IPSec. This fixes a connectivity issue for IPv6 IPSec with externalTrafficPolicy=local. (Backport PR #24604, Upstream PR #24557, @jschwinger233)
+* Fix for disabled cloud provider rate limiting (Backport PR #24458, Upstream PR #24413, @hemanthmalla)
+* Fix missing delete events on informer re-lists to ensure all delete events are correctly emitted and using the latest known object state, so that all event handlers and stores always reflect the actual apiserver state as best as possible (#24872, @aanm)
+* Fixed bug where L7 rules would be incorrectly merged between rules for the same (remote) endpoint. This bug could have caused L7 rules to be bypassed via a wildcard header rule being improperly appended to the set of HTTP rules when both a policy with HTTP header rules applying to multiple endpoints and an allow-all rule for only one of those endpoints are specified. (Backport PR #24852, Upstream PR #24788, @jrajahalme)
+* Handle leaked service backends that may lead to filling up of `lb4_backends` map and thereby connectivity issues. (Backport PR #24823, Upstream PR #24681, @aditighag)
+* ipsec: Clean up stale XFRM policies and states (Backport PR #24823, Upstream PR #24773, @pchaigno)
+
+**CI Changes:**
+* Fix race conditions when deleting CNP / CCNP in e2e tests (Backport PR #24710, Upstream PR #24484, @jschwinger233)
+* renovate: Fix Hubble release digest regex (Backport PR #24604, Upstream PR #24477, @gandro)
+* tests: add exceptions for lease errors due to etcd (Backport PR #24823, Upstream PR #24723, @jibi)
+
+**Misc Changes:**
+* Avoid clearing objects in CiliumEndpoint conversion funcs (Backport PR #24931, Upstream PR #24928, @aanm)
+* Avoid clearing objects in conversion funcs (Backport PR #24931, Upstream PR #24241, @odinuge)
+* checker: Fix incorrect checker for ExportedEqual() (Backport PR #24458, Upstream PR #24373, @christarazi)
+* chore(deps): update dependency cilium/hubble to v0.11.3 (v1.11) (#24820, @renovate[bot])
+* chore(deps): update docker.io/library/alpine docker tag to v3.16.5 (v1.11) (#24644, @renovate[bot])
+* chore(deps): update docker.io/library/alpine:3.16.4 docker digest to 2cf17aa (v1.11) (#24493, @renovate[bot])
+* chore(deps): update docker.io/library/ubuntu:20.04 docker digest to 24a0df4 (v1.11) (#24498, @renovate[bot])
+* chore(deps): update quay.io/cilium/hubble docker tag to v0.11.3 (v1.11) (#24499, @renovate[bot])
+* docs: add note that there are two Cilium CLIs (Backport PR #24604, Upstream PR #24435, @lizrice)
+* docs: fix typo in operations/troubleshooting.rst (Backport PR #24604, Upstream PR #24460, @NikAleksandrov)
+* docs: Fix upgradeCompatibility references (Backport PR #24823, Upstream PR #24711, @joestringer)
+* docs: Update Cluster Mesh requirements to mention node InternalIP explicitly (Backport PR #24458, Upstream PR #24164, @jspaleta)
+* docs: Update the documentation for the `--conntrack-gc-interval` flag (Backport PR #24458, Upstream PR #24400, @pchaigno)
+* Fix duplicated logs for test-output.log (Backport PR #24458, Upstream PR #24171, @romanspb80)
+* hubble-ui: allow ingress from non root `/` urls (Backport PR #24604, Upstream PR #23631, @geakstr)
+* loader: Don't compile `.asm` files by default (Backport PR #24823, Upstream PR #24769, @pchaigno)
+* pkg/bandwidth: add error for bandwidth manager not being enabled (Backport PR #24823, Upstream PR #24715, @aanm)
+
+**Other Changes:**
+* Add IPSec remark for upgrade to v1.11.15 (#24632, @darox)
+* Add note about known regression in ConfigMap values prioritized over flags in Cilium agent (#24743, @aanm)
+* In service recovery, don't skip if one of the service recovery fails (#23922, @jaredledvina)
+* install: Update image digests for v1.11.15 (#24425, @nebril)
+* Prepare for release v1.11.16 (#24880, @michi-covalent)
+* v1.11: docs: Document IPsec upgrade issue on v1.11.15 (#24704, @pchaigno)
+
+## v1.11.15
+
+Summary of Changes
+------------------
+
+**Minor Changes:**
+* envoy: Bump envoy to 1.23.4 (Backport PR #23958, Upstream PR #23800, @sayboras)
+* helm: Add pod and container security context (Backport PR #24089, Upstream PR #23443, @sayboras)
+* helm: Add SA automount configuration (Backport PR #24089, Upstream PR #23441, @sayboras)
+
+**Bugfixes:**
+* Add the option to preserve CNI configuration file on agent shutdown. This can help prevent issues where pods can no longer be deleted. This may cause some transient error messages to be displayed if a pod is scheduled while Cilium is being upgraded. (Backport PR #24198, Upstream PR #24009, @squeed)
+* agent: fix incorrect deletion of veth host interfaces on bootstrap (Backport PR #23958, Upstream PR #23787, @giorio94)
+* clustermesh: fix services cache bloat due to incorrect deletion (Backport PR #24089, Upstream PR #23947, @giorio94)
+* daemon: fix panic when running with etcd with endpoint crd disabled (Backport PR #24385, Upstream PR #24085, @tommyp1ckles)
+* envoy: Avoid empty typeURL for all resources (Backport PR #23862, Upstream PR #23763, @sayboras)
+* Fix connectivity issue upon agent restart in case of ipv6 + direct routing + KPR replacement (Backport PR #23958, Upstream PR #23857, @giorio94)
+* Fix enable-stale-cilium-endpoint-cleanup flag not actually disabling the cleanup init set when set to false. This provides a workaround for an existing panic that can occur when running using etcd kvstore. (Backport PR #24308, Upstream PR #23874, @sjdot)
+* Fix IPv6 policy enforcement for SNATed traffic from the Host (Backport PR #24368, Upstream PR #24132, @ysksuzuki)
+* Fix leaking service backend entries when services with terminating backends were deleted. (#23858, @aditighag)
+* ipam/crd: Fix panic due to concurrent map read and map write (Backport PR #23958, Upstream PR #23713, @gandro)
+* node: require ipv4 address when wireguard is enabled (Backport PR #24040, Upstream PR #23552, @giorio94)
+
+**Misc Changes:**
+* Add leader requirement to watch from Etcd. (Backport PR #24089, Upstream PR #23590, @marseel)
+* bpf: Fix usage of tunnel map structs (Backport PR #24089, Upstream PR #23469, @pchaigno)
+* bugtool: Add ingress/egress tc filter dump (Backport PR #24198, Upstream PR #24057, @joestringer)
+* chore(deps): update all github action dependencies (v1.11) (minor) (#24004, @renovate[bot])
+* chore(deps): update all github action dependencies (v1.11) (patch) (#23995, @renovate[bot])
+* chore(deps): update dependency cilium/hubble to v0.11.2 (v1.11) (#23924, @renovate[bot])
+* chore(deps): update docker.io/library/ubuntu:20.04 docker digest to 9fa30fc (v1.11) (#24141, @renovate[bot])
+* chore(deps): update quay.io/cilium/hubble docker tag to v0.11.2 (v1.11) (#23949, @renovate[bot])
+* docs: Document CONFIG_PERF_EVENTS requirement (Backport PR #24198, Upstream PR #24055, @joestringer)
+* docs: Fix the dead link to Mellanox performance tuning guide (Backport PR #24089, Upstream PR #24012, @gentoo-root)
+* docs: replace usage of api.twitter.com (Backport PR #23958, Upstream PR #23669, @kaworu)
+* Enable Google Analytics 4 (Backport PR #24066, Upstream PR #22220, @chalin)
+* fix(deps): update module golang.org/x/net to v0.7.0 [security] (master) (Backport PR #23958, Upstream PR #23904, @renovate[bot])
+* Fixed link to broken anchor in RKE doc (Backport PR #23958, Upstream PR #23706, @raphink)
+* IPsec: Remove `IP_POOLS` logic (Backport PR #24089, Upstream PR #24030, @pchaigno)
+* Node ID restoration (Backport PR #23686, Upstream PR #23578, @pchaigno)
+* Remove / in RKE doc link as it causes redirect bug (Backport PR #23958, Upstream PR #23728, @raphink)
+* workflow: fixes LLVM, Clang cache and install path (Backport PR #23958, Upstream PR #23740, @brlbil)
+
+**Other Changes:**
+* images: update cilium-{runtime,builder} for 1.11 (#24302, @nebril)
+* install: Update image digests for v1.11.14 (#23737, @joestringer)
+* Revert "Pick up etcd v3.4.23" (#23789, @michi-covalent)
+* v1.11 - Backport initContainer change (#24329, @ferozsalam)
+
+## v1.11.14
+
+Summary of Changes
+------------------
+
+**Minor Changes:**
+* envoy: Bump envoy version to 1.22.7 (Backport PR #23627, Upstream PR #23502, @sayboras)
+
+**Bugfixes:**
+* Added Agent init check that removes all CiliumEndpoints referencing local Node that are not managed. This fixes issues where sometimes CiliumEndpoints referencing still running Pods can become unmanaged during Cilium restart. (Backport PR #23097, Upstream PR #20350, @tommyp1ckles)
+* proxy: Fix deadlock in error path of CreateOrUpdateRedirect (Backport PR #23462, Upstream PR #23377, @gandro)
+
+**CI Changes:**
+* .github: set do not use provenance from docker buildx (Backport PR #23462, Upstream PR #23431, @aanm)
+* [v1.11] test/k8sT: remove l7_demos test (#23348, @tklauser)
+* daemon/cmd: improve stale cilium endpoint error handling. (Backport PR #23097, Upstream PR #22600, @tommyp1ckles)
+* test: print log messages that need to be investigated (Backport PR #23462, Upstream PR #23338, @aanm)
+* tests: add exception for etcd error (Backport PR #23462, Upstream PR #23334, @aanm)
+
+**Misc Changes:**
+* .github/workflows: add version number in GH action (#23622, @aanm)
+* .github/workflows: fix external contribution detection (Backport PR #23462, Upstream PR #23406, @aanm)
+* .github/workflows: fix typo in organization parameter (Backport PR #23462, Upstream PR #23424, @aanm)
+* .github/workflows: PR labeler fix GH workflow if expression (Backport PR #23627, Upstream PR #23482, @aanm)
+* .github/workflows: set right secret name (Backport PR #23462, Upstream PR #23437, @aanm)
+* bugtool: Dump envoy metrics for troubleshooting (Backport PR #23627, Upstream PR #22797, @sayboras)
+* build(deps): bump actions/cache from 3.2.3 to 3.2.4 (#23455, @dependabot[bot])
+* build(deps): bump actions/github-script from 6.3.3 to 6.4.0 (#23416, @dependabot[bot])
+* build(deps): bump actions/github-script from 6.3.3 to 6.4.0 (#23510, @dependabot[bot])
+* build(deps): bump docker/build-push-action from 3.3.0 to 4.0.0 (#23491, @dependabot[bot])
+* build(deps): bump docker/setup-buildx-action from 2.2.1 to 2.4.0 (#23456, @dependabot[bot])
+* build(deps): bump docker/setup-buildx-action from 2.4.0 to 2.4.1 (#23594, @dependabot[bot])
+* build(deps): bump github/codeql-action from 2.1.39 to 2.2.1 (#23415, @dependabot[bot])
+* build(deps): bump github/codeql-action from 2.2.1 to 2.2.2 (#23611, @dependabot[bot])
+* build(deps): bump github/codeql-action from 2.2.2 to 2.2.3 (#23650, @dependabot[bot])
+* build(deps): bump KyleMayes/install-llvm-action from 1.6.1 to 1.7.0 (#23389, @dependabot[bot])
+* chore(deps): update docker.io/library/alpine docker tag to v3.16.4 (v1.11) (#23684, @renovate[bot])
+* chore(deps): update docker.io/library/ubuntu:20.04 docker digest to 4a45212 (v1.11) (#23568, @renovate[bot])
+* chore(deps): update docker.io/library/ubuntu:20.04 docker digest to b33325a (v1.11) (#23474, @renovate[bot])
+* cilium: Fix missing error log dump from compilation (Backport PR #23462, Upstream PR #23339, @borkmann)
+* daemon: Do not fail CI runs for already deleted CEP (Backport PR #23097, Upstream PR #22474, @jrajahalme)
+* docs: Disable exclusive lock when chaining with aws-cni (Backport PR #23462, Upstream PR #23159, @jaygridley)
+* fqdn/dnsproxy: move init LRU cache call out of StartDNSProxy. (Backport PR #23627, Upstream PR #23429, @tommyp1ckles)
+* images/runtime: bump iptables package to 1.8.8 (Backport PR #23409, Upstream PR #23163, @jibi)
+* Introduce node IDs in the datapath and the agent, so datapath can later use them to identify remote nodes (Backport PR #23627, Upstream PR #23202, @pchaigno)
+* iptables: add support for iptables >= 1.8.7 (Backport PR #23409, Upstream PR #21096, @jibi)
+
+**Other Changes:**
+* [v1.11] renovate: Replace update-hubble-version.sh with Renovate Bot (#23531, @gandro)
+* install: Update image digests for v1.11.13 (#23401, @qmonnet)
+* Pick up etcd v3.4.23 (#23630, @michi-covalent)
+
 ## v1.11.13
 
 Summary of Changes
@@ -540,7 +775,8 @@ Summary of Changes
 * Fixed node init in RKE (Backport PR #19418, Upstream PR #19286, @raphink)
 * helm: Update Clustermesh-APIServer RBAC permissions for platforms (like Openshift) that have the OwnerReferencesPermissionEnforcement admission controller enabled. (Backport PR #19277, Upstream PR #19071, @nathanjsweet)
 * Improve endpoint and DNS proxy lock contention during bursty DNS traffic (Backport PR #19418, Upstream PR #19347, @christarazi)
-* Improve reliably of faulty connections for kube-apiservers behind a LB. Reduce the number of connections to kube-apiserver by 6 for each cilium-agent. (Backport PR #19330, Upstream PR #19259, @aanm)
+* Improve reliably of faulty connections for kube-apiservers behind a LB.
+ Reduce the number of connections to kube-apiserver by 6 for each cilium-agent. (Backport PR #19330, Upstream PR #19259, @aanm)
 * install/kubernetes: fix hubble-ui with TLS (Backport PR #19418, Upstream PR #19338, @aanm)
 * metallb: fix SIGSEGV error when Service resource is deleted. (Backport PR #19277, Upstream PR #19249, @Inode1)
 * Update the 'refresh period' formatting in readme and doc (Backport PR #19418, Upstream PR #19205, @dongwangdw)
@@ -680,7 +916,9 @@ Summary of Changes
 * monitor: Output non-trace messages to stderr (Backport PR #18630, Upstream PR #18479, @YutaroHayakawa)
 * node: Don't skip masquerading for External node IPs (Backport PR #18630, Upstream PR #18483, @pchaigno)
 * Preserve tail call maps during resize to prevent drops during agent upgrade (Backport PR #18800, Upstream PR #17744, @ti-mo)
-* Prevent unmanaged pods in GKE's containerd flavors. *Important:* Users should update their node taints from `node.cilium.io/agent-not-ready=true:NoSchedule` to `node.cilium.io/agent-not-ready=true:NoExecute`. *Important:* During the first node reboot after the fix is applied pods may still get IPs from the default CNI as cilium-node-init is only run later in the node startup process. The fix will then be in place for all subsequent reboots. (Backport PR #18726, Upstream PR #18486, @bmcustodio)
+* Prevent unmanaged pods in GKE's containerd flavors.
+ *Important:* Users should update their node taints from `node.cilium.io/agent-not-ready=true:NoSchedule` to `node.cilium.io/agent-not-ready=true:NoExecute`.
+ *Important:* During the first node reboot after the fix is applied pods may still get IPs from the default CNI as cilium-node-init is only run later in the node startup process. The fix will then be in place for all subsequent reboots. (Backport PR #18726, Upstream PR #18486, @bmcustodio)
 * route: sort by priority to identify the default one (Backport PR #18630, Upstream PR #18564, @jibi)
 * Skip node ipset updates if iptables masquerading is disabled (Backport PR #18800, Upstream PR #17871, @pchaigno)
 

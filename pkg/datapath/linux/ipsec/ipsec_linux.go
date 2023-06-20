@@ -16,6 +16,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cilium/cilium/pkg/datapath"
@@ -28,6 +29,7 @@ import (
 	"github.com/cilium/cilium/pkg/maps/encrypt"
 	"github.com/cilium/cilium/pkg/node"
 	"github.com/cilium/cilium/pkg/nodediscovery"
+	"github.com/cilium/cilium/pkg/option"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/sirupsen/logrus"
@@ -45,6 +47,9 @@ const (
 	// ipSecXfrmMarkSPIShift defines how many bits the SPI is shifted when
 	// encoded in a XfrmMark
 	ipSecXfrmMarkSPIShift = 12
+
+	defaultDropPriority      = 100
+	oldXFRMOutPolicyPriority = 50
 )
 
 type ipSecKey struct {
@@ -70,6 +75,42 @@ var (
 	// replaced with a newer one, allowing to reclaim old keys only after
 	// enough time has passed since their replacement
 	ipSecKeysRemovalTime = make(map[uint8]time.Time)
+
+	wildcardIPv4   = net.ParseIP("0.0.0.0")
+	wildcardCIDRv4 = &net.IPNet{
+		IP:   wildcardIPv4,
+		Mask: net.IPv4Mask(0, 0, 0, 0),
+	}
+	wildcardIPv6   = net.ParseIP("0::0")
+	wildcardCIDRv6 = &net.IPNet{
+		IP:   wildcardIPv6,
+		Mask: net.CIDRMask(0, 128),
+	}
+
+	defaultDropMark = &netlink.XfrmMark{
+		Value: linux_defaults.RouteMarkEncrypt,
+		Mask:  linux_defaults.IPsecMarkMaskIn,
+	}
+	defaultDropPolicyIPv4 = &netlink.XfrmPolicy{
+		Dir:      netlink.XFRM_DIR_OUT,
+		Src:      wildcardCIDRv4,
+		Dst:      wildcardCIDRv4,
+		Mark:     defaultDropMark,
+		Action:   netlink.XFRM_POLICY_BLOCK,
+		Priority: defaultDropPriority,
+	}
+	defaultDropPolicyIPv6 = &netlink.XfrmPolicy{
+		Dir:      netlink.XFRM_DIR_OUT,
+		Src:      wildcardCIDRv6,
+		Dst:      wildcardCIDRv6,
+		Mark:     defaultDropMark,
+		Action:   netlink.XFRM_POLICY_BLOCK,
+		Priority: defaultDropPriority,
+	}
+
+	// To attempt to remove any stale XFRM configs once at startup, after
+	// we've added the catch-all default-drop policy.
+	removeStaleXFRMOnce sync.Once
 )
 
 func getIPSecKeys(ip net.IP) *ipSecKey {
@@ -125,6 +166,131 @@ func ipSecJoinState(state *netlink.XfrmState, keys *ipSecKey) {
 	state.Reqid = keys.ReqID
 }
 
+// xfrmStateReplace attempts to add a new XFRM state only if one doesn't
+// already exist. If it doesn't but some other XFRM state conflicts, then
+// we attempt to remove the conflicting state before trying to add again.
+func xfrmStateReplace(new *netlink.XfrmState) error {
+	states, err := netlink.XfrmStateList(netlink.FAMILY_ALL)
+	if err != nil {
+		return fmt.Errorf("Cannot get XFRM state: %s", err)
+	}
+
+	scopedLog := log.WithFields(logrus.Fields{
+		logfields.SPI:           new.Spi,
+		logfields.SourceIP:      new.Src,
+		logfields.DestinationIP: new.Dst,
+	})
+
+	// Check if the XFRM state already exists
+	for _, s := range states {
+		if xfrmIPEqual(s.Src, new.Src) && xfrmIPEqual(s.Dst, new.Dst) &&
+			xfrmMarkEqual(s.Mark, new.Mark) && s.Spi == new.Spi {
+			return nil
+		}
+	}
+
+	oldXFRMMark := &netlink.XfrmMark{
+		Value: ipSecXfrmMarkSetSPI(linux_defaults.RouteMarkEncrypt, uint8(new.Spi)),
+		Mask:  linux_defaults.IPsecOldMarkMaskOut,
+	}
+	for _, s := range states {
+		// This is the XFRM OUT state from a previous Cilium version.
+		// Because its mark matches the new mark (0xXXXX3e00/0xffffff00 ∈
+		// 0x3e00/0xff00), the kernel considers the two states conflict and we
+		// won't be able to add the new one until the old one is removed.
+		//
+		// Thus, we temporarily remove the old, conflicting XFRM state and
+		// re-add it in a defer. In between the removal of the old state and
+		// the addition of the new, we can have a packet drops due to the
+		// missing state. These drops should be limited to the specific node
+		// pair we are handling here and the window during which they can
+		// happen should be really small. This is also specific to the upgrade
+		// and can be removed in v1.15. Finally, this shouldn't happen with ENI
+		// and Azure IPAM modes because they don't have such conflicting states.
+		if xfrmIPEqual(s.Src, new.Src) && xfrmIPEqual(s.Dst, new.Dst) &&
+			xfrmMarkEqual(s.Mark, oldXFRMMark) && s.Spi == new.Spi {
+			err := netlink.XfrmStateDel(&s)
+			if err != nil {
+				scopedLog.WithError(err).Error("Failed to remove old XFRM state")
+			} else {
+				scopedLog.Infof("Temporarily removed old XFRM state")
+				defer func(oldXFRMState netlink.XfrmState) {
+					if err := netlink.XfrmStateAdd(&oldXFRMState); err != nil {
+						scopedLog.WithError(err).Errorf("Failed to re-add old XFRM state")
+					}
+				}(s)
+			}
+		}
+	}
+
+	// It doesn't exist so let's attempt to add it.
+	firstAttemptErr := netlink.XfrmStateAdd(new)
+	if !os.IsExist(firstAttemptErr) {
+		return firstAttemptErr
+	}
+	scopedLog.Error("Failed to add XFRM state due to conflicting state")
+
+	// An existing state conflicts with this one. We need to remove the
+	// existing one first.
+	deletedSomething, err := xfrmDeleteConflictingState(states, new)
+	if err != nil {
+		return err
+	}
+
+	// If no conflicting state was found and deleted, there's no point in
+	// attempting to add again.
+	if !deletedSomething {
+		return firstAttemptErr
+	}
+	return netlink.XfrmStateAdd(new)
+}
+
+// Attempt to remove any XFRM state that conflicts with the state we just tried
+// to add. To find those conflicting states, we need to use the same logic that
+// the kernel used to reject our check with EEXIST. That logic is upstream in
+// __xfrm_state_lookup.
+func xfrmDeleteConflictingState(states []netlink.XfrmState, new *netlink.XfrmState) (bool, error) {
+	deletedSomething := false
+	for _, s := range states {
+		if new.Spi == s.Spi && (new.Mark == nil) == (s.Mark == nil) &&
+			(new.Mark == nil || new.Mark.Value&new.Mark.Mask&s.Mark.Mask == s.Mark.Value) &&
+			xfrmIPEqual(new.Src, s.Src) && xfrmIPEqual(new.Dst, s.Dst) {
+			err := netlink.XfrmStateDel(&s)
+			if err == nil {
+				deletedSomething = true
+				log.WithFields(logrus.Fields{
+					logfields.SPI:           s.Spi,
+					logfields.SourceIP:      s.Src,
+					logfields.DestinationIP: s.Dst,
+				}).Info("Removed a conflicting XFRM state")
+			} else {
+				return deletedSomething, fmt.Errorf("Failed to remove a conflicting XFRM state: %w", err)
+			}
+		}
+	}
+	return deletedSomething, nil
+}
+
+// This function compares two IP addresses and returns true if they are equal.
+// This is unfortunately necessary because our netlink library returns nil IPv6
+// addresses as nil IPv4 addresses and net.IP.Equal rightfully considers those
+// are different.
+func xfrmIPEqual(ip1, ip2 net.IP) bool {
+	if ip1.IsUnspecified() && ip2.IsUnspecified() {
+		return true
+	}
+	return ip1.Equal(ip2)
+}
+
+// Returns true if two XFRM marks are identical. They should be either both nil
+// or have the same mark value and mask.
+func xfrmMarkEqual(mark1, mark2 *netlink.XfrmMark) bool {
+	if (mark1 == nil) != (mark2 == nil) {
+		return false
+	}
+	return mark1 == nil || (mark1.Value == mark2.Value && mark1.Mask == mark2.Mask)
+}
+
 func ipSecReplaceStateIn(localIP, remoteIP net.IP, zeroMark bool) (uint8, error) {
 	key := getIPSecKeys(remoteIP)
 	if key == nil {
@@ -150,10 +316,10 @@ func ipSecReplaceStateIn(localIP, remoteIP net.IP, zeroMark bool) (uint8, error)
 		}
 	}
 
-	return key.Spi, netlink.XfrmStateAdd(state)
+	return key.Spi, xfrmStateReplace(state)
 }
 
-func ipSecReplaceStateOut(localIP, remoteIP net.IP) (uint8, error) {
+func ipSecReplaceStateOut(localIP, remoteIP net.IP, nodeID uint16) (uint8, error) {
 	key := getIPSecKeys(localIP)
 	if key == nil {
 		return 0, fmt.Errorf("IPSec key missing")
@@ -162,15 +328,12 @@ func ipSecReplaceStateOut(localIP, remoteIP net.IP) (uint8, error) {
 	ipSecJoinState(state, key)
 	state.Src = localIP
 	state.Dst = remoteIP
-	state.Mark = &netlink.XfrmMark{
-		Value: ipSecXfrmMarkSetSPI(linux_defaults.RouteMarkEncrypt, key.Spi),
-		Mask:  linux_defaults.IPsecMarkMask,
-	}
+	state.Mark = generateEncryptMark(key.Spi, nodeID)
 	state.OutputMark = &netlink.XfrmMark{
 		Value: linux_defaults.RouteMarkEncrypt,
 		Mask:  linux_defaults.RouteMarkMask,
 	}
-	return key.Spi, netlink.XfrmStateAdd(state)
+	return key.Spi, xfrmStateReplace(state)
 }
 
 func _ipSecReplacePolicyInFwd(src, dst *net.IPNet, tmplSrc, tmplDst net.IP, proxyMark bool, dir netlink.Dir) error {
@@ -180,14 +343,21 @@ func _ipSecReplacePolicyInFwd(src, dst *net.IPNet, tmplSrc, tmplDst net.IP, prox
 		return fmt.Errorf("IPSec key missing")
 	}
 
+	wildcardIP := wildcardIPv4
+	wildcardCIDR := wildcardCIDRv4
+	if tmplDst.To4() == nil {
+		wildcardIP = wildcardIPv6
+		wildcardCIDR = wildcardCIDRv6
+	}
+
 	policy := ipSecNewPolicy()
 	policy.Dir = dir
-	policy.Dst = dst
-	policy.Mark = &netlink.XfrmMark{
-		Mask: linux_defaults.IPsecMarkMaskIn,
-	}
 	if dir == netlink.XFRM_DIR_IN {
 		policy.Src = src
+		policy.Dst = dst
+		policy.Mark = &netlink.XfrmMark{
+			Mask: linux_defaults.IPsecMarkMaskIn,
+		}
 		if proxyMark {
 			// We require a policy to match on packets going to the proxy which are
 			// therefore carrying the proxy mark. We however don't need a policy
@@ -199,7 +369,7 @@ func _ipSecReplacePolicyInFwd(src, dst *net.IPNet, tmplSrc, tmplDst net.IP, prox
 			optional = 1
 			// We set the source tmpl address to 0/0 to explicit that it
 			// doesn't matter.
-			tmplSrc = net.ParseIP("0.0.0.0")
+			tmplSrc = wildcardIP
 		} else {
 			policy.Mark.Value = linux_defaults.RouteMarkDecrypt
 		}
@@ -212,8 +382,8 @@ func _ipSecReplacePolicyInFwd(src, dst *net.IPNet, tmplSrc, tmplDst net.IP, prox
 		policy.Priority = linux_defaults.IPsecFwdPriority
 		// In case of fwd policies, we should tell the kernel the tmpl src
 		// doesn't matter; we want all fwd packets to go through.
-		tmplSrc = net.ParseIP("0.0.0.0")
-		policy.Src = &net.IPNet{IP: tmplSrc, Mask: net.IPv4Mask(0, 0, 0, 0)}
+		policy.Src = wildcardCIDR
+		policy.Dst = wildcardCIDR
 	}
 	ipSecAttachPolicyTempl(policy, key, tmplSrc, tmplDst, false, optional)
 	return netlink.XfrmPolicyUpdate(policy)
@@ -229,6 +399,58 @@ func ipSecReplacePolicyIn(src, dst *net.IPNet, tmplSrc, tmplDst net.IP) error {
 func IpSecReplacePolicyFwd(dst *net.IPNet, tmplDst net.IP) error {
 	// The source CIDR and IP aren't used in the case of FWD policies.
 	return _ipSecReplacePolicyInFwd(nil, dst, net.IP{}, tmplDst, false, netlink.XFRM_DIR_FWD)
+}
+
+// Installs a catch-all policy for outgoing traffic that has the encryption
+// bit. The goal here is to catch any traffic that may passthrough our
+// encryption while we are replacing XFRM policies & states. Those operations
+// cannot always be performed atomically so we may have brief moments where
+// there is no XFRM policy to encrypt a subset of traffic. This policy ensures
+// we drop such traffic and don't let it flow in plain text.
+//
+// We do need to match on the mark because there is also traffic flowing
+// through XFRM that we don't want to encrypt (e.g., hostns traffic).
+func IPsecDefaultDropPolicy(ipv6 bool) error {
+	defaultDropPolicy := defaultDropPolicyIPv4
+	family := netlink.FAMILY_V4
+	if ipv6 {
+		defaultDropPolicy = defaultDropPolicyIPv6
+		family = netlink.FAMILY_V6
+	}
+
+	err := netlink.XfrmPolicyUpdate(defaultDropPolicy)
+
+	// We move the existing XFRM OUT policy to a lower priority to allow the
+	// new priorities to take precedence.
+	// This code can be removed in Cilium v1.15 to instead remove the old XFRM
+	// OUT policy and state.
+	removeStaleXFRMOnce.Do(func() {
+		deprioritizeOldOutPolicy(family)
+	})
+
+	return err
+}
+
+// Lowers the priority of the old XFRM OUT policy. We rely on the mark mask to
+// identify it. By lowering the priority, we will allow the new XFRM OUT
+// policies to take precedence. We cannot simply remove and replace the old
+// XFRM OUT configs because that would cause traffic interruptions on upgrades.
+func deprioritizeOldOutPolicy(family int) {
+	policies, err := netlink.XfrmPolicyList(family)
+	if err != nil {
+		log.WithError(err).Error("Cannot get XFRM policies")
+	}
+	for _, p := range policies {
+		if p.Dir == netlink.XFRM_DIR_OUT && p.Mark.Mask == linux_defaults.IPsecOldMarkMaskOut {
+			p.Priority = oldXFRMOutPolicyPriority
+			if err := netlink.XfrmPolicyUpdate(&p); err != nil {
+				log.WithError(err).WithFields(logrus.Fields{
+					logfields.SourceCIDR:      p.Src,
+					logfields.DestinationCIDR: p.Dst,
+				}).Error("Failed to deprioritize old XFRM policy")
+			}
+		}
+	}
 }
 
 // ipSecXfrmMarkSetSPI takes a XfrmMark base value, an SPI, returns the mark
@@ -250,7 +472,23 @@ func getSPIFromXfrmPolicy(policy *netlink.XfrmPolicy) uint8 {
 	return ipSecXfrmMarkGetSPI(policy.Mark.Value)
 }
 
-func ipSecReplacePolicyOut(src, dst *net.IPNet, tmplSrc, tmplDst net.IP, dir IPSecDir) error {
+func getNodeIDFromXfrmMark(mark *netlink.XfrmMark) uint16 {
+	if mark == nil {
+		return 0
+	}
+	return uint16(mark.Value >> 16)
+}
+
+func generateEncryptMark(spi uint8, nodeID uint16) *netlink.XfrmMark {
+	val := ipSecXfrmMarkSetSPI(linux_defaults.RouteMarkEncrypt, spi)
+	val |= uint32(nodeID) << 16
+	return &netlink.XfrmMark{
+		Value: val,
+		Mask:  linux_defaults.IPsecMarkMaskOut,
+	}
+}
+
+func ipSecReplacePolicyOut(src, dst *net.IPNet, tmplSrc, tmplDst net.IP, nodeID uint16, dir IPSecDir) error {
 	// TODO: Remove old policy pointing to target net
 
 	key := getIPSecKeys(dst.IP)
@@ -260,54 +498,57 @@ func ipSecReplacePolicyOut(src, dst *net.IPNet, tmplSrc, tmplDst net.IP, dir IPS
 
 	policy := ipSecNewPolicy()
 	if dir == IPSecDirOutNode {
-		wildcardIP := net.ParseIP("0.0.0.0")
-		wildcardMask := net.IPv4Mask(0, 0, 0, 0)
-		policy.Src = &net.IPNet{IP: wildcardIP, Mask: wildcardMask}
+		policy.Src = wildcardCIDRv4
 	} else {
 		policy.Src = src
 	}
 	policy.Dst = dst
 	policy.Dir = netlink.XFRM_DIR_OUT
-	policy.Mark = &netlink.XfrmMark{
-		Value: ipSecXfrmMarkSetSPI(linux_defaults.RouteMarkEncrypt, key.Spi),
-		Mask:  linux_defaults.IPsecMarkMask,
-	}
+	policy.Mark = generateEncryptMark(key.Spi, nodeID)
 	ipSecAttachPolicyTempl(policy, key, tmplSrc, tmplDst, true, 0)
 	return netlink.XfrmPolicyUpdate(policy)
 }
 
-func ipsecDeleteXfrmState(ip net.IP) {
+// Returns true if the given mark matches on the node ID. This works because
+// the node ID match is always in the first 16 bits.
+func matchesOnNodeID(mark *netlink.XfrmMark) bool {
+	return mark != nil &&
+		mark.Mask&linux_defaults.IPsecMarkMaskNodeID == linux_defaults.IPsecMarkMaskNodeID
+}
+
+func ipsecDeleteXfrmState(nodeID uint16) {
 	scopedLog := log.WithFields(logrus.Fields{
-		"remote-ip": ip,
+		logfields.NodeID: nodeID,
 	})
 
 	xfrmStateList, err := netlink.XfrmStateList(netlink.FAMILY_ALL)
 	if err != nil {
-		scopedLog.WithError(err).Warning("deleting xfrm state, xfrm state list error")
+		scopedLog.WithError(err).Warning("Failed to list XFRM states for deletion")
 		return
 	}
 	for _, s := range xfrmStateList {
-		if ip.Equal(s.Dst) {
+		if matchesOnNodeID(s.Mark) && getNodeIDFromXfrmMark(s.Mark) == nodeID {
 			if err := netlink.XfrmStateDel(&s); err != nil {
-				scopedLog.WithError(err).Warning("deleting xfrm state failed")
+				scopedLog.WithError(err).Warning("Failed to delete XFRM state")
 			}
 		}
 	}
 }
 
-func ipsecDeleteXfrmPolicy(ip net.IP) {
+func ipsecDeleteXfrmPolicy(nodeID uint16) {
 	scopedLog := log.WithFields(logrus.Fields{
-		"remote-ip": ip,
+		logfields.NodeID: nodeID,
 	})
 
 	xfrmPolicyList, err := netlink.XfrmPolicyList(netlink.FAMILY_ALL)
 	if err != nil {
-		scopedLog.WithError(err).Warning("deleting policy state, xfrm policy list error")
+		scopedLog.WithError(err).Warning("Failed to list XFRM policies for deletion")
+		return
 	}
 	for _, p := range xfrmPolicyList {
-		if ip.Equal(p.Dst.IP) {
+		if matchesOnNodeID(p.Mark) && getNodeIDFromXfrmMark(p.Mark) == nodeID {
 			if err := netlink.XfrmPolicyDel(&p); err != nil {
-				scopedLog.WithError(err).Warning("deleting xfrm policy failed")
+				scopedLog.WithError(err).Warning("Failed to delete XFRM policy")
 			}
 		}
 	}
@@ -353,7 +594,7 @@ func ipsecDeleteXfrmPolicy(ip net.IP) {
  * state space. Basic idea would be to reference a state using any key generated
  * from BPF program allowing for a single state per security ctx.
  */
-func UpsertIPsecEndpoint(local, remote *net.IPNet, outerLocal, outerRemote net.IP, dir IPSecDir, outputMark bool) (uint8, error) {
+func UpsertIPsecEndpoint(local, remote *net.IPNet, outerLocal, outerRemote net.IP, remoteNodeID uint16, dir IPSecDir, outputMark bool) (uint8, error) {
 	var spi uint8
 	var err error
 
@@ -368,9 +609,7 @@ func UpsertIPsecEndpoint(local, remote *net.IPNet, outerLocal, outerRemote net.I
 	if !outerLocal.Equal(outerRemote) {
 		if dir == IPSecDirIn || dir == IPSecDirBoth {
 			if spi, err = ipSecReplaceStateIn(outerLocal, outerRemote, outputMark); err != nil {
-				if !os.IsExist(err) {
-					return 0, fmt.Errorf("unable to replace local state: %s", err)
-				}
+				return 0, fmt.Errorf("unable to replace local state: %s", err)
 			}
 			if err = ipSecReplacePolicyIn(remote, local, outerRemote, outerLocal); err != nil {
 				if !os.IsExist(err) {
@@ -385,13 +624,11 @@ func UpsertIPsecEndpoint(local, remote *net.IPNet, outerLocal, outerRemote net.I
 		}
 
 		if dir == IPSecDirOut || dir == IPSecDirOutNode || dir == IPSecDirBoth {
-			if spi, err = ipSecReplaceStateOut(outerLocal, outerRemote); err != nil {
-				if !os.IsExist(err) {
-					return 0, fmt.Errorf("unable to replace remote state: %s", err)
-				}
+			if spi, err = ipSecReplaceStateOut(outerLocal, outerRemote, remoteNodeID); err != nil {
+				return 0, fmt.Errorf("unable to replace remote state: %s", err)
 			}
 
-			if err = ipSecReplacePolicyOut(local, remote, outerLocal, outerRemote, dir); err != nil {
+			if err = ipSecReplacePolicyOut(local, remote, outerLocal, outerRemote, remoteNodeID, dir); err != nil {
 				if !os.IsExist(err) {
 					return 0, fmt.Errorf("unable to replace policy out: %s", err)
 				}
@@ -403,8 +640,8 @@ func UpsertIPsecEndpoint(local, remote *net.IPNet, outerLocal, outerRemote net.I
 
 // UpsertIPsecEndpointPolicy adds a policy to the xfrm rules. Used to add a policy when the state
 // rule is already available.
-func UpsertIPsecEndpointPolicy(local, remote *net.IPNet, localTmpl, remoteTmpl net.IP, dir IPSecDir) error {
-	if err := ipSecReplacePolicyOut(local, remote, localTmpl, remoteTmpl, dir); err != nil {
+func UpsertIPsecEndpointPolicy(local, remote *net.IPNet, localTmpl, remoteTmpl net.IP, remoteNodeID uint16, dir IPSecDir) error {
+	if err := ipSecReplacePolicyOut(local, remote, localTmpl, remoteTmpl, remoteNodeID, dir); err != nil {
 		if !os.IsExist(err) {
 			return fmt.Errorf("unable to replace templated policy out: %s", err)
 		}
@@ -413,9 +650,9 @@ func UpsertIPsecEndpointPolicy(local, remote *net.IPNet, localTmpl, remoteTmpl n
 }
 
 // DeleteIPsecEndpoint deletes a endpoint associated with the remote IP address
-func DeleteIPsecEndpoint(remote net.IP) {
-	ipsecDeleteXfrmState(remote)
-	ipsecDeleteXfrmPolicy(remote)
+func DeleteIPsecEndpoint(nodeID uint16) {
+	ipsecDeleteXfrmState(nodeID)
+	ipsecDeleteXfrmPolicy(nodeID)
 }
 
 func isXfrmPolicyCilium(policy netlink.XfrmPolicy) bool {
@@ -672,6 +909,10 @@ func keyfileWatcher(ctx context.Context, watcher *fswatcher.Watcher, keyfilePath
 }
 
 func StartKeyfileWatcher(ctx context.Context, keyfilePath string, nodediscovery *nodediscovery.NodeDiscovery, nodeHandler datapath.NodeHandler) error {
+	if !option.Config.EnableIPsecKeyWatcher {
+		return nil
+	}
+
 	watcher, err := fswatcher.New([]string{keyfilePath})
 	if err != nil {
 		return err
@@ -766,6 +1007,10 @@ func deleteStaleXfrmPolicies(reclaimTimestamp time.Time) {
 			continue
 		}
 
+		if isDefaultDropPolicy(&p) {
+			continue
+		}
+
 		scopedLog = log.WithField(logfields.OldSPI, policySPI)
 
 		scopedLog.Info("Deleting stale XFRM policy")
@@ -773,6 +1018,20 @@ func deleteStaleXfrmPolicies(reclaimTimestamp time.Time) {
 			scopedLog.WithError(err).Warning("Deleting stale XFRM policy failed")
 		}
 	}
+}
+
+func isDefaultDropPolicy(p *netlink.XfrmPolicy) bool {
+	return equalDefaultDropPolicy(defaultDropPolicyIPv4, p) ||
+		equalDefaultDropPolicy(defaultDropPolicyIPv6, p)
+}
+
+func equalDefaultDropPolicy(defaultDropPolicy, p *netlink.XfrmPolicy) bool {
+	return p.Priority == defaultDropPolicy.Priority &&
+		p.Action == defaultDropPolicy.Action &&
+		p.Dir == defaultDropPolicy.Dir &&
+		xfrmMarkEqual(p.Mark, defaultDropPolicy.Mark) &&
+		p.Src.String() == defaultDropPolicy.Src.String() &&
+		p.Dst.String() == defaultDropPolicy.Dst.String()
 }
 
 func doReclaimStaleKeys() {

@@ -38,6 +38,10 @@ spec:
       imagePullSecrets:
         {{ toYaml .Values.imagePullSecrets | indent 8 }}
 {{- end }}
+{{- with .Values.etcd.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+{{- end }}
       containers:
       - args:
 {{- with .Values.etcd.extraArgs }}
@@ -74,12 +78,21 @@ spec:
         imagePullPolicy: {{ .Values.etcd.image.pullPolicy }}
         name: cilium-etcd-operator
         terminationMessagePolicy: FallbackToLogsOnError
+        {{- with .Values.etcd.securityContext }}
+        securityContext:
+          {{- toYaml . | trim | nindent 8 }}
+        {{- end }}
+        {{- with .Values.etcd.extraVolumeMounts }}
+        volumeMounts:
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       dnsPolicy: ClusterFirst
       hostNetwork: true
       priorityClassName: {{ include "cilium.priorityClass" (list $ .Values.clustermesh.apiserver.priorityClassName "system-cluster-critical") }}
       restartPolicy: Always
       serviceAccount: {{ .Values.serviceAccounts.etcd.name | quote }}
       serviceAccountName: {{ .Values.serviceAccounts.etcd.name | quote }}
+      automountServiceAccountToken: {{ .Values.serviceAccounts.etcd.automount }}
 {{- with .Values.etcd.nodeSelector }}
       nodeSelector:
         {{- toYaml . | trim | nindent 8 }}
@@ -88,4 +101,8 @@ spec:
       tolerations:
       {{- toYaml . | trim | nindent 6 }}
 {{- end }}
+      {{- with .Values.etcd.extraVolumes }}
+      volumes:
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
 {{- end }}

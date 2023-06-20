@@ -188,23 +188,25 @@ func (l *Loader) reinitializeIPSec(ctx context.Context) error {
 		return nil
 	}
 
+	l.ipsecMu.Lock()
+	defer l.ipsecMu.Unlock()
+
 	interfaces := option.Config.EncryptInterface
 	if option.Config.IPAM == ipamOption.IPAMENI {
 		// IPAMENI mode supports multiple network facing interfaces that
 		// will all need Encrypt logic applied in order to decrypt any
 		// received encrypted packets. This logic will attach to all
-		// !veth devices. Only use if user has not configured interfaces.
-		if len(interfaces) == 0 {
-			if links, err := netlink.LinkList(); err == nil {
-				for _, link := range links {
-					isVirtual, err := ethtool.IsVirtualDriver(link.Attrs().Name)
-					if err == nil && !isVirtual {
-						interfaces = append(interfaces, link.Attrs().Name)
-					}
+		// !veth devices.
+		interfaces = nil
+		if links, err := netlink.LinkList(); err == nil {
+			for _, link := range links {
+				isVirtual, err := ethtool.IsVirtualDriver(link.Attrs().Name)
+				if err == nil && !isVirtual {
+					interfaces = append(interfaces, link.Attrs().Name)
 				}
 			}
-			option.Config.EncryptInterface = interfaces
 		}
+		option.Config.EncryptInterface = interfaces
 	}
 
 	// No interfaces is valid in tunnel disabled case
@@ -462,8 +464,19 @@ func (l *Loader) Reinitialize(ctx context.Context, o datapath.BaseProgramOwner, 
 		log.Warning("Cannot check matching of C and Go common struct alignments due to old LLVM/clang version")
 	}
 
-	if err := l.reinitializeIPSec(ctx); err != nil {
-		return err
+	if option.Config.EnableIPSec {
+		if err := compileNetwork(ctx); err != nil {
+			log.WithError(err).Fatal("failed to compile encryption programs")
+		}
+
+		if err := l.reinitializeIPSec(ctx); err != nil {
+			return err
+		}
+
+		if firstInitialization {
+			// Start a background worker to reinitialize IPsec if links change.
+			l.reloadIPSecOnLinkChanges()
+		}
 	}
 
 	if err := o.Datapath().Node().NodeConfigurationChanged(*o.LocalConfig()); err != nil {

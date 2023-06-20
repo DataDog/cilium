@@ -410,6 +410,9 @@ func initializeFlags() {
 	flags.String(option.IPSecKeyFileName, "", "Path to IPSec key file")
 	option.BindEnv(option.IPSecKeyFileName)
 
+	flags.Bool(option.EnableIPsecKeyWatcher, defaults.EnableIPsecKeyWatcher, "Enable watcher for IPsec key. If disabled, a restart of the agent will be necessary on key rotations.")
+	option.BindEnv(option.EnableIPsecKeyWatcher)
+
 	flags.Bool(option.EnableWireguard, false, "Enable wireguard")
 	option.BindEnv(option.EnableWireguard)
 
@@ -1066,15 +1069,23 @@ func initializeFlags() {
 	flags.MarkHidden(option.EnableICMPRules)
 	option.BindEnv(option.EnableICMPRules)
 
+	flags.Bool(option.UseCiliumInternalIPForIPsec, defaults.UseCiliumInternalIPForIPsec, "Use the CiliumInternalIPs (vs. NodeInternalIPs) for IPsec encapsulation")
+	flags.MarkHidden(option.UseCiliumInternalIPForIPsec)
+	option.BindEnv(option.UseCiliumInternalIPForIPsec)
+
 	flags.Bool(option.BypassIPAvailabilityUponRestore, false, "Bypasses the IP availability error within IPAM upon endpoint restore")
 	flags.MarkHidden(option.BypassIPAvailabilityUponRestore)
 	option.BindEnv(option.BypassIPAvailabilityUponRestore)
 
-	flags.Bool(option.EnableCiliumEndpointSlice, false, "If set to true, CiliumEndpointSlice feature is enabled and cilium agent watch for CiliumEndpointSlice instead of CiliumEndpoint to update the IPCache.")
+	flags.Bool(option.EnableCiliumEndpointSlice, false, "Enable the CiliumEndpointSlice watcher in place of the CiliumEndpoint watcher (beta)")
 	option.BindEnv(option.EnableCiliumEndpointSlice)
 
 	flags.Bool(option.EnableK8sTerminatingEndpoint, true, "Enable auto-detect of terminating endpoint condition")
 	option.BindEnv(option.EnableK8sTerminatingEndpoint)
+
+	flags.Bool(option.EnableStaleCiliumEndpointCleanup, true, "Enable running cleanup init procedure of local CiliumEndpoints which are not being managed.")
+	flags.MarkHidden(option.EnableStaleCiliumEndpointCleanup)
+	option.BindEnv(option.EnableStaleCiliumEndpointCleanup)
 
 	viper.BindPFlags(flags)
 }
@@ -1738,6 +1749,25 @@ func runDaemon() {
 	}
 
 	if !option.Config.DryMode {
+		// Only attempt CEP cleanup if cilium endpoint CRD is not disabled, otherwise the cep/ces
+		// watchers/indexers will not be initialized.
+		if k8s.IsEnabled() && option.Config.EnableStaleCiliumEndpointCleanup && !option.Config.DisableCiliumEndpointCRD {
+			go func() {
+				if restoreComplete != nil {
+					<-restoreComplete
+				}
+
+				// Use restored endpoints to delete local CiliumEndpoints which are not in the restored endpoint cache.
+				// This will clear out any CiliumEndpoints that may be stale.
+				// Likely causes for this are Pods having their init container restarted or the node being restarted.
+				// This must wait for both K8s watcher caches to be synced and local endpoint restoration to be complete.
+				// Note: Synchronization of endpoints to their CEPs may not be complete at this point, but we only have to
+				// know what endpoints exist post-restoration in our endpointManager cache to perform cleanup.
+				if err := d.cleanStaleCEPs(context.Background(), d.endpointManager, k8s.CiliumClient().CiliumV2(), option.Config.EnableCiliumEndpointSlice); err != nil {
+					log.WithError(err).Error("Failed to clean up stale CEPs")
+				}
+			}()
+		}
 		go func() {
 			if restoreComplete != nil {
 				<-restoreComplete
@@ -1809,7 +1839,7 @@ func runDaemon() {
 	d.startAgentHealthHTTPService()
 	if option.Config.KubeProxyReplacementHealthzBindAddr != "" {
 		if option.Config.KubeProxyReplacement != option.KubeProxyReplacementDisabled {
-			d.startKubeProxyHealthzHTTPService(fmt.Sprintf("%s", option.Config.KubeProxyReplacementHealthzBindAddr))
+			d.startKubeProxyHealthzHTTPService(option.Config.KubeProxyReplacementHealthzBindAddr)
 		}
 	}
 
@@ -1829,16 +1859,16 @@ func runDaemon() {
 		log.WithError(err).Warn("Failed to send agent start monitor message")
 	}
 
-	if !d.datapath.Node().NodeNeighDiscoveryEnabled() {
+	if !d.datapath.NodeNeighbors().NodeNeighDiscoveryEnabled() {
 		// Remove all non-GC'ed neighbor entries that might have previously set
 		// by a Cilium instance.
-		d.datapath.Node().NodeCleanNeighbors(false)
+		d.datapath.NodeNeighbors().NodeCleanNeighbors(false)
 	} else {
 		// If we came from an agent upgrade, migrate entries.
-		d.datapath.Node().NodeCleanNeighbors(true)
+		d.datapath.NodeNeighbors().NodeCleanNeighbors(true)
 		// Start periodical refresh of the neighbor table from the agent if needed.
 		if option.Config.ARPPingRefreshPeriod != 0 && !option.Config.ARPPingKernelManaged {
-			d.nodeDiscovery.Manager.StartNeighborRefresh(d.datapath.Node())
+			d.nodeDiscovery.Manager.StartNeighborRefresh(d.datapath.NodeNeighbors())
 		}
 	}
 
@@ -2006,6 +2036,9 @@ func (d *Daemon) instantiateAPI() *restapi.CiliumAPIAPI {
 
 	// /ip/
 	restAPI.PolicyGetIPHandler = NewGetIPHandler()
+
+	// /node/ids
+	restAPI.DaemonGetNodeIdsHandler = NewGetNodeIDsHandler(d.datapath.NodeIDs())
 
 	return restAPI
 }

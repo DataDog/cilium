@@ -141,10 +141,12 @@ func (p *selectorPolicy) DistillPolicy(policyOwner PolicyOwner, isHost bool) *En
 	// Must come after the 'insertUser()' above to guarantee
 	// PolicyMapChanges will contain all changes that are applied
 	// after the computation of PolicyMapState has started.
+	p.SelectorCache.mutex.RLock()
 	calculatedPolicy.computeDesiredL4PolicyMapEntries()
 	if !isHost {
 		calculatedPolicy.PolicyMapState.DetermineAllowLocalhostIngress()
 	}
+	p.SelectorCache.mutex.RUnlock()
 
 	return calculatedPolicy
 }
@@ -171,7 +173,7 @@ func (p *EndpointPolicy) computeDirectionL4PolicyMapEntries(policyMapState MapSt
 	for _, filter := range l4PolicyMap {
 		lookupDone := false
 		proxyport := uint16(0)
-		keysFromFilter := filter.ToMapState(p.PolicyOwner, direction)
+		keysFromFilter := filter.ToMapState(p.PolicyOwner, direction, p.SelectorCache)
 		for keyFromFilter, entry := range keysFromFilter {
 			// Fix up the proxy port for entries that need proxy redirection
 			if entry.IsRedirectEntry() {
@@ -191,7 +193,7 @@ func (p *EndpointPolicy) computeDirectionL4PolicyMapEntries(policyMapState MapSt
 					continue
 				}
 			}
-			policyMapState.DenyPreferredInsert(keyFromFilter, entry)
+			policyMapState.DenyPreferredInsert(keyFromFilter, entry, p.SelectorCache)
 		}
 	}
 }
@@ -203,7 +205,7 @@ func (p *EndpointPolicy) computeDirectionL4PolicyMapEntries(policyMapState MapSt
 func (p *EndpointPolicy) ConsumeMapChanges() (adds, deletes Keys) {
 	p.selectorPolicy.SelectorCache.mutex.Lock()
 	defer p.selectorPolicy.SelectorCache.mutex.Unlock()
-	return p.policyMapChanges.consumeMapChanges(p.PolicyMapState)
+	return p.policyMapChanges.consumeMapChanges(p.PolicyMapState, p.SelectorCache)
 }
 
 // AllowsIdentity returns whether the specified policy allows

@@ -350,7 +350,7 @@ case $K8S_VERSION in
         sudo apt-get install -y conntrack
         KUBERNETES_CNI_VERSION="0.8.7"
         KUBERNETES_CNI_OS="-linux"
-        K8S_FULL_VERSION="1.22.13"
+        K8S_FULL_VERSION="1.22.17"
         KUBEADM_OPTIONS="--ignore-preflight-errors=cri,swap"
         KUBEADM_WORKER_OPTIONS="--discovery-token-unsafe-skip-ca-verification --ignore-preflight-errors=cri,SystemVerification,swap"
         sudo ln -sf $COREDNS_DEPLOYMENT $DNS_DEPLOYMENT
@@ -364,7 +364,7 @@ case $K8S_VERSION in
         sudo apt-get install -y conntrack
         KUBERNETES_CNI_VERSION="0.8.7"
         KUBERNETES_CNI_OS="-linux"
-        K8S_FULL_VERSION="1.23.10"
+        K8S_FULL_VERSION="1.23.17"
         KUBEADM_OPTIONS="--ignore-preflight-errors=cri,swap"
         KUBEADM_WORKER_OPTIONS="--discovery-token-unsafe-skip-ca-verification --ignore-preflight-errors=cri,SystemVerification,swap"
         sudo ln -sf $COREDNS_DEPLOYMENT $DNS_DEPLOYMENT
@@ -420,9 +420,11 @@ fi
 
 sudo mkdir -p ${CILIUM_CONFIG_DIR}
 
-sudo cp "$SYSTEMD_SERVICES/$MOUNT_SYSTEMD" /etc/systemd/system/
-sudo systemctl enable $MOUNT_SYSTEMD
-sudo systemctl restart $MOUNT_SYSTEMD
+if ! mount | grep /sys/fs/bpf; then
+    sudo cp "$SYSTEMD_SERVICES/$MOUNT_SYSTEMD" /etc/systemd/system/
+    sudo systemctl enable $MOUNT_SYSTEMD
+    sudo systemctl restart $MOUNT_SYSTEMD
+fi
 sudo rm -rfv /var/lib/kubelet || true
 
 if [[ "${PRELOAD_VM}" == "true" ]]; then

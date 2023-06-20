@@ -8,9 +8,14 @@ set -o errexit
 set -o pipefail
 set -o nounset
 
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=hubble-version.sh
-source "${script_dir}/hubble-version.sh"
+# renovate: datasource=github-release-attachments depName=cilium/hubble
+hubble_version="v0.11.6"
+
+declare -A hubble_sha256
+# renovate: datasource=github-release-attachments depName=cilium/hubble digestVersion=v0.11.6
+hubble_sha256[amd64]="2d2768574351a85770088c9239214cf50cb42461979f116ef20f985eb943b05a"
+# renovate: datasource=github-release-attachments depName=cilium/hubble digestVersion=v0.11.6
+hubble_sha256[arm64]="6c74e702638533ae835110be59d303ee74d4a19498bdb83ad488025684276ffe"
 
 for arch in amd64 arm64 ; do
   curl --fail --show-error --silent --location "https://github.com/cilium/hubble/releases/download/${hubble_version}/hubble-linux-${arch}.tar.gz" --output "/tmp/hubble-${arch}.tgz"
