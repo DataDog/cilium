@@ -150,7 +150,7 @@ type selectorCacheUpdater interface {
 }
 
 type policyTriggerer interface {
-	UpdatePolicyMaps(context.Context, *sync.WaitGroup) *sync.WaitGroup
+	TriggerPolicyUpdates(bool, string)
 }
 
 // Subscribe subscribes the given node handler to node events.
