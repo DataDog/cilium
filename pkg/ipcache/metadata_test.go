@@ -118,6 +118,4 @@ func (m *mockUpdater) UpdateIdentities(_, _ cache.IdentityCache, _ *sync.WaitGro
 
 type mockTriggerer struct{}
 
-func (m *mockTriggerer) UpdatePolicyMaps(ctx context.Context, wg *sync.WaitGroup) *sync.WaitGroup {
-	return wg
-}
+func (m *mockTriggerer) TriggerPolicyUpdates(bool, string) {}
