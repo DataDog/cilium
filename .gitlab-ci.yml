@@ -1,0 +1,61 @@
+variables:
+  CI_DOCKER_IMAGE: registry.ddbuild.io/images/docker@sha256:23643e6da71fc2551046a1928c071e6db5770f050a0f5a1e613168d2c65fb8bc # Docker 20.10.13
+  DOCKER_CONTEXT: "."
+  DOCKER_BUILD_ARGS: ""
+
+.build-docker-image: &build-docker-image
+  stage: build
+  image: $CI_DOCKER_IMAGE
+  tags: ["runner:docker"]
+  rules:
+    # For all branches ending with -dd, automatically push to prod
+    - if: $CI_COMMIT_BRANCH =~ /.*-dd/
+      variables:
+        TARGET: prod
+    # Otherwise, create manual jobs for pushing to staging
+    - if: $CI_COMMIT_BRANCH
+      variables:
+        TARGET: staging
+      when: manual
+  script:
+    - set -x
+    - builder=$(docker buildx create --use)
+    - trap "docker buildx rm $builder" EXIT
+    # Ex: v18411704-d9bda6da-1.12.11
+    - IMAGE_TAG="v${CI_PIPELINE_ID}-${CI_COMMIT_SHORT_SHA}-$(cat VERSION)"
+    # Construct valid --build-args arguments from the DOCKER_BUILD_ARGS variable
+    - BUILD_ARGS=""; IFS=$'\n'; for arg in $DOCKER_BUILD_ARGS; do BUILD_ARGS+=" $(echo "--build-arg $arg")"; done; IFS=$' ';
+    - docker buildx build --platform linux/amd64,linux/arm64 --tag registry.ddbuild.io/$IMAGE_NAME:$IMAGE_TAG --file $DOCKERFILE_PATH $BUILD_ARGS --label CILIUM_VERSION=$(cat VERSION) --label TARGET=$TARGET --push $DOCKER_CONTEXT
+
+build-docker-image-operator:
+  <<: *build-docker-image
+  variables:
+    IMAGE_NAME: cilium-operator
+    DOCKERFILE_PATH: images/operator/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      BASE_IMAGE=registry.ddbuild.io/images/base/gbi-distroless:latest@sha256:be05d4c795fa14da8c21ef40f0f4dd257095adf204a44e2b24676a92c03ea52d
+      GOLANG_IMAGE=docker.io/library/golang:1.18.10@sha256:50c889275d26f816b5314fc99f55425fa76b18fcaf16af255f5d57f09e1f48da
+      ALPINE_IMAGE=docker.io/library/alpine:3.16.6@sha256:cbe5d5973103a2d03408d1689a6efde4ea4920bde9f4b51fe7872e60ce2d8e56
+      OPERATOR_VARIANT=operator
+
+build-docker-image-runtime:
+  <<: *build-docker-image
+  variables:
+    IMAGE_NAME: cilium-runtime
+    DOCKERFILE_PATH: images/runtime/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      UBUNTU_IMAGE=registry.ddbuild.io/images/base/gbi-ubuntu_2004:latest@sha256:cdd429fbdb99e2e2ab68be54731b4d7f97206077e22dec24c561a4aba907de91
+    DOCKER_CONTEXT: "./images/runtime"
+    TARGET: build
+
+build-docker-image-cilium:
+  <<: *build-docker-image
+  needs:
+    # The cilium image depends on the runtime image
+    - build-docker-image-runtime
+  variables:
+    IMAGE_NAME: cilium
+    DOCKERFILE_PATH: images/cilium/Dockerfile
+  before_script:
+    # Reconstruct the cilium-runtime image version built in the build-docker-image-runtime job
+    - DOCKER_BUILD_ARGS+="CILIUM_RUNTIME_IMAGE=registry.ddbuild.io/cilium-runtime:v${CI_PIPELINE_ID}-${CI_COMMIT_SHORT_SHA}-$(cat VERSION)"
