@@ -1,0 +1,29 @@
+variables:
+  CI_MAIN_IMAGE: registry.ddbuild.io/ci/cilium:9578f554f9f01ea6ca7852116850d66a5d83dc67
+  CI_DOCKER_IMAGE: registry.ddbuild.io/images/docker@sha256:23643e6da71fc2551046a1928c071e6db5770f050a0f5a1e613168d2c65fb8bc # Docker 20.10.13
+
+build-ci-image:
+  stage: .pre
+  image: $CI_DOCKER_IMAGE
+  when: manual
+  except: [tags, schedules]
+  tags: ["runner:docker"]
+  script:
+    - cd .gitlab/
+    - builder=$(docker buildx create --use)
+    - trap "docker buildx rm $builder" EXIT
+    - docker buildx build --platform linux/amd64,linux/arm64 --tag registry.ddbuild.io/ci/cilium:$CI_COMMIT_SHA --file Dockerfile --push .
+
+.build-docker-image: &build-docker-image
+  stage: build
+  image: $CI_MAIN_IMAGE
+  tags: ["runner:docker"]
+  script:
+    - builder=$(docker buildx create --use)
+    - trap "docker buildx rm $builder" EXIT
+    - make -C images $MAKEFILE_RULE_NAME PUSH=true REGISTRIES=registry.ddbuild.io/cilium
+
+build-docker-image-operator:
+  <<: *build-docker-image
+  variables:
+    MAKEFILE_RULE_NAME: operator-image-datadog
