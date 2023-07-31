@@ -19,8 +19,8 @@ build-ci-image:
   image: $CI_MAIN_IMAGE
   tags: ["runner:docker"]
   script:
-    - builder=$(docker buildx create --use)
-    - trap "docker buildx rm $builder" EXIT
+    # - builder=$(docker buildx create --use)
+    # - trap "docker buildx rm $builder" EXIT
     - make -C images $MAKEFILE_RULE_NAME PUSH=true REGISTRIES=registry.ddbuild.io/cilium
 
 build-docker-image-operator:
