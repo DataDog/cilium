@@ -19,7 +19,7 @@ build-ci-image:
   image: $CI_MAIN_IMAGE
   tags: ["runner:docker"]
   script:
-    - set +x
+    - set -x
     - builder=$(docker buildx create --use)
     - trap "docker buildx rm $builder" EXIT
     - IMAGE_TAG="v${CI_PIPELINE_ID}-${CI_COMMIT_SHA:0:7}-$(cat VERSION)"
