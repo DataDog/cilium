@@ -19,14 +19,19 @@ build-ci-image:
   stage: build
   image: $CI_MAIN_IMAGE
   tags: ["runner:docker"]
-  # TODO only run when tagged
-  # only:
-  #    - tags
+  # rules:
+  #   - if: $CI_COMMIT_TAG
+  #     variables:
+  #       TARGET: prod
+  #   - if: $CI_COMMIT_BRANCH
+  #     variables:
+  #       TARGET: staging
+  #     when: manual
   script:
     - set -x
     - builder=$(docker buildx create --use)
     - trap "docker buildx rm $builder" EXIT
-    - IMAGE_TAG="v${CI_PIPELINE_ID}-${CI_COMMIT_SHA:0:7}"
+    - IMAGE_TAG="v${CI_PIPELINE_ID}-${CI_COMMIT_SHORT_SHA}"
     - BUILD_ARGS=""; IFS=$'\n'; for arg in $DOCKER_BUILD_ARGS; do BUILD_ARGS+=" $(echo "--build-arg $arg")"; done; IFS=$' ';
     # TODO add TARGET label
     - docker buildx build --platform linux/amd64,linux/arm64 --tag registry.ddbuild.io/$IMAGE_NAME:$IMAGE_TAG --file $DOCKERFILE_PATH $BUILD_ARGS --label CILIUM_VERSION=$(cat VERSION) --push $DOCKER_CONTEXT
@@ -59,4 +64,4 @@ build-docker-image-cilium:
     IMAGE_NAME: cilium
     DOCKERFILE_PATH: images/cilium/Dockerfile
     DOCKER_BUILD_ARGS: |
-      CILIUM_RUNTIME_IMAGE=registry.ddbuild.io/cilium-runtime:v${CI_PIPELINE_ID}-${CI_COMMIT_SHA:0:7}
+      CILIUM_RUNTIME_IMAGE=registry.ddbuild.io/cilium-runtime:v${CI_PIPELINE_ID}-${CI_COMMIT_SHORT_SHA}
