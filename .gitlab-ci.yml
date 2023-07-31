@@ -18,13 +18,16 @@ build-ci-image:
   stage: build
   image: $CI_MAIN_IMAGE
   tags: ["runner:docker"]
+  # TODO only run when tagged
+  # only:
+  #    - tags
   script:
     - set -x
     - builder=$(docker buildx create --use)
     - trap "docker buildx rm $builder" EXIT
     - IMAGE_TAG="v${CI_PIPELINE_ID}-${CI_COMMIT_SHA:0:7}-$(cat VERSION)"
     - BUILD_ARGS=""; IFS=$'\n'; for arg in $DOCKER_BUILD_ARGS; do BUILD_ARGS+=" $(echo "--build-arg $arg")"; done; IFS=$' ';
-    - docker buildx build --platform linux/amd64,linux/arm64 --tag registry.ddbuild.io/$IMAGE_NAME:$IMAGE_TAG --file $DOCKERFILE_PATH $BUILD_ARGS --push .
+    - docker buildx build --platform linux/amd64,linux/arm64 --tag registry.ddbuild.io/$IMAGE_NAME:$IMAGE_TAG --file $DOCKERFILE_PATH $BUILD_ARGS --push ./images/runtime
 
 .build-docker-image-operator:
   <<: *build-docker-image
