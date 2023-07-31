@@ -18,6 +18,8 @@ build-ci-image:
   stage: build
   image: $CI_MAIN_IMAGE
   tags: ["runner:docker"]
+  variables:
+    DOCKER_CONTEXT: "."
   # TODO only run when tagged
   # only:
   #    - tags
@@ -25,9 +27,10 @@ build-ci-image:
     - set -x
     - builder=$(docker buildx create --use)
     - trap "docker buildx rm $builder" EXIT
-    - IMAGE_TAG="v${CI_PIPELINE_ID}-${CI_COMMIT_SHA:0:7}-$(cat VERSION)"
+    - IMAGE_TAG="v${CI_PIPELINE_ID}-${CI_COMMIT_SHA:0:7}"
     - BUILD_ARGS=""; IFS=$'\n'; for arg in $DOCKER_BUILD_ARGS; do BUILD_ARGS+=" $(echo "--build-arg $arg")"; done; IFS=$' ';
-    - docker buildx build --platform linux/amd64,linux/arm64 --tag registry.ddbuild.io/$IMAGE_NAME:$IMAGE_TAG --file $DOCKERFILE_PATH $BUILD_ARGS --push ./images/runtime
+    # TODO add TARGET label
+    - docker buildx build --platform linux/amd64,linux/arm64 --tag registry.ddbuild.io/$IMAGE_NAME:$IMAGE_TAG --file $DOCKERFILE_PATH $BUILD_ARGS --label CILIUM_VERSION=$(cat VERSION) --push $DOCKER_CONTEXT
 
 .build-docker-image-operator:
   <<: *build-docker-image
@@ -39,6 +42,7 @@ build-ci-image:
       GOLANG_IMAGE=docker.io/library/golang:1.18.10@sha256:50c889275d26f816b5314fc99f55425fa76b18fcaf16af255f5d57f09e1f48da
       ALPINE_IMAGE=docker.io/library/alpine:3.16.6@sha256:cbe5d5973103a2d03408d1689a6efde4ea4920bde9f4b51fe7872e60ce2d8e56
       OPERATOR_VARIANT=operator
+    DOCKER_CONTEXT: "./images/runtime"
 
 build-docker-image-runtime:
   <<: *build-docker-image
@@ -47,3 +51,13 @@ build-docker-image-runtime:
     DOCKERFILE_PATH: images/runtime/Dockerfile
     DOCKER_BUILD_ARGS: |
       UBUNTU_IMAGE=registry.ddbuild.io/images/base/gbi-ubuntu_2004:latest@sha256:cdd429fbdb99e2e2ab68be54731b4d7f97206077e22dec24c561a4aba907de91
+
+build-docker-image-cilium:
+  <<: *build-docker-image
+  needs:
+    - build-docker-image-runtime
+  variables:
+    IMAGE_NAME: cilium
+    DOCKERFILE_PATH: images/cilium/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      CILIUM_RUNTIME_IMAGE=registry.ddbuild.io/cilium-runtime:v${CI_PIPELINE_ID}-${CI_COMMIT_SHA:0:7}
