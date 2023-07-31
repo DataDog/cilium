@@ -41,7 +41,6 @@ build-ci-image:
       GOLANG_IMAGE=docker.io/library/golang:1.18.10@sha256:50c889275d26f816b5314fc99f55425fa76b18fcaf16af255f5d57f09e1f48da
       ALPINE_IMAGE=docker.io/library/alpine:3.16.6@sha256:cbe5d5973103a2d03408d1689a6efde4ea4920bde9f4b51fe7872e60ce2d8e56
       OPERATOR_VARIANT=operator
-    DOCKER_CONTEXT: "./images/runtime"
 
 build-docker-image-runtime:
   <<: *build-docker-image
@@ -50,6 +49,7 @@ build-docker-image-runtime:
     DOCKERFILE_PATH: images/runtime/Dockerfile
     DOCKER_BUILD_ARGS: |
       UBUNTU_IMAGE=registry.ddbuild.io/images/base/gbi-ubuntu_2004:latest@sha256:cdd429fbdb99e2e2ab68be54731b4d7f97206077e22dec24c561a4aba907de91
+    DOCKER_CONTEXT: "./images/runtime"
 
 build-docker-image-cilium:
   <<: *build-docker-image
