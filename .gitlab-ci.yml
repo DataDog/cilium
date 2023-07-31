@@ -1,6 +1,7 @@
 variables:
   CI_MAIN_IMAGE: registry.ddbuild.io/ci/cilium:9578f554f9f01ea6ca7852116850d66a5d83dc67
   CI_DOCKER_IMAGE: registry.ddbuild.io/images/docker@sha256:23643e6da71fc2551046a1928c071e6db5770f050a0f5a1e613168d2c65fb8bc # Docker 20.10.13
+  DOCKER_CONTEXT: "."
 
 build-ci-image:
   stage: .pre
@@ -18,8 +19,6 @@ build-ci-image:
   stage: build
   image: $CI_MAIN_IMAGE
   tags: ["runner:docker"]
-  variables:
-    DOCKER_CONTEXT: "."
   # TODO only run when tagged
   # only:
   #    - tags
