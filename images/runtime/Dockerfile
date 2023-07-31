@@ -68,6 +68,5 @@ RUN /test/bin/cst -C /test/llvm
 RUN /test/bin/cst -C /test/bpftool
 RUN /test/bin/cst -C /test/iproute2
 
-FROM scratch
-LABEL maintainer="maintainer@cilium.io"
-COPY --from=rootfs / /
+# Datadog modification: do not squash the layers to not lose GBI labels
+FROM rootfs
