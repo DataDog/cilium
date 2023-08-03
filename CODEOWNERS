@@ -240,3 +240,4 @@
 /pkg/monitor/payload @cilium/api
 /pkg/policy/api/ @cilium/api
 /pkg/proxy/accesslog @cilium/api
+/pkg/time @cilium/sig-agent
