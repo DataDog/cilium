@@ -31,7 +31,7 @@ RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium/images/r
 
 FROM ${UBUNTU_IMAGE} as rootfs
 
-# Datadog modification: to be able to run APT we need to be root, Cilium also need to run as root
+# Datadog modification: to be able to run APT with a GBI image base, we need to be root
 USER root
 
 # Change the number to force the generation of a new git-tree SHA. Useful when
@@ -70,6 +70,9 @@ COPY --from=iproute2-dist /test /test
 RUN /test/bin/cst -C /test/llvm
 RUN /test/bin/cst -C /test/bpftool
 RUN /test/bin/cst -C /test/iproute2
+
+# Datadog modification: run as the 'dog' user
+USER dog
 
 # Datadog modification: do not squash the layers to not lose GBI labels
 FROM rootfs
