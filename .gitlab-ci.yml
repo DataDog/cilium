@@ -33,9 +33,7 @@ build-docker-image-operator:
     IMAGE_NAME: cilium-operator
     DOCKERFILE_PATH: images/operator/Dockerfile
     DOCKER_BUILD_ARGS: |
-      BASE_IMAGE=registry.ddbuild.io/images/base/gbi-distroless:latest@sha256:be05d4c795fa14da8c21ef40f0f4dd257095adf204a44e2b24676a92c03ea52d
-      GOLANG_IMAGE=docker.io/library/golang:1.18.10@sha256:50c889275d26f816b5314fc99f55425fa76b18fcaf16af255f5d57f09e1f48da
-      ALPINE_IMAGE=docker.io/library/alpine:3.16.6@sha256:cbe5d5973103a2d03408d1689a6efde4ea4920bde9f4b51fe7872e60ce2d8e56
+      BASE_IMAGE=registry.ddbuild.io/images/base/gbi-distroless:release@sha256:be05d4c795fa14da8c21ef40f0f4dd257095adf204a44e2b24676a92c03ea52d
       OPERATOR_VARIANT=operator
 
 build-docker-image-runtime:
@@ -44,7 +42,7 @@ build-docker-image-runtime:
     IMAGE_NAME: cilium-runtime
     DOCKERFILE_PATH: images/runtime/Dockerfile
     DOCKER_BUILD_ARGS: |
-      UBUNTU_IMAGE=registry.ddbuild.io/images/base/gbi-ubuntu_2004:latest@sha256:cdd429fbdb99e2e2ab68be54731b4d7f97206077e22dec24c561a4aba907de91
+      UBUNTU_IMAGE=registry.ddbuild.io/images/base/gbi-ubuntu_2004:release@sha256:cdd429fbdb99e2e2ab68be54731b4d7f97206077e22dec24c561a4aba907de91
     DOCKER_CONTEXT: "./images/runtime"
     TARGET: build
 
