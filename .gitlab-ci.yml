@@ -25,7 +25,7 @@ variables:
     - IMAGE_TAG="v${CI_PIPELINE_ID}-${CI_COMMIT_SHORT_SHA}-$(cat VERSION)"
     # Construct valid --build-args arguments from the DOCKER_BUILD_ARGS variable
     - BUILD_ARGS=""; IFS=$'\n'; for arg in $DOCKER_BUILD_ARGS; do BUILD_ARGS+=" $(echo "--build-arg $arg")"; done; IFS=$' ';
-    - docker buildx build --platform linux/amd64,linux/arm64 --tag registry.ddbuild.io/$IMAGE_NAME:$IMAGE_TAG --file $DOCKERFILE_PATH $BUILD_ARGS --label CILIUM_VERSION=$(cat VERSION) --label TARGET=$TARGET --push $DOCKER_CONTEXT
+    - docker buildx build --platform linux/amd64,linux/arm64 --tag registry.ddbuild.io/$IMAGE_NAME:$IMAGE_TAG --file $DOCKERFILE_PATH $BUILD_ARGS --label CILIUM_VERSION=$(cat VERSION) --label target=$TARGET --push $DOCKER_CONTEXT
 
 build-docker-image-operator:
   <<: *build-docker-image
