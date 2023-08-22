@@ -29,9 +29,7 @@ type IPCacheTestSuite struct{}
 
 var (
 	_               = Suite(&IPCacheTestSuite{})
-	IPIdentityCache = NewIPCache(&Configuration{
-		NodeIDHandler: &mockNodeIDHandler{},
-	})
+	IPIdentityCache = NewIPCache(&Configuration{})
 )
 
 func Test(t *testing.T) {
@@ -591,9 +589,7 @@ func benchmarkIPCacheUpsert(b *testing.B, num int) {
 	b.StopTimer()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		ipcache := NewIPCache(&Configuration{
-			NodeIDHandler: &mockNodeIDHandler{},
-		})
+		ipcache := NewIPCache(&Configuration{})
 
 		// We only want to measure the calls to upsert.
 		b.StartTimer()
@@ -624,7 +620,7 @@ func newDummyListener(ipc *IPCache) *dummyListener {
 
 func (dl *dummyListener) OnIPIdentityCacheChange(modType CacheModification,
 	cidr net.IPNet, oldHostIP, newHostIP net.IP, oldID *Identity,
-	newID Identity, encryptKey uint8, _ uint16, k8sMeta *K8sMetadata) {
+	newID Identity, encryptKey uint8, k8sMeta *K8sMetadata) {
 
 	switch modType {
 	case Upsert:
@@ -693,10 +689,4 @@ func (s *IPCacheTestSuite) TestIPCacheShadowing(c *C) {
 	ipc.Delete(endpointIP, source.KVStore)
 	_, exists := ipc.LookupByPrefix(cidrOverlap)
 	c.Assert(exists, Equals, false)
-}
-
-type mockNodeIDHandler struct{}
-
-func (m *mockNodeIDHandler) AllocateNodeID(_ net.IP) uint16 {
-	return 0
 }

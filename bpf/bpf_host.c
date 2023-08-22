@@ -22,9 +22,6 @@
 /* Pass unknown ICMPv6 NS to stack */
 #define ACTION_UNKNOWN_ICMP6_NS CTX_ACT_OK
 
-/* CB_PROXY_MAGIC overlaps with CB_ENCRYPT_MAGIC */
-#define ENCRYPT_OR_PROXY_MAGIC 0
-
 /* Controls the inclusion of the CILIUM_CALL_SEND_ICMP6_ECHO_REPLY section in
  * the bpf_lxc object file.
  */
@@ -297,17 +294,8 @@ skip_host_firewall:
 	dst = (union v6addr *) &ip6->daddr;
 	info = ipcache_lookup6(&IPCACHE_MAP, dst, V6_CACHE_KEY_LEN);
 	if (info != NULL && info->tunnel_endpoint != 0) {
-		ret = encap_and_redirect_with_nodeid(ctx, info->tunnel_endpoint,
-						     info->key, info->node_id, secctx, &trace);
-
-		/* If IPSEC is needed recirc through ingress to use xfrm stack
-		 * and then result will routed back through bpf_netdev on egress
-		 * but with encrypt marks.
-		 */
-		if (ret == IPSEC_ENDPOINT)
-			return CTX_ACT_OK;
-		else
-			return ret;
+		return encap_and_redirect_with_nodeid(ctx, info->tunnel_endpoint,
+						      secctx, &trace);
 	} else {
 		struct tunnel_key key = {};
 
@@ -333,15 +321,6 @@ skip_host_firewall:
 		/* See IPv4 comment. */
 		return DROP_UNROUTABLE;
 	}
-
-#ifdef ENABLE_IPSEC
-	if (info && info->key && info->tunnel_endpoint) {
-		__u8 key = get_min_encrypt_key(info->key);
-
-		set_encrypt_key_meta(ctx, key, info->node_id);
-		set_identity_meta(ctx, secctx);
-	}
-#endif
 	return CTX_ACT_OK;
 }
 
@@ -607,14 +586,8 @@ skip_vtep:
 #ifdef TUNNEL_MODE
 	info = ipcache_lookup4(&IPCACHE_MAP, ip4->daddr, V4_CACHE_KEY_LEN);
 	if (info != NULL && info->tunnel_endpoint != 0) {
-		ret = encap_and_redirect_with_nodeid(ctx, info->tunnel_endpoint,
-						     info->key, info->node_id,
-						     secctx, &trace);
-
-		if (ret == IPSEC_ENDPOINT)
-			return CTX_ACT_OK;
-		else
-			return ret;
+		return encap_and_redirect_with_nodeid(ctx, info->tunnel_endpoint,
+						      secctx, &trace);
 	} else {
 		/* IPv4 lookup key: daddr & IPV4_MASK */
 		struct tunnel_key key = {};
@@ -644,15 +617,6 @@ skip_vtep:
 		 */
 		return DROP_UNROUTABLE;
 	}
-
-#ifdef ENABLE_IPSEC
-	if (info && info->key && info->tunnel_endpoint) {
-		__u8 key = get_min_encrypt_key(info->key);
-
-		set_encrypt_key_meta(ctx, key, info->node_id);
-		set_identity_meta(ctx, secctx);
-	}
-#endif
 	return CTX_ACT_OK;
 }
 
@@ -1144,7 +1108,7 @@ out:
 __section("to-host")
 int to_host(struct __ctx_buff *ctx)
 {
-	__u32 magic = ctx_load_meta(ctx, ENCRYPT_OR_PROXY_MAGIC);
+	__u32 magic = ctx_load_meta(ctx, CB_PROXY_MAGIC);
 	__u16 __maybe_unused proto = 0;
 	struct trace_ctx trace = {
 		.reason = TRACE_REASON_UNKNOWN,
@@ -1154,10 +1118,7 @@ int to_host(struct __ctx_buff *ctx)
 	bool traced = false;
 	__u32 src_id = 0;
 
-	if ((magic & MARK_MAGIC_HOST_MASK) == MARK_MAGIC_ENCRYPT) {
-		ctx->mark = magic; /* CB_ENCRYPT_MAGIC */
-		src_id = ctx_load_meta(ctx, CB_ENCRYPT_IDENTITY);
-	} else if ((magic & 0xFFFF) == MARK_MAGIC_TO_PROXY) {
+	if ((magic & 0xFFFF) == MARK_MAGIC_TO_PROXY) {
 		/* Upper 16 bits may carry proxy port number */
 		__be16 port = magic >> 16;
 

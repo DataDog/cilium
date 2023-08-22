@@ -44,9 +44,9 @@ Connections Rate
   a single request/response payload message transmitted for each new connection. A
   single process and 32 parallel processes are tested.
 
-For the various benchmarks `netperf <https://github.com/HewlettPackard/netperf>`_
-has been used to generate the workloads and to collect the metrics. For spawning
-parallel netperf sessions, `super_netperf <https://raw.githubusercontent.com/borkmann/netperf_scripts/master/super_netperf>`_
+For the various benchmarks `netperf`_ has been used to generate the workloads
+and to collect the metrics. For spawning parallel netperf sessions,
+`super_netperf <https://raw.githubusercontent.com/borkmann/netperf_scripts/master/super_netperf>`_
 has been used. Both netperf and super_netperf are also frequently used and well
 established tools for benchmarking in the Linux kernel networking community.
 
@@ -304,7 +304,7 @@ All tests are performed using regular off-the-shelf hardware.
 ============  ======================================================================================================================================================
 Item          Description
 ============  ======================================================================================================================================================
-CPU           `AMD Ryzen 9 3950x <https://www.amd.com/en/products/cpu/amd-ryzen-9-3950x>`_, AM4 platform, 3.5GHz, 16 cores / 32 threads
+CPU           `AMD Ryzen 9 3950x <https://www.amd.com/en/support/cpu/amd-ryzen-processors/amd-ryzen-9-desktop-processors/amd-ryzen-9-3950x>`_, AM4 platform, 3.5GHz, 16 cores / 32 threads
 Mainboard     `x570 Aorus Master <https://www.gigabyte.com/us/Motherboard/X570-AORUS-MASTER-rev-11-12/sp#sp>`_, PCIe 4.0 x16 support
 Memory        `HyperX Fury DDR4-3200 <https://www.hyperxgaming.com/us/memory/fury-ddr4>`_ 128GB, XMP clocked to 3.2GHz
 Network Card  `Intel E810-CQDA2 <https://ark.intel.com/content/www/us/en/ark/products/192558/intel-ethernet-network-adapter-e810-cqda2.html>`_, dual port, 100Gbit/s per port, PCIe 4.0 x16
@@ -337,7 +337,7 @@ be found in `cilium/cilium-perf-networking <https://github.com/cilium/cilium-per
 All scripts in this document refer to this repository. Specifically, we use
 `Terraform <https://www.terraform.io/>`_ and `Ansible
 <https://www.ansible.com/>`_ to setup the environment and execute benchmarks.
-We use `Packet <https://www.packet.com/>`_ bare metal servers as our hardware
+We use `Packet <https://deploy.equinix.com/>`_ bare metal servers as our hardware
 platform, but the guide is structured so that it can be easily adapted to other
 environments.
 
@@ -353,7 +353,7 @@ Packet Servers
 
 To evaluate both :ref:`arch_overlay` and :ref:`native_routing`, we configure
 the Packet machines to use a `"Mixed/Hybrid"
-<https://www.packet.com/developers/docs/network/advanced/layer-2/>`_ network
+<https://deploy.equinix.com/developers/docs/metal/layer2-networking/overview/>`_ network
 mode, where the secondary interfaces of the machines share a flat L2 network.
 While this can be done on the Packet web UI, we include appropriate Terraform
 (version 0.13) files to automate this process.
@@ -395,7 +395,7 @@ interfaces of the machines. This will destroy the ``bond0`` interface and
 configure the first physical interface with the public and private IPs
 (``prv_ip``) and the second with the node IP (``node_ip``) that will be used
 for our evaluations (see `Packet documentation
-<https://www.packet.com/resources/guides/layer-2-configurations/>`_ and our
+<https://deploy.equinix.com/developers/docs/metal/layer2-networking/overview/>`_ and our
 scripts for more info).
 
 .. code-block:: shell-session
@@ -426,16 +426,16 @@ Install ``kubeadm`` and its dependencies:
   $ ansible-playbook -i packet-hosts.ini playbooks/install-kubeadm.yaml
 
 We use `kubenetbench <https://github.com/cilium/kubenetbench>`_ to execute the
-`netperf <https://github.com/HewlettPackard/netperf>`_ benchmark in a Kubernetes
-environment. kubenetbench is a Kubernetes benchmarking project that is agnostic
-to the CNI or networking plugin that the cluster is deployed with. In this
-report we focus on pod-to-pod communication between different nodes. To install
-kubenetbench:
+`netperf`_ benchmark in a Kubernetes environment. kubenetbench is a Kubernetes
+benchmarking project that is agnostic to the CNI or networking plugin that the
+cluster is deployed with. In this report we focus on pod-to-pod communication
+between different nodes. To install kubenetbench:
 
 .. code-block:: shell-session
 
   $ ansible-playbook -i packet-hosts.ini playbooks/install-kubenetbench.yaml
 
+.. _netperf: https://github.com/HewlettPackard/netperf
 
 Running Benchmarks
 ------------------
