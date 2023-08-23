@@ -34,7 +34,7 @@ build-docker-image-runtime:
     IMAGE_NAME: cilium-runtime
     DOCKERFILE_PATH: images/runtime/Dockerfile
     DOCKER_BUILD_ARGS: |
-      UBUNTU_IMAGE=registry.ddbuild.io/images/base/gbi-ubuntu_2004:release@sha256:cdd429fbdb99e2e2ab68be54731b4d7f97206077e22dec24c561a4aba907de91
+      UBUNTU_IMAGE=registry.ddbuild.io/images/base/gbi-ubuntu_2004:release
     DOCKER_CONTEXT: "./images/runtime"
     TARGET: build
 
