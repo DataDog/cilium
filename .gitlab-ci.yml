@@ -10,7 +10,8 @@ variables:
   tags: ["arch:amd64"]
   script:
     - set -x
-    - docker buildx ls
+    - builder=$(docker buildx create --use)
+    - trap "docker buildx rm $builder" EXIT
     # Construct valid --build-args arguments from the DOCKER_BUILD_ARGS variable
     - BUILD_ARGS=""; IFS=$'\n'; for arg in $DOCKER_BUILD_ARGS; do BUILD_ARGS+=" $(echo "--build-arg $arg")"; done; IFS=$' ';
     - IMAGE_TAG="registry.ddbuild.io/$IMAGE_NAME:$CI_COMMIT_TAG"
