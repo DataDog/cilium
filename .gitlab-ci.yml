@@ -1,4 +1,5 @@
 variables:
+  CI_ENABLE_CONTAINER_IMAGE_BUILDS: "true"
   CI_DOCKER_IMAGE: registry.ddbuild.io/images/docker:24.0.4-gbi-focal
   DOCKER_CONTEXT: "."
   DOCKER_BUILD_ARGS: ""
@@ -6,14 +7,12 @@ variables:
 .build-docker-image: &build-docker-image
   stage: build
   image: $CI_DOCKER_IMAGE
-  tags: ["runner:docker"]
+  tags: ["runner:amd64"]
   rules:
     # Automatically run the pipeline for all pushed tags
     - if: $CI_COMMIT_TAG
   script:
     - set -x
-    - builder=$(docker buildx create --use)
-    - trap "docker buildx rm $builder" EXIT
     # Construct valid --build-args arguments from the DOCKER_BUILD_ARGS variable
     - BUILD_ARGS=""; IFS=$'\n'; for arg in $DOCKER_BUILD_ARGS; do BUILD_ARGS+=" $(echo "--build-arg $arg")"; done; IFS=$' ';
     - IMAGE_TAG="registry.ddbuild.io/$IMAGE_NAME:$CI_COMMIT_TAG"
