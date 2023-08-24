@@ -7,7 +7,7 @@ variables:
 .build-docker-image: &build-docker-image
   stage: build
   image: $CI_DOCKER_IMAGE
-  tags: ["runner:amd64"]
+  tags: ["arch:amd64"]
   script:
     - set -x
     # Construct valid --build-args arguments from the DOCKER_BUILD_ARGS variable
