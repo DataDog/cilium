@@ -64,4 +64,4 @@ RUN /test/bin/cst -C /test/llvm
 RUN /test/bin/cst -C /test/bpftool
 
 # Datadog modification: do not squash the layers to not lose GBI labels
-FROM rootfs
+FROM rootfs as release
