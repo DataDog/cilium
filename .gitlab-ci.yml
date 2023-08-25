@@ -1,7 +1,7 @@
 variables:
   # CI_ENABLE_CONTAINER_IMAGE_BUILDS: "true"
   CI_DOCKER_IMAGE: registry.ddbuild.io/images/docker:24.0.4-gbi-focal
-  DOCKER_CONTEXT: "."
+  DOCKER_CONTEXT_PATH: "."
   DOCKER_BUILD_ARGS: ""
 
 .build-docker-image: &build-docker-image
@@ -31,7 +31,7 @@ build-docker-image-runtime:
     DOCKERFILE_PATH: images/runtime/Dockerfile
     DOCKER_BUILD_ARGS: |
       UBUNTU_IMAGE=registry.ddbuild.io/images/base/gbi-ubuntu_2004:release
-    DOCKER_CONTEXT: "./images/runtime"
+    DOCKER_CONTEXT_PATH: "./images/runtime"
     TARGET: build
 
 build-docker-image-cilium:
