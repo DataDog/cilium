@@ -41,7 +41,6 @@ func ParseCiliumNode(n *ciliumv2.CiliumNode) (node Node) {
 		EncryptionKey:   uint8(n.Spec.Encryption.Key),
 		Cluster:         option.Config.ClusterName,
 		ClusterID:       option.Config.ClusterID,
-		Source:          source.CustomResource,
 		Labels:          n.ObjectMeta.Labels,
 		NodeIdentity:    uint32(n.Spec.NodeIdentity),
 		WireguardPubKey: n.ObjectMeta.Annotations[annotation.WireguardPubKey],
