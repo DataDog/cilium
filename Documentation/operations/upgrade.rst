@@ -13,7 +13,7 @@ Upgrade Guide
 .. _upgrade_general:
 
 This upgrade guide is intended for Cilium running on Kubernetes. If you have
-questions, feel free to ping us on the :term:`Slack channel`.
+questions, feel free to ping us on `Cilium Slack`_.
 
 .. include:: upgrade-warning.rst
 
@@ -303,6 +303,15 @@ Annotations:
 .. _current_release_required_changes:
 
 .. _1.12_upgrade_notes:
+
+1.12.14 Upgrade Notes
+---------------------
+
+* ``CiliumNetworkPolicy`` cannot match the ``reserved:init`` labels any more.
+  If you have ``CiliumNetworkPolicy`` resources that have a match for
+  labels ``reserved:init``, these policies must be converted to
+  ``CiliumClusterwideNetworkPolicy`` by changing the resource type for the
+  policy.
 
 1.12.9+ Upgrade Notes
 ---------------------

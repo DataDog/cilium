@@ -99,7 +99,7 @@ rollOutCiliumPods: false
 image:
   override: ~
   repository: "quay.io/cilium/cilium"
-  tag: "v1.12.13"
+  tag: "v1.12.14"
   pullPolicy: "IfNotPresent"
   # cilium-digest
   digest: ""
@@ -669,7 +669,7 @@ certgen:
   image:
     override: ~
     repository: "quay.io/cilium/certgen"
-    tag: "v0.1.8@sha256:4a456552a5f192992a6edcec2febb1c54870d665173a33dc7d876129b199ddbd"
+    tag: "v0.1.9@sha256:89a0847753686444daabde9474b48340993bd19c7bea66a46e45b2974b82041f"
     pullPolicy: "IfNotPresent"
   # -- Seconds after which the completed job pod will be deleted
   ttlSecondsAfterFinished: 1800
@@ -828,7 +828,7 @@ hubble:
     image:
       override: ~
       repository: "quay.io/cilium/hubble-relay"
-      tag: "v1.12.13"
+      tag: "v1.12.14"
        # hubble-relay-digest
       digest: ""
       useDigest: false
@@ -1633,7 +1633,7 @@ operator:
   image:
     override: ~
     repository: "quay.io/cilium/operator"
-    tag: "v1.12.13"
+    tag: "v1.12.14"
     # operator-generic-digest
     genericDigest: ""
     # operator-azure-digest
@@ -1884,7 +1884,7 @@ preflight:
   image:
     override: ~
     repository: "quay.io/cilium/cilium"
-    tag: "v1.12.13"
+    tag: "v1.12.14"
     # cilium-digest
     digest: ""
     useDigest: false
@@ -2030,7 +2030,7 @@ clustermesh:
     image:
       override: ~
       repository: "quay.io/cilium/clustermesh-apiserver"
-      tag: "v1.12.13"
+      tag: "v1.12.14"
       # clustermesh-apiserver-digest
       digest: ""
       useDigest: false

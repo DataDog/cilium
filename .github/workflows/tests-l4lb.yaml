@@ -58,6 +58,7 @@ env:
 
 jobs:
   commit-status-start:
+    name: Commit Status Start
     runs-on: ubuntu-latest
     steps:
       - name: Set initial commit status
@@ -73,7 +74,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout context ref
-        uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9 # v3.5.3
+        uses: actions/checkout@3df4ab11eba7bda6032a0b82a6bb43b11571feac # v4.0.0
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -98,14 +99,14 @@ jobs:
           ci-version: ${{ env.cilium_cli_ci_version }}
 
       - name: Checkout upstream for test files
-        uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9 # v3.5.3
+        uses: actions/checkout@3df4ab11eba7bda6032a0b82a6bb43b11571feac # v4.0.0
         with:
           # This is intentionally set to stable branch to avoid using test.sh from pull requests.
           ref: v1.12
           persist-credentials: false
 
       - name: Wait for image to be available
-        timeout-minutes: 10
+        timeout-minutes: 30
         shell: bash
         run: |
           until docker manifest inspect quay.io/${{ env.QUAY_ORGANIZATION_DEV }}/cilium-ci:${{ steps.vars.outputs.sha }} &> /dev/null; do sleep 45s; done
@@ -132,6 +133,7 @@ jobs:
 
   commit-status-final:
     if: ${{ always() }}
+    name: Commit Status Final
     needs: setup-and-test
     runs-on: ubuntu-latest
     steps:
