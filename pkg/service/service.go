@@ -1557,6 +1557,7 @@ func (s *Service) restoreServicesLocked(svcBackendsById map[lb.BackendID]struct{
 			hash := backend.L3n4Addr.Hash()
 			s.backendRefCount.Add(hash)
 			newSVC.backendByHash[hash] = svc.Backends[j]
+			svcBackendsById[backend.ID] = struct{}{}
 		}
 
 		// Recalculate Maglev lookup tables if the maps were removed due to
