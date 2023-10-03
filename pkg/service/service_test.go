@@ -92,12 +92,12 @@ var (
 	backends4 = []*lb.Backend{
 		lb.NewBackend(0, lb.TCP, net.ParseIP("10.0.0.4"), 8080),
 	}
-	backends5 = []lb.Backend{
-		*lb.NewBackend(0, lb.TCP, net.ParseIP("10.0.0.5"), 8080),
-		*lb.NewBackend(0, lb.TCP, net.ParseIP("10.0.0.6"), 8080),
+	backends5 = []*lb.Backend{
+		lb.NewBackend(0, lb.TCP, net.ParseIP("10.0.0.5"), 8080),
+		lb.NewBackend(0, lb.TCP, net.ParseIP("10.0.0.6"), 8080),
 	}
-	backends6 = []lb.Backend{
-		*lb.NewBackend(0, lb.TCP, net.ParseIP("10.0.0.7"), 8080),
+	backends6 = []*lb.Backend{
+		lb.NewBackend(0, lb.TCP, net.ParseIP("10.0.0.7"), 8080),
 	}
 )
 
@@ -523,7 +523,7 @@ func (m *ManagerTestSuite) TestHealthCheckNodePort(c *C) {
 	localBackend1.NodeName = nodeTypes.GetName()
 	localBackend2.NodeName = nodeTypes.GetName()
 	localTerminatingBackend3.NodeName = nodeTypes.GetName()
-	localActiveBackends := []lb.Backend{localBackend1, localBackend2}
+	localActiveBackends := []*lb.Backend{localBackend1, localBackend2}
 
 	// Create three remote backends
 	remoteBackend1 := lb.NewBackend(0, lb.TCP, net.ParseIP("10.0.0.3"), 8080)
@@ -831,8 +831,8 @@ func (m *ManagerTestSuite) TestLocalRedirectServiceOverride(c *C) {
 // Tests whether backends with TerminatingState as initial state are properly
 // considered as Terminating backends
 func (m *ManagerTestSuite) TestTerminatingStateAsInitialState(c *C) {
-	terminatingBackends := []lb.Backend{
-		*lb.NewBackendWithState(0, lb.TCP, net.ParseIP("10.0.0.10"), 8080,
+	terminatingBackends := []*lb.Backend{
+		lb.NewBackendWithState(0, lb.TCP, net.ParseIP("10.0.0.10"), 8080,
 			lb.BackendStateTerminating, false),
 	}
 
