@@ -75,6 +75,38 @@
 #define HAVE_DIRECT_ACCESS_TO_MAP_VALUES \
     HAVE_PROG_TYPE_HELPER(sched_cls, bpf_fib_lookup)
 
+#if defined ENABLE_IPV4 || defined ENABLE_IPV6
+static __always_inline int drop_for_direction(struct __ctx_buff *ctx,
+					      enum ct_dir dir, __u32 reason)
+{
+	__u32 dst = 0;
+	__u32 dst_id = 0;
+	enum metric_dir m_dir = METRIC_EGRESS;
+	__u32 src_label = 0;
+
+	switch (dir) {
+	case CT_EGRESS:
+		dst_id = 0;
+		dst = 0;
+		src_label = SECLABEL;
+		m_dir = METRIC_EGRESS;
+		break;
+	case CT_INGRESS:
+		dst = SECLABEL;
+		dst_id = LXC_ID;
+		src_label = ctx_load_meta(ctx, CB_SRC_LABEL);
+		m_dir = METRIC_INGRESS;
+		break;
+	/* ingress/egress only for now */
+	default:
+		__throw_build_bug();
+	}
+
+	return send_drop_notify(ctx, src_label, dst, dst_id, reason,
+				CTX_ACT_DROP, m_dir);
+}
+#endif /* ENABLE_IPV4 || ENABLE_IPV6 */
+
 #define TAIL_CT_LOOKUP4(ID, NAME, DIR, CONDITION, TARGET_ID, TARGET_NAME)	\
 declare_tailcall_if(CONDITION, ID)						\
 int NAME(struct __ctx_buff *ctx)						\
@@ -91,7 +123,7 @@ int NAME(struct __ctx_buff *ctx)						\
 	tuple = (struct ipv4_ct_tuple *)&ct_buffer.tuple;			\
 										\
 	if (!revalidate_data(ctx, &data, &data_end, &ip4))			\
-		return DROP_INVALID;						\
+		return drop_for_direction(ctx, DIR, DROP_INVALID);		\
 										\
 	tuple->nexthdr = ip4->protocol;						\
 	tuple->daddr = ip4->daddr;						\
@@ -102,12 +134,14 @@ int NAME(struct __ctx_buff *ctx)						\
 	ct_buffer.ret = ct_lookup4(get_ct_map4(tuple), tuple, ctx, l4_off,	\
 				   DIR, ct_state, &ct_buffer.monitor);		\
 	if (ct_buffer.ret < 0)							\
-		return ct_buffer.ret;						\
-										\
+		return drop_for_direction(ctx, DIR, ct_buffer.ret);		\
 	if (map_update_elem(&CT_TAIL_CALL_BUFFER4, &zero, &ct_buffer, 0) < 0)	\
-		return DROP_INVALID_TC_BUFFER;					\
+		return drop_for_direction(ctx, DIR, DROP_INVALID_TC_BUFFER);	\
 										\
-	invoke_tailcall_if(CONDITION, TARGET_ID, TARGET_NAME);			\
+	ret = invoke_tailcall_if(CONDITION, TARGET_ID, TARGET_NAME);		\
+	if (IS_ERR(ret))							\
+		return drop_for_direction(ctx, DIR, ret);			\
+										\
 	return ret;								\
 }
 
@@ -127,7 +161,7 @@ int NAME(struct __ctx_buff *ctx)						\
 	tuple = (struct ipv6_ct_tuple *)&ct_buffer.tuple;			\
 										\
 	if (!revalidate_data(ctx, &data, &data_end, &ip6))			\
-		return DROP_INVALID;						\
+		return drop_for_direction(ctx, DIR, DROP_INVALID);		\
 										\
 	tuple->nexthdr = ip6->nexthdr;						\
 	ipv6_addr_copy(&tuple->daddr, (union v6addr *)&ip6->daddr);		\
@@ -135,19 +169,23 @@ int NAME(struct __ctx_buff *ctx)						\
 										\
 	hdrlen = ipv6_hdrlen(ctx, &tuple->nexthdr);				\
 	if (hdrlen < 0)								\
-		return hdrlen;							\
+		return drop_for_direction(ctx, DIR, hdrlen);			\
 										\
 	l4_off = ETH_HLEN + hdrlen;						\
 										\
 	ct_buffer.ret = ct_lookup6(get_ct_map6(tuple), tuple, ctx, l4_off,	\
 				   DIR, ct_state, &ct_buffer.monitor);		\
 	if (ct_buffer.ret < 0)							\
-		return ct_buffer.ret;						\
+		return drop_for_direction(ctx, DIR, ct_buffer.ret);		\
 										\
 	if (map_update_elem(&CT_TAIL_CALL_BUFFER6, &zero, &ct_buffer, 0) < 0)	\
-		return DROP_INVALID_TC_BUFFER;					\
+		return drop_for_direction(ctx, DIR,				\
+			DROP_INVALID_TC_BUFFER);				\
 										\
-	invoke_tailcall_if(CONDITION, TARGET_ID, TARGET_NAME);			\
+	ret = invoke_tailcall_if(CONDITION, TARGET_ID, TARGET_NAME);		\
+	if (IS_ERR(ret))							\
+		return drop_for_direction(ctx, DIR, ret);			\
+										\
 	return ret;								\
 }
 
@@ -697,9 +735,8 @@ skip_service_lookup:
 	}
 #endif /* ENABLE_PER_PACKET_LB */
 
-	invoke_tailcall_if(is_defined(ENABLE_PER_PACKET_LB),
-			   CILIUM_CALL_IPV6_CT_EGRESS, tail_ipv6_ct_egress);
-	return ret;
+	return invoke_tailcall_if(is_defined(ENABLE_PER_PACKET_LB),
+				  CILIUM_CALL_IPV6_CT_EGRESS, tail_ipv6_ct_egress);
 }
 
 __section_tail(CILIUM_MAP_CALLS, CILIUM_CALL_IPV6_FROM_LXC)
@@ -1213,7 +1250,6 @@ static __always_inline int __tail_handle_ipv4(struct __ctx_buff *ctx)
 {
 	void *data, *data_end;
 	struct iphdr *ip4;
-	int ret;
 
 	if (!revalidate_data_pull(ctx, &data, &data_end, &ip4))
 		return DROP_INVALID;
@@ -1239,7 +1275,7 @@ static __always_inline int __tail_handle_ipv4(struct __ctx_buff *ctx)
 		struct lb4_service *svc;
 		struct lb4_key key = {};
 		__u16 proxy_port = 0;
-		int l4_off;
+		int l4_off, ret;
 
 		has_l4_header = ipv4_has_l4_header(ip4);
 		tuple.nexthdr = ip4->protocol;
@@ -1280,9 +1316,8 @@ skip_service_lookup:
 	}
 #endif /* ENABLE_PER_PACKET_LB */
 
-	invoke_tailcall_if(is_defined(ENABLE_PER_PACKET_LB),
-			   CILIUM_CALL_IPV4_CT_EGRESS, tail_ipv4_ct_egress);
-	return ret;
+	return invoke_tailcall_if(is_defined(ENABLE_PER_PACKET_LB),
+				  CILIUM_CALL_IPV4_CT_EGRESS, tail_ipv4_ct_egress);
 }
 
 __section_tail(CILIUM_MAP_CALLS, CILIUM_CALL_IPV4_FROM_LXC)
@@ -2091,7 +2126,7 @@ int tail_ipv4_to_endpoint(struct __ctx_buff *ctx)
 	 */
 	if (ipv4_to_endpoint_is_hairpin_flow(ctx, ip4)) {
 		send_trace_notify4(ctx, TRACE_TO_LXC,
-				   ctx_load_meta(ctx, CB_SRC_LABEL),
+				   src_identity,
 				   SECLABEL, ip4->saddr, LXC_ID,
 				   ctx->ingress_ifindex,
 				   TRACE_REASON_UNKNOWN, 0);
@@ -2165,16 +2200,16 @@ int handle_policy(struct __ctx_buff *ctx)
 	switch (proto) {
 #ifdef ENABLE_IPV6
 	case bpf_htons(ETH_P_IPV6):
-		invoke_tailcall_if(__and(is_defined(ENABLE_IPV4), is_defined(ENABLE_IPV6)),
-				   CILIUM_CALL_IPV6_CT_INGRESS_POLICY_ONLY,
-				   tail_ipv6_ct_ingress_policy_only);
+		ret = invoke_tailcall_if(__and(is_defined(ENABLE_IPV4), is_defined(ENABLE_IPV6)),
+					 CILIUM_CALL_IPV6_CT_INGRESS_POLICY_ONLY,
+					 tail_ipv6_ct_ingress_policy_only);
 		break;
 #endif /* ENABLE_IPV6 */
 #ifdef ENABLE_IPV4
 	case bpf_htons(ETH_P_IP):
-		invoke_tailcall_if(__and(is_defined(ENABLE_IPV4), is_defined(ENABLE_IPV6)),
-				   CILIUM_CALL_IPV4_CT_INGRESS_POLICY_ONLY,
-				   tail_ipv4_ct_ingress_policy_only);
+		ret = invoke_tailcall_if(__and(is_defined(ENABLE_IPV4), is_defined(ENABLE_IPV6)),
+					 CILIUM_CALL_IPV4_CT_INGRESS_POLICY_ONLY,
+					 tail_ipv4_ct_ingress_policy_only);
 		break;
 #endif /* ENABLE_IPV4 */
 	default:
@@ -2267,7 +2302,9 @@ int handle_to_container(struct __ctx_buff *ctx)
 #if defined(ENABLE_L7_LB)
 	else if (magic == MARK_MAGIC_PROXY_EGRESS_EPID) {
 		tail_call_dynamic(ctx, &POLICY_EGRESSCALL_MAP, identity);
-		return DROP_MISSED_TAIL_CALL;
+		return send_drop_notify(ctx, identity, SECLABEL, LXC_ID,
+					DROP_MISSED_TAIL_CALL, CTX_ACT_DROP,
+					METRIC_INGRESS);
 	}
 #endif
 
@@ -2287,7 +2324,9 @@ int handle_to_container(struct __ctx_buff *ctx)
 		ctx_store_meta(ctx, CB_FROM_HOST, 1);
 		ctx_store_meta(ctx, CB_DST_ENDPOINT_ID, LXC_ID);
 		tail_call_static(ctx, &POLICY_CALL_MAP, HOST_EP_ID);
-		return DROP_MISSED_TAIL_CALL;
+		return send_drop_notify(ctx, identity, SECLABEL, LXC_ID,
+					DROP_MISSED_TAIL_CALL, CTX_ACT_DROP,
+					METRIC_INGRESS);
 	}
 #endif /* ENABLE_HOST_FIREWALL && !ENABLE_ROUTING */
 

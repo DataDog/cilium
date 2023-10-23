@@ -199,7 +199,13 @@ func xfrmStateReplace(new *netlink.XfrmState) error {
 	for _, s := range states {
 		if xfrmIPEqual(s.Src, new.Src) && xfrmIPEqual(s.Dst, new.Dst) &&
 			xfrmMarkEqual(s.Mark, new.Mark) && s.Spi == new.Spi {
-			return nil
+			if xfrmMarkEqual(s.OutputMark, new.OutputMark) {
+				return nil
+			} else {
+				// If only the output-marks differ, then we should be able
+				// to simply update the XFRM state atomically.
+				return netlink.XfrmStateUpdate(new)
+			}
 		}
 	}
 
@@ -321,12 +327,12 @@ func ipSecReplaceStateIn(localIP, remoteIP net.IP, zeroMark bool) (uint8, error)
 	if zeroMark != true {
 		state.OutputMark = &netlink.XfrmMark{
 			Value: linux_defaults.RouteMarkDecrypt,
-			Mask:  linux_defaults.RouteMarkMask,
+			Mask:  linux_defaults.OutputMarkMask,
 		}
 	} else {
 		state.OutputMark = &netlink.XfrmMark{
 			Value: 0,
-			Mask:  linux_defaults.RouteMarkMask,
+			Mask:  linux_defaults.OutputMarkMask,
 		}
 	}
 
@@ -345,7 +351,7 @@ func ipSecReplaceStateOut(localIP, remoteIP net.IP, nodeID uint16) (uint8, error
 	state.Mark = generateEncryptMark(key.Spi, nodeID)
 	state.OutputMark = &netlink.XfrmMark{
 		Value: linux_defaults.RouteMarkEncrypt,
-		Mask:  linux_defaults.RouteMarkMask,
+		Mask:  linux_defaults.OutputMarkMask,
 	}
 	return key.Spi, xfrmStateReplace(state)
 }

@@ -21,6 +21,7 @@ jobs:
     outputs:
       bpf-tree: ${{ steps.changes.outputs.bpf-tree }}
       coccinelle: ${{ steps.changes.outputs.coccinelle }}
+      workflow-description: ${{ steps.changes.outputs.workflow-description }}
     steps:
       - name: Checkout code
         if: ${{ !github.event.pull_request }}
@@ -39,6 +40,8 @@ jobs:
               - 'bpf/**'
             coccinelle:
               - 'contrib/coccinelle/**'
+            workflow-description:
+              - '.github/workflows/lint-bpf-checks.yaml'
 
   checkpatch:
     name: Check Patch
@@ -56,7 +59,7 @@ jobs:
   # Runs only if code under bpf/ or contrib/coccinnelle/ is changed.
   coccicheck:
     needs: check_changes
-    if: ${{ needs.check_changes.outputs.bpf-tree == 'true' || needs.check_changes.outputs.coccinelle == 'true' }}
+    if: ${{ needs.check_changes.outputs.bpf-tree == 'true' || needs.check_changes.outputs.coccinelle == 'true' || needs.check_changes.outputs.workflow-description == 'true' }}
     name: Run coccicheck
     runs-on: ubuntu-latest
     steps:
@@ -68,6 +71,12 @@ jobs:
         uses: docker://cilium/coccicheck:2.4@sha256:24abe3fbb8e829fa41a68a3b76cb4df84fd5a87a7d1d6254c1c1fe5effb5bd1b
         with:
           entrypoint: ./contrib/coccinelle/check-cocci.sh
+        # Note: Setting COCCINELLE_HOME can be removed, here and in the
+        # messages in the .cocci files, next time we upgrade coccinelle.
+        # The issue was fixed, after v1.1.1 that we're using, in
+        # https://gitlab.inria.fr/coccinelle/coccinelle/-/commit/540888ff426e.
+        env:
+          COCCINELLE_HOME: /usr/local/lib/coccinelle
 
   set_clang_dir:
     name: Set clang directory
@@ -82,7 +91,7 @@ jobs:
   # Runs only if code under bpf/ is changed.
   build_all:
     needs: [check_changes, set_clang_dir]
-    if: ${{ needs.check_changes.outputs.bpf-tree == 'true' }}
+    if: ${{ needs.check_changes.outputs.bpf-tree == 'true' || needs.check_changes.outputs.workflow-description == 'true' }}
     name: Build Datapath
     runs-on: ubuntu-22.04
     steps:
@@ -92,7 +101,7 @@ jobs:
           go-version: 1.18.10
       - name: Cache LLVM and Clang
         id: cache-llvm
-        uses: actions/cache@88522ab9f39a2ea568f7027eddc7d8d8bc9d59c8 # v3.3.1
+        uses: actions/cache@704facf57e6136b1bc63b828d79edcd491f0ee84 # v3.3.2
         with:
           path: ${{ needs.set_clang_dir.outputs.clang_dir }}
           key: llvm-10.0

@@ -781,10 +781,8 @@ static __always_inline int do_netdev_encrypt_encap(struct __ctx_buff *ctx, __u32
 		break;
 # endif /* ENABLE_IPV4 */
 	}
-	if (!ep)
-		return send_drop_notify_error(ctx, src_id,
-					      DROP_NO_TUNNEL_ENDPOINT,
-					      CTX_ACT_DROP, METRIC_EGRESS);
+	if (!ep || !ep->tunnel_endpoint)
+		return DROP_NO_TUNNEL_ENDPOINT;
 
 	ctx->mark = 0;
 	bpf_clear_meta(ctx);
@@ -816,7 +814,8 @@ do_netdev(struct __ctx_buff *ctx, __u16 proto, const bool from_host)
 
 			ctx->mark = 0;
 			tail_call_dynamic(ctx, &POLICY_EGRESSCALL_MAP, lxc_id);
-			return DROP_MISSED_TAIL_CALL;
+			return send_drop_notify_error(ctx, identity, DROP_MISSED_TAIL_CALL,
+						      CTX_ACT_DROP, METRIC_EGRESS);
 		}
 	}
 #endif
@@ -839,7 +838,11 @@ do_netdev(struct __ctx_buff *ctx, __u16 proto, const bool from_host)
 			send_trace_notify(ctx, TRACE_FROM_STACK, identity, 0, 0,
 					  ctx->ingress_ifindex, TRACE_REASON_ENCRYPTED,
 					  TRACE_PAYLOAD_LEN);
-			return do_netdev_encrypt(ctx, identity);
+			ret = do_netdev_encrypt(ctx, identity);
+			if (IS_ERR(ret))
+				return send_drop_notify_error(ctx, identity, ret,
+							      CTX_ACT_DROP, METRIC_EGRESS);
+			return ret;
 		}
 #endif
 
@@ -1247,20 +1250,20 @@ to_host_from_lxc(struct __ctx_buff *ctx __maybe_unused)
 # endif
 # ifdef ENABLE_IPV6
 	case bpf_htons(ETH_P_IPV6):
-		invoke_tailcall_if(__or(__and(is_defined(ENABLE_IPV4),
-					      is_defined(ENABLE_IPV6)),
-					is_defined(DEBUG)),
-				   CILIUM_CALL_IPV6_TO_HOST_POLICY_ONLY,
-				   tail_ipv6_host_policy_ingress);
+		ret = invoke_tailcall_if(__or(__and(is_defined(ENABLE_IPV4),
+						    is_defined(ENABLE_IPV6)),
+					      is_defined(DEBUG)),
+					 CILIUM_CALL_IPV6_TO_HOST_POLICY_ONLY,
+					 tail_ipv6_host_policy_ingress);
 		break;
 # endif
 # ifdef ENABLE_IPV4
 	case bpf_htons(ETH_P_IP):
-		invoke_tailcall_if(__or(__and(is_defined(ENABLE_IPV4),
-					      is_defined(ENABLE_IPV6)),
-					is_defined(DEBUG)),
-				   CILIUM_CALL_IPV4_TO_HOST_POLICY_ONLY,
-				   tail_ipv4_host_policy_ingress);
+		ret = invoke_tailcall_if(__or(__and(is_defined(ENABLE_IPV4),
+						    is_defined(ENABLE_IPV6)),
+					      is_defined(DEBUG)),
+					 CILIUM_CALL_IPV4_TO_HOST_POLICY_ONLY,
+					 tail_ipv4_host_policy_ingress);
 		break;
 # endif
 	default:
@@ -1344,7 +1347,8 @@ int handle_lxc_traffic(struct __ctx_buff *ctx)
 		lxc_id = ctx_load_meta(ctx, CB_DST_ENDPOINT_ID);
 		ctx_store_meta(ctx, CB_SRC_LABEL, HOST_ID);
 		tail_call_dynamic(ctx, &POLICY_CALL_MAP, lxc_id);
-		return DROP_MISSED_TAIL_CALL;
+		return send_drop_notify_error(ctx, HOST_ID, DROP_MISSED_TAIL_CALL,
+					      CTX_ACT_DROP, METRIC_EGRESS);
 	}
 
 	return to_host_from_lxc(ctx);

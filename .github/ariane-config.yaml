@@ -1,26 +1,28 @@
 triggers:
   /test-backport-1.12:
     workflows:
-    - conformance-aks.yaml
     - conformance-aws-cni.yaml
     - conformance-clustermesh.yaml
+    - conformance-ipsec-e2e.yaml
     - conformance-eks.yaml
     - conformance-externalworkloads.yaml
     - conformance-gke.yaml
     - conformance-ingress.yaml
+    - tests-clustermesh-upgrade.yaml
     - tests-l4lb.yaml
-  /ci-aks:
-    workflows:
-    - conformance-aks.yaml
   /ci-awscni:
     workflows:
     - conformance-aws-cni.yaml
   /ci-clustermesh:
     workflows:
     - conformance-clustermesh.yaml
+    - tests-clustermesh-upgrade.yaml
   /ci-ipsec-upgrade:
     workflows:
     - tests-ipsec-upgrade.yaml
+  /ci-ipsec-e2e:
+    workflows:
+    - conformance-ipsec-e2e.yaml
   /ci-eks:
     workflows:
     - conformance-eks.yaml
@@ -38,11 +40,11 @@ triggers:
     - tests-l4lb.yaml
 
 workflows:
-  conformance-aks.yaml:
-    paths-ignore-regex: (test|Documentation)/
   conformance-aws-cni.yaml:
     paths-ignore-regex: (test|Documentation)/
   conformance-clustermesh.yaml:
+    paths-ignore-regex: (test|Documentation)/
+  conformance-ipsec-e2e.yaml:
     paths-ignore-regex: (test|Documentation)/
   conformance-eks.yaml:
     paths-ignore-regex: (test|Documentation)/
@@ -51,6 +53,8 @@ workflows:
   conformance-gke.yaml:
     paths-ignore-regex: (test|Documentation)/
   conformance-ingress.yaml:
+    paths-ignore-regex: (test|Documentation)/
+  tests-clustermesh-upgrade.yaml:
     paths-ignore-regex: (test|Documentation)/
   tests-l4lb.yaml:
     paths-regex: (bpf|daemon|images|pkg|test/l4lb|vendor)/
