@@ -50,36 +50,36 @@ func (d *doubleWriteBackend) DeleteAllKeys(ctx context.Context) {
 	d.kvstoreBackend.DeleteAllKeys(ctx)
 }
 
-func (d *doubleWriteBackend) AllocateID(ctx context.Context, id idpool.ID, key allocator.AllocatorKey) error {
+func (d *doubleWriteBackend) AllocateID(ctx context.Context, id idpool.ID, key allocator.AllocatorKey) (allocator.AllocatorKey, error) {
 	log.WithFields(logrus.Fields{logfields.Identity: id.String(), logfields.Key: key.String()}).Info("Allocating identity")
-	crdErr := d.crdBackend.AllocateID(ctx, id, key)
+	crdKey, crdErr := d.crdBackend.AllocateID(ctx, id, key)
 	if crdErr != nil {
 		log.WithFields(logrus.Fields{logfields.Identity: id.String(), logfields.Key: key.String(), "error": crdErr}).Error("CRD backend failed to allocate identity")
 	}
-	kvStoreErr := d.kvstoreBackend.AllocateID(ctx, id, key)
+	kvStoreKey, kvStoreErr := d.kvstoreBackend.AllocateID(ctx, id, key)
 	if kvStoreErr != nil {
 		log.WithFields(logrus.Fields{logfields.Identity: id.String(), logfields.Key: key.String(), "error": crdErr}).Error("KVStore backend failed to allocate identity")
 	}
 	if d.readFromKVStore {
-		return kvStoreErr
+		return kvStoreKey, kvStoreErr
 	}
-	return crdErr
+	return crdKey, crdErr
 }
 
-func (d *doubleWriteBackend) AllocateIDIfLocked(ctx context.Context, id idpool.ID, key allocator.AllocatorKey, lock kvstore.KVLocker) error {
+func (d *doubleWriteBackend) AllocateIDIfLocked(ctx context.Context, id idpool.ID, key allocator.AllocatorKey, lock kvstore.KVLocker) (allocator.AllocatorKey, error) {
 	log.WithFields(logrus.Fields{logfields.Identity: id.String(), logfields.Key: key.String(), "lock": lock}).Info("Allocating identity with lock")
-	crdErr := d.crdBackend.AllocateIDIfLocked(ctx, id, key, lock)
+	crdKey, crdErr := d.crdBackend.AllocateIDIfLocked(ctx, id, key, lock)
 	if crdErr != nil {
 		log.WithFields(logrus.Fields{logfields.Identity: id.String(), logfields.Key: key.String(), "error": crdErr}).Error("CRD backend failed to allocate identity with lock")
 	}
-	kvStoreErr := d.kvstoreBackend.AllocateIDIfLocked(ctx, id, key, lock)
+	kvStoreKey, kvStoreErr := d.kvstoreBackend.AllocateIDIfLocked(ctx, id, key, lock)
 	if kvStoreErr != nil {
 		log.WithFields(logrus.Fields{logfields.Identity: id.String(), logfields.Key: key.String(), "error": crdErr}).Error("KVStore backend failed to allocate identity with lock")
 	}
 	if d.readFromKVStore {
-		return kvStoreErr
+		return kvStoreKey, kvStoreErr
 	}
-	return crdErr
+	return crdKey, crdErr
 }
 
 func (d *doubleWriteBackend) AcquireReference(ctx context.Context, id idpool.ID, key allocator.AllocatorKey, lock kvstore.KVLocker) error {
