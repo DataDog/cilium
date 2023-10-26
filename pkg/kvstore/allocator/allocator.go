@@ -134,29 +134,29 @@ func (k *KVStoreBackend) DeleteAllKeys(ctx context.Context) {
 }
 
 // AllocateID allocates a key->ID mapping in the kvstore.
-func (k *KVStoreBackend) AllocateID(ctx context.Context, id idpool.ID, key allocator.AllocatorKey) error {
+func (k *KVStoreBackend) AllocateID(ctx context.Context, id idpool.ID, key allocator.AllocatorKey) (allocator.AllocatorKey, error) {
 	// create /id/<ID> and fail if it already exists
 	keyPath := path.Join(k.idPrefix, id.String())
 	keyEncoded := []byte(k.backend.Encode([]byte(key.GetKey())))
 	success, err := k.backend.CreateOnly(ctx, keyPath, keyEncoded, false)
 	if err != nil || !success {
-		return fmt.Errorf("unable to create master key '%s': %s", keyPath, err)
+		return nil, fmt.Errorf("unable to create master key '%s': %s", keyPath, err)
 	}
 
-	return nil
+	return key, nil
 }
 
 // AllocateID allocates a key->ID mapping in the kvstore.
-func (k *KVStoreBackend) AllocateIDIfLocked(ctx context.Context, id idpool.ID, key allocator.AllocatorKey, lock kvstore.KVLocker) error {
+func (k *KVStoreBackend) AllocateIDIfLocked(ctx context.Context, id idpool.ID, key allocator.AllocatorKey, lock kvstore.KVLocker) (allocator.AllocatorKey, error) {
 	// create /id/<ID> and fail if it already exists
 	keyPath := path.Join(k.idPrefix, id.String())
 	keyEncoded := []byte(k.backend.Encode([]byte(key.GetKey())))
 	success, err := k.backend.CreateOnlyIfLocked(ctx, keyPath, keyEncoded, false, lock)
 	if err != nil || !success {
-		return fmt.Errorf("unable to create master key '%s': %s", keyPath, err)
+		return nil, fmt.Errorf("unable to create master key '%s': %s", keyPath, err)
 	}
 
-	return nil
+	return key, nil
 }
 
 // AcquireReference marks that this node is using this key->ID mapping in the kvstore.
