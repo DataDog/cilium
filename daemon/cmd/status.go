@@ -169,7 +169,7 @@ func (d *Daemon) getBandwidthManagerStatus() *models.BandwidthManager {
 	}
 
 	s.Devices = option.Config.GetDevices()
-	log.Infof("anton-test: Got devices: %s", s.Devices)
+	log.Infof("anton-test: getBandwidthManagerStatus Got devices: %s", s.Devices)
 	return s
 }
 
@@ -1064,11 +1064,26 @@ func (d *Daemon) startStatusCollector(cleaner *daemonCleanup) {
 				}
 			},
 		},
+		{
+			Name: "bandwidth-manager",
+			Probe: func(ctx context.Context) (interface{}, error) {
+				log.Infof("anton-test: Running probe")
+				return d.getBandwidthManagerStatus(), nil
+			},
+			OnStatusUpdate: func(status status.Status) {
+				d.statusCollectMutex.Lock()
+				defer d.statusCollectMutex.Unlock()
+
+				if s, ok := status.Data.(*models.BandwidthManager); ok {
+					log.Infof("anton-test: got new status %+v", s)
+					d.statusResponse.BandwidthManager = s
+				}
+			},
+		},
 	}
 
 	d.statusResponse.Masquerading = d.getMasqueradingStatus()
 	d.statusResponse.IPV6BigTCP = d.getIPV6BigTCPStatus()
-	d.statusResponse.BandwidthManager = d.getBandwidthManagerStatus()
 	d.statusResponse.HostFirewall = d.getHostFirewallStatus()
 	d.statusResponse.HostRouting = d.getHostRoutingStatus()
 	d.statusResponse.ClockSource = d.getClockSourceStatus()
