@@ -1395,6 +1395,10 @@ func (d *Daemon) ReloadOnDeviceChange(devices []string) {
 		}
 	}
 
+	if option.Config.EnableBandwidthManager {
+		bandwidth.UpdateDevices(devices)
+	}
+
 	// Recreate node_config.h to reflect the mac addresses of the new devices.
 	d.compilationMutex.Lock()
 	err := d.createNodeConfigHeaderfile()
