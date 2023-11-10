@@ -169,6 +169,7 @@ func (d *Daemon) getBandwidthManagerStatus() *models.BandwidthManager {
 	}
 
 	s.Devices = option.Config.GetDevices()
+	log.Infof("anton-test: Got devices: %s", s.Devices)
 	return s
 }
 

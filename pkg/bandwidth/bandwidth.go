@@ -5,11 +5,11 @@ package bandwidth
 
 import (
 	"fmt"
+	"github.com/vishvananda/netlink"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/asm"
 	"github.com/sirupsen/logrus"
-	"github.com/vishvananda/netlink"
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/cilium/cilium/pkg/datapath/linux/probes"
@@ -178,7 +178,12 @@ func InitBandwidthManager() {
 		log.WithError(err).Fatal("Failed to set sysctl needed by BPF bandwidth manager.")
 	}
 
-	for _, device := range option.Config.GetDevices() {
+	UpdateDevices(option.Config.GetDevices())
+}
+
+func UpdateDevices(devices []string) {
+	for _, device := range devices {
+		log.WithField("device", device).Infof("anton-test: Updating device %s", device)
 		link, err := netlink.LinkByName(device)
 		if err != nil {
 			log.WithError(err).WithField("device", device).Warn("Link does not exist")

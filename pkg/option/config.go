@@ -2420,6 +2420,7 @@ func (c *DaemonConfig) SetIPv6NativeRoutingCIDR(cidr *cidr.CIDR) {
 func (c *DaemonConfig) SetDevices(devices []string) {
 	c.devicesMu.Lock()
 	c.devices = devices
+	log.Infof("anton-test: set devices to %s", devices)
 	c.devicesMu.Unlock()
 }
 

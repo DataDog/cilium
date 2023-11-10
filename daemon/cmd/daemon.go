@@ -1377,6 +1377,7 @@ func (d *Daemon) bootstrapClusterMesh(nodeMngr *nodemanager.Manager) {
 // ReloadOnDeviceChange regenerates device related information and reloads the datapath.
 // The devices is the new set of devices that replaces the old set.
 func (d *Daemon) ReloadOnDeviceChange(devices []string) {
+	log.Infof("anton-test: Found new devices: %s", devices)
 	option.Config.SetDevices(devices)
 
 	if option.Config.EnableIPv4Masquerade && option.Config.EnableBPFMasquerade {
@@ -1393,6 +1394,10 @@ func (d *Daemon) ReloadOnDeviceChange(devices []string) {
 			d.svc.SyncServicesOnDeviceChange(d.Datapath().LocalNodeAddressing())
 			d.controllers.TriggerController(syncEndpointsAndHostIPsController)
 		}
+	}
+
+	if option.Config.EnableBandwidthManager {
+		bandwidth.UpdateDevices(devices)
 	}
 
 	// Recreate node_config.h to reflect the mac addresses of the new devices.
