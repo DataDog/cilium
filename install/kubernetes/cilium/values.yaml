@@ -99,7 +99,7 @@ rollOutCiliumPods: false
 image:
   override: ~
   repository: "quay.io/cilium/cilium"
-  tag: "v1.12.15"
+  tag: "v1.12.16"
   pullPolicy: "IfNotPresent"
   # cilium-digest
   digest: ""
@@ -834,7 +834,7 @@ hubble:
     image:
       override: ~
       repository: "quay.io/cilium/hubble-relay"
-      tag: "v1.12.15"
+      tag: "v1.12.16"
        # hubble-relay-digest
       digest: ""
       useDigest: false
@@ -1639,7 +1639,7 @@ operator:
   image:
     override: ~
     repository: "quay.io/cilium/operator"
-    tag: "v1.12.15"
+    tag: "v1.12.16"
     # operator-generic-digest
     genericDigest: ""
     # operator-azure-digest
@@ -1890,7 +1890,7 @@ preflight:
   image:
     override: ~
     repository: "quay.io/cilium/cilium"
-    tag: "v1.12.15"
+    tag: "v1.12.16"
     # cilium-digest
     digest: ""
     useDigest: false
@@ -2036,7 +2036,7 @@ clustermesh:
     image:
       override: ~
       repository: "quay.io/cilium/clustermesh-apiserver"
-      tag: "v1.12.15"
+      tag: "v1.12.16"
       # clustermesh-apiserver-digest
       digest: ""
       useDigest: false
