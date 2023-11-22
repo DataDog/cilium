@@ -69,8 +69,8 @@ static __always_inline int edt_sched_departure(struct __ctx_buff *ctx)
 	 * drop horizon here to i) avoid having t_last messed up and ii) to
 	 * potentially allow for per aggregate control.
 	 */
-	if (t_next - now >= info->t_horizon_drop)
-		return CTX_ACT_DROP;
+	// if (t_next - now >= info->t_horizon_drop)
+	// 	return CTX_ACT_DROP;
 	WRITE_ONCE(info->t_last, t_next);
 	ctx->tstamp = t_next;
 	return CTX_ACT_OK;
