@@ -114,7 +114,7 @@ func setBaselineSysctls() error {
 	}
 
 	baseStringSettings := map[string]string{
-		"net.core.default_qdisc":          "fq",
+		"net.core.default_qdisc":          "fq_codel",
 		"net.ipv4.tcp_congestion_control": congctl,
 	}
 
@@ -206,7 +206,7 @@ func InitBandwidthManager() {
 			},
 			QdiscType: "mq",
 		}
-		which := "mq with fq leafs"
+		which := "mq with fq_codel leafs"
 		if err := netlink.QdiscReplace(qdisc); err != nil {
 			// No MQ support, so just replace to FQ directly.
 			fq := &netlink.Fq{
