@@ -23,7 +23,7 @@ const (
 	// time delta in future. Given applications can set SO_TXTIME
 	// from user space this is a limit to prevent buggy applications
 	// to fill the FQ qdisc.
-	DefaultDropHorizon = 2 * time.Second
+	DefaultDropHorizon = 30 * time.Second
 )
 
 type EdtId struct {
