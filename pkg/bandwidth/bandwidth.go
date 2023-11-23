@@ -114,7 +114,7 @@ func setBaselineSysctls() error {
 	}
 
 	baseStringSettings := map[string]string{
-		"net.core.default_qdisc":          "fq_codel",
+		"net.core.default_qdisc":          "fq",
 		"net.ipv4.tcp_congestion_control": congctl,
 	}
 
