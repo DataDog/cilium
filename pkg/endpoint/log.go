@@ -97,7 +97,7 @@ func (e *Endpoint) UpdateLogger(fields map[string]interface{}) {
 	}
 
 	// default to a new default logger
-	baseLogger := logging.InitializeDefaultLogger()
+	baseLogger := logging.DefaultLogger
 
 	// If this endpoint is set to debug ensure it will print debug by giving it
 	// an independent logger
