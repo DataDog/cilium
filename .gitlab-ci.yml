@@ -13,8 +13,6 @@ variables:
   id_tokens:
     DDSIGN_ID_TOKEN:
       aud: image-integrity
-  variables:
-    TARGET: release
   script:
     - set -x
     - builder=$(docker buildx create --use)
@@ -36,6 +34,7 @@ build-docker-image-operator:
     DOCKER_BUILD_ARGS: |
       BASE_IMAGE=registry.ddbuild.io/images/base/gbi-distroless:release
       OPERATOR_VARIANT=operator
+    TARGET: release
 
 build-docker-image-runtime:
   <<: *build-docker-image
@@ -45,6 +44,7 @@ build-docker-image-runtime:
     DOCKER_BUILD_ARGS: |
       UBUNTU_IMAGE=registry.ddbuild.io/images/base/gbi-ubuntu_2204:release
     DOCKER_CONTEXT: "./images/runtime"
+    TARGET: release
 
 build-docker-image-cilium:
   <<: *build-docker-image
@@ -56,6 +56,7 @@ build-docker-image-cilium:
     DOCKERFILE_PATH: images/cilium/Dockerfile
     DOCKER_BUILD_ARGS: |
       CILIUM_RUNTIME_IMAGE=registry.ddbuild.io/cilium-runtime:$CI_COMMIT_TAG
+    TARGET: release
 
 build-docker-image-cilium-debug:
   <<: *build-docker-image
@@ -63,11 +64,11 @@ build-docker-image-cilium-debug:
     # The debug image depends on the runtime image
     - build-docker-image-runtime
   variables:
-    TARGET: debug
     IMAGE_NAME: cilium
     DOCKERFILE_PATH: images/cilium/Dockerfile
     DOCKER_BUILD_ARGS: |
       CILIUM_RUNTIME_IMAGE=registry.ddbuild.io/cilium-runtime:$CI_COMMIT_TAG
+    TARGET: debug
 
 build-docker-image-hubble-relay:
   <<: *build-docker-image
@@ -76,3 +77,4 @@ build-docker-image-hubble-relay:
     DOCKERFILE_PATH: images/hubble-relay/Dockerfile
     DOCKER_BUILD_ARGS: |
       BASE_IMAGE=registry.ddbuild.io/images/base/gbi-distroless:release
+    TARGET: release
