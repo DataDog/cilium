@@ -13,15 +13,19 @@ variables:
   id_tokens:
     DDSIGN_ID_TOKEN:
       aud: image-integrity
+  variables:
+    TARGET: release
   script:
     - set -x
     - builder=$(docker buildx create --use)
     - trap "docker buildx rm $builder" EXIT
     # Construct valid --build-args arguments from the DOCKER_BUILD_ARGS variable
     - BUILD_ARGS=""; IFS=$'\n'; for arg in $DOCKER_BUILD_ARGS; do BUILD_ARGS+=" $(echo "--build-arg $arg")"; done; IFS=$' ';
-    - IMAGE_TAG="registry.ddbuild.io/$IMAGE_NAME:$CI_COMMIT_TAG"
+    - IMAGE_TAG="$CI_COMMIT_TAG"
+    - if [ "$TARGET" = "debug" ] ; then IMAGE_TAG="$IMAGE_TAG-debug" ; fi
+    - IMAGE_REF="registry.ddbuild.io/$IMAGE_NAME:$IMAGE_TAG"
     - METADATA_FILE=$(mktemp)
-    - docker buildx build --platform linux/amd64,linux/arm64 --tag $IMAGE_TAG --file $DOCKERFILE_PATH $BUILD_ARGS --label CILIUM_VERSION=$(cat VERSION) --label target=prod --target release --push --metadata-file $METADATA_FILE $DOCKER_CONTEXT
+    - docker buildx build --platform linux/amd64,linux/arm64 --tag $IMAGE_REF --file $DOCKERFILE_PATH $BUILD_ARGS --label CILIUM_VERSION=$(cat VERSION) --label target=prod --target $TARGET --push --metadata-file $METADATA_FILE $DOCKER_CONTEXT
     - ddsign sign $IMAGE_TAG --docker-metadata-file $METADATA_FILE
 
 build-docker-image-operator:
@@ -48,6 +52,18 @@ build-docker-image-cilium:
     # The cilium image depends on the runtime image
     - build-docker-image-runtime
   variables:
+    IMAGE_NAME: cilium
+    DOCKERFILE_PATH: images/cilium/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      CILIUM_RUNTIME_IMAGE=registry.ddbuild.io/cilium-runtime:$CI_COMMIT_TAG
+
+build-docker-image-cilium-debug:
+  <<: *build-docker-image
+  needs:
+    # The debug image depends on the runtime image
+    - build-docker-image-runtime
+  variables:
+    TARGET: debug
     IMAGE_NAME: cilium
     DOCKERFILE_PATH: images/cilium/Dockerfile
     DOCKER_BUILD_ARGS: |
