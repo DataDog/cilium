@@ -352,7 +352,7 @@ func (a *Agent) handleEvents(stopCtx context.Context) {
 			}
 			continue
 		}
-
+		scopedLog.Info("Sending a perf record to consumers")
 		a.processPerfRecord(scopedLog, record)
 	}
 }
