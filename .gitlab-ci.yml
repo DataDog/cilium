@@ -68,6 +68,7 @@ build-docker-image-cilium-debug:
     DOCKERFILE_PATH: images/cilium/Dockerfile
     DOCKER_BUILD_ARGS: |
       CILIUM_RUNTIME_IMAGE=registry.ddbuild.io/cilium-runtime:$CI_COMMIT_TAG
+    NOSTRIP: 1
     TARGET: debug
 
 build-docker-image-hubble-relay:
