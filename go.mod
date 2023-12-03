@@ -92,10 +92,10 @@ require (
 	go.uber.org/multierr v1.8.0
 	go.universe.tf/metallb v0.11.0
 	golang.org/x/crypto v0.14.0
-	golang.org/x/exp v0.0.0-20221106115401-f9659909a136
+	golang.org/x/exp v0.0.0-20230224173230-c95f2b4c22f2
 	golang.org/x/net v0.17.0
 	golang.org/x/sync v0.1.0
-	golang.org/x/sys v0.13.0
+	golang.org/x/sys v0.15.0
 	golang.org/x/term v0.13.0
 	golang.org/x/time v0.2.0
 	golang.org/x/tools v0.7.0
@@ -247,6 +247,8 @@ require (
 )
 
 replace (
+
+	github.com/cilium/ebpf => github.com/EricMountain/ebpf v0.12.4-em0
 	github.com/optiopay/kafka => github.com/cilium/kafka v0.0.0-20180809090225-01ce283b732b
 
 	go.universe.tf/metallb => github.com/cilium/metallb v0.1.1-0.20220829170633-5d7dfb1129f7
