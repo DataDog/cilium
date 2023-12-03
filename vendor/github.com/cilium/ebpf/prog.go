@@ -10,11 +10,13 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"unsafe"
 
 	"github.com/cilium/ebpf/asm"
 	"github.com/cilium/ebpf/btf"
 	"github.com/cilium/ebpf/internal"
 	"github.com/cilium/ebpf/internal/sys"
+	"github.com/cilium/ebpf/internal/sysenc"
 	"github.com/cilium/ebpf/internal/unix"
 )
 
@@ -123,11 +125,6 @@ type ProgramSpec struct {
 	// detect this value automatically.
 	KernelVersion uint32
 
-	// The BTF associated with this program.
-	//
-	// Deprecated: use [CollectionSpec.Types] instead.
-	BTF *btf.Spec
-
 	// The byte order this program was compiled for, may be nil.
 	ByteOrder binary.ByteOrder
 }
@@ -173,7 +170,10 @@ type Program struct {
 
 // NewProgram creates a new Program.
 //
-// See NewProgramWithOptions for details.
+// See [NewProgramWithOptions] for details.
+//
+// Returns a [VerifierError] containing the full verifier log if the program is
+// rejected by the kernel.
 func NewProgram(spec *ProgramSpec) (*Program, error) {
 	return NewProgramWithOptions(spec, ProgramOptions{})
 }
@@ -183,7 +183,8 @@ func NewProgram(spec *ProgramSpec) (*Program, error) {
 // Loading a program for the first time will perform
 // feature detection by loading small, temporary programs.
 //
-// Returns a wrapped [VerifierError] if the program is rejected by the kernel.
+// Returns a [VerifierError] containing the full verifier log if the program is
+// rejected by the kernel.
 func NewProgramWithOptions(spec *ProgramSpec, opts ProgramOptions) (*Program, error) {
 	if spec == nil {
 		return nil, errors.New("can't load a program from a nil spec")
@@ -241,15 +242,26 @@ func newProgramWithOptions(spec *ProgramSpec, opts ProgramOptions) (*Program, er
 	insns := make(asm.Instructions, len(spec.Instructions))
 	copy(insns, spec.Instructions)
 
-	handle, fib, lib, err := btf.MarshalExtInfos(insns)
-	btfDisabled := errors.Is(err, btf.ErrNotSupported)
-	if err != nil && !btfDisabled {
-		return nil, fmt.Errorf("load ext_infos: %w", err)
+	var b btf.Builder
+	if err := applyRelocations(insns, opts.KernelTypes, spec.ByteOrder, &b); err != nil {
+		return nil, fmt.Errorf("apply CO-RE relocations: %w", err)
 	}
-	if handle != nil {
-		defer handle.Close()
 
-		attr.ProgBtfFd = uint32(handle.FD())
+	errExtInfos := haveProgramExtInfos()
+	if !b.Empty() && errors.Is(errExtInfos, ErrNotSupported) {
+		// There is at least one CO-RE relocation which relies on a stable local
+		// type ID.
+		// Return ErrNotSupported instead of E2BIG if there is no BTF support.
+		return nil, errExtInfos
+	}
+
+	if errExtInfos == nil {
+		// Only add func and line info if the kernel supports it. This allows
+		// BPF compiled with modern toolchains to work on old kernels.
+		fib, lib, err := btf.MarshalExtInfos(insns, &b)
+		if err != nil {
+			return nil, fmt.Errorf("marshal ext_infos: %w", err)
+		}
 
 		attr.FuncInfoRecSize = btf.FuncInfoSize
 		attr.FuncInfoCnt = uint32(len(fib)) / btf.FuncInfoSize
@@ -260,12 +272,35 @@ func newProgramWithOptions(spec *ProgramSpec, opts ProgramOptions) (*Program, er
 		attr.LineInfo = sys.NewSlicePointer(lib)
 	}
 
-	if err := applyRelocations(insns, opts.KernelTypes, spec.ByteOrder); err != nil {
-		return nil, fmt.Errorf("apply CO-RE relocations: %w", err)
+	if !b.Empty() {
+		handle, err := btf.NewHandle(&b)
+		if err != nil {
+			return nil, fmt.Errorf("load BTF: %w", err)
+		}
+		defer handle.Close()
+
+		attr.ProgBtfFd = uint32(handle.FD())
 	}
+
+	kconfig, err := resolveKconfigReferences(insns)
+	if err != nil {
+		return nil, fmt.Errorf("resolve .kconfig: %w", err)
+	}
+	defer kconfig.Close()
 
 	if err := fixupAndValidate(insns); err != nil {
 		return nil, err
+	}
+
+	handles, err := fixupKfuncs(insns)
+	if err != nil {
+		return nil, fmt.Errorf("fixing up kfuncs: %w", err)
+	}
+	defer handles.Close()
+
+	if len(handles) > 0 {
+		fdArray := handles.fdArray()
+		attr.FdArray = sys.NewPointer(unsafe.Pointer(&fdArray[0]))
 	}
 
 	buf := bytes.NewBuffer(make([]byte, 0, insns.Size()))
@@ -284,18 +319,18 @@ func newProgramWithOptions(spec *ProgramSpec, opts ProgramOptions) (*Program, er
 			return nil, fmt.Errorf("attach %s/%s: %w", spec.Type, spec.AttachType, err)
 		}
 
-		attr.AttachBtfId = uint32(targetID)
+		attr.AttachBtfId = targetID
 		attr.AttachBtfObjFd = uint32(spec.AttachTarget.FD())
 		defer runtime.KeepAlive(spec.AttachTarget)
 	} else if spec.AttachTo != "" {
-		module, targetID, err := findTargetInKernel(spec.AttachTo, spec.Type, spec.AttachType)
+		module, targetID, err := findProgramTargetInKernel(spec.AttachTo, spec.Type, spec.AttachType)
 		if err != nil && !errors.Is(err, errUnrecognizedAttachType) {
 			// We ignore errUnrecognizedAttachType since AttachTo may be non-empty
 			// for programs that don't attach anywhere.
 			return nil, fmt.Errorf("attach %s/%s: %w", spec.Type, spec.AttachType, err)
 		}
 
-		attr.AttachBtfId = uint32(targetID)
+		attr.AttachBtfId = targetID
 		if module != nil {
 			attr.AttachBtfObjFd = uint32(module.FD())
 			defer module.Close()
@@ -358,11 +393,7 @@ func newProgramWithOptions(spec *ProgramSpec, opts ProgramOptions) (*Program, er
 	}
 
 	truncated := errors.Is(err, unix.ENOSPC) || errors.Is(err2, unix.ENOSPC)
-	err = internal.ErrorWithLog(err, logBuf, truncated)
-	if btfDisabled {
-		return nil, fmt.Errorf("load program: %w (kernel without BTF support)", err)
-	}
-	return nil, fmt.Errorf("load program: %w", err)
+	return nil, internal.ErrorWithLog("load program", err, logBuf, truncated)
 }
 
 // NewProgramFromFD creates a program from a raw fd.
@@ -400,7 +431,7 @@ func newProgramFromFD(fd *sys.FD) (*Program, error) {
 		return nil, fmt.Errorf("discover program type: %w", err)
 	}
 
-	return &Program{"", fd, "", "", info.Type}, nil
+	return &Program{"", fd, info.Name, "", info.Type}, nil
 }
 
 func (p *Program) String() string {
@@ -472,7 +503,7 @@ func (p *Program) Clone() (*Program, error) {
 // the new path already exists. Re-pinning across filesystems is not supported.
 //
 // This requires bpffs to be mounted above fileName.
-// See https://docs.cilium.io/en/stable/concepts/kubernetes/configuration/#mounting-bpffs-with-systemd
+// See https://docs.cilium.io/en/stable/network/kubernetes/configuration/#mounting-bpffs-with-systemd
 func (p *Program) Pin(fileName string) error {
 	if err := internal.Pin(p.pinnedPath, fileName, p.fd); err != nil {
 		return err
@@ -513,6 +544,9 @@ func (p *Program) Close() error {
 // Various options for Run'ing a Program
 type RunOptions struct {
 	// Program's data input. Required field.
+	//
+	// The kernel expects at least 14 bytes input for an ethernet header for
+	// XDP and SKB programs.
 	Data []byte
 	// Program's data after Program has run. Caller must allocate. Optional field.
 	DataOut []byte
@@ -520,7 +554,10 @@ type RunOptions struct {
 	Context interface{}
 	// Program's context after Program has run. Must be a pointer or slice. Optional field.
 	ContextOut interface{}
-	// Number of times to run Program. Optional field. Defaults to 1.
+	// Minimum number of times to run Program. Optional field. Defaults to 1.
+	//
+	// The program may be executed more often than this due to interruptions, e.g.
+	// when runtime.AllThreadsSyscall is invoked.
 	Repeat uint32
 	// Optional flags.
 	Flags uint32
@@ -529,6 +566,8 @@ type RunOptions struct {
 	CPU uint32
 	// Called whenever the syscall is interrupted, and should be set to testing.B.ResetTimer
 	// or similar. Typically used during benchmarking. Optional field.
+	//
+	// Deprecated: use [testing.B.ReportMetric] with unit "ns/op" instead.
 	Reset func()
 }
 
@@ -556,9 +595,9 @@ func (p *Program) Test(in []byte) (uint32, []byte, error) {
 		Repeat:  1,
 	}
 
-	ret, _, err := p.testRun(&opts)
+	ret, _, err := p.run(&opts)
 	if err != nil {
-		return ret, nil, fmt.Errorf("can't test program: %w", err)
+		return ret, nil, fmt.Errorf("test program: %w", err)
 	}
 	return ret, opts.DataOut, nil
 }
@@ -567,9 +606,9 @@ func (p *Program) Test(in []byte) (uint32, []byte, error) {
 //
 // Note: the same restrictions from Test apply.
 func (p *Program) Run(opts *RunOptions) (uint32, error) {
-	ret, _, err := p.testRun(opts)
+	ret, _, err := p.run(opts)
 	if err != nil {
-		return ret, fmt.Errorf("can't test program: %w", err)
+		return ret, fmt.Errorf("run program: %w", err)
 	}
 	return ret, nil
 }
@@ -580,9 +619,6 @@ func (p *Program) Run(opts *RunOptions) (uint32, error) {
 // Returns the result of the last execution of the program and the time per
 // run or an error. reset is called whenever the benchmark syscall is
 // interrupted, and should be set to testing.B.ResetTimer or similar.
-//
-// Note: profiling a call to this function will skew its results, see
-// https://github.com/cilium/ebpf/issues/24
 //
 // This function requires at least Linux 4.12.
 func (p *Program) Benchmark(in []byte, repeat int, reset func()) (uint32, time.Duration, error) {
@@ -596,14 +632,14 @@ func (p *Program) Benchmark(in []byte, repeat int, reset func()) (uint32, time.D
 		Reset:  reset,
 	}
 
-	ret, total, err := p.testRun(&opts)
+	ret, total, err := p.run(&opts)
 	if err != nil {
-		return ret, total, fmt.Errorf("can't benchmark program: %w", err)
+		return ret, total, fmt.Errorf("benchmark program: %w", err)
 	}
 	return ret, total, nil
 }
 
-var haveProgTestRun = internal.FeatureTest("BPF_PROG_TEST_RUN", "4.12", func() error {
+var haveProgRun = internal.NewFeatureTest("BPF_PROG_RUN", "4.12", func() error {
 	prog, err := NewProgram(&ProgramSpec{
 		// SocketFilter does not require privileges on newer kernels.
 		Type: SocketFilter,
@@ -647,12 +683,12 @@ var haveProgTestRun = internal.FeatureTest("BPF_PROG_TEST_RUN", "4.12", func() e
 	return err
 })
 
-func (p *Program) testRun(opts *RunOptions) (uint32, time.Duration, error) {
+func (p *Program) run(opts *RunOptions) (uint32, time.Duration, error) {
 	if uint(len(opts.Data)) > math.MaxUint32 {
 		return 0, 0, fmt.Errorf("input is too long")
 	}
 
-	if err := haveProgTestRun(); err != nil {
+	if err := haveProgRun(); err != nil {
 		return 0, 0, err
 	}
 
@@ -685,24 +721,45 @@ func (p *Program) testRun(opts *RunOptions) (uint32, time.Duration, error) {
 		Cpu:         opts.CPU,
 	}
 
+	if attr.Repeat == 0 {
+		attr.Repeat = 1
+	}
+
+retry:
 	for {
 		err := sys.ProgRun(&attr)
 		if err == nil {
-			break
+			break retry
 		}
 
 		if errors.Is(err, unix.EINTR) {
+			if attr.Repeat == 1 {
+				// Older kernels check whether enough repetitions have been
+				// executed only after checking for pending signals.
+				//
+				//     run signal? done? run ...
+				//
+				// As a result we can get EINTR for repeat==1 even though
+				// the program was run exactly once. Treat this as a
+				// successful run instead.
+				//
+				// Since commit 607b9cc92bd7 ("bpf: Consolidate shared test timing code")
+				// the conditions are reversed:
+				//     run done? signal? ...
+				break retry
+			}
+
 			if opts.Reset != nil {
 				opts.Reset()
 			}
-			continue
+			continue retry
 		}
 
 		if errors.Is(err, sys.ENOTSUPP) {
-			return 0, 0, fmt.Errorf("kernel doesn't support testing program type %s: %w", p.Type(), ErrNotSupported)
+			return 0, 0, fmt.Errorf("kernel doesn't support running %s: %w", p.Type(), ErrNotSupported)
 		}
 
-		return 0, 0, fmt.Errorf("can't run test: %w", err)
+		return 0, 0, err
 	}
 
 	if opts.DataOut != nil {
@@ -725,14 +782,14 @@ func (p *Program) testRun(opts *RunOptions) (uint32, time.Duration, error) {
 	return attr.Retval, total, nil
 }
 
-func unmarshalProgram(buf []byte) (*Program, error) {
-	if len(buf) != 4 {
-		return nil, errors.New("program id requires 4 byte value")
+func unmarshalProgram(buf sysenc.Buffer) (*Program, error) {
+	var id uint32
+	if err := buf.Unmarshal(&id); err != nil {
+		return nil, err
 	}
 
 	// Looking up an entry in a nested map or prog array returns an id,
 	// not an fd.
-	id := internal.NativeEndian.Uint32(buf)
 	return NewProgramFromID(ProgramID(id))
 }
 
@@ -764,7 +821,14 @@ func LoadPinnedProgram(fileName string, opts *LoadPinOptions) (*Program, error) 
 		return nil, fmt.Errorf("info for %s: %w", fileName, err)
 	}
 
-	return &Program{"", fd, filepath.Base(fileName), fileName, info.Type}, nil
+	var progName string
+	if haveObjName() == nil {
+		progName = info.Name
+	} else {
+		progName = filepath.Base(fileName)
+	}
+
+	return &Program{"", fd, progName, fileName, info.Type}, nil
 }
 
 // SanitizeName replaces all invalid characters in name with replacement.
@@ -816,7 +880,7 @@ var errUnrecognizedAttachType = errors.New("unrecognized attach type")
 //
 // Returns errUnrecognizedAttachType if the combination of progType and attachType
 // is not recognised.
-func findTargetInKernel(name string, progType ProgramType, attachType AttachType) (*btf.Handle, btf.TypeID, error) {
+func findProgramTargetInKernel(name string, progType ProgramType, attachType AttachType) (*btf.Handle, btf.TypeID, error) {
 	type match struct {
 		p ProgramType
 		a AttachType
@@ -856,77 +920,96 @@ func findTargetInKernel(name string, progType ProgramType, attachType AttachType
 		return nil, 0, errUnrecognizedAttachType
 	}
 
-	// maybeLoadKernelBTF may return external BTF if /sys/... is not available.
-	// Ideally we shouldn't use external BTF here, since we might try to use
-	// it for parsing kmod split BTF later on. That seems unlikely to work.
-	spec, err := maybeLoadKernelBTF(nil)
+	spec, err := btf.LoadKernelSpec()
 	if err != nil {
 		return nil, 0, fmt.Errorf("load kernel spec: %w", err)
 	}
 
-	err = spec.TypeByName(typeName, &target)
+	spec, module, err := findTargetInKernel(spec, typeName, &target)
 	if errors.Is(err, btf.ErrNotFound) {
-		module, id, err := findTargetInModule(spec, typeName, target)
-		if errors.Is(err, btf.ErrNotFound) {
-			return nil, 0, &internal.UnsupportedFeatureError{Name: featureName}
-		}
-		if err != nil {
-			return nil, 0, fmt.Errorf("find target for %s in modules: %w", featureName, err)
-		}
-		return module, id, nil
+		return nil, 0, &internal.UnsupportedFeatureError{Name: featureName}
+	}
+	// See cilium/ebpf#894. Until we can disambiguate between equally-named kernel
+	// symbols, we should explicitly refuse program loads. They will not reliably
+	// do what the caller intended.
+	if errors.Is(err, btf.ErrMultipleMatches) {
+		return nil, 0, fmt.Errorf("attaching to ambiguous kernel symbol is not supported: %w", err)
 	}
 	if err != nil {
-		return nil, 0, fmt.Errorf("find target for %s in vmlinux: %w", featureName, err)
+		return nil, 0, fmt.Errorf("find target for %s: %w", featureName, err)
 	}
 
 	id, err := spec.TypeID(target)
-	return nil, id, err
+	if err != nil {
+		module.Close()
+		return nil, 0, err
+	}
+
+	return module, id, nil
 }
 
-// find an attach target type in a kernel module.
+// findTargetInKernel attempts to find a named type in the current kernel.
 //
-// vmlinux must contain the kernel's types and is used to parse kmod BTF.
+// target will point at the found type after a successful call. Searches both
+// vmlinux and any loaded modules.
+//
+// Returns a non-nil handle if the type was found in a module, or btf.ErrNotFound
+// if the type wasn't found at all.
+func findTargetInKernel(kernelSpec *btf.Spec, typeName string, target *btf.Type) (*btf.Spec, *btf.Handle, error) {
+	err := kernelSpec.TypeByName(typeName, target)
+	if errors.Is(err, btf.ErrNotFound) {
+		spec, module, err := findTargetInModule(kernelSpec, typeName, target)
+		if err != nil {
+			return nil, nil, fmt.Errorf("find target in modules: %w", err)
+		}
+		return spec, module, nil
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("find target in vmlinux: %w", err)
+	}
+	return kernelSpec, nil, err
+}
+
+// findTargetInModule attempts to find a named type in any loaded module.
+//
+// base must contain the kernel's types and is used to parse kmod BTF. Modules
+// are searched in the order they were loaded.
 //
 // Returns btf.ErrNotFound if the target can't be found in any module.
-func findTargetInModule(vmlinux *btf.Spec, typeName string, target btf.Type) (*btf.Handle, btf.TypeID, error) {
+func findTargetInModule(base *btf.Spec, typeName string, target *btf.Type) (*btf.Spec, *btf.Handle, error) {
 	it := new(btf.HandleIterator)
 	defer it.Handle.Close()
 
 	for it.Next() {
 		info, err := it.Handle.Info()
 		if err != nil {
-			return nil, 0, fmt.Errorf("get info for BTF ID %d: %w", it.ID, err)
+			return nil, nil, fmt.Errorf("get info for BTF ID %d: %w", it.ID, err)
 		}
 
 		if !info.IsModule() {
 			continue
 		}
 
-		spec, err := it.Handle.Spec(vmlinux)
+		spec, err := it.Handle.Spec(base)
 		if err != nil {
-			return nil, 0, fmt.Errorf("parse types for module %s: %w", info.Name, err)
+			return nil, nil, fmt.Errorf("parse types for module %s: %w", info.Name, err)
 		}
 
-		err = spec.TypeByName(typeName, &target)
+		err = spec.TypeByName(typeName, target)
 		if errors.Is(err, btf.ErrNotFound) {
 			continue
 		}
 		if err != nil {
-			return nil, 0, fmt.Errorf("lookup type in module %s: %w", info.Name, err)
+			return nil, nil, fmt.Errorf("lookup type in module %s: %w", info.Name, err)
 		}
 
-		id, err := spec.TypeID(target)
-		if err != nil {
-			return nil, 0, fmt.Errorf("lookup type id in module %s: %w", info.Name, err)
-		}
-
-		return it.Take(), id, nil
+		return spec, it.Take(), nil
 	}
 	if err := it.Err(); err != nil {
-		return nil, 0, fmt.Errorf("iterate modules: %w", err)
+		return nil, nil, fmt.Errorf("iterate modules: %w", err)
 	}
 
-	return nil, 0, btf.ErrNotFound
+	return nil, nil, btf.ErrNotFound
 }
 
 // find an attach target type in a program.
@@ -940,7 +1023,9 @@ func findTargetInProgram(prog *Program, name string, progType ProgramType, attac
 
 	var typeName string
 	switch (match{progType, attachType}) {
-	case match{Extension, AttachNone}:
+	case match{Extension, AttachNone},
+		match{Tracing, AttachTraceFEntry},
+		match{Tracing, AttachTraceFExit}:
 		typeName = name
 	default:
 		return 0, errUnrecognizedAttachType
