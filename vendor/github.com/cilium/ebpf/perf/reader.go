@@ -325,6 +325,8 @@ func (pr *Reader) SetDeadline(t time.Time) {
 func (pr *Reader) Read() (Record, error) {
 	var r Record
 
+	fmt.Fprintln(os.Stderr, "XXXXXXXXXXXXXX Calling ReadInto()")
+
 	return r, pr.ReadInto(&r)
 }
 
