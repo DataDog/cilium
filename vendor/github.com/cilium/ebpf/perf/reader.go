@@ -325,12 +325,26 @@ func (pr *Reader) SetDeadline(t time.Time) {
 func (pr *Reader) Read() (Record, error) {
 	var r Record
 
-	fmt.Fprintln(os.Stderr, "XXXXXXXXXXXXXX Calling ReadInto()")
+	// fmt.Fprintln(os.Stderr, "XXXXXXXXXXXXXX Calling ReadInto()")
 
 	return r, pr.ReadInto(&r)
 }
 
 var errMustBePaused = fmt.Errorf("perf ringbuffer: must have been paused before reading overwritable buffer")
+
+var (
+	maxPrints  = 1000
+	printsDone = 0
+)
+
+func p(format string, a ...any) {
+	if printsDone <= maxPrints {
+		fmt.Fprintf(os.Stderr, format, a...)
+	}
+	if printsDone == maxPrints {
+		fmt.Fprintf(os.Stderr, "XXXXXXXXXXXXXX maxPrints reached\n")
+	}
+}
 
 // ReadInto is like Read except that it allows reusing Record and associated buffers.
 func (pr *Reader) ReadInto(rec *Record) error {
@@ -349,6 +363,9 @@ func (pr *Reader) ReadInto(rec *Record) error {
 	}
 
 	for {
+		printsDone += 1
+
+		p("XXXXXXXXXXXXXX len(pr.epollRings) = %d\n", len(pr.epollRings))
 		if len(pr.epollRings) == 0 {
 			// NB: The deferred pauseMu.Unlock will panic if Wait panics, which
 			// might obscure the original panic.
@@ -364,7 +381,9 @@ func (pr *Reader) ReadInto(rec *Record) error {
 				return errMustBePaused
 			}
 
+			p("XXXXXXXXXXXXXXX nEvents = %d\n", nEvents)
 			for _, event := range pr.epollEvents[:nEvents] {
+				p("XXXXXXXXXXXXXXX Event CPU = %d\n", cpuForEvent(&event))
 				ring := pr.rings[cpuForEvent(&event)]
 				pr.epollRings = append(pr.epollRings, ring)
 
@@ -378,11 +397,13 @@ func (pr *Reader) ReadInto(rec *Record) error {
 		// Start at the last available event. The order in which we
 		// process them doesn't matter, and starting at the back allows
 		// resizing epollRings to keep track of processed rings.
+		p("XXXXXXXXXXXXXXX len(pr.epollRings) = %d\n", len(pr.epollRings))
 		err := pr.readRecordFromRing(rec, pr.epollRings[len(pr.epollRings)-1])
 		if err == errEOR {
 			// We've emptied the current ring buffer, process
 			// the next one.
 			pr.epollRings = pr.epollRings[:len(pr.epollRings)-1]
+			p("XXXXXXXXXXXXXXX emptied current ring buffer, removing it: len(pr.epollRings) = %d\n", len(pr.epollRings))
 			continue
 		}
 
