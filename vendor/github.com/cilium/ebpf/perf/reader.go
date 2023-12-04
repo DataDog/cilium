@@ -365,7 +365,7 @@ func (pr *Reader) ReadInto(rec *Record) error {
 	for {
 		printsDone += 1
 
-		p("XXXXXXXXXXXXXX len(pr.epollRings) = %d\n", len(pr.epollRings))
+		p("XXXXXXXXXXXXXX len(pr.epollRings) = %d (1)\n", len(pr.epollRings))
 		if len(pr.epollRings) == 0 {
 			// NB: The deferred pauseMu.Unlock will panic if Wait panics, which
 			// might obscure the original panic.
@@ -390,14 +390,15 @@ func (pr *Reader) ReadInto(rec *Record) error {
 				// Read the current head pointer now, not every time
 				// we read a record. This prevents a single fast producer
 				// from keeping the reader busy.
-				ring.loadHead()
+				// ring.loadHead()
 			}
 		}
 
 		// Start at the last available event. The order in which we
 		// process them doesn't matter, and starting at the back allows
 		// resizing epollRings to keep track of processed rings.
-		p("XXXXXXXXXXXXXXX len(pr.epollRings) = %d\n", len(pr.epollRings))
+		pr.epollRings[len(pr.epollRings)-1].loadHead()
+		p("XXXXXXXXXXXXXXX len(pr.epollRings) = %d (2), lead loaded\n", len(pr.epollRings))
 		err := pr.readRecordFromRing(rec, pr.epollRings[len(pr.epollRings)-1])
 		if err == errEOR {
 			// We've emptied the current ring buffer, process

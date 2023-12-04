@@ -184,7 +184,7 @@ github.com/cilium/deepequal-gen/generators
 # github.com/cilium/dns v1.1.51-0.20230303133941-d3bcb3008ed2
 ## explicit; go 1.14
 github.com/cilium/dns
-# github.com/cilium/ebpf v0.9.4-0.20221102092914-a9cf21df64c2 => github.com/EricMountain/ebpf v0.12.4-em0.0.20231204110637-8e81cf9fbf33
+# github.com/cilium/ebpf v0.9.4-0.20221102092914-a9cf21df64c2 => github.com/EricMountain/ebpf v0.12.4-em0.0.20231204132439-3e92512954cb
 ## explicit; go 1.20
 github.com/cilium/ebpf
 github.com/cilium/ebpf/asm
@@ -1912,7 +1912,7 @@ sigs.k8s.io/structured-merge-diff/v4/value
 # sigs.k8s.io/yaml v1.3.0
 ## explicit; go 1.12
 sigs.k8s.io/yaml
-# github.com/cilium/ebpf => github.com/EricMountain/ebpf v0.12.4-em0.0.20231204110637-8e81cf9fbf33
+# github.com/cilium/ebpf => github.com/EricMountain/ebpf v0.12.4-em0.0.20231204132439-3e92512954cb
 # github.com/optiopay/kafka => github.com/cilium/kafka v0.0.0-20180809090225-01ce283b732b
 # go.universe.tf/metallb => github.com/cilium/metallb v0.1.1-0.20220829170633-5d7dfb1129f7
 # k8s.io/client-go => github.com/cilium/client-go v0.26.9-fix
