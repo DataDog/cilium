@@ -474,9 +474,9 @@ func (pr *Reader) readRecordFromRing(rec *Record, ring *perfEventRing) error {
 
 	rec.CPU = ring.cpu
 	err := readRecord(ring, rec, pr.eventHeader, pr.overwritable)
-	if err != nil {
-		p("Error from readRecord(): %s\n", err) // "end of ring" = errEOR
-	}
+	// if err != nil {
+	// 	p("Error from readRecord(): %s\n", err) // "end of ring" = errEOR
+	// }
 	if pr.overwritable && (errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)) {
 		return errEOR
 	}
