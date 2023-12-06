@@ -398,7 +398,7 @@ func (pr *Reader) ReadInto(rec *Record) error {
 		// process them doesn't matter, and starting at the back allows
 		// resizing epollRings to keep track of processed rings.
 		// pr.epollRings[len(pr.epollRings)-1].loadHead()
-		p("XXXXXXXXXXXXXXX len(pr.epollRings) = %d (2)\n", len(pr.epollRings))
+		// p("XXXXXXXXXXXXXXX len(pr.epollRings) = %d (2)\n", len(pr.epollRings))
 		err := pr.readRecordFromRing(rec, pr.epollRings[len(pr.epollRings)-1])
 		if err == errEOR {
 			// We've emptied the current ring buffer, process
@@ -475,7 +475,7 @@ func (pr *Reader) readRecordFromRing(rec *Record, ring *perfEventRing) error {
 	rec.CPU = ring.cpu
 	err := readRecord(ring, rec, pr.eventHeader, pr.overwritable)
 	if err != nil {
-		p("Error from readRecord(): %s\n", err)
+		p("Error from readRecord(): %s\n", err) // "end of ring" = errEOR
 	}
 	if pr.overwritable && (errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)) {
 		return errEOR
