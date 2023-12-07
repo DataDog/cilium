@@ -358,6 +358,8 @@ func (pr *Reader) ReadInto(rec *Record) error {
 		return errMustBePaused
 	}
 
+	p("pr: %+v\n", pr)
+	
 	if pr.rings == nil {
 		return fmt.Errorf("perf ringbuffer: %w", ErrClosed)
 	}
