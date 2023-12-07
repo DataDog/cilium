@@ -140,7 +140,7 @@ type forwardReader struct {
 }
 
 func newForwardReader(meta *unix.PerfEventMmapPage, ring []byte) *forwardReader {
-	pDebug("created newForwardReader")
+	pDebug("created newForwardReader\n")
 	return &forwardReader{
 		meta: meta,
 		head: atomic.LoadUint64(&meta.Data_head),
@@ -153,16 +153,16 @@ func newForwardReader(meta *unix.PerfEventMmapPage, ring []byte) *forwardReader 
 
 func (rr *forwardReader) loadHead() {
 	rr.head = atomic.LoadUint64(&rr.meta.Data_head)
-	pDebug("loadHead: rr.head = &rr.meta.Data_head = %d", rr.head)
+	pDebug("loadHead: rr.head = &rr.meta.Data_head = %d\n", rr.head)
 }
 
 func (rr *forwardReader) size() int {
-	pDebug("size: len(rr.ring)=%d", len(rr.ring))
+	pDebug("size: len(rr.ring)=%d\n", len(rr.ring))
 	return len(rr.ring)
 }
 
 func (rr *forwardReader) remaining() int {
-	pDebug("remaining: int((rr.head - rr.tail) & rr.mask)=%d", int((rr.head-rr.tail)&rr.mask))
+	pDebug("remaining: int((rr.head - rr.tail) & rr.mask)=%d\n", int((rr.head-rr.tail)&rr.mask))
 	return int((rr.head - rr.tail) & rr.mask)
 }
 
@@ -170,7 +170,7 @@ func (rr *forwardReader) writeTail() {
 	// Commit the new tail. This lets the kernel know that
 	// the ring buffer has been consumed.
 	atomic.StoreUint64(&rr.meta.Data_tail, rr.tail)
-	pDebug("writeTail: &rr.meta.Data_tail = rr.tail=%d", rr.tail)
+	pDebug("writeTail: &rr.meta.Data_tail = rr.tail=%d\n", rr.tail)
 }
 
 func (rr *forwardReader) Read(p []byte) (int, error) {
@@ -194,7 +194,7 @@ func (rr *forwardReader) Read(p []byte) (int, error) {
 		return n, io.EOF
 	}
 
-	pDebug("forwardReader read done: rr.tail=%d, rr.head=%d", rr.tail, rr.head)
+	pDebug("forwardReader read done: rr.tail=%d, rr.head=%d\n", rr.tail, rr.head)
 	return n, nil
 }
 
