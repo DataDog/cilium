@@ -390,7 +390,7 @@ func (pr *Reader) ReadInto(rec *Record) error {
 				// Read the current head pointer now, not every time
 				// we read a record. This prevents a single fast producer
 				// from keeping the reader busy.
-				// ring.loadHead()
+				ring.loadHead()
 			}
 		}
 

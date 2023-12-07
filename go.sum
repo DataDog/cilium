@@ -75,8 +75,8 @@ github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03
 github.com/BurntSushi/toml v1.0.0 h1:dtDWrepsVPfW9H/4y7dDgFc2MBUSeJhlaDtK13CxFlU=
 github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym/WlBOVXweHU+Q+/VP0lqqI8lqeDx9IjBqo=
 github.com/DataDog/datadog-go v3.2.0+incompatible/go.mod h1:LButxg5PwREeZtORoXG3tL4fMGNddJ+vMq1mwgfaqoQ=
-github.com/EricMountain/ebpf v0.12.4-em0.0.20231206162501-56ed56e99409 h1:CUN0sRSqbhjO2UX2eXc/nh/jjZQ+eKMomfs342nZabs=
-github.com/EricMountain/ebpf v0.12.4-em0.0.20231206162501-56ed56e99409/go.mod h1:tQXz7VNw7NcYA9JnZZ1L7uRrBXPuX2csrrLCuNGlgfc=
+github.com/EricMountain/ebpf v0.12.4-em0.0.20231207093714-286a93578df6 h1:KWxV/27eHMa5M/3LLnkHStzMHBPPDOJ6N9S5AulE6d8=
+github.com/EricMountain/ebpf v0.12.4-em0.0.20231207093714-286a93578df6/go.mod h1:tQXz7VNw7NcYA9JnZZ1L7uRrBXPuX2csrrLCuNGlgfc=
 github.com/Microsoft/go-winio v0.5.1 h1:aPJp2QD7OOrhO5tQXqQoGSJc+DjDtWTGLOmNyAm6FgY=
 github.com/Microsoft/go-winio v0.5.1/go.mod h1:JPGBdM1cNvN/6ISo+n8V5iA4v8pBzdOpzfwIujj1a84=
 github.com/NYTimes/gziphandler v0.0.0-20170623195520-56545f4a5d46/go.mod h1:3wb06e3pkSAbeQ52E9H9iFoQsEEwGN64994WTCIhntQ=
