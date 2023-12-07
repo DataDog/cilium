@@ -359,11 +359,15 @@ func (pr *Reader) ReadInto(rec *Record) error {
 	}
 
 	p("pr: %+v\n", pr)
-	
+
 	if pr.rings == nil {
 		return fmt.Errorf("perf ringbuffer: %w", ErrClosed)
 	}
 
+	for i, ring := range pr.rings {
+		p("%d: ring: %+v\n", i, ring)
+	}
+	
 	for {
 		printsDone += 1
 
