@@ -337,7 +337,7 @@ var (
 	printsDone = 0
 )
 
-func p(format string, a ...any) {
+func pDebug(format string, a ...any) {
 	if printsDone <= maxPrints {
 		fmt.Fprintf(os.Stderr, format, a...)
 	}
@@ -358,20 +358,20 @@ func (pr *Reader) ReadInto(rec *Record) error {
 		return errMustBePaused
 	}
 
-	p("pr: %+v\n", pr)
+	pDebug("pr: %+v\n", pr)
 
 	if pr.rings == nil {
 		return fmt.Errorf("perf ringbuffer: %w", ErrClosed)
 	}
 
-	for _, ring := range pr.rings {
-		p("cpu %d: ring's reader: %+v\n", ring.cpu, ring.ringReader)
-	}
+	// for _, ring := range pr.rings {
+	// 	pDebug("cpu %d: ring's reader: %+v\n", ring.cpu, ring.ringReader)
+	// }
 
 	for {
 		printsDone += 1
 
-		p("XXXXXXXXXXXXXX len(pr.epollRings) = %d (1)\n", len(pr.epollRings))
+		pDebug("XXXXXXXXXXXXXX len(pr.epollRings) = %d (1)\n", len(pr.epollRings))
 		if len(pr.epollRings) == 0 {
 			// NB: The deferred pauseMu.Unlock will panic if Wait panics, which
 			// might obscure the original panic.
@@ -387,9 +387,9 @@ func (pr *Reader) ReadInto(rec *Record) error {
 				return errMustBePaused
 			}
 
-			p("XXXXXXXXXXXXXXX nEvents = %d\n", nEvents)
+			pDebug("XXXXXXXXXXXXXXX nEvents = %d\n", nEvents)
 			for _, event := range pr.epollEvents[:nEvents] {
-				p("XXXXXXXXXXXXXXX Event CPU = %d\n", cpuForEvent(&event))
+				pDebug("XXXXXXXXXXXXXXX Event CPU = %d\n", cpuForEvent(&event))
 				ring := pr.rings[cpuForEvent(&event)]
 				pr.epollRings = append(pr.epollRings, ring)
 
@@ -404,13 +404,13 @@ func (pr *Reader) ReadInto(rec *Record) error {
 		// process them doesn't matter, and starting at the back allows
 		// resizing epollRings to keep track of processed rings.
 		// pr.epollRings[len(pr.epollRings)-1].loadHead()
-		// p("XXXXXXXXXXXXXXX len(pr.epollRings) = %d (2)\n", len(pr.epollRings))
+		// pDebug("XXXXXXXXXXXXXXX len(pr.epollRings) = %d (2)\n", len(pr.epollRings))
 		err := pr.readRecordFromRing(rec, pr.epollRings[len(pr.epollRings)-1])
 		if err == errEOR {
 			// We've emptied the current ring buffer, process
 			// the next one.
 			pr.epollRings = pr.epollRings[:len(pr.epollRings)-1]
-			p("XXXXXXXXXXXXXXX emptied current ring buffer, removing it: len(pr.epollRings) = %d\n", len(pr.epollRings))
+			pDebug("XXXXXXXXXXXXXXX emptied current ring buffer, removing it: len(pr.epollRings) = %d\n", len(pr.epollRings))
 			continue
 		}
 
@@ -481,7 +481,7 @@ func (pr *Reader) readRecordFromRing(rec *Record, ring *perfEventRing) error {
 	rec.CPU = ring.cpu
 	err := readRecord(ring, rec, pr.eventHeader, pr.overwritable)
 	// if err != nil {
-	// 	p("Error from readRecord(): %s\n", err) // "end of ring" = errEOR
+	// 	pDebug("Error from readRecord(): %s\n", err) // "end of ring" = errEOR
 	// }
 	if pr.overwritable && (errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)) {
 		return errEOR
