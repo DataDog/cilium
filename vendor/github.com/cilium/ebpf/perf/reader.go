@@ -59,6 +59,7 @@ type Record struct {
 // buf must be at least perfEventHeaderSize bytes long.
 func readRecord(rd io.Reader, rec *Record, buf []byte, overwritable bool) error {
 	// Assert that the buffer is large enough.
+	pDebug("readRecord called\n")
 	buf = buf[:perfEventHeaderSize]
 	_, err := io.ReadFull(rd, buf)
 	if errors.Is(err, io.EOF) {
@@ -72,6 +73,8 @@ func readRecord(rd io.Reader, rec *Record, buf []byte, overwritable bool) error 
 		internal.NativeEndian.Uint16(buf[4:6]),
 		internal.NativeEndian.Uint16(buf[6:8]),
 	}
+
+	pDebug("readRecord read an event: header.Type = %d\n", header.Type)
 
 	switch header.Type {
 	case unix.PERF_RECORD_LOST:
@@ -132,6 +135,7 @@ func readRawSample(rd io.Reader, buf, sampleBuf []byte) ([]byte, error) {
 	if _, err := io.ReadFull(rd, data); err != nil {
 		return nil, fmt.Errorf("read sample: %w", err)
 	}
+	pDebug("readRawSample: data = %v\n", data)
 	return data, nil
 }
 
@@ -325,9 +329,14 @@ func (pr *Reader) SetDeadline(t time.Time) {
 func (pr *Reader) Read() (Record, error) {
 	var r Record
 
-	// fmt.Fprintln(os.Stderr, "XXXXXXXXXXXXXX Calling ReadInto()")
+	err := pr.ReadInto(&r)
+	if err != nil {
+		pDebug("Error from ReadInto(): %s\n", err)
+	} else {
+		pDebug("ReadInto() returned a record\n")
+	}
 
-	return r, pr.ReadInto(&r)
+	return r, err
 }
 
 var errMustBePaused = fmt.Errorf("perf ringbuffer: must have been paused before reading overwritable buffer")
@@ -480,9 +489,9 @@ func (pr *Reader) readRecordFromRing(rec *Record, ring *perfEventRing) error {
 
 	rec.CPU = ring.cpu
 	err := readRecord(ring, rec, pr.eventHeader, pr.overwritable)
-	// if err != nil {
-	// 	pDebug("Error from readRecord(): %s\n", err) // "end of ring" = errEOR
-	// }
+	if err != nil {
+		pDebug("CPU %d: Error from readRecord(): %s\n", rec.CPU, err) // "end of ring" = errEOR
+	}
 	if pr.overwritable && (errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)) {
 		return errEOR
 	}
