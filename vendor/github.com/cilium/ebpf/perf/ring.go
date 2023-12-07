@@ -140,7 +140,7 @@ type forwardReader struct {
 }
 
 func newForwardReader(meta *unix.PerfEventMmapPage, ring []byte) *forwardReader {
-	pDebug("created newForwardReader\n")
+	pDebug("newForwardReader: created forwardReader\n")
 	return &forwardReader{
 		meta: meta,
 		head: atomic.LoadUint64(&meta.Data_head),
@@ -153,16 +153,16 @@ func newForwardReader(meta *unix.PerfEventMmapPage, ring []byte) *forwardReader 
 
 func (rr *forwardReader) loadHead() {
 	rr.head = atomic.LoadUint64(&rr.meta.Data_head)
-	pDebug("loadHead: rr.head = &rr.meta.Data_head = %d\n", rr.head)
+	pDebug("forwardReader.loadHead: rr.head = &rr.meta.Data_head = %d\n", rr.head)
 }
 
 func (rr *forwardReader) size() int {
-	pDebug("size: len(rr.ring)=%d\n", len(rr.ring))
+	pDebug("forwardReader.size: len(rr.ring) = %d\n", len(rr.ring))
 	return len(rr.ring)
 }
 
 func (rr *forwardReader) remaining() int {
-	pDebug("remaining: int((rr.head - rr.tail) & rr.mask)=%d\n", int((rr.head-rr.tail)&rr.mask))
+	pDebug("forwardReader.remaining: int((rr.head - rr.tail) & rr.mask) = %d\n", int((rr.head-rr.tail)&rr.mask))
 	return int((rr.head - rr.tail) & rr.mask)
 }
 
@@ -170,31 +170,37 @@ func (rr *forwardReader) writeTail() {
 	// Commit the new tail. This lets the kernel know that
 	// the ring buffer has been consumed.
 	atomic.StoreUint64(&rr.meta.Data_tail, rr.tail)
-	pDebug("writeTail: &rr.meta.Data_tail = rr.tail=%d\n", rr.tail)
+	pDebug("forwardReader.writeTail: &rr.meta.Data_tail = rr.tail = %d\n", rr.tail)
 }
 
 func (rr *forwardReader) Read(p []byte) (int, error) {
 	start := int(rr.tail & rr.mask)
 
 	n := len(p)
+	pDebug("forwardReader.Read: start=%d, n = %d\n", start, n)
 	// Truncate if the read wraps in the ring buffer
 	if remainder := cap(rr.ring) - start; n > remainder {
 		n = remainder
 	}
+	pDebug("forwardReader.Read: remainder = cap(rr.ring) - start = %d, n = %d\n", cap(rr.ring)-start, n)
 
 	// Truncate if there isn't enough data
 	if remainder := int(rr.head - rr.tail); n > remainder {
 		n = remainder
 	}
-
+	pDebug("forwardReader.Read: remainder = rr.head - rr.tail = %d, n = %d\n", rr.head-rr.tail, n)
+	pDebug("forwardReader.Read: rr.head = %d, rr.tail = %d\n", rr.head, rr.tail)
+	pDebug("forwardReader.Read: start=%d, n=%d, start+n=%d, rr.ring[start:start+n]=%v\n", start, n, start+n, rr.ring[start:start+n])
 	copy(p, rr.ring[start:start+n])
 	rr.tail += uint64(n)
+	pDebug("forwardReader.Read: rr.tail = n = %d\n", rr.tail)
 
 	if rr.tail == rr.head {
+		pDebug("forwardReader.Read: read done, EOF: rr.tail=%d == rr.head=%d\n", rr.tail, rr.head)
 		return n, io.EOF
 	}
 
-	pDebug("forwardReader read done: rr.tail=%d, rr.head=%d\n", rr.tail, rr.head)
+	pDebug("forwardReader.Read: read done: rr.tail=%d, rr.head=%d, n = %d\n", rr.tail, rr.head, n)
 	return n, nil
 }
 

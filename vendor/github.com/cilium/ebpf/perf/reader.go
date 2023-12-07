@@ -59,7 +59,7 @@ type Record struct {
 // buf must be at least perfEventHeaderSize bytes long.
 func readRecord(rd io.Reader, rec *Record, buf []byte, overwritable bool) error {
 	// Assert that the buffer is large enough.
-	pDebug("readRecord called\n")
+	pDebug("readRecord: called\n")
 	buf = buf[:perfEventHeaderSize]
 	_, err := io.ReadFull(rd, buf)
 	if errors.Is(err, io.EOF) {
@@ -74,21 +74,24 @@ func readRecord(rd io.Reader, rec *Record, buf []byte, overwritable bool) error 
 		internal.NativeEndian.Uint16(buf[6:8]),
 	}
 
-	pDebug("readRecord read an event: header.Type = %d\n", header.Type)
+	pDebug("readRecord: read an event: header.Type = %d\n", header.Type)
 
 	switch header.Type {
 	case unix.PERF_RECORD_LOST:
 		rec.RawSample = rec.RawSample[:0]
 		rec.LostSamples, err = readLostRecords(rd)
+		pDebug("readRecord: switch: lost records: header.Type = %d, lost samples = %d\n", header.Type, rec.LostSamples)
 		return err
 
 	case unix.PERF_RECORD_SAMPLE:
 		rec.LostSamples = 0
 		// We can reuse buf here because perfEventHeaderSize > perfEventSampleSize.
 		rec.RawSample, err = readRawSample(rd, buf, rec.RawSample)
+		pDebug("readRecord: switch: raw sample: header.Type = %d, raw sample = %v\n", header.Type, rec.RawSample)
 		return err
 
 	default:
+		pDebug("readRecord: switch: unknown event: header.Type = %d\n", header.Type)
 		return &unknownEventError{header.Type}
 	}
 }
@@ -132,10 +135,12 @@ func readRawSample(rd io.Reader, buf, sampleBuf []byte) ([]byte, error) {
 		data = sampleBuf[:size]
 	}
 
-	if _, err := io.ReadFull(rd, data); err != nil {
+	if n, err := io.ReadFull(rd, data); err != nil {
+		pDebug("readRawSample: ReadFull error: n = %d, err = %v\n", n, err)
 		return nil, fmt.Errorf("read sample: %w", err)
+	} else {
+		pDebug("readRawSample: ReadFull n = %d, data = %v\n", n, data)
 	}
-	pDebug("readRawSample: data = %v\n", data)
 	return data, nil
 }
 
@@ -331,9 +336,9 @@ func (pr *Reader) Read() (Record, error) {
 
 	err := pr.ReadInto(&r)
 	if err != nil {
-		pDebug("Error from ReadInto(): %s\n", err)
+		pDebug("Reader.Read: Error from ReadInto(): %s\n", err)
 	} else {
-		pDebug("ReadInto() returned a record\n")
+		pDebug("Reader.Read: ReadInto() returned a record\n")
 	}
 
 	return r, err
@@ -351,7 +356,7 @@ func pDebug(format string, a ...any) {
 		fmt.Fprintf(os.Stderr, format, a...)
 	}
 	if printsDone == maxPrints {
-		fmt.Fprintf(os.Stderr, "XXXXXXXXXXXXXX maxPrints reached\n")
+		fmt.Fprintf(os.Stderr, "pDebug: maxPrints reached\n")
 	}
 }
 
@@ -380,7 +385,7 @@ func (pr *Reader) ReadInto(rec *Record) error {
 	for {
 		printsDone += 1
 
-		pDebug("XXXXXXXXXXXXXX len(pr.epollRings) = %d (1)\n", len(pr.epollRings))
+		pDebug("ReadInto: len(pr.epollRings) = %d (1)\n", len(pr.epollRings))
 		if len(pr.epollRings) == 0 {
 			// NB: The deferred pauseMu.Unlock will panic if Wait panics, which
 			// might obscure the original panic.
@@ -396,9 +401,9 @@ func (pr *Reader) ReadInto(rec *Record) error {
 				return errMustBePaused
 			}
 
-			pDebug("XXXXXXXXXXXXXXX nEvents = %d\n", nEvents)
+			pDebug("ReadInto: nEvents = %d\n", nEvents)
 			for _, event := range pr.epollEvents[:nEvents] {
-				pDebug("XXXXXXXXXXXXXXX Event CPU = %d\n", cpuForEvent(&event))
+				pDebug("ReadInto: Event CPU = %d\n", cpuForEvent(&event))
 				ring := pr.rings[cpuForEvent(&event)]
 				pr.epollRings = append(pr.epollRings, ring)
 
@@ -419,7 +424,7 @@ func (pr *Reader) ReadInto(rec *Record) error {
 			// We've emptied the current ring buffer, process
 			// the next one.
 			pr.epollRings = pr.epollRings[:len(pr.epollRings)-1]
-			pDebug("XXXXXXXXXXXXXXX emptied current ring buffer, removing it: len(pr.epollRings) = %d\n", len(pr.epollRings))
+			pDebug("ReadInto: emptied current ring buffer, removing it: len(pr.epollRings) = %d\n", len(pr.epollRings))
 			continue
 		}
 

@@ -247,7 +247,7 @@ require (
 )
 
 replace (
-	github.com/cilium/ebpf => github.com/EricMountain/ebpf v0.12.4-em0.0.20231207164444-3e5cb59ecce4
+	github.com/cilium/ebpf => github.com/EricMountain/ebpf v0.12.4-em0.0.20231207202508-94225ab5b41d
 	github.com/optiopay/kafka => github.com/cilium/kafka v0.0.0-20180809090225-01ce283b732b
 
 	go.universe.tf/metallb => github.com/cilium/metallb v0.1.1-0.20220829170633-5d7dfb1129f7
