@@ -364,10 +364,10 @@ func (pr *Reader) ReadInto(rec *Record) error {
 		return fmt.Errorf("perf ringbuffer: %w", ErrClosed)
 	}
 
-	for i, ring := range pr.rings {
-		p("%d: ring: %+v\n", i, ring)
+	for _, ring := range pr.rings {
+		p("cpu %d: ring's reader: %+v\n", ring.cpu, ring.ringReader)
 	}
-	
+
 	for {
 		printsDone += 1
 
