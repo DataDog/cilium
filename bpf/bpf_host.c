@@ -927,6 +927,8 @@ handle_netdev(struct __ctx_buff *ctx, const bool from_host)
 #else
 		send_trace_notify(ctx, TRACE_TO_STACK, HOST_ID, 0, 0, 0,
 				  TRACE_REASON_UNKNOWN, 0);
+		send_trace_notify(ctx, TRACE_TO_STACK, HOST_ID, 0, 0, 0,
+						  TRACE_REASON_ENCRYPTED, 0);
 		/* Pass unknown traffic to the stack */
 		return CTX_ACT_OK;
 #endif /* ENABLE_HOST_FIREWALL */
