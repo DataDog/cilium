@@ -1357,8 +1357,8 @@ int cil_from_container(struct __ctx_buff *ctx)
 	bpf_clear_meta(ctx);
 	reset_queue_mapping(ctx);
 
-	send_trace_notify(ctx, TRACE_FROM_LXC, SECLABEL, 0, 0, 0,
-			  TRACE_REASON_UNKNOWN, TRACE_PAYLOAD_LEN);
+//	send_trace_notify(ctx, TRACE_FROM_LXC, SECLABEL, 0, 0, 0,
+//			  TRACE_REASON_UNKNOWN, TRACE_PAYLOAD_LEN);
 
 	if (!validate_ethertype(ctx, &proto)) {
 		ret = DROP_UNSUPPORTED_L2;
@@ -2273,8 +2273,8 @@ int cil_to_container(struct __ctx_buff *ctx)
 	}
 #endif
 
-	send_trace_notify(ctx, trace, identity, 0, 0, ctx->ingress_ifindex,
-			  TRACE_REASON_UNKNOWN, TRACE_PAYLOAD_LEN);
+//	send_trace_notify(ctx, trace, identity, 0, 0, ctx->ingress_ifindex,
+//			  TRACE_REASON_UNKNOWN, TRACE_PAYLOAD_LEN);
 
 #if defined(ENABLE_HOST_FIREWALL) && !defined(ENABLE_ROUTING)
 	/* If the packet comes from the hostns and per-endpoint routes are enabled,
