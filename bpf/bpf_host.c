@@ -830,9 +830,9 @@ do_netdev(struct __ctx_buff *ctx, __u16 proto, const bool from_host)
 				  TRACE_REASON_UNKNOWN, TRACE_PAYLOAD_LEN);
 	} else {
 		ctx_skip_nodeport_clear(ctx);
-		send_trace_notify(ctx, TRACE_FROM_NETWORK, 0, 0, 0,
-				  ctx->ingress_ifindex,
-				  TRACE_REASON_UNKNOWN, TRACE_PAYLOAD_LEN);
+//		send_trace_notify(ctx, TRACE_FROM_NETWORK, 0, 0, 0,
+//				  ctx->ingress_ifindex,
+//				  TRACE_REASON_UNKNOWN, TRACE_PAYLOAD_LEN);
 	}
 
 	bpf_clear_meta(ctx);
