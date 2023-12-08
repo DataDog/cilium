@@ -833,6 +833,9 @@ do_netdev(struct __ctx_buff *ctx, __u16 proto, const bool from_host)
 		send_trace_notify(ctx, TRACE_FROM_NETWORK, 0, 0, 0,
 				  ctx->ingress_ifindex,
 				  TRACE_REASON_UNKNOWN, TRACE_PAYLOAD_LEN);
+		send_trace_notify(ctx, TRACE_FROM_NETWORK, 0, 0, 0,
+				  ctx->ingress_ifindex,
+				  TRACE_REASON_ENCRYPTED, TRACE_PAYLOAD_LEN);
 	}
 
 	bpf_clear_meta(ctx);
@@ -927,8 +930,8 @@ handle_netdev(struct __ctx_buff *ctx, const bool from_host)
 #else
 		send_trace_notify(ctx, TRACE_TO_STACK, HOST_ID, 0, 0, 0,
 				  TRACE_REASON_UNKNOWN, 0);
-		send_trace_notify(ctx, TRACE_TO_STACK, HOST_ID, 0, 0, 0,
-						  TRACE_REASON_ENCRYPTED, 0);
+//		send_trace_notify(ctx, TRACE_TO_STACK, HOST_ID, 0, 0, 0,
+//						  TRACE_REASON_ENCRYPTED, 0);
 		/* Pass unknown traffic to the stack */
 		return CTX_ACT_OK;
 #endif /* ENABLE_HOST_FIREWALL */
