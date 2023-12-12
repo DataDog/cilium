@@ -1300,7 +1300,7 @@ func initEnv() {
 	option.Config.Opts.SetBool(option.Debug, debugDatapath)
 	option.Config.Opts.SetBool(option.DebugLB, debugDatapath)
 	option.Config.Opts.SetBool(option.DropNotify, true)
-	option.Config.Opts.SetBool(option.TraceNotify, false)
+	option.Config.Opts.SetBool(option.TraceNotify, true)
 	option.Config.Opts.SetBool(option.PolicyVerdictNotify, true)
 	option.Config.Opts.SetBool(option.PolicyTracing, option.Config.EnableTracing)
 	option.Config.Opts.SetBool(option.ConntrackAccounting, true)
