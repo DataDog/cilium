@@ -34,6 +34,7 @@ var (
 
 	elfMapPrefixes = []string{
 		policymap.MapName,
+		policymap.DropMapName,
 		callsmap.MapName,
 		callsmap.CustomCallsMapName,
 	}

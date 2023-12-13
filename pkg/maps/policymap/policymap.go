@@ -31,6 +31,11 @@ const (
 	// with that identity on that port for that direction.
 	MapName = "cilium_policy_"
 
+	// DropMapName is the prefix for endpoint-specific policy maps which map
+	// identity+ports+direction to whether the policy allows communication
+	// with that identity on that port for that direction.
+	DropMapName = "cilium_drop_"
+
 	// PolicyCallMaxEntries is the upper limit of entries in the program
 	// array for the tail calls to jump into the endpoint specific policy
 	// programs. This number *MUST* be identical to the maximum endpoint ID.
@@ -97,7 +102,7 @@ func (pe PolicyEntry) IsDeny() bool {
 }
 
 func (pe *PolicyEntry) String() string {
-	return fmt.Sprintf("%d %d %d", pe.GetProxyPort(), pe.Packets, pe.Bytes)
+	return fmt.Sprintf("%d %d %d %d", pe.GetProxyPort(), pe.Packets, pe.DropPackets, pe.Bytes)
 }
 
 func (pe *PolicyEntry) New() bpf.MapValue { return &PolicyEntry{} }
@@ -140,6 +145,19 @@ type PolicyEntry struct {
 	Pad2             uint16           `align:"pad2"`
 	Packets          uint64           `align:"packets"`
 	Bytes            uint64           `align:"bytes"`
+	DropPackets      uint64           `align:"drop_packets"`
+}
+
+type PolicyDropEntry struct {
+	DropPackets uint64
+}
+
+func (p PolicyDropEntry) String() string {
+	return string(p.DropPackets)
+}
+
+func (p PolicyDropEntry) New() bpf.MapValue {
+	return &PolicyDropEntry{}
 }
 
 // GetProxyPort returns the ProxyPortNetwork in host byte order
@@ -198,8 +216,16 @@ type PolicyEntryDump struct {
 	Key PolicyKey
 }
 
+type PolicyDropEntryDump struct {
+	PolicyDropEntry
+	Key PolicyKey
+}
+
 // PolicyEntriesDump is a wrapper for a slice of PolicyEntryDump
 type PolicyEntriesDump []PolicyEntryDump
+
+// PolicyDropEntriesDump is a wrapper for a slice of PolicyEntryDump
+type PolicyDropEntriesDump []PolicyDropEntryDump
 
 // String returns a string representation of PolicyEntriesDump
 func (p PolicyEntriesDump) String() string {
@@ -207,6 +233,16 @@ func (p PolicyEntriesDump) String() string {
 	for _, entry := range p {
 		sb.WriteString(fmt.Sprintf("%20s: %s\n",
 			entry.Key.String(), entry.PolicyEntry.String()))
+	}
+	return sb.String()
+}
+
+// String returns a string representation of PolicyEntriesDump
+func (p PolicyDropEntriesDump) String() string {
+	var sb strings.Builder
+	for _, entry := range p {
+		sb.WriteString(fmt.Sprintf("%20s: %s\n",
+			entry.Key.String(), entry.PolicyDropEntry.String()))
 	}
 	return sb.String()
 }
@@ -411,15 +447,37 @@ func (pm *PolicyMap) DumpToSlice() (PolicyEntriesDump, error) {
 	return entries, err
 }
 
+func (pm *PolicyMap) DumpToDropSlice() (PolicyDropEntriesDump, error) {
+	entries := PolicyDropEntriesDump{}
+
+	cb := func(key bpf.MapKey, value bpf.MapValue) {
+		eDump := PolicyDropEntryDump{
+			Key:             *key.(*PolicyKey),
+			PolicyDropEntry: *value.(*PolicyDropEntry),
+		}
+		entries = append(entries, eDump)
+	}
+	err := pm.DumpWithCallback(cb)
+
+	return entries, err
+}
+
 func newMap(path string) *PolicyMap {
 	mapType := ebpf.LPMTrie
 	flags := bpf.GetPreAllocateMapFlags(mapType)
+	var val bpf.MapValue
+	mapName := strings.Split(path, "/")
+	if strings.HasPrefix(mapName[len(mapName)-1], DropMapName) {
+		val = &PolicyDropEntry{}
+	} else {
+		val = &PolicyEntry{}
+	}
 	return &PolicyMap{
 		Map: bpf.NewMap(
 			path,
 			mapType,
 			&PolicyKey{},
-			&PolicyEntry{},
+			val,
 			MaxEntries,
 			flags,
 		).WithGroupName("endpoint_policy"),

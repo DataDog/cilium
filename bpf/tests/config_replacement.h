@@ -61,6 +61,7 @@
 
 #ifndef POLICY_MAP
 #define POLICY_MAP test_cilium_policy_65535
+#define EP_DENY_METRICS_MAP test_cilium_drop_65535
 #endif
 
 #ifndef SKIP_DEBUG

@@ -76,6 +76,18 @@ struct {
 } POLICY_MAP __section_maps_btf;
 #endif
 
+#ifdef EP_DENY_METRICS_MAP
+/* Per-endpoint deny metrics map */
+struct {
+	__uint(type, BPF_MAP_TYPE_LPM_TRIE);
+	__type(key, struct policy_key);
+	__type(value, struct policy_drop_entry);
+	__uint(pinning, LIBBPF_PIN_BY_NAME);
+	__uint(max_entries, POLICY_MAP_SIZE);
+	__uint(map_flags, BPF_F_NO_PREALLOC);
+} EP_DENY_METRICS_MAP __section_maps_btf;
+#endif
+
 #ifdef AUTH_MAP
 /* Global auth map for enforcing authentication policy */
 struct {

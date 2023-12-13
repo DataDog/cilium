@@ -38,6 +38,7 @@ DEFINE_U32(POLICY_VERDICT_LOG_FILTER, 0xffff);
 #define HOST_EP_ID 0x1092
 
 #define POLICY_MAP test_cilium_policy_65535
+#define EP_DENY_METRICS_MAP test_cilium_drop_65535
 
 #ifndef SKIP_DEBUG
 #define DEBUG

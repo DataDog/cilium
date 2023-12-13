@@ -59,6 +59,11 @@ func (e *Endpoint) policyMapPath() string {
 	return bpf.LocalMapPath(policymap.MapName, e.ID)
 }
 
+// policyMapPath returns the path to the policy map of endpoint.
+func (e *Endpoint) policyDropMapPath() string {
+	return bpf.LocalMapPath(policymap.DropMapName, e.ID)
+}
+
 // callsMapPath returns the path to cilium tail calls map of an endpoint.
 func (e *Endpoint) callsMapPath() string {
 	return e.owner.Datapath().Loader().CallsMapPath(e.ID)
@@ -807,6 +812,10 @@ func (e *Endpoint) runPreCompilationSteps(regenContext *regenerationContext, rul
 		if err != nil {
 			return false, err
 		}
+		_, err = policymap.OpenOrCreate(e.policyDropMapPath())
+		if err != nil {
+			return false, err
+		}
 
 		// Synchronize the in-memory realized state with BPF map entries,
 		// so that any potential discrepancy between desired and realized
@@ -951,7 +960,11 @@ func (e *Endpoint) finalizeProxyState(regenContext *regenerationContext, err err
 
 // InitMap creates the policy map in the kernel.
 func (e *Endpoint) InitMap() error {
-	return policymap.Create(e.policyMapPath())
+	err := policymap.Create(e.policyMapPath())
+	if err != nil {
+		return err
+	}
+	return policymap.Create(e.policyDropMapPath())
 }
 
 // deleteMaps releases references to all BPF maps associated with this
@@ -967,6 +980,7 @@ func (e *Endpoint) deleteMaps() []error {
 	maps := map[string]string{
 		"policy": e.policyMapPath(),
 		"calls":  e.callsMapPath(),
+		"drops":  e.policyDropMapPath(),
 	}
 	if !e.isHost {
 		maps["custom"] = e.customCallsMapPath()

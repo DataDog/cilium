@@ -48,6 +48,11 @@ __policy_can_access(const void *map, struct __ctx_buff *ctx, __u32 local_id,
 		.protocol = proto,
 		.dport = dport,
 	};
+	struct policy_drop_entry *drop_entry;
+//	int ret = 0;
+    struct policy_drop_entry vv = {
+            .packets = 1
+    };
 
 #if defined(ALLOW_ICMP_FRAG_NEEDED) || defined(ENABLE_ICMP_RULE)
 	switch (ethertype) {
@@ -177,6 +182,15 @@ __policy_can_access(const void *map, struct __ctx_buff *ctx, __u32 local_id,
 	if (is_untracked_fragment)
 		return DROP_FRAG_NOSUPPORT;
 
+    if (key.sec_label == 0) {
+        key.sec_label = remote_id;
+    }
+    drop_entry = map_lookup_elem(&EP_DENY_METRICS_MAP, &key);
+    if (drop_entry) {
+        __sync_fetch_and_add(&drop_entry->packets, 1);
+        return DROP_POLICY;
+    }
+    map_update_elem(&EP_DENY_METRICS_MAP, &key, &vv, 0);
 	return DROP_POLICY;
 
 check_policy:

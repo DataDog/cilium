@@ -400,6 +400,11 @@ struct policy_entry {
 	__u16		pad2;
 	__u64		packets;
 	__u64		bytes;
+	__u64		drop_packets;
+};
+
+struct policy_drop_entry {
+	__u64       packets;
 };
 
 struct auth_key {
