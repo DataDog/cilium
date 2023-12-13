@@ -8,8 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
-	"strconv"
 	"strings"
 	"text/tabwriter"
 
@@ -21,40 +19,34 @@ import (
 	"github.com/cilium/cilium/pkg/identity"
 	identitymodel "github.com/cilium/cilium/pkg/identity/model"
 	"github.com/cilium/cilium/pkg/maps/policymap"
-	"github.com/cilium/cilium/pkg/policy"
 	"github.com/cilium/cilium/pkg/policy/trafficdirection"
 )
 
-var (
-	printIDs bool
-	allList  bool
-)
-
 // bpfPolicyGetCmd represents the bpf_policy_get command
-var bpfPolicyGetCmd = &cobra.Command{
-	Use:   "get",
-	Short: "Get contents of a policy BPF map",
+var bpfPolicyDropMetricsCmd = &cobra.Command{
+	Use:   "drop_metrics",
+	Short: "Get policy drop metrics",
 	Run: func(cmd *cobra.Command, args []string) {
-		common.RequireRootPrivilege("cilium bpf policy get")
+		common.RequireRootPrivilege("cilium bpf policy drop_metrics")
 		if allList {
-			listAllMaps()
+			listAllDropMaps()
 			return
 		}
 		requireEndpointID(cmd, args)
-		listMap(args)
+		listDropMap(args)
 	},
 }
 
 func init() {
-	BPFPolicyCmd.AddCommand(bpfPolicyGetCmd)
-	bpfPolicyGetCmd.Flags().BoolVarP(&printIDs, "numeric", "n", false, "Do not resolve IDs")
-	bpfPolicyGetCmd.Flags().BoolVarP(&allList, "all", "", false, "Dump all policy maps")
-	command.AddOutputOption(bpfPolicyGetCmd)
+	BPFPolicyCmd.AddCommand(bpfPolicyDropMetricsCmd)
+	bpfPolicyDropMetricsCmd.Flags().BoolVarP(&printIDs, "numeric", "n", false, "Do not resolve IDs")
+	bpfPolicyDropMetricsCmd.Flags().BoolVarP(&allList, "all", "", false, "Dump all policy maps")
+	command.AddOutputOption(bpfPolicyDropMetricsCmd)
 }
 
-func listAllMaps() {
+func listAllDropMaps() {
 	mapRootPrefixPath := bpf.TCGlobalsPath()
-	mapMatchExpr := filepath.Join(mapRootPrefixPath, "cilium_policy_*")
+	mapMatchExpr := filepath.Join(mapRootPrefixPath, "cilium_drop_*")
 
 	matchFiles, err := filepath.Glob(mapMatchExpr)
 	if err != nil {
@@ -66,14 +58,14 @@ func listAllMaps() {
 		return
 	}
 
-	maps := []policyMap{}
+	maps := []policyDropMap{}
 	for _, file := range matchFiles {
 		endpointSplit := strings.Split(file, "_")
 		endpoint := strings.TrimLeft(endpointSplit[len(endpointSplit)-1], "0")
-		maps = append(maps, policyMap{
+		maps = append(maps, policyDropMap{
 			EndpointID: endpoint,
 			Path:       file,
-			Content:    mapContent(file),
+			Content:    dropMapContent(file),
 		})
 	}
 
@@ -86,20 +78,20 @@ func listAllMaps() {
 			fmt.Printf("Endpoint ID: %s\n", m.EndpointID)
 			fmt.Printf("Path: %s\n", m.Path)
 			fmt.Println()
-			printTable(m.Content)
+			printDropTable(m.Content)
 			fmt.Println()
 			fmt.Println()
 		}
 	}
 }
 
-type policyMap struct {
+type policyDropMap struct {
 	EndpointID string
 	Path       string
-	Content    policymap.PolicyEntriesDump
+	Content    policymap.PolicyDropEntriesDump
 }
 
-func listMap(args []string) {
+func listDropMap(args []string) {
 	lbl := args[0]
 
 	mapPath, err := endpointToPolicyMapPath(lbl)
@@ -107,53 +99,48 @@ func listMap(args []string) {
 		Fatalf("Failed to parse endpointID %q", lbl)
 	}
 
-	contentDump := mapContent(mapPath)
+	contentDump := dropMapContent(mapPath)
 	if command.OutputOption() {
 		if err := command.PrintOutput(contentDump); err != nil {
 			os.Exit(1)
 		}
 	} else {
-		printTable(contentDump)
+		printDropTable(contentDump)
 	}
 }
 
-func mapContent(file string) policymap.PolicyEntriesDump {
+func dropMapContent(file string) policymap.PolicyDropEntriesDump {
 	m, err := policymap.Open(file)
 	if err != nil {
 		Fatalf("Failed to open map: %s\n", err)
 	}
 	defer m.Close()
 
-	statsMap, err := m.DumpToSlice()
+	statsMap, err := m.DumpToDropSlice()
 	if err != nil {
 		Fatalf("Error while opening bpf Map: %s\n", err)
 	}
-	sort.Slice(statsMap, statsMap.Less)
+	//sort.Slice(statsMap, statsMap.Less)
 
 	return statsMap
 }
 
-func printTable(contentDump policymap.PolicyEntriesDump) {
+func printDropTable(contentDump policymap.PolicyDropEntriesDump) {
 	w := tabwriter.NewWriter(os.Stdout, 5, 0, 3, ' ', 0)
-	formatMap(w, contentDump)
+	formatDropMap(w, contentDump)
 	w.Flush()
 	if len(contentDump) == 0 {
 		fmt.Printf("Policy stats empty. Perhaps the policy enforcement is disabled?\n")
 	}
 }
 
-func formatMap(w io.Writer, statsMap []policymap.PolicyEntryDump) {
+func formatDropMap(w io.Writer, statsMap []policymap.PolicyDropEntryDump) {
 	const (
-		policyTitle           = "POLICY"
 		trafficDirectionTitle = "DIRECTION"
 		labelsIDTitle         = "IDENTITY"
 		labelsDesTitle        = "LABELS (source:key[=value])"
 		portTitle             = "PORT/PROTO"
-		proxyPortTitle        = "PROXY PORT"
-		authTypeTitle         = "AUTH TYPE"
-		bytesTitle            = "BYTES"
-		packetsTitle          = "PACKETS"
-		prefixTitle           = "PREFIX"
+		packetsTitle          = "DROP PACKETS"
 	)
 
 	labelsID := map[identity.NumericIdentity]*identity.Identity{}
@@ -171,46 +158,35 @@ func formatMap(w io.Writer, statsMap []policymap.PolicyEntryDump) {
 	}
 
 	if printIDs {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n",
-			policyTitle, trafficDirectionTitle, labelsIDTitle, portTitle, proxyPortTitle, authTypeTitle, bytesTitle, packetsTitle, prefixTitle)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t\n",
+			trafficDirectionTitle, labelsIDTitle, portTitle, packetsTitle)
 	} else {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n",
-			policyTitle, trafficDirectionTitle, labelsDesTitle, portTitle, proxyPortTitle, authTypeTitle, bytesTitle, packetsTitle, prefixTitle)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t\n",
+			trafficDirectionTitle, labelsDesTitle, portTitle, packetsTitle)
 	}
 	for _, stat := range statsMap {
-		prefixLen := stat.Key.Prefixlen - policymap.StaticPrefixBits
 		id := identity.NumericIdentity(stat.Key.Identity)
 		trafficDirection := trafficdirection.TrafficDirection(stat.Key.TrafficDirection)
 		trafficDirectionString := trafficDirection.String()
 		port := stat.Key.PortProtoString()
-		proxyPort := "NONE"
-		pp := stat.GetProxyPort()
-		if pp != 0 {
-			proxyPort = strconv.FormatUint(uint64(pp), 10)
-		}
-		var policyStr string
-		if stat.IsDeny() {
-			policyStr = "Deny"
-		} else {
-			policyStr = "Allow"
-		}
+
 		if printIDs {
-			fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%s\t%d\t%d\t%d\t%d\t\n",
-				policyStr, trafficDirectionString, id, port, proxyPort, policy.AuthType(stat.AuthType), stat.Bytes, stat.Packets, stat.DropPackets, prefixLen)
+			fmt.Fprintf(w, "%s\t%d\t%s\t%d\t\n",
+				trafficDirectionString, id, port, stat.DropPackets)
 		} else if lbls := labelsID[id]; lbls != nil && len(lbls.Labels) > 0 {
 			first := true
 			for _, lbl := range lbls.Labels.GetPrintableModel() {
 				if first {
-					fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%d\t%d\t%d\t%d\t\n",
-						policyStr, trafficDirectionString, lbl, port, proxyPort, policy.AuthType(stat.AuthType), stat.Bytes, stat.Packets, stat.DropPackets, prefixLen)
+					fmt.Fprintf(w, "%s\t%s\t%s\t%d\t\n",
+						trafficDirectionString, lbl, port, stat.DropPackets)
 					first = false
 				} else {
 					fmt.Fprintf(w, "\t\t%s\t\t\t\t\t\t\t\n", lbl)
 				}
 			}
 		} else {
-			fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%s\t%d\t%d\t%d\t%d\t\n",
-				policyStr, trafficDirectionString, id, port, proxyPort, policy.AuthType(stat.AuthType), stat.Bytes, stat.Packets, stat.DropPackets, prefixLen)
+			fmt.Fprintf(w, "%s\t%d\t%s\t%d\t\n",
+				trafficDirectionString, id, port, stat.DropPackets)
 		}
 	}
 }
