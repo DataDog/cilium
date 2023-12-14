@@ -396,7 +396,10 @@ func init() {
         ],
         "responses": {
           "201": {
-            "description": "Created"
+            "description": "Created",
+            "schema": {
+              "$ref": "#/definitions/Endpoint"
+            }
           },
           "400": {
             "description": "Invalid endpoint in request",
@@ -6003,7 +6006,10 @@ func init() {
         ],
         "responses": {
           "201": {
-            "description": "Created"
+            "description": "Created",
+            "schema": {
+              "$ref": "#/definitions/Endpoint"
+            }
           },
           "400": {
             "description": "Invalid endpoint in request",
