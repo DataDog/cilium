@@ -633,6 +633,22 @@ func (cmd *Cmd) Add(args *skel.CmdArgs) (err error) {
 			return fmt.Errorf("unable to configure interfaces in container namespace: %w", err)
 		}
 
+		// Specify that endpoint must be regenerated synchronously. See GH-4409.
+		ep.SyncBuildEndpoint = true
+		var newEp *models.Endpoint
+		if newEp, err = c.EndpointCreate(ep); err != nil {
+			logger.WithError(err).WithFields(logrus.Fields{
+				logfields.ContainerID: ep.ContainerID}).Warn("Unable to create endpoint")
+			return fmt.Errorf("unable to create endpoint: %s", err)
+		}
+		if newEp != nil && newEp.Status != nil && newEp.Status.Networking != nil && newEp.Status.Networking.Mac != "" {
+			// Set the MAC address on the interface in the container namespace
+			err = netns.ReplaceMacAddressWithLinkName(netNs, args.IfName, newEp.Status.Networking.Mac)
+			if err != nil {
+				return fmt.Errorf("unable to set MAC address on interface %s: %w", args.IfName, err)
+			}
+			macAddrStr = newEp.Status.Networking.Mac
+		}
 		res.Interfaces = append(res.Interfaces, &cniTypesV1.Interface{
 			Name:    epConf.IfName(),
 			Mac:     macAddrStr,
@@ -641,7 +657,7 @@ func (cmd *Cmd) Add(args *skel.CmdArgs) (err error) {
 
 		// Specify that endpoint must be regenerated synchronously. See GH-4409.
 		ep.SyncBuildEndpoint = true
-		if err = c.EndpointCreate(ep); err != nil {
+		if _, err = c.EndpointCreate(ep); err != nil {
 			logger.WithError(err).WithFields(logrus.Fields{
 				logfields.ContainerID: ep.ContainerID}).Warn("Unable to create endpoint")
 			return fmt.Errorf("unable to create endpoint: %w", err)
