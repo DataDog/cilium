@@ -1211,6 +1211,15 @@ const (
 
 	// PolicyCIDRMatchMode defines the entities that CIDR selectors can reach
 	PolicyCIDRMatchMode = "policy-cidr-match-mode"
+
+	// BPFEventsDropEnabled defines the DropNotification setting for any endpoint
+	BPFEventsDropEnabled = "bpf-events-drop-enabled"
+
+	// BPFEventsPolicyVerdictEnabled defines the PolicyVerdictNotification setting for any endpoint
+	BPFEventsPolicyVerdictEnabled = "bpf-events-policy-verdict-enabled"
+
+	// BPFEventsTraceEnabled defines the TraceNotification setting for any endpoint
+	BPFEventsTraceEnabled = "bpf-events-trace-enabled"
 )
 
 // Default string arguments
@@ -2445,6 +2454,15 @@ type DaemonConfig struct {
 	BPFMapEventBuffersValidator func(val string) (string, error) `json:"-"`
 	bpfMapEventConfigs          BPFEventBufferConfigs
 
+	// BPFEventsDropEnabled controls whether the Cilium datapath exposes "drop" events to Cilium monitor and Hubble.
+	BPFEventsDropEnabled bool
+
+	// BPFEventsPolicyVerdictEnabled controls whether the Cilium datapath exposes "policy verdict" events to Cilium monitor and Hubble.
+	BPFEventsPolicyVerdictEnabled bool
+
+	// BPFEventsTraceEnabled  controls whether the Cilium datapath exposes "trace" events to Cilium monitor and Hubble.
+	BPFEventsTraceEnabled bool
+
 	// IPAMCiliumNodeUpdateRate is the maximum rate at which the CiliumNode custom
 	// resource is updated.
 	IPAMCiliumNodeUpdateRate time.Duration
@@ -2523,6 +2541,10 @@ var (
 		PolicyCIDRMatchMode:    defaults.PolicyCIDRMatchMode,
 		MaxConnectedClusters:   defaults.MaxConnectedClusters,
 		EnableEnvoyConfig:      defaults.EnableEnvoyConfig,
+
+		BPFEventsDropEnabled:          defaults.BPFEventsDropEnabled,
+		BPFEventsPolicyVerdictEnabled: defaults.BPFEventsPolicyVerdictEnabled,
+		BPFEventsTraceEnabled:         defaults.BPFEventsTraceEnabled,
 	}
 )
 
@@ -3233,6 +3255,9 @@ func (c *DaemonConfig) Populate(vp *viper.Viper) {
 	c.EnablePMTUDiscovery = vp.GetBool(EnablePMTUDiscovery)
 	c.IPv6NAT46x64CIDR = defaults.IPv6NAT46x64CIDR
 	c.IPAMCiliumNodeUpdateRate = vp.GetDuration(IPAMCiliumNodeUpdateRate)
+	c.BPFEventsDropEnabled = vp.GetBool(BPFEventsDropEnabled)
+	c.BPFEventsPolicyVerdictEnabled = vp.GetBool(BPFEventsPolicyVerdictEnabled)
+	c.BPFEventsTraceEnabled = vp.GetBool(BPFEventsTraceEnabled)
 
 	c.ServiceNoBackendResponse = vp.GetString(ServiceNoBackendResponse)
 	switch c.ServiceNoBackendResponse {
