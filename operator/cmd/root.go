@@ -375,6 +375,7 @@ func kvstoreEnabled() bool {
 	}
 
 	return option.Config.IdentityAllocationMode == option.IdentityAllocationModeKVstore ||
+		option.Config.IdentityAllocationMode == option.IdentityAllocationModeDoubleWrite ||
 		operatorOption.Config.SyncK8sServices ||
 		operatorOption.Config.SyncK8sNodes
 }
@@ -656,6 +657,17 @@ func (legacy *legacyOnLeader) onStart(_ hive.HookContext) error {
 		}
 	case option.IdentityAllocationModeKVstore:
 		if operatorOption.Config.IdentityGCInterval != 0 {
+			startKvstoreIdentityGC()
+		}
+	case option.IdentityAllocationModeDoubleWrite:
+		if !legacy.clientset.IsEnabled() {
+			log.Fatal("CRD Identity allocation mode requires k8s to be configured.")
+		}
+
+		startManagingK8sIdentities(legacy.ctx, &legacy.wg, legacy.clientset)
+
+		if operatorOption.Config.IdentityGCInterval != 0 {
+			go startCRDIdentityGC(legacy.ctx, &legacy.wg, legacy.clientset)
 			startKvstoreIdentityGC()
 		}
 	}
