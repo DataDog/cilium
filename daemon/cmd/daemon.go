@@ -420,9 +420,9 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup,
 	}
 
 	// Validate configuration options that depend on other cells.
-	if option.Config.IdentityAllocationMode == option.IdentityAllocationModeCRD && !clientset.IsEnabled() &&
+	if (option.Config.IdentityAllocationMode == option.IdentityAllocationModeCRD || option.Config.IdentityAllocationMode == option.IdentityAllocationModeDoubleWrite) && !clientset.IsEnabled() &&
 		option.Config.DatapathMode != datapathOption.DatapathModeLBOnly {
-		return nil, nil, fmt.Errorf("CRD Identity allocation mode requires k8s to be configured")
+		return nil, nil, fmt.Errorf("%s Identity allocation mode requires k8s to be configured", option.Config.IdentityAllocationMode)
 	}
 
 	if option.Config.ReadCNIConfiguration != "" {
