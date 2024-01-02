@@ -194,6 +194,9 @@ func init() {
 	flags.Duration(operatorOption.IdentityHeartbeatTimeout, 2*defaults.KVstoreLeaseTTL, "Timeout after which identity expires on lack of heartbeat")
 	option.BindEnv(Vp, operatorOption.IdentityHeartbeatTimeout)
 
+	flags.Duration(operatorOption.DoubleWriteMetricReporterInterval, 1*time.Minute, "Refresh interval for the Double Write Metric Reporter")
+	option.BindEnv(Vp, operatorOption.DoubleWriteMetricReporterInterval)
+
 	flags.Bool(option.EnableIPv4Name, defaults.EnableIPv4, "Enable IPv4 support")
 	option.BindEnv(Vp, option.EnableIPv4Name)
 
@@ -226,6 +229,9 @@ func init() {
 
 	flags.String(option.IdentityAllocationMode, option.IdentityAllocationModeKVstore, "Method to use for identity allocation")
 	option.BindEnv(Vp, option.IdentityAllocationMode)
+
+	flags.Bool(option.IdentityAllocationModeDoubleWriteReadFromKVStore, true, "Whether to read from the KVStore when using the Double-Write identity allocation mode")
+	option.BindEnv(Vp, option.IdentityAllocationModeDoubleWriteReadFromKVStore)
 
 	flags.Duration(operatorOption.IdentityGCInterval, defaults.KVstoreLeaseTTL, "GC interval for security identities")
 	option.BindEnv(Vp, operatorOption.IdentityGCInterval)

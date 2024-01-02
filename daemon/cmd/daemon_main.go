@@ -431,6 +431,9 @@ func initializeFlags() {
 	flags.String(option.IdentityAllocationMode, option.IdentityAllocationModeKVstore, "Method to use for identity allocation")
 	option.BindEnv(Vp, option.IdentityAllocationMode)
 
+	flags.Bool(option.IdentityAllocationModeDoubleWriteReadFromKVStore, true, "Whether to read from the KVStore when using the Double-Write identity allocation mode")
+	option.BindEnv(Vp, option.IdentityAllocationModeDoubleWriteReadFromKVStore)
+
 	flags.String(option.IPAM, ipamOption.IPAMClusterPool, "Backend to use for IPAM")
 	option.BindEnv(Vp, option.IPAM)
 
@@ -1561,7 +1564,7 @@ func initEnv() {
 		}
 	}
 
-	if option.Config.IdentityAllocationMode == option.IdentityAllocationModeKVstore {
+	if option.Config.IdentityAllocationMode == option.IdentityAllocationModeKVstore || option.Config.IdentityAllocationMode == option.IdentityAllocationModeDoubleWrite {
 		if option.Config.EnableIPv4EgressGateway {
 			log.Fatal("The egress gateway is not supported in KV store identity allocation mode.")
 		}

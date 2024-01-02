@@ -118,6 +118,22 @@ var (
 	// CiliumEndpointSliceQueueDelay measures the time spent by CES's in the workqueue. This measures time difference between
 	// CES insert in the workqueue and removal from workqueue.
 	CiliumEndpointSliceQueueDelay prometheus.Histogram
+
+	// IdentityCRDTotalCount records the total number of CRD identities
+	// Requires the Double-Write Identity allocation mode to be enabled
+	IdentityCRDTotalCount prometheus.Gauge
+
+	// IdentityKVStoreTotalCount records the total number of identities in the KVStore
+	// Requires the Double-Write Identity allocation mode to be enabled
+	IdentityKVStoreTotalCount prometheus.Gauge
+
+	// IdentityCRDOnlyCount records the number of CRD identities not present in the KVStore
+	// Requires the Double-Write Identity allocation mode to be enabled
+	IdentityCRDOnlyCount prometheus.Gauge
+
+	// IdentityKVStoreOnlyCount records the number of identities in the KVStore not present as a CRD
+	// Requires the Double-Write Identity allocation mode to be enabled
+	IdentityKVStoreOnlyCount prometheus.Gauge
 )
 
 const (
@@ -129,6 +145,9 @@ const (
 
 	// LabelOpcode indicates the kind of CES metric, could be CEP insert or remove
 	LabelOpcode = "opcode"
+
+	// LabelIdentityType indicates the type of identity which was garbage collected (KVStore vs CRD)
+	LabelIdentityType = "identity_type"
 
 	// Label values
 
@@ -149,6 +168,12 @@ const (
 
 	// LabelValueCEPRemove is used to indicate the number of CEPs removed from a CES
 	LabelValueCEPRemove = "cepremoved"
+
+	// LabelIdentityTypeKVStore is used to indicate that the identity was garbage collected from the KVStore
+	LabelIdentityTypeKVStore = "kvstore"
+
+	// LabelIdentityTypeCRD is used to indicate that the identity which was garbage collected was a CRD object
+	LabelIdentityTypeCRD = "crd"
 )
 
 func registerMetrics() []prometheus.Collector {
@@ -162,14 +187,14 @@ func registerMetrics() []prometheus.Collector {
 		Namespace: Namespace,
 		Name:      "identity_gc_entries",
 		Help:      "The number of alive and deleted identities at the end of a garbage collector run",
-	}, []string{LabelStatus})
+	}, []string{LabelStatus, LabelIdentityType})
 	collectors = append(collectors, IdentityGCSize)
 
 	IdentityGCRuns = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: Namespace,
 		Name:      "identity_gc_runs",
 		Help:      "The number of times identity garbage collector has run",
-	}, []string{LabelOutcome})
+	}, []string{LabelOutcome, LabelIdentityType})
 	collectors = append(collectors, IdentityGCRuns)
 
 	EndpointGCObjects = prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -208,6 +233,34 @@ func registerMetrics() []prometheus.Collector {
 		Buckets:   append(prometheus.DefBuckets, 60, 300, 900, 1800, 3600),
 	})
 	collectors = append(collectors, CiliumEndpointSliceQueueDelay)
+
+	IdentityCRDTotalCount = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: Namespace,
+		Name:      "identity_crd_total_count",
+		Help:      "The total number of CRD identities (Requires the Double-Write Identity allocation mode to be enabled)",
+	})
+	collectors = append(collectors, IdentityCRDTotalCount)
+
+	IdentityKVStoreTotalCount = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: Namespace,
+		Name:      "identity_kvstore_total_count",
+		Help:      "The total number of identities in the KVStore (Requires the Double-Write Identity allocation mode to be enabled)",
+	})
+	collectors = append(collectors, IdentityKVStoreTotalCount)
+
+	IdentityCRDOnlyCount = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: Namespace,
+		Name:      "identity_crd_only_count",
+		Help:      "The number of CRD identities not present in the KVStore (Requires the Double-Write Identity allocation mode to be enabled)",
+	})
+	collectors = append(collectors, IdentityCRDOnlyCount)
+
+	IdentityKVStoreOnlyCount = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: Namespace,
+		Name:      "identity_kvstore_only_count",
+		Help:      "The number of identities in the KVStore not present as a CRD (Requires the Double-Write Identity allocation mode to be enabled)",
+	})
+	collectors = append(collectors, IdentityKVStoreOnlyCount)
 
 	Registry.MustRegister(collectors...)
 

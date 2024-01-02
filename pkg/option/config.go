@@ -895,6 +895,12 @@ const (
 	// identity allocation
 	IdentityAllocationModeCRD = "crd"
 
+	// IdentityAllocationModeDoubleWrite writes identities to the KVStore and as CRDs at the same time
+	IdentityAllocationModeDoubleWrite = "double-write"
+
+	// IdentityAllocationModeDoubleWriteReadFromKVStore indicates whether to read from the KVStore when using the Double-Write allocation mode
+	IdentityAllocationModeDoubleWriteReadFromKVStore = "double-write-read-from-kvstore"
+
 	// DisableCNPStatusUpdates disables updating of CNP NodeStatus in the CNP
 	// CRD.
 	DisableCNPStatusUpdates = "disable-cnp-status-updates"
@@ -2084,6 +2090,9 @@ type DaemonConfig struct {
 	// IdentityAllocationMode specifies what mode to use for identity
 	// allocation
 	IdentityAllocationMode string
+
+	// IdentityAllocationModeDoubleWriteReadFromKVStore specifies whether to read from the KVStore when using the Double-Write allocation mode
+	IdentityAllocationModeDoubleWriteReadFromKVStore bool
 
 	// DisableCNPStatusUpdates disables updating of CNP NodeStatus in the CNP
 	// CRD.
@@ -3323,12 +3332,11 @@ func (c *DaemonConfig) Populate(vp *viper.Viper) {
 	// This is here for tests. Some call Populate without the normal init
 	case "":
 		c.IdentityAllocationMode = IdentityAllocationModeKVstore
-
-	case IdentityAllocationModeKVstore, IdentityAllocationModeCRD:
+	case IdentityAllocationModeKVstore, IdentityAllocationModeCRD, IdentityAllocationModeDoubleWrite:
 		// c.IdentityAllocationMode is set above
 
 	default:
-		log.Fatalf("Invalid identity allocation mode %q. It must be one of %s or %s", c.IdentityAllocationMode, IdentityAllocationModeKVstore, IdentityAllocationModeCRD)
+		log.Fatalf("Invalid identity allocation mode %q. It must be one of %s, %s or %s", c.IdentityAllocationMode, IdentityAllocationModeKVstore, IdentityAllocationModeCRD, IdentityAllocationModeDoubleWrite)
 	}
 	if c.KVStore == "" {
 		if c.IdentityAllocationMode != IdentityAllocationModeCRD {
@@ -3343,6 +3351,9 @@ func (c *DaemonConfig) Populate(vp *viper.Viper) {
 			log.Warningf("Running Cilium with %q=%q requires KVStore capability. Changing %s to %t", KVStore, c.KVStore, K8sEventHandover, false)
 			c.K8sEventHandover = false
 		}
+	}
+	if c.IdentityAllocationMode == IdentityAllocationModeDoubleWrite {
+		c.IdentityAllocationModeDoubleWriteReadFromKVStore = vp.GetBool(IdentityAllocationModeDoubleWriteReadFromKVStore)
 	}
 
 	switch c.IPAM {

@@ -23,7 +23,7 @@ import (
 
 func startKvstoreIdentityGC() {
 	log.WithField(logfields.Interval, operatorOption.Config.IdentityGCInterval).Info("Starting kvstore identity garbage collector")
-	backend, err := kvstoreallocator.NewKVStoreBackend(cache.IdentitiesPath, "", nil, kvstore.Client())
+	backend, err := kvstoreallocator.NewKVStoreBackend(kvstoreallocator.KVStoreBackendConfiguration{BasePath: cache.IdentitiesPath, Suffix: "", Typ: nil, Backend: kvstore.Client()})
 	if err != nil {
 		log.WithError(err).Fatal("Unable to initialize kvstore backend for identity allocation")
 	}
@@ -37,7 +37,7 @@ func startKvstoreIdentityGC() {
 		"min":        minID,
 		"max":        maxID,
 		"cluster-id": option.Config.ClusterID,
-	}).Info("Garbage Collecting identities between range")
+	}).Info("Garbage Collecting KVStore identities between range")
 	a := allocator.NewAllocatorForGC(backend, allocator.WithMin(minID), allocator.WithMax(maxID))
 
 	successfulRuns := 0
@@ -55,17 +55,17 @@ func startKvstoreIdentityGC() {
 
 				if operatorOption.Config.EnableMetrics {
 					failedRuns++
-					metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeFail).Set(float64(failedRuns))
+					metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeFail, metrics.LabelIdentityTypeKVStore).Set(float64(failedRuns))
 				}
 			} else {
 				keysToDelete = keysToDelete2
 
 				if operatorOption.Config.EnableMetrics {
 					successfulRuns++
-					metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeSuccess).Set(float64(successfulRuns))
+					metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeSuccess, metrics.LabelIdentityTypeKVStore).Set(float64(successfulRuns))
 
-					metrics.IdentityGCSize.WithLabelValues("alive").Set(float64(gcStats.Alive))
-					metrics.IdentityGCSize.WithLabelValues("deleted").Set(float64(gcStats.Deleted))
+					metrics.IdentityGCSize.WithLabelValues("alive", metrics.LabelIdentityTypeKVStore).Set(float64(gcStats.Alive))
+					metrics.IdentityGCSize.WithLabelValues("deleted", metrics.LabelIdentityTypeKVStore).Set(float64(gcStats.Deleted))
 				}
 			}
 
@@ -84,7 +84,7 @@ func startKvstoreIdentityGC() {
 
 			log.WithFields(logrus.Fields{
 				"identities-to-delete": keysToDelete,
-			}).Debug("Will delete identities if they are still unused")
+			}).Debug("Will delete KVStore identities if they are still unused")
 		}
 	}()
 }
