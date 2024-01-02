@@ -97,6 +97,9 @@ const (
 	// IdentityHeartbeatTimeout is the timeout used to GC identities from k8s
 	IdentityHeartbeatTimeout = "identity-heartbeat-timeout"
 
+	// DoubleWriteMetricReporterInterval is the refresh interval for the Double Write Metric Reporter
+	DoubleWriteMetricReporterInterval = "double-write-metric-reporter-interval"
+
 	// NodesGCInterval is the duration for which the cilium nodes are GC.
 	NodesGCInterval = "nodes-gc-interval"
 
@@ -372,6 +375,9 @@ type OperatorConfig struct {
 	// IdentityHeartbeatTimeout is the timeout used to GC identities from k8s
 	IdentityHeartbeatTimeout time.Duration
 
+	// DoubleWriteMetricReporterInterval is the refresh interval for the Double Write Metric Reporter
+	DoubleWriteMetricReporterInterval time.Duration
+
 	OperatorAPIServeAddr        string
 	OperatorPrometheusServeAddr string
 
@@ -610,6 +616,7 @@ func (c *OperatorConfig) Populate(vp *viper.Viper) {
 	c.IdentityGCRateInterval = vp.GetDuration(IdentityGCRateInterval)
 	c.IdentityGCRateLimit = vp.GetInt64(IdentityGCRateLimit)
 	c.IdentityHeartbeatTimeout = vp.GetDuration(IdentityHeartbeatTimeout)
+	c.DoubleWriteMetricReporterInterval = vp.GetDuration(DoubleWriteMetricReporterInterval)
 	c.OperatorAPIServeAddr = vp.GetString(OperatorAPIServeAddr)
 	c.OperatorPrometheusServeAddr = vp.GetString(OperatorPrometheusServeAddr)
 	c.PProf = vp.GetBool(PProf)
