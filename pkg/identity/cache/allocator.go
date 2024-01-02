@@ -6,6 +6,7 @@ package cache
 import (
 	"context"
 	"fmt"
+	"github.com/cilium/cilium/pkg/kvstore/doublewrite"
 	"net"
 	"net/netip"
 	"path"
@@ -205,7 +206,14 @@ func (m *CachingIdentityAllocator) InitIdentityAllocator(client clientset.Interf
 		switch option.Config.IdentityAllocationMode {
 		case option.IdentityAllocationModeKVstore:
 			log.Debug("Identity allocation backed by KVStore")
-			backend, err = kvstoreallocator.NewKVStoreBackend(m.identitiesPath, owner.GetNodeSuffix(), GlobalIdentity{}, kvstore.Client())
+			backend, err = kvstoreallocator.NewKVStoreBackend(
+				kvstoreallocator.KVStoreBackendConfiguration{
+					BasePath: m.identitiesPath,
+					Suffix:   owner.GetNodeSuffix(),
+					Typ:      GlobalIdentity{},
+					Backend:  kvstore.Client(),
+				})
+
 			if err != nil {
 				log.WithError(err).Fatal("Unable to initialize kvstore backend for identity allocation")
 			}
@@ -222,6 +230,23 @@ func (m *CachingIdentityAllocator) InitIdentityAllocator(client clientset.Interf
 				log.WithError(err).Fatal("Unable to initialize Kubernetes CRD backend for identity allocation")
 			}
 
+		case option.IdentityAllocationModeDoubleWrite:
+			log.Debug("Identity allocation backed by CRD and KVStore")
+			backend, err = doublewrite.NewDoubleWriteBackend(doublewrite.DoubleWriteBackendConfiguration{
+				CRDBackendConfiguration: identitybackend.CRDBackendConfiguration{
+					NodeName: owner.GetNodeSuffix(),
+					Store:    identityStore,
+					Client:   client,
+					KeyType:  GlobalIdentity{},
+				},
+				KVStoreBackendConfiguration: kvstoreallocator.KVStoreBackendConfiguration{
+					BasePath: m.identitiesPath,
+					Suffix:   owner.GetNodeSuffix(),
+					Typ:      GlobalIdentity{},
+					Backend:  kvstore.Client(),
+				},
+				ReadFromKVStore: option.Config.IdentityAllocationModeDoubleWriteReadFromKVStore,
+			})
 		default:
 			log.Fatalf("Unsupported identity allocation mode %s", option.Config.IdentityAllocationMode)
 		}
@@ -476,7 +501,8 @@ func (m *CachingIdentityAllocator) ReleaseSlice(ctx context.Context, owner Ident
 func (m *CachingIdentityAllocator) WatchRemoteIdentities(remoteName string, backend kvstore.BackendOperations) (*allocator.RemoteCache, error) {
 	<-m.globalIdentityAllocatorInitialized
 
-	remoteAllocatorBackend, err := kvstoreallocator.NewKVStoreBackend(m.identitiesPath, m.owner.GetNodeSuffix(), GlobalIdentity{}, backend)
+	remoteAllocatorBackend, err := kvstoreallocator.NewKVStoreBackend(
+		kvstoreallocator.KVStoreBackendConfiguration{BasePath: m.identitiesPath, Suffix: m.owner.GetNodeSuffix(), Typ: GlobalIdentity{}, Backend: backend})
 	if err != nil {
 		return nil, fmt.Errorf("error setting up remote allocator backend: %s", err)
 	}

@@ -23,7 +23,7 @@ import (
 
 func startKvstoreIdentityGC() {
 	log.WithField(logfields.Interval, operatorOption.Config.IdentityGCInterval).Info("Starting kvstore identity garbage collector")
-	backend, err := kvstoreallocator.NewKVStoreBackend(cache.IdentitiesPath, "", nil, kvstore.Client())
+	backend, err := kvstoreallocator.NewKVStoreBackend(kvstoreallocator.KVStoreBackendConfiguration{BasePath: cache.IdentitiesPath, Suffix: "", Typ: nil, Backend: kvstore.Client()})
 	if err != nil {
 		log.WithError(err).Fatal("Unable to initialize kvstore backend for identity allocation")
 	}
