@@ -22,13 +22,12 @@ func NewDoubleWriteBackend(c DoubleWriteBackendConfiguration) (allocator.Backend
 	kvstoreBackend, _ := kvstoreallocator.NewKVStoreBackend(c.KVStoreBackendConfiguration)
 
 	log.WithFields(logrus.Fields{
-		"CRDBackendConfiguration.NodeName":           c.CRDBackendConfiguration.NodeName,
-		"CRDBackendConfiguration.KeyType":            c.CRDBackendConfiguration.KeyType.String(),
-		"KVStoreBackendConfiguration.Backend.Status": c.KVStoreBackendConfiguration.Backend.Status(),
-		"KVStoreBackendConfiguration.Suffix":         c.KVStoreBackendConfiguration.Suffix,
-		"KVStoreBackendConfiguration.Typ":            c.KVStoreBackendConfiguration.Typ.String(),
-		"KVStoreBackendConfiguration.BasePath":       c.KVStoreBackendConfiguration.BasePath,
-		"readFromKVStore":                            c.ReadFromKVStore,
+		"CRDBackendConfiguration.NodeName":     c.CRDBackendConfiguration.NodeName,
+		"CRDBackendConfiguration.KeyType":      c.CRDBackendConfiguration.KeyType.String(),
+		"KVStoreBackendConfiguration.Suffix":   c.KVStoreBackendConfiguration.Suffix,
+		"KVStoreBackendConfiguration.Typ":      c.KVStoreBackendConfiguration.Typ.String(),
+		"KVStoreBackendConfiguration.BasePath": c.KVStoreBackendConfiguration.BasePath,
+		"readFromKVStore":                      c.ReadFromKVStore,
 	}).Info("Creating the double-write backend")
 
 	return &doubleWriteBackend{crdBackend: crdBackend.(*identitybackend.CRDBackend), kvstoreBackend: kvstoreBackend, readFromKVStore: c.ReadFromKVStore}, nil
