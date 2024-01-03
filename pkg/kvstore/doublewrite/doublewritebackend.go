@@ -10,6 +10,7 @@ import (
 	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/rate"
+	"github.com/sirupsen/logrus"
 )
 
 var (
@@ -20,7 +21,11 @@ func NewDoubleWriteBackend(c DoubleWriteBackendConfiguration) (allocator.Backend
 	crdBackend, _ := identitybackend.NewCRDBackend(c.CRDBackendConfiguration)
 	kvstoreBackend, _ := kvstoreallocator.NewKVStoreBackend(c.KVStoreBackendConfiguration)
 
-	log.WithField("readFromKVStore", c.ReadFromKVStore).Info("Creating double-write backend with the following configuration: %+v", c)
+	log.WithFields(logrus.Fields{
+		"CRDBackendConfiguration":     c.CRDBackendConfiguration,
+		"KVStoreBackendConfiguration": c.KVStoreBackendConfiguration,
+		"readFromKVStore":             c.ReadFromKVStore,
+	}).Info("Creating the double-write backend")
 
 	return &doubleWriteBackend{crdBackend: crdBackend.(*identitybackend.CRDBackend), kvstoreBackend: kvstoreBackend, readFromKVStore: c.ReadFromKVStore}, nil
 }
@@ -62,6 +67,7 @@ func (d *doubleWriteBackend) AllocateIDIfLocked(ctx context.Context, id idpool.I
 
 func (d *doubleWriteBackend) AcquireReference(ctx context.Context, id idpool.ID, key allocator.AllocatorKey, lock kvstore.KVLocker) error {
 	crdErr := d.crdBackend.AcquireReference(ctx, id, key, lock)
+	// TODO
 	kvStoreErr := d.kvstoreBackend.AcquireReference(ctx, id, key, lock)
 	if d.readFromKVStore {
 		return kvStoreErr
@@ -103,10 +109,8 @@ func (d *doubleWriteBackend) UpdateKeyIfLocked(ctx context.Context, id idpool.ID
 }
 
 func (d *doubleWriteBackend) Lock(ctx context.Context, key allocator.AllocatorKey) (kvstore.KVLocker, error) {
-	if d.readFromKVStore {
-		return d.kvstoreBackend.Lock(ctx, key)
-	}
-	return &identitybackend.CRDLock{}, nil
+	// TODO ignore for CRD mode?
+	return d.kvstoreBackend.Lock(ctx, key)
 }
 
 func (d *doubleWriteBackend) Get(ctx context.Context, key allocator.AllocatorKey) (idpool.ID, error) {

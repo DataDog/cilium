@@ -3327,6 +3327,9 @@ func (c *DaemonConfig) Populate(vp *viper.Viper) {
 			c.K8sEventHandover = false
 		}
 	}
+	if c.IdentityAllocationMode == IdentityAllocationModeDoubleWrite {
+		c.IdentityAllocationModeDoubleWriteReadFromKVStore = vp.GetBool(IdentityAllocationModeDoubleWriteReadFromKVStore)
+	}
 
 	switch c.IPAM {
 	case ipamOption.IPAMKubernetes, ipamOption.IPAMClusterPool, ipamOption.IPAMClusterPoolV2:
