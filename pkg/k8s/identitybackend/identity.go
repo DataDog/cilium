@@ -87,7 +87,9 @@ func sanitizeK8sLabels(old map[string]string) (selected, skipped map[string]stri
 // Note: the lock field is not supported with the k8s CRD allocator.
 func (c *CRDBackend) AllocateID(ctx context.Context, id idpool.ID, key allocator.AllocatorKey) error {
 	selectedLabels, skippedLabels := sanitizeK8sLabels(key.GetAsMap())
-	log.WithField(logfields.Labels, skippedLabels).Info("Skipped non-kubernetes labels when labelling ciliumidentity. All labels will still be used in identity determination")
+	if skippedLabels != nil && len(skippedLabels) != 0 {
+		log.WithFields(logrus.Fields{logfields.Identity: id, logfields.Key: key, logfields.Labels: skippedLabels}).Info("Skipped non-kubernetes labels when labelling ciliumidentity. All labels will still be used in identity determination")
+	}
 
 	identity := &v2.CiliumIdentity{
 		ObjectMeta: metav1.ObjectMeta{
