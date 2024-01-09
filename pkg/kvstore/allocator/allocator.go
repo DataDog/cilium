@@ -575,6 +575,23 @@ func (k *KVStoreBackend) keyToID(key string) (id idpool.ID, err error) {
 	return idpool.ID(idParsed), nil
 }
 
+func (k *KVStoreBackend) ListIDs(ctx context.Context) (identityIDs []idpool.ID, err error) {
+	identities, err := k.backend.ListPrefix(ctx, k.idPrefix)
+	if err != nil {
+		return []idpool.ID{}, fmt.Errorf("KVStore list failed: %s", err)
+	}
+
+	for key := range identities {
+		id, err := k.keyToID(key)
+		if err != nil {
+			return []idpool.ID{}, err
+		}
+		identityIDs = append(identityIDs, id)
+	}
+
+	return identityIDs, nil
+}
+
 func (k *KVStoreBackend) ListAndWatch(ctx context.Context, handler allocator.CacheMutations, stopChan chan struct{}) {
 	watcher := k.backend.ListAndWatch(ctx, k.idPrefix, k.idPrefix, 512)
 

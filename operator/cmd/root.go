@@ -670,6 +670,8 @@ func (legacy *legacyOnLeader) onStart(_ hive.HookContext) error {
 			go startCRDIdentityGC(legacy.ctx, &legacy.wg, legacy.clientset)
 			startKvstoreIdentityGC()
 		}
+
+		startDoubleWriteMetricReporter(legacy.ctx, &legacy.wg)
 	}
 
 	if legacy.clientset.IsEnabled() {

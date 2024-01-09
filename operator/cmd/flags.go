@@ -194,6 +194,9 @@ func init() {
 	flags.Duration(operatorOption.IdentityHeartbeatTimeout, 2*defaults.KVstoreLeaseTTL, "Timeout after which identity expires on lack of heartbeat")
 	option.BindEnv(Vp, operatorOption.IdentityHeartbeatTimeout)
 
+	flags.Duration(operatorOption.DoubleWriteMetricReporterInterval, 1*time.Minute, "Refresh interval for the Double Write Metric Reporter")
+	option.BindEnv(Vp, operatorOption.DoubleWriteMetricReporterInterval)
+
 	flags.Bool(option.EnableIPv4Name, defaults.EnableIPv4, "Enable IPv4 support")
 	option.BindEnv(Vp, option.EnableIPv4Name)
 
