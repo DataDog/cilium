@@ -30,19 +30,23 @@ func getCRDIdentityIds() ([]idpool.ID, error) {
 	return identityIds, nil
 }
 
-// difference returns the elements in `a` that aren't in `b`
-func difference(a, b []idpool.ID) []idpool.ID {
+// difference counts the elements in `a` that aren't in `b` and returns a sample of differing elements (up to `maxElements`)
+func difference(a, b []idpool.ID, maxElements int) (int, []idpool.ID) {
 	mb := make(map[idpool.ID]struct{}, len(b))
 	for _, x := range b {
 		mb[x] = struct{}{}
 	}
+	c := 0
 	var diff []idpool.ID
 	for _, x := range a {
 		if _, found := mb[x]; !found {
-			diff = append(diff, x)
+			c++
+			if len(diff) < maxElements {
+				diff = append(diff, x)
+			}
 		}
 	}
-	return diff
+	return c, diff
 }
 
 func compareCRDAndKVStoreIdentities(ctx context.Context, kvstoreBackend kvstoreallocator.KVStoreBackend) {
@@ -61,19 +65,19 @@ func compareCRDAndKVStoreIdentities(ctx context.Context, kvstoreBackend kvstorea
 	}
 
 	// Compare CRD and KVStore identities
-	onlyInCrd := difference(crdIdentityIds, kvstoreIdentityIds)
-	onlyInKVStore := difference(kvstoreIdentityIds, crdIdentityIds)
 	maxPrintedDiffIDs := 5 // Cap the number of differing IDs so as not to log too many
-	log.Infof("CRD identities count: %d\n"+
+	onlyInCrdCount, onlyInCrdSample := difference(crdIdentityIds, kvstoreIdentityIds, maxPrintedDiffIDs)
+	onlyInKVStoreCount, onlyInKVStoreSample := difference(kvstoreIdentityIds, crdIdentityIds, maxPrintedDiffIDs)
+	log.Infof("CRD identities: %d\n"+
 		"KVStore identities: %d\n"+
 		"Identities only in CRD: %d. Example IDs (capped at %d): %v\n"+
 		"Identities only in KVStore: %d. Example IDs (capped at %d): %v\n",
-		len(crdIdentityIds), len(kvstoreIdentityIds), len(onlyInCrd), maxPrintedDiffIDs, onlyInCrd[:maxPrintedDiffIDs], len(onlyInKVStore), maxPrintedDiffIDs, onlyInKVStore[:maxPrintedDiffIDs])
+		len(crdIdentityIds), len(kvstoreIdentityIds), onlyInCrdCount, maxPrintedDiffIDs, onlyInCrdSample, onlyInKVStoreCount, maxPrintedDiffIDs, onlyInKVStoreSample)
 
 	metrics.IdentityCRDTotalCount.Set(float64(len(crdIdentityIds)))
 	metrics.IdentityKVStoreTotalCount.Set(float64(len(kvstoreIdentityIds)))
-	metrics.IdentityCRDOnlyCount.Set(float64(len(onlyInCrd)))
-	metrics.IdentityKVStoreOnlyCount.Set(float64(len(onlyInKVStore)))
+	metrics.IdentityCRDOnlyCount.Set(float64(onlyInCrdCount))
+	metrics.IdentityKVStoreOnlyCount.Set(float64(onlyInKVStoreCount))
 }
 
 func startDoubleWriteMetricReporter(ctx context.Context, wg *sync.WaitGroup) {
