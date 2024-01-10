@@ -118,6 +118,18 @@ var (
 	// CiliumEndpointSliceQueueDelay measures the time spent by CES's in the workqueue. This measures time difference between
 	// CES insert in the workqueue and removal from workqueue.
 	CiliumEndpointSliceQueueDelay prometheus.Histogram
+
+	// IdentityCRDTotalCount records the total number of CRD identities
+	IdentityCRDTotalCount prometheus.Gauge
+
+	// IdentityKVStoreTotalCount records the total number of identities in the KVStore
+	IdentityKVStoreTotalCount prometheus.Gauge
+
+	// IdentityCRDOnlyCount records the number of CRD identities not present in the KVStore
+	IdentityCRDOnlyCount prometheus.Gauge
+
+	// IdentityKVStoreOnlyCount records the number of identities in the KVStore not present as a CRD
+	IdentityKVStoreOnlyCount prometheus.Gauge
 )
 
 const (
@@ -208,6 +220,34 @@ func registerMetrics() []prometheus.Collector {
 		Buckets:   append(prometheus.DefBuckets, 60, 300, 900, 1800, 3600),
 	})
 	collectors = append(collectors, CiliumEndpointSliceQueueDelay)
+
+	IdentityCRDTotalCount = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: Namespace,
+		Name:      "identity_crd_total_count",
+		Help:      "The total number of CRD identities",
+	})
+	collectors = append(collectors, IdentityCRDTotalCount)
+
+	IdentityKVStoreTotalCount = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: Namespace,
+		Name:      "identity_kvstore_total_count",
+		Help:      "The total number of identities in the KVStore",
+	})
+	collectors = append(collectors, IdentityKVStoreTotalCount)
+
+	IdentityCRDOnlyCount = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: Namespace,
+		Name:      "identity_crd_only_count",
+		Help:      "The number of CRD identities not present in the KVStore",
+	})
+	collectors = append(collectors, IdentityCRDOnlyCount)
+
+	IdentityKVStoreOnlyCount = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: Namespace,
+		Name:      "identity_kvstore_only_count",
+		Help:      "The number of identities in the KVStore not present as a CRD",
+	})
+	collectors = append(collectors, IdentityKVStoreOnlyCount)
 
 	Registry.MustRegister(collectors...)
 

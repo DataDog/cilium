@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"context"
+	"errors"
+	"github.com/cilium/cilium/operator/metrics"
 	operatorOption "github.com/cilium/cilium/operator/option"
 	"github.com/cilium/cilium/pkg/controller"
 	"github.com/cilium/cilium/pkg/identity/cache"
@@ -15,8 +17,7 @@ import (
 
 func getCRDIdentityIds() ([]idpool.ID, error) {
 	if identityStore == nil {
-		log.Info("Identity store cache is not ready yet")
-		return []idpool.ID{}, nil
+		return []idpool.ID{}, errors.New("identity store cache is not ready yet")
 	}
 	var identityIds []idpool.ID
 	for _, identity := range identityStore.List() {
@@ -29,8 +30,8 @@ func getCRDIdentityIds() ([]idpool.ID, error) {
 	return identityIds, nil
 }
 
-// difference returns the elements in `a` that aren't in `b`. The number of elements is capped by `maxElements`.
-func difference(a, b []idpool.ID, maxElements int) []idpool.ID {
+// difference returns the elements in `a` that aren't in `b`
+func difference(a, b []idpool.ID) []idpool.ID {
 	mb := make(map[idpool.ID]struct{}, len(b))
 	for _, x := range b {
 		mb[x] = struct{}{}
@@ -39,9 +40,6 @@ func difference(a, b []idpool.ID, maxElements int) []idpool.ID {
 	for _, x := range a {
 		if _, found := mb[x]; !found {
 			diff = append(diff, x)
-			if len(diff) == maxElements {
-				return diff
-			}
 		}
 	}
 	return diff
@@ -51,28 +49,36 @@ func compareCRDAndKVStoreIdentities(ctx context.Context, kvstoreBackend kvstorea
 	// Get CRD identities
 	crdIdentityIds, err := getCRDIdentityIds()
 	if err != nil {
-		log.WithError(err).Error("Unable to get CRD identities")
+		log.WithError(err).Warn("Unable to get CRD identities")
 		return
 	}
+
 	// Get KVStore identities
 	kvstoreIdentityIds, err := kvstoreBackend.ListIDs(ctx)
 	if err != nil {
-		log.WithError(err).Error("Unable to get KVStore identities")
+		log.WithError(err).Warn("Unable to get KVStore identities")
 		return
 	}
+
 	// Compare CRD and KVStore identities
-	maxDiffIDs := 5 // Cap the number of differing IDs so as not to log too many
-	onlyInCrd := difference(crdIdentityIds, kvstoreIdentityIds, maxDiffIDs)
-	onlyInKVStore := difference(kvstoreIdentityIds, crdIdentityIds, maxDiffIDs)
+	onlyInCrd := difference(crdIdentityIds, kvstoreIdentityIds)
+	onlyInKVStore := difference(kvstoreIdentityIds, crdIdentityIds)
+	maxPrintedDiffIDs := 5 // Cap the number of differing IDs so as not to log too many
 	log.Infof("CRD identities count: %d\n"+
 		"KVStore identities: %d\n"+
-		"Identities only in CRD count: %d. Example: %v\n"+
-		"Identities only in KVStore count: %d. Example: %v\n",
-		len(crdIdentityIds), len(kvstoreIdentityIds), len(onlyInCrd), onlyInCrd, len(onlyInKVStore), onlyInKVStore)
-	// TODO report metrics as well
+		"Identities only in CRD: %d. Example IDs (capped at %d): %v\n"+
+		"Identities only in KVStore: %d. Example IDs (capped at %d): %v\n",
+		len(crdIdentityIds), len(kvstoreIdentityIds), len(onlyInCrd), maxPrintedDiffIDs, onlyInCrd[:maxPrintedDiffIDs], len(onlyInKVStore), maxPrintedDiffIDs, onlyInKVStore[:maxPrintedDiffIDs])
+
+	metrics.IdentityCRDTotalCount.Set(float64(len(crdIdentityIds)))
+	metrics.IdentityKVStoreTotalCount.Set(float64(len(kvstoreIdentityIds)))
+	metrics.IdentityCRDOnlyCount.Set(float64(len(onlyInCrd)))
+	metrics.IdentityKVStoreOnlyCount.Set(float64(len(onlyInKVStore)))
 }
 
 func startDoubleWriteMetricReporter(ctx context.Context, wg *sync.WaitGroup) {
+	log.Info("Running the Double Write Metric Reporter")
+
 	mgr := controller.NewManager()
 
 	wg.Add(1)
