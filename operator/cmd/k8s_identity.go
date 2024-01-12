@@ -45,9 +45,9 @@ func deleteIdentity(ctx context.Context, clientset k8sClient.Clientset, identity
 			},
 		})
 	if err != nil {
-		log.WithError(err).Error("Unable to delete identity")
+		log.WithError(err).Error("Unable to delete CRD identity")
 	} else {
-		log.WithField(logfields.Identity, identity.GetName()).Info("Garbage collected identity")
+		log.WithField(logfields.Identity, identity.GetName()).Info("Garbage collected CRD identity")
 	}
 
 	return err
@@ -59,9 +59,9 @@ func updateIdentity(ctx context.Context, clientset k8sClient.Clientset, identity
 		identity,
 		metav1.UpdateOptions{})
 	if err != nil {
-		log.WithError(err).Error("Updating Identity")
+		log.WithError(err).Error("Updating CRD Identity")
 	} else {
-		log.WithField(logfields.Identity, identity.GetName()).Debug("Updated identity")
+		log.WithField(logfields.Identity, identity.GetName()).Debug("Updated CRD identity")
 	}
 
 	return err
@@ -82,7 +82,7 @@ func identityGCIteration(ctx context.Context, clientset k8sClient.Clientset) {
 	log.Info("Running CRD identity garbage collector")
 
 	if identityStore == nil {
-		log.Info("Identity store cache is not ready yet")
+		log.Info("CRD Identity store cache is not ready yet")
 		return
 	}
 	select {
@@ -120,24 +120,24 @@ func identityGCIteration(ctx context.Context, clientset k8sClient.Clientset) {
 				log.WithFields(logrus.Fields{
 					logfields.Identity: identity.Name,
 					logfields.K8sUID:   identity.UID,
-				}).Info("Marking identity for later deletion")
+				}).Info("Marking CRD identity for later deletion")
 				identity.Annotations[identitybackend.HeartBeatAnnotation] = timeNow.Format(time.RFC3339Nano)
 				err := updateIdentity(ctx, clientset, identity)
 				if err != nil {
 					log.WithError(err).
 						WithField(logfields.Identity, identity).
-						Error("Marking identity for later deletion")
+						Error("Marking CRD identity for later deletion")
 				}
 				continue
 			}
 
 			log.WithFields(logrus.Fields{
 				logfields.Identity: identity,
-			}).Infof("Deleting unused identity; marked for deletion at %s", ts)
+			}).Infof("Deleting unused CRD identity; marked for deletion at %s", ts)
 			if err := deleteIdentity(ctx, clientset, identity); err != nil {
 				log.WithError(err).WithFields(logrus.Fields{
 					logfields.Identity: identity,
-				}).Error("Deleting unused identity")
+				}).Error("Deleting unused CRD identity")
 				// If Context was canceled we should break
 				if ctx.Err() != nil {
 					break
@@ -151,14 +151,14 @@ func identityGCIteration(ctx context.Context, clientset k8sClient.Clientset) {
 	if operatorOption.Config.EnableMetrics {
 		if ctx.Err() == nil {
 			successfulRuns++
-			metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeSuccess).Set(float64(successfulRuns))
+			metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeSuccess, metrics.LabelIdentityTypeCRD).Set(float64(successfulRuns))
 		} else {
 			failedRuns++
-			metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeFail).Set(float64(failedRuns))
+			metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeFail, metrics.LabelIdentityTypeCRD).Set(float64(failedRuns))
 		}
 		aliveEntries := totalEntries - deletedEntries
-		metrics.IdentityGCSize.WithLabelValues(metrics.LabelValueOutcomeAlive).Set(float64(aliveEntries))
-		metrics.IdentityGCSize.WithLabelValues(metrics.LabelValueOutcomeDeleted).Set(float64(deletedEntries))
+		metrics.IdentityGCSize.WithLabelValues(metrics.LabelValueOutcomeAlive, metrics.LabelIdentityTypeCRD).Set(float64(aliveEntries))
+		metrics.IdentityGCSize.WithLabelValues(metrics.LabelValueOutcomeDeleted, metrics.LabelIdentityTypeCRD).Set(float64(deletedEntries))
 	}
 
 	identityHeartbeat.GC()

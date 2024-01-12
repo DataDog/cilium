@@ -524,7 +524,7 @@ func (k *KVStoreBackend) RunGC(
 						scopedLog.WithError(err).Warning("Unable to delete unused allocator master key")
 					} else {
 						deletedEntries++
-						scopedLog.Info("Deleted unused allocator master key")
+						scopedLog.Info("Deleted unused allocator master key in KVStore")
 					}
 					// consider the key regardless if there was an error from
 					// the kvstore. We want to rate limit the number of requests

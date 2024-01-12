@@ -9,25 +9,30 @@ import (
 	"github.com/cilium/cilium/pkg/identity/cache"
 	"github.com/cilium/cilium/pkg/idpool"
 	v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
+	"github.com/cilium/cilium/pkg/k8s/identitybackend"
 	"github.com/cilium/cilium/pkg/kvstore"
 	kvstoreallocator "github.com/cilium/cilium/pkg/kvstore/allocator"
 	"strconv"
 	"sync"
 )
 
-func getCRDIdentityIds() ([]idpool.ID, error) {
+func getCRDIdentityIds() (identityIds []idpool.ID, markedForDeletionCount int, err error) {
 	if identityStore == nil {
-		return []idpool.ID{}, errors.New("identity store cache is not ready yet")
+		return []idpool.ID{}, 0, errors.New("identity store cache is not ready yet")
 	}
-	var identityIds []idpool.ID
+	markedForDeletionCount = 0
 	for _, identity := range identityStore.List() {
 		idParsed, err := strconv.ParseUint(identity.(*v2.CiliumIdentity).Name, 10, 64)
 		if err != nil {
-			return []idpool.ID{}, err
+			return []idpool.ID{}, 0, err
 		}
 		identityIds = append(identityIds, idpool.ID(idParsed))
+
+		if _, ok := identity.(*v2.CiliumIdentity).Annotations[identitybackend.HeartBeatAnnotation]; ok {
+			markedForDeletionCount++
+		}
 	}
-	return identityIds, nil
+	return identityIds, markedForDeletionCount, nil
 }
 
 // difference counts the elements in `a` that aren't in `b` and returns a sample of differing elements (up to `maxElements`)
@@ -51,7 +56,7 @@ func difference(a, b []idpool.ID, maxElements int) (int, []idpool.ID) {
 
 func compareCRDAndKVStoreIdentities(ctx context.Context, kvstoreBackend kvstoreallocator.KVStoreBackend) {
 	// Get CRD identities
-	crdIdentityIds, err := getCRDIdentityIds()
+	crdIdentityIds, markedForDeletionCount, err := getCRDIdentityIds()
 	if err != nil {
 		log.WithError(err).Warn("Unable to get CRD identities")
 		return
@@ -68,11 +73,11 @@ func compareCRDAndKVStoreIdentities(ctx context.Context, kvstoreBackend kvstorea
 	maxPrintedDiffIDs := 5 // Cap the number of differing IDs so as not to log too many
 	onlyInCrdCount, onlyInCrdSample := difference(crdIdentityIds, kvstoreIdentityIds, maxPrintedDiffIDs)
 	onlyInKVStoreCount, onlyInKVStoreSample := difference(kvstoreIdentityIds, crdIdentityIds, maxPrintedDiffIDs)
-	log.Infof("CRD identities: %d\n"+
+	log.Infof("CRD identities: %d / Marked for deletion: %d \n"+
 		"KVStore identities: %d\n"+
 		"Identities only in CRD: %d. Example IDs (capped at %d): %v\n"+
 		"Identities only in KVStore: %d. Example IDs (capped at %d): %v\n",
-		len(crdIdentityIds), len(kvstoreIdentityIds), onlyInCrdCount, maxPrintedDiffIDs, onlyInCrdSample, onlyInKVStoreCount, maxPrintedDiffIDs, onlyInKVStoreSample)
+		len(crdIdentityIds), markedForDeletionCount, len(kvstoreIdentityIds), onlyInCrdCount, maxPrintedDiffIDs, onlyInCrdSample, onlyInKVStoreCount, maxPrintedDiffIDs, onlyInKVStoreSample)
 
 	metrics.IdentityCRDTotalCount.Set(float64(len(crdIdentityIds)))
 	metrics.IdentityKVStoreTotalCount.Set(float64(len(kvstoreIdentityIds)))
