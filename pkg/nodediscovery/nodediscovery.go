@@ -14,6 +14,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/net"
 
 	alibabaCloudTypes "github.com/cilium/cilium/pkg/alibabacloud/eni/types"
 	alibabaCloudMetadata "github.com/cilium/cilium/pkg/alibabacloud/metadata"
@@ -42,6 +43,7 @@ import (
 	"github.com/cilium/cilium/pkg/node/types"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/cilium/pkg/option"
+	"github.com/cilium/cilium/pkg/slices"
 	"github.com/cilium/cilium/pkg/source"
 	cnitypes "github.com/cilium/cilium/plugins/cilium-cni/types"
 )
@@ -412,8 +414,6 @@ func (n *NodeDiscovery) mutateNodeResource(nodeResource *ciliumv2.CiliumNode) er
 		k8sNodeAddresses []nodeTypes.Address
 	)
 
-	nodeResource.Spec.Addresses = []ciliumv2.NodeAddress{}
-
 	// If we are unable to fetch the K8s Node resource and the CiliumNode does
 	// not have an OwnerReference set, then somehow we are running in an
 	// environment where only the CiliumNode exists. Do not proceed as this is
@@ -461,6 +461,27 @@ func (n *NodeDiscovery) mutateNodeResource(nodeResource *ciliumv2.CiliumNode) er
 	localCN := n.localNode.ToCiliumNode()
 	nodeResource.ObjectMeta.Annotations = localCN.Annotations
 
+	// This function can be called before we have restored the CiliumInternalIP.
+	// In that case, we do not want to remove the old CiliumInternalIP, as this
+	// would lead to the IP address flapping. Therefore, this code preserves any
+	// CiliumInternalIP if (and only if) the local node store does not yet
+	// include the restored CiliumInternalIP.
+	nodeResource.Spec.Addresses = slices.DeleteFunc(nodeResource.Spec.Addresses, func(address ciliumv2.NodeAddress) bool {
+		if address.Type == addressing.NodeCiliumInternalIP {
+			// Only delete a CiliumInternalIP if
+			// a) its IP family is disabled,
+			// and/or
+			// b) the LocalNode store contains an IP address which we can use instead
+			if v4 := net.ParseIPSloppy(address.IP).To4(); v4 != nil {
+				return !n.LocalConfig.EnableIPv4 || n.localNode.GetCiliumInternalIP(false) != nil
+			} else {
+				return !n.LocalConfig.EnableIPv6 || n.localNode.GetCiliumInternalIP(true) != nil
+			}
+		}
+
+		return true // delete all other node addresses
+	})
+
 	for _, k8sAddress := range k8sNodeAddresses {
 		// Do not add CiliumNodeInternalIP from the k8sNodeAddress. The source
 		// of truth is always the local node. The CiliumInternalIP address is
@@ -491,17 +512,16 @@ func (n *NodeDiscovery) mutateNodeResource(nodeResource *ciliumv2.CiliumNode) er
 		}
 	}
 
-	switch option.Config.IPAM {
-	case ipamOption.IPAMClusterPool, ipamOption.IPAMClusterPoolV2:
-		// We want to keep the podCIDRs untouched in these IPAM modes because
-		// the operator will verify if it can assign such podCIDRs.
-		// If the user was running in non-IPAM Operator mode and then switched
-		// to IPAM Operator, then it is possible that the previous cluster CIDR
-		// from the old IPAM mode differs from the current cluster CIDR set in
-		// the operator.
-		// There is a chance that the operator won't be able to allocate these
-		// podCIDRs, resulting in an error in the CiliumNode status.
-	default:
+	if option.Config.IPAM == ipamOption.IPAMKubernetes {
+		// We only want to copy the PodCIDR from the Kubernetes Node resource to
+		// the CiliumNode resource in IPAM Kubernetes mode. In other PodCIDR
+		// based IPAM modes (such as ClusterPool or MultiPool), the operator
+		// will set the PodCIDRs of the CiliumNode and those might be different
+		// from the ones assigned by Kubernetes.
+		// For non-podCIDR based IPAM modes (e.g. ENI, Azure, AlibabaCloud), there
+		// is no such thing as a podCIDR to begin with. In those cases, the
+		// IPv4/IPv6AllocRange is auto-generated and otherwise unused, so it does not
+		// make sense to copy it into the CiliumNode it either.
 		nodeResource.Spec.IPAM.PodCIDRs = []string{}
 		if cidr := node.GetIPv4AllocRange(); cidr != nil {
 			nodeResource.Spec.IPAM.PodCIDRs = append(nodeResource.Spec.IPAM.PodCIDRs, cidr.String())

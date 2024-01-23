@@ -110,7 +110,7 @@ rollOutCiliumPods: false
 image:
   override: ~
   repository: "quay.io/cilium/cilium"
-  tag: "v1.12.17"
+  tag: "v1.12.18"
   pullPolicy: "IfNotPresent"
   # cilium-digest
   digest: ""
@@ -848,7 +848,7 @@ hubble:
     image:
       override: ~
       repository: "quay.io/cilium/hubble-relay"
-      tag: "v1.12.17"
+      tag: "v1.12.18"
        # hubble-relay-digest
       digest: ""
       useDigest: false
@@ -1657,7 +1657,7 @@ operator:
   image:
     override: ~
     repository: "quay.io/cilium/operator"
-    tag: "v1.12.17"
+    tag: "v1.12.18"
     # operator-generic-digest
     genericDigest: ""
     # operator-azure-digest
@@ -1914,7 +1914,7 @@ preflight:
   image:
     override: ~
     repository: "quay.io/cilium/cilium"
-    tag: "v1.12.17"
+    tag: "v1.12.18"
     # cilium-digest
     digest: ""
     useDigest: false
@@ -2060,7 +2060,7 @@ clustermesh:
     image:
       override: ~
       repository: "quay.io/cilium/clustermesh-apiserver"
-      tag: "v1.12.17"
+      tag: "v1.12.18"
       # clustermesh-apiserver-digest
       digest: ""
       useDigest: false
@@ -2265,6 +2265,14 @@ cgroup:
     # cgroup2 filesystem at the specified `cgroup.hostRoot` volume, and then the
     # volume will be mounted inside the cilium agent pod at the same path.
     enabled: true
+    # -- Init Container Cgroup Automount resource limits & requests
+    resources: {}
+      # limits:
+      #   cpu: 100m
+      #   memory: 128Mi
+      # requests:
+      #   cpu: 100m
+      #   memory: 128Mi
   # -- Configure cgroup root where cgroup2 filesystem is mounted on the host (see also: `cgroup.autoMount`)
   hostRoot: /run/cilium/cgroupv2
 
@@ -2298,3 +2306,5 @@ dnsProxy:
   proxyPort: 0
   # -- The maximum time the DNS proxy holds an allowed DNS response before sending it along. Responses are sent as soon as the datapath is updated with the new IP information.
   proxyResponseMaxDelay: 100ms
+  # -- DNS proxy operation mode (true/false, or unset to use version dependent defaults)
+  # enableTransparentMode: true
