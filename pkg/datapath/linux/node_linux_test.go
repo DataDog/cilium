@@ -4,6 +4,7 @@
 package linux
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"github.com/cilium/cilium/pkg/cidr"
 	"github.com/cilium/cilium/pkg/datapath"
 	"github.com/cilium/cilium/pkg/datapath/fake"
+	"github.com/cilium/cilium/pkg/datapath/linux/ipsec"
 	"github.com/cilium/cilium/pkg/datapath/linux/route"
 	"github.com/cilium/cilium/pkg/datapath/types"
 	"github.com/cilium/cilium/pkg/maps/nodemap"
@@ -637,6 +639,107 @@ func (s *linuxPrivilegedBaseTestSuite) TestNodeUpdateEncapsulation(c *check.C) {
 		c.Assert(err, check.IsNil)
 		c.Assert(foundRoute, check.IsNil)
 	}
+}
+
+// Tests that we don't leak XFRM policies and states as nodes come and go.
+func (s *linuxPrivilegedBaseTestSuite) TestNodeChurnXFRMLeaks(c *check.C) {
+
+	// Cover the XFRM configuration for IPAM modes cluster-pool, kubernetes, etc.
+	config := datapath.LocalNodeConfiguration{
+		EnableIPv4:  s.enableIPv4,
+		EnableIPv6:  s.enableIPv6,
+		EnableIPSec: true,
+	}
+	s.testNodeChurnXFRMLeaksWithConfig(c, config)
+}
+
+// Tests the same as linuxPrivilegedBaseTestSuite.TestNodeChurnXFRMLeaks just
+// for the subnet encryption. IPv4-only because of https://github.com/cilium/cilium/issues/27280.
+func (s *linuxPrivilegedIPv4OnlyTestSuite) TestNodeChurnXFRMLeaks(c *check.C) {
+	externalNodeDevice := "ipsec_interface"
+
+	// Cover the XFRM configuration for IPAM modes cluster-pool, kubernetes, etc.
+	config := datapath.LocalNodeConfiguration{
+		EnableIPv4:  s.enableIPv4,
+		EnableIPSec: true,
+	}
+	s.testNodeChurnXFRMLeaksWithConfig(c, config)
+
+	// In the case of subnet encryption (tested below), the IPsec logic
+	// retrieves the IP address of the encryption interface directly so we need
+	// a dummy interface.
+	removeDevice(externalNodeDevice)
+	err := setupDummyDevice(externalNodeDevice, net.ParseIP("1.1.1.1"), net.ParseIP("face::1"))
+	c.Assert(err, check.IsNil)
+	defer removeDevice(externalNodeDevice)
+	option.Config.EncryptInterface = []string{externalNodeDevice}
+
+	// Cover the XFRM configuration for subnet encryption: IPAM modes AKS and EKS.
+	_, ipv4PodSubnets, err := net.ParseCIDR("4.4.0.0/16")
+	c.Assert(err, check.IsNil)
+	c.Assert(ipv4PodSubnets, check.Not(check.IsNil))
+	config.IPv4PodSubnets = []*net.IPNet{ipv4PodSubnets}
+	_, ipv6PodSubnets, err := net.ParseCIDR("2001:aaaa::/64")
+	c.Assert(err, check.IsNil)
+	c.Assert(ipv6PodSubnets, check.Not(check.IsNil))
+	config.IPv6PodSubnets = []*net.IPNet{ipv6PodSubnets}
+	s.testNodeChurnXFRMLeaksWithConfig(c, config)
+}
+
+func (s *linuxPrivilegedBaseTestSuite) testNodeChurnXFRMLeaksWithConfig(c *check.C, config datapath.LocalNodeConfiguration) {
+	keys := bytes.NewReader([]byte("6 rfc4106(gcm(aes)) 44434241343332312423222114131211f4f3f2f1 128\n"))
+	_, _, err := ipsec.LoadIPSecKeys(keys)
+	c.Assert(err, check.IsNil)
+
+	dpConfig := DatapathConfiguration{HostDevice: dummyHostDeviceName}
+	linuxNodeHandler := NewNodeHandler(dpConfig, s.nodeAddressing)
+	c.Assert(linuxNodeHandler, check.Not(check.IsNil))
+
+	err = linuxNodeHandler.NodeConfigurationChanged(config)
+	c.Assert(err, check.IsNil)
+
+	// Adding a node adds some XFRM states and policies.
+	node := nodeTypes.Node{
+		Name: "node",
+		IPAddresses: []nodeTypes.Address{
+			{IP: net.ParseIP("4.4.4.4"), Type: nodeaddressing.NodeCiliumInternalIP},
+			{IP: net.ParseIP("2001:aaaa::1"), Type: nodeaddressing.NodeCiliumInternalIP},
+		},
+		IPv4AllocCIDR: cidr.MustParseCIDR("4.4.4.0/24"),
+		IPv6AllocCIDR: cidr.MustParseCIDR("2001:aaaa::/96"),
+	}
+	err = linuxNodeHandler.NodeAdd(node)
+	c.Assert(err, check.IsNil)
+
+	states, err := netlink.XfrmStateList(netlink.FAMILY_ALL)
+	c.Assert(err, check.IsNil)
+	c.Assert(len(states), check.Not(check.Equals), 0)
+	policies, err := netlink.XfrmPolicyList(netlink.FAMILY_ALL)
+	c.Assert(err, check.IsNil)
+	c.Assert(countXFRMPolicies(policies), check.Not(check.Equals), 0)
+
+	// Removing the node removes those XFRM states and policies.
+	err = linuxNodeHandler.NodeDelete(node)
+	c.Assert(err, check.IsNil)
+
+	states, err = netlink.XfrmStateList(netlink.FAMILY_ALL)
+	c.Assert(err, check.IsNil)
+	c.Assert(len(states), check.Equals, 0)
+	policies, err = netlink.XfrmPolicyList(netlink.FAMILY_ALL)
+	c.Assert(err, check.IsNil)
+	c.Assert(countXFRMPolicies(policies), check.Equals, 0)
+}
+
+// Counts the number of XFRM policies excluding the catch-all default-drop one.
+// That one is always installed and shouldn't be removed.
+func countXFRMPolicies(policies []netlink.XfrmPolicy) int {
+	nbPolicies := 0
+	for _, policy := range policies {
+		if policy.Action != netlink.XFRM_POLICY_BLOCK {
+			nbPolicies++
+		}
+	}
+	return nbPolicies
 }
 
 func lookupDirectRoute(CIDR *cidr.CIDR, nodeIP net.IP) ([]netlink.Route, error) {

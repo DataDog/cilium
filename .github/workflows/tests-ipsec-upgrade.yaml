@@ -52,7 +52,7 @@ concurrency:
 
 env:
   # renovate: datasource=github-releases depName=cilium/cilium-cli
-  cilium_cli_version: v0.15.14
+  cilium_cli_version: v0.15.19
   cilium_cli_ci_version:
   check_url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
@@ -75,7 +75,7 @@ jobs:
       fail-fast: false
       max-parallel: 16
       matrix:
-        config: ['5.4', '5.10', 'bpf-next']
+        config: ['5.4', '5.10', '6.1', 'bpf-next']
         mode: ['minor', 'patch']
         include:
           # Define three config sets
@@ -98,6 +98,17 @@ jobs:
             endpoint-routes: 'true'
             ipv6: 'false' # due to https://github.com/cilium/cilium/issues/23461
 
+          - config: '6.1'
+            # renovate: datasource=docker depName=quay.io/lvh-images/kind
+            kernel: '6.1-20231026.065108'
+            kube-proxy: 'iptables'
+            kpr: 'disabled'
+            tunnel: 'vxlan'
+            encryption: 'ipsec'
+            endpoint-routes: 'false'
+            # https://github.com/cilium/cilium/issues/29805#issuecomment-1855600171
+            ipv6: 'false'
+
           - config: 'bpf-next'
             # We don't want to update bpf-next after branching
             kernel: 'bpf-next-20230420.212204'
@@ -117,23 +128,31 @@ jobs:
             mode: 'minor'
             name: '2'
 
-          - config: 'bpf-next'
+          - config: '6.1'
             mode: 'minor'
             name: '3'
 
-          - config: '5.4'
-            mode: 'patch'
+          - config: 'bpf-next'
+            mode: 'minor'
             name: '4'
 
-          - config: '5.10'
+          - config: '5.4'
             mode: 'patch'
             name: '5'
 
-          - config: 'bpf-next'
+          - config: '5.10'
             mode: 'patch'
             name: '6'
 
-    timeout-minutes: 60
+          - config: '6.1'
+            mode: 'patch'
+            name: '7'
+
+          - config: 'bpf-next'
+            mode: 'patch'
+            name: '8'
+
+    timeout-minutes: 70
     steps:
       - name: Checkout context ref (trusted)
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
@@ -233,48 +252,35 @@ jobs:
 
       - name: Install Cilium CLI-cli
         if: ${{ steps.vars.outputs.downgrade_version != '' }}
-        uses: cilium/cilium-cli@829ae9b4d2c65104343051ad77b618b92a2c2b75 # v0.15.3
+        uses: cilium/cilium-cli@32109b32259a487c803648a3c9463cdcafa4c0c3 # v0.15.19
         with:
           release-version: ${{ env.cilium_cli_version }}
           ci-version: ${{ env.cilium_cli_ci_version }}
           binary-name: cilium-cli
           binary-dir: ./
 
-      - name: Provision LVH VMs
+      - name: Set Kind params
         if: ${{ steps.vars.outputs.downgrade_version != '' }}
-        uses: cilium/little-vm-helper@908ab1ff8a596a03cd5221a1f8602dc44c3f906d # v0.0.12
-        with:
-          test-name: ipsec-upgrade
-          image-version: ${{ matrix.kernel }}
-          host-mount: ./
-          cpu: 4
-          mem: '12G'
-          dns-resolver: '1.1.1.1'
-          install-dependencies: 'true'
-          cmd: |
-            git config --global --add safe.directory /host
+        id: kind-params
+        shell: bash
+        run: |
+          IP_FAM="dual"
+          if [ "${{ matrix.ipv6 }}" == "false" ]; then
+            IP_FAM="ipv4"
+          fi
+          echo params="\"\" 3 \"\" \"\" ${{ matrix.kube-proxy }} $IP_FAM" >> $GITHUB_OUTPUT
 
-      - name: Setup K8s cluster (${{ matrix.name }})
+      - name: Provision K8s on LVH VM
         if: ${{ steps.vars.outputs.downgrade_version != '' }}
-        uses: cilium/little-vm-helper@908ab1ff8a596a03cd5221a1f8602dc44c3f906d # v0.0.12
+        uses: cilium/cilium/.github/actions/lvh-kind@v1.13
         with:
-          provision: 'false'
-          cmd: |
-            cd /host/
-
-            IP_FAM="dual"
-            if [ "${{ matrix.ipv6 }}" == "false" ]; then
-              IP_FAM="ipv4"
-            fi
-            ./contrib/scripts/kind.sh "" 3 "" "" "${{ matrix.kube-proxy }}" \$IP_FAM
-
-            kubectl patch node kind-worker3 --type=json -p='[{"op":"add","path":"/metadata/labels/cilium.io~1no-schedule","value":"true"}]'
-            kubectl create -n kube-system secret generic cilium-ipsec-keys \
-                --from-literal=keys="3 rfc4106(gcm(aes)) $(echo $(dd if=/dev/urandom count=20 bs=1 2> /dev/null | xxd -p -c 64)) 128"
-
-            mkdir -p cilium-junits
+          test-name: e2e-conformance
+          kernel: ${{ matrix.kernel }}
+          kind-params: "${{ steps.kind-params.outputs.params }}"
+          kind-image-vsn: ${k8s_version}
 
       - name: Wait for images to be available
+        if: ${{ steps.vars.outputs.downgrade_version != '' }}
         timeout-minutes: 30
         shell: bash
         run: |
@@ -284,31 +290,30 @@ jobs:
 
       - name: Install Cilium ${{ steps.vars.outputs.downgrade_version }} (${{ matrix.name }})
         if: ${{ steps.vars.outputs.downgrade_version != '' }}
-        uses: cilium/little-vm-helper@908ab1ff8a596a03cd5221a1f8602dc44c3f906d # v0.0.12
-        with:
-          provision: 'false'
-          cmd: |
-            cd /host/
+        shell: bash
+        run: |
+          kubectl patch node kind-worker3 --type=json -p='[{"op":"add","path":"/metadata/labels/cilium.io~1no-schedule","value":"true"}]'
+          kubectl create -n kube-system secret generic cilium-ipsec-keys \
+              --from-literal=keys="3 rfc4106(gcm(aes)) $(echo $(dd if=/dev/urandom count=20 bs=1 2> /dev/null | xxd -p -c 64)) 128"
 
-            CILIUM_CLI_MODE=helm ./cilium-cli install \
-              ${{ steps.cilium-stable-config.outputs.config }}
+          mkdir -p cilium-junits
 
-            ./cilium-cli status --wait
-            kubectl get pods --all-namespaces -o wide
-            kubectl -n kube-system exec daemonset/cilium -- cilium status
+          CILIUM_CLI_MODE=helm ./cilium-cli install \
+            ${{ steps.cilium-stable-config.outputs.config }}
+
+          ./cilium-cli status --wait
+          kubectl get pods --all-namespaces -o wide
+          kubectl -n kube-system exec daemonset/cilium -- cilium status
 
       - name: Start conn-disrupt-test
         if: ${{ steps.vars.outputs.downgrade_version != '' }}
-        uses: cilium/little-vm-helper@908ab1ff8a596a03cd5221a1f8602dc44c3f906d # v0.0.12
-        with:
-          provision: 'false'
-          cmd: |
-            cd /host/
-
-            # Create pods which establish long lived connections. It will be used by
-            # subsequent connectivity tests with --include-conn-disrupt-test to catch any
-            # interruption in such flows.
-            ./cilium-cli connectivity test --include-conn-disrupt-test --conn-disrupt-test-setup
+        shell: bash
+        run: |
+          # Create pods which establish long lived connections. It will be used by
+          # subsequent connectivity tests with --include-conn-disrupt-test to catch any
+          # interruption in such flows.
+          ./cilium-cli connectivity test --include-conn-disrupt-test --conn-disrupt-test-setup \
+            --conn-disrupt-dispatch-interval 0ms
 
       - name: Upgrade Cilium & Test (${{ matrix.name }})
         if: ${{ steps.vars.outputs.downgrade_version != '' }}
@@ -316,8 +321,6 @@ jobs:
         with:
           job-name: ipsec-upgrade-${{ matrix.name }}
           operation-cmd: |
-            cd /host/
-
             CILIUM_CLI_MODE=helm ./cilium-cli upgrade \
               ${{ steps.cilium-newest-config.outputs.config }}
 
@@ -330,11 +333,10 @@ jobs:
         uses: cilium/cilium/.github/actions/conn-disrupt-test@v1.13
         with:
           job-name: ipsec-downgrade-${{ matrix.name }}
-          # Disable no-missed-tail-calls due to https://github.com/cilium/cilium/issues/26739
-          extra-connectivity-test-flags: --test '!no-missed-tail-calls'
+          # Disable no-unexpected-packet-drops (formerly no-missed-tail-calls)
+          # due to https://github.com/cilium/cilium/issues/26739
+          extra-connectivity-test-flags: --expected-drop-reasons "+Missed tail call,+Failed to update or lookup TC buffer"
           operation-cmd: |
-            cd /host/
-
             CILIUM_CLI_MODE=helm ./cilium-cli upgrade \
               ${{ steps.cilium-stable-config.outputs.config }}
 
@@ -344,17 +346,12 @@ jobs:
 
       - name: Fetch artifacts
         if: ${{ steps.vars.outputs.downgrade_version != '' && !success() }}
-        uses: cilium/little-vm-helper@908ab1ff8a596a03cd5221a1f8602dc44c3f906d # v0.0.12
-        with:
-          provision: 'false'
-          cmd: |
-            cd /host
-            kubectl get pods --all-namespaces -o wide
-            ./cilium-cli status
-            mkdir -p cilium-sysdumps
-            ./cilium-cli sysdump --output-filename cilium-sysdump-${{ matrix.name }}-final
-            # To debug https://github.com/cilium/cilium/issues/26062
-            head -n -0 /proc/buddyinfo /proc/pagetypeinfo
+        shell: bash
+        run: |
+          kubectl get pods --all-namespaces -o wide
+          ./cilium-cli status
+          mkdir -p cilium-sysdumps
+          ./cilium-cli sysdump --output-filename cilium-sysdump-${{ matrix.name }}-final
 
       - name: Upload artifacts
         if: ${{ steps.vars.outputs.downgrade_version != '' && !success() }}

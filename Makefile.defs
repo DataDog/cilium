@@ -34,7 +34,7 @@ DOCKER_BUILD_FLAGS?=
 
 # use gsed if available, otherwise use sed.
 # gsed is needed for MacOS to make in-place replacement work correctly.
-SED ?= $(if $(shell command -v gsed), gsed, sed)
+SED ?= $(if $(shell command -v gsed),gsed,sed)
 
 # Set DOCKER_DEV_ACCOUNT with "cilium" by default
 ifeq ($(DOCKER_DEV_ACCOUNT),)
@@ -133,7 +133,7 @@ CILIUM_DATAPATH_SHA256=$(shell cd $(ROOT_DIR); cat $(BPF_SRCFILES) | sha256sum |
 GO_BUILD_LDFLAGS += -X "github.com/cilium/cilium/pkg/datapath/loader.DatapathSHA256=$(CILIUM_DATAPATH_SHA256)"
 
 GO_BUILD_FLAGS += -mod=vendor
-GO_TEST_FLAGS += -mod=vendor
+GO_TEST_FLAGS += -mod=vendor -vet=all
 GO_CLEAN_FLAGS += -mod=vendor
 
 GO_BUILD = CGO_ENABLED=0 $(GO) build

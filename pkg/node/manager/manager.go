@@ -68,6 +68,7 @@ type Configuration interface {
 	TunnelingEnabled() bool
 	RemoteNodeIdentitiesEnabled() bool
 	NodeEncryptionEnabled() bool
+	NodeIpsetNeeded() bool
 }
 
 // Notifier is the interface the wraps Subscribe and Unsubscribe. An
@@ -382,7 +383,7 @@ func (m *Manager) NodeUpdated(n nodeTypes.Node) {
 		logfields.NodeName:    n.Name,
 	}).Info("Node updated")
 	if log.Logger.IsLevelEnabled(logrus.DebugLevel) {
-		log.Debugf("Received node update event from %s: %#v", n.Source, n)
+		log.WithField(logfields.Node, n.LogRepr()).Debugf("Received node update event from %s", n.Source)
 	}
 
 	nodeIdentity := n.Identity()
@@ -419,7 +420,7 @@ func (m *Manager) NodeUpdated(n nodeTypes.Node) {
 			tunnelIP = nodeIP
 		}
 
-		if option.Config.NodeIpsetNeeded() && address.Type == addressing.NodeInternalIP {
+		if m.conf.NodeIpsetNeeded() && address.Type == addressing.NodeInternalIP {
 			iptables.AddToNodeIpset(address.IP)
 		}
 
@@ -527,18 +528,18 @@ func (m *Manager) NodeUpdated(n nodeTypes.Node) {
 		// Delete the old node IP addresses if they have changed in this node.
 		var oldNodeIPAddrs []string
 		for _, address := range oldNode.IPAddresses {
-			if option.Config.NodeIpsetNeeded() && address.Type == addressing.NodeInternalIP &&
-				!slices.Contains(ipsAdded, address.IP.String()) {
-				iptables.RemoveFromNodeIpset(address.IP)
-			}
-			if skipIPCache(address) {
-				continue
-			}
 			var prefix netip.Prefix
 			if v4 := address.IP.To4(); v4 != nil {
 				prefix = ip.IPToNetPrefix(v4)
 			} else {
 				prefix = ip.IPToNetPrefix(address.IP.To16())
+			}
+			if m.conf.NodeIpsetNeeded() && address.Type == addressing.NodeInternalIP &&
+				!slices.Contains(ipsAdded, prefix.String()) {
+				iptables.RemoveFromNodeIpset(address.IP)
+			}
+			if skipIPCache(address) {
+				continue
 			}
 			oldNodeIPAddrs = append(oldNodeIPAddrs, prefix.String())
 		}
@@ -679,7 +680,7 @@ func (m *Manager) NodeDeleted(n nodeTypes.Node) {
 	}
 
 	for _, address := range entry.node.IPAddresses {
-		if option.Config.NodeIpsetNeeded() && address.Type == addressing.NodeInternalIP {
+		if m.conf.NodeIpsetNeeded() && address.Type == addressing.NodeInternalIP {
 			iptables.RemoveFromNodeIpset(address.IP)
 		}
 

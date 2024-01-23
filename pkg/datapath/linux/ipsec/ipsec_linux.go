@@ -83,7 +83,7 @@ var (
 
 	// ipSecKeysGlobal can be accessed by multiple subsystems concurrently,
 	// so it should be accessed only through the getIPSecKeys and
-	// loadIPSecKeys functions, which will ensure the proper lock is held
+	// LoadIPSecKeys functions, which will ensure the proper lock is held
 	ipSecKeysGlobal = make(map[string]*ipSecKey)
 
 	// ipSecCurrentKeySPI is the SPI of the IPSec currently in use
@@ -761,10 +761,10 @@ func LoadIPSecKeysFile(path string) (int, uint8, error) {
 		return 0, 0, err
 	}
 	defer file.Close()
-	return loadIPSecKeys(file)
+	return LoadIPSecKeys(file)
 }
 
-func loadIPSecKeys(r io.Reader) (int, uint8, error) {
+func LoadIPSecKeys(r io.Reader) (int, uint8, error) {
 	var spi uint8
 	var keyLen int
 
@@ -1134,21 +1134,4 @@ func StartStaleKeysReclaimer(ctx context.Context) {
 			}
 		}
 	}()
-}
-
-// We need to install xfrm state for the local router (cilium_host) early
-// in daemon init path. This is to ensure that we have the xfrm state in
-// place before we advertise the routerIP where other nodes may potentially
-// pick it up and start sending traffic to us. This was previously racing
-// and creating XfrmInNoState errors because other nodes picked up node
-// update before Xfrm config logic was in place. So special case init the
-// rule we need early in init flow.
-func Init() error {
-	outerLocalIP := node.GetInternalIPv4Router()
-	wildcardIP := net.ParseIP("0.0.0.0")
-	localCIDR := node.GetIPv4AllocRange().IPNet
-	localWildcardIP := &net.IPNet{IP: wildcardIP, Mask: net.IPv4Mask(0, 0, 0, 0)}
-
-	_, err := UpsertIPsecEndpoint(localCIDR, localWildcardIP, outerLocalIP, wildcardIP, 0, IPSecDirIn, false)
-	return err
 }
