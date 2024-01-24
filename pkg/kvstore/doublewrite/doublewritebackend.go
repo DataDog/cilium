@@ -115,11 +115,11 @@ func (d *doubleWriteBackend) RunGC(
 
 func (d *doubleWriteBackend) UpdateKey(ctx context.Context, id idpool.ID, key allocator.AllocatorKey, reliablyMissing bool) error {
 	log.WithFields(logrus.Fields{logfields.Identity: id.String(), logfields.Key: key.String(), "reliablyMissing": reliablyMissing}).Info("Updating key")
-	crdErr := d.crdBackend.UpdateKey(ctx, id, key, reliablyMissing)
+	crdErr := d.crdBackend.UpdateKey(ctx, id, key, true)
 	if crdErr != nil {
 		log.WithFields(logrus.Fields{logfields.Identity: id.String(), logfields.Key: key.String(), "reliablyMissing": reliablyMissing, "error": crdErr}).Error("CRD backend failed to update key")
 	}
-	kvStoreErr := d.kvstoreBackend.UpdateKey(ctx, id, key, reliablyMissing)
+	kvStoreErr := d.kvstoreBackend.UpdateKey(ctx, id, key, true)
 	if kvStoreErr != nil {
 		log.WithFields(logrus.Fields{logfields.Identity: id.String(), logfields.Key: key.String(), "reliablyMissing": reliablyMissing, "error": crdErr}).Error("KVStore backend failed to update key")
 	}
@@ -131,11 +131,11 @@ func (d *doubleWriteBackend) UpdateKey(ctx context.Context, id idpool.ID, key al
 
 func (d *doubleWriteBackend) UpdateKeyIfLocked(ctx context.Context, id idpool.ID, key allocator.AllocatorKey, reliablyMissing bool, lock kvstore.KVLocker) error {
 	log.WithFields(logrus.Fields{logfields.Identity: id.String(), logfields.Key: key.String(), "reliablyMissing": reliablyMissing, "lock": lock}).Info("Updating key with lock")
-	crdErr := d.crdBackend.UpdateKeyIfLocked(ctx, id, key, reliablyMissing, lock)
+	crdErr := d.crdBackend.UpdateKeyIfLocked(ctx, id, key, true, lock)
 	if crdErr != nil {
 		log.WithFields(logrus.Fields{logfields.Identity: id.String(), logfields.Key: key.String(), "reliablyMissing": reliablyMissing, "lock": lock, "error": crdErr}).Error("CRD backend failed to update key with lock")
 	}
-	kvStoreErr := d.kvstoreBackend.UpdateKeyIfLocked(ctx, id, key, reliablyMissing, lock)
+	kvStoreErr := d.kvstoreBackend.UpdateKeyIfLocked(ctx, id, key, true, lock)
 	if kvStoreErr != nil {
 		log.WithFields(logrus.Fields{logfields.Identity: id.String(), logfields.Key: key.String(), "reliablyMissing": reliablyMissing, "lock": lock, "error": crdErr}).Error("KVStore backend failed to update key with lock")
 	}
