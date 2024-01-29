@@ -43,6 +43,10 @@ type GlobalIdentity struct {
 	metadata map[any]any
 }
 
+func (gi GlobalIdentity) String() string {
+	return fmt.Sprintf("%s\n Metadata: %s", gi.LabelArray.String(), gi.metadata)
+}
+
 // GetKey encodes an Identity as string
 func (gi GlobalIdentity) GetKey() string {
 	var str strings.Builder
