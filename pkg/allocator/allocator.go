@@ -591,6 +591,8 @@ func (a *Allocator) lockedAllocate(ctx context.Context, key AllocatorKey) (idpoo
 	// Notify pool that leased ID is now in-use.
 	a.idPool.Use(unmaskedID)
 
+	log.WithFields(logrus.Fields{logfields.Identity: id.String(), logfields.Key: key.String()}).Info("Successfully allocated id, acquiring reference")
+
 	if err = a.backend.AcquireReference(ctx, id, key, lock); err != nil {
 		// We will leak the master key here as the key has already been
 		// exposed and may be in use by other nodes. The garbage
