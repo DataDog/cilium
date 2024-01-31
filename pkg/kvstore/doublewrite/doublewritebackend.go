@@ -172,10 +172,14 @@ func (d *doubleWriteBackend) GetByID(ctx context.Context, id idpool.ID) (allocat
 }
 
 func (d *doubleWriteBackend) Release(ctx context.Context, id idpool.ID, key allocator.AllocatorKey) (err error) {
-	if d.readFromKVStore {
-		return d.kvstoreBackend.Release(ctx, id, key)
+	kvStoreErr := d.kvstoreBackend.Release(ctx, id, key)
+	if kvStoreErr != nil {
+		log.WithFields(logrus.Fields{logfields.Identity: id.String(), logfields.Key: key.String(), "error": kvStoreErr}).Error("KVStore backend failed to release identity")
 	}
 	// Release does nothing in the CRD backend
+	if d.readFromKVStore {
+		return kvStoreErr
+	}
 	return nil
 }
 
