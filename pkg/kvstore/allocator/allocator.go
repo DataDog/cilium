@@ -469,7 +469,8 @@ func (k *KVStoreBackend) RunGC(
 			continue
 		}
 
-		if identityID, err := strconv.ParseUint(items[len(items)-1], 10, 64); err != nil {
+		identityID, err := strconv.ParseUint(items[len(items)-1], 10, 64)
+		if err != nil {
 			log.WithField(fieldKey, key).WithError(err).Warning("Parse identity failed, skipping")
 			continue
 		} else {
@@ -499,8 +500,14 @@ func (k *KVStoreBackend) RunGC(
 		}
 
 		hasUsers := false
-		for prefix := range pairs {
-			if prefixMatchesKey(valueKeyPrefix, prefix) {
+		// Verify that the key is used and is actually assigned to
+		for prefix, referencedId := range pairs {
+			referencedIdParsed, err := strconv.ParseUint(string(referencedId.Data), 10, 64)
+			if err != nil {
+				log.WithField(fieldID, referencedId).WithError(err).Warning("Parsing of identity failed, skipping")
+				continue
+			}
+			if prefixMatchesKey(valueKeyPrefix, prefix) && referencedIdParsed == identityID {
 				hasUsers = true
 				break
 			}
