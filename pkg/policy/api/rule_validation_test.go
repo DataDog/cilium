@@ -5,9 +5,11 @@ package api
 
 import (
 	"fmt"
+	"testing"
 
 	. "github.com/cilium/checkmate"
 	"github.com/cilium/proxy/pkg/policy/api/kafka"
+	"github.com/stretchr/testify/assert"
 
 	slim_metav1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/apis/meta/v1"
 	"github.com/cilium/cilium/pkg/labels"
@@ -1073,4 +1075,90 @@ func (s *PolicyAPITestSuite) TestL7RuleDirectionalitySupport(c *C) {
 	err = invalidDNSRule.Sanitize()
 	c.Assert(err, Not(IsNil))
 
+}
+
+func BenchmarkCIDRSanitize(b *testing.B) {
+	cidr4 := CIDRRule{Cidr: "192.168.100.200/24"}
+	cidr6 := CIDRRule{Cidr: "2001:0db8:85a3:0000:0000:8a2e:0370:7334/128"}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		err := cidr4.sanitize()
+		if err != nil {
+			b.Fatal(err)
+		}
+		err = cidr6.sanitize()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func TestSanitizeDefaultDeny(t *testing.T) {
+	for _, tc := range []struct {
+		before      Rule
+		wantIngress bool
+		wantEgress  bool
+	}{
+		{
+			before: Rule{},
+		},
+		{
+			before: Rule{
+				Ingress: []IngressRule{{}},
+			},
+			wantIngress: true,
+		},
+		{
+			before: Rule{
+				IngressDeny: []IngressDenyRule{{}},
+			},
+			wantIngress: true,
+		},
+		{
+			before: Rule{
+				Ingress:     []IngressRule{{}},
+				IngressDeny: []IngressDenyRule{{}},
+			},
+			wantIngress: true,
+		},
+		{
+			before: Rule{
+				Egress:     []EgressRule{{}},
+				EgressDeny: []EgressDenyRule{{}},
+			},
+			wantEgress: true,
+		}, {
+			before: Rule{
+				EgressDeny: []EgressDenyRule{{}},
+			},
+			wantEgress: true,
+		},
+		{
+			before: Rule{
+				Egress: []EgressRule{{}},
+			},
+			wantEgress: true,
+		},
+		{
+			before: Rule{
+				Egress:  []EgressRule{{}},
+				Ingress: []IngressRule{{}},
+			},
+			wantEgress:  true,
+			wantIngress: true,
+		},
+	} {
+		b := tc.before
+		b.EndpointSelector = EndpointSelector{LabelSelector: &slim_metav1.LabelSelector{}}
+
+		err := b.Sanitize()
+		assert.Nil(t, err)
+		assert.NotNil(t, b.EnableDefaultDeny.Egress)
+		assert.NotNil(t, b.EnableDefaultDeny.Ingress)
+
+		assert.Equal(t, tc.wantEgress, *b.EnableDefaultDeny.Egress, "Rule.EnableDefaultDeny.Egress should match")
+		assert.Equal(t, tc.wantIngress, *b.EnableDefaultDeny.Ingress, "Rule.EnableDefaultDeny.Ingress should match")
+	}
 }
