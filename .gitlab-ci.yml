@@ -1,12 +1,12 @@
 variables:
   CI_DOCKER_IMAGE: registry.ddbuild.io/images/docker:24.0.4-gbi-focal
-  DOCKER_CONTEXT: "."
+  DOCKER_CTX: "."
   DOCKER_BUILD_ARGS: ""
 
 .build-docker-image: &build-docker-image
   stage: build
   image: $CI_DOCKER_IMAGE
-  tags: ["runner:docker"]
+  tags: ["arch:arm64"]
   rules:
     # Automatically run the pipeline for all pushed tags
     - if: $CI_COMMIT_TAG
@@ -15,15 +15,15 @@ variables:
       aud: image-integrity
   script:
     - set -x
-    - builder=$(docker buildx create --use)
-    - trap "docker buildx rm $builder" EXIT
     # Construct valid --build-args arguments from the DOCKER_BUILD_ARGS variable
     - BUILD_ARGS=""; IFS=$'\n'; for arg in $DOCKER_BUILD_ARGS; do BUILD_ARGS+=" $(echo "--build-arg $arg")"; done; IFS=$' ';
     - IMAGE_TAG="$CI_COMMIT_TAG"
     - if [ "$TARGET" = "debug" ] ; then IMAGE_TAG="$IMAGE_TAG-debug" ; fi
     - IMAGE_REF="registry.ddbuild.io/$IMAGE_NAME:$IMAGE_TAG"
     - METADATA_FILE=$(mktemp)
-    - docker buildx build --platform linux/amd64,linux/arm64 --tag $IMAGE_REF --file $DOCKERFILE_PATH $BUILD_ARGS --label CILIUM_VERSION=$(cat VERSION) --label target=prod --target $TARGET --push --metadata-file $METADATA_FILE $DOCKER_CONTEXT
+    # Omit git information from the build
+    - sed -i '/^GO_BUILD_FLAGS =/a GO_BUILD_FLAGS += -buildvcs=false' Makefile.defs
+    - docker buildx build --platform linux/amd64,linux/arm64 --tag $IMAGE_REF --file $DOCKERFILE_PATH $BUILD_ARGS --label CILIUM_VERSION=$(cat VERSION) --label target=prod --target $TARGET --push --metadata-file $METADATA_FILE $DOCKER_CTX
     - ddsign sign $IMAGE_REF --docker-metadata-file $METADATA_FILE
 
 build-docker-image-operator:
@@ -51,7 +51,7 @@ build-docker-image-runtime:
       CILIUM_BPFTOOL_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-bpftool:d3093f6aeefef8270306011109be623a7e80ad1b@sha256:2c28c64195dee20ab596d70a59a4597a11058333c6b35a99da32c339dcd7df56
       CILIUM_IPROUTE2_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-iproute2:f882e3fd516184703eea5ee9b3b915748b5d4ee8@sha256:f22b8aaf01952cf4b2ec959f0b8f4d242b95ce279480fbd73fded606ce0c3fa4
       CILIUM_IPTABLES_IMAGE=registry.ddbuild.io/images/mirror/cilium/iptables:67f517af50e18f64cd12625021f1c39246bb4f92@sha256:d075f03e89aacf51908346ec8ed5d251b8d3ad528ce30a710fcd074cdf91f11d
-    DOCKER_CONTEXT: "./images/runtime"
+    DOCKER_CTX: "./images/runtime"
     TARGET: release
 
 build-docker-image-cilium:
