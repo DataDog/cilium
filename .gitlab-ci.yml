@@ -26,7 +26,7 @@ before_script:
     - IMAGE_REF="registry.ddbuild.io/$IMAGE_NAME:$IMAGE_TAG"
     - METADATA_FILE=$(mktemp)
     # Omit git information from the build
-    - sed -i '/^GO_BUILD_FLAGS =/a GO_BUILD_FLAGS += -buildvcs=false' Makefile.defs
+    # - sed -i '/^GO_BUILD_FLAGS =/a GO_BUILD_FLAGS += -buildvcs=false' Makefile.defs
     - docker buildx build --platform linux/amd64,linux/arm64 --tag $IMAGE_REF --file $DOCKERFILE_PATH $BUILD_ARGS --label CILIUM_VERSION=$(cat VERSION) --label target=prod --target $TARGET --push --metadata-file $METADATA_FILE $DOCKER_CTX
     - ddsign sign $IMAGE_REF --docker-metadata-file $METADATA_FILE
 
