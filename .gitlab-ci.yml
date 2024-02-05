@@ -21,7 +21,7 @@ before_script:
     - set -x
     # Construct valid --build-args arguments from the DOCKER_BUILD_ARGS variable
     - BUILD_ARGS=""; IFS=$'\n'; for arg in $DOCKER_BUILD_ARGS; do BUILD_ARGS+=" $(echo "--build-arg $arg")"; done; IFS=$' ';
-    - IMAGE_TAG="$CI_COMMIT_TAG"
+    - IMAGE_TAG="$CI_COMMIT_HASH" # TODO
     - if [ "$TARGET" = "debug" ] ; then IMAGE_TAG="$IMAGE_TAG-debug" ; fi
     - IMAGE_REF="registry.ddbuild.io/$IMAGE_NAME:$IMAGE_TAG"
     - METADATA_FILE=$(mktemp)
