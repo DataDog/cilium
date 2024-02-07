@@ -422,7 +422,7 @@ func initializeFlags() {
 	flags.String(option.IdentityAllocationMode, option.IdentityAllocationModeKVstore, "Method to use for identity allocation")
 	option.BindEnv(Vp, option.IdentityAllocationMode)
 
-	flags.Bool(option.IdentityAllocationModeDoubleWriteReadFromKVStore, true, "Whether to read from the KVStore when using the Double-Write allocation mode")
+	flags.Bool(option.IdentityAllocationModeDoubleWriteReadFromKVStore, true, "Whether to read from the KVStore when using the Double-Write identity allocation mode")
 	option.BindEnv(Vp, option.IdentityAllocationModeDoubleWriteReadFromKVStore)
 
 	flags.String(option.IPAM, ipamOption.IPAMClusterPool, "Backend to use for IPAM")

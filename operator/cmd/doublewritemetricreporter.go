@@ -18,7 +18,7 @@ import (
 
 func getCRDIdentityIds() (identityIds []idpool.ID, markedForDeletionCount int, err error) {
 	if identityStore == nil {
-		return []idpool.ID{}, 0, errors.New("identity store cache is not ready yet")
+		return []idpool.ID{}, 0, errors.New("Identity store cache is not ready yet")
 	}
 	markedForDeletionCount = 0
 	for _, identity := range identityStore.List() {

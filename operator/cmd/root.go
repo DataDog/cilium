@@ -661,7 +661,7 @@ func (legacy *legacyOnLeader) onStart(_ hive.HookContext) error {
 		}
 	case option.IdentityAllocationModeDoubleWrite:
 		if !legacy.clientset.IsEnabled() {
-			log.Fatal("CRD Identity allocation mode requires k8s to be configured.")
+			log.Fatal("Double Write identity allocation mode requires k8s to be configured.")
 		}
 
 		startManagingK8sIdentities(legacy.ctx, &legacy.wg, legacy.clientset)

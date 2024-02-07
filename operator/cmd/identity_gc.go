@@ -47,7 +47,6 @@ func startKvstoreIdentityGC() {
 		gcTimer, gcTimerDone := inctimer.New()
 		defer gcTimerDone()
 		for {
-			log.Info("Running KVStore identity garbage collector")
 			now := time.Now()
 			keysToDelete2, gcStats, err := a.RunGC(identityRateLimiter, keysToDelete)
 			gcDuration := time.Since(now)
@@ -85,7 +84,7 @@ func startKvstoreIdentityGC() {
 
 			log.WithFields(logrus.Fields{
 				"identities-to-delete": keysToDelete,
-			}).Info("Will delete KVStore identities if they are still unused")
+			}).Debug("Will delete KVStore identities if they are still unused")
 		}
 	}()
 }

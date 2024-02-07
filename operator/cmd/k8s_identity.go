@@ -79,10 +79,10 @@ var (
 // delete identities that have not had its heartbeat lifesign updated since
 // option.Config.IdentityHeartbeatTimeout
 func identityGCIteration(ctx context.Context, clientset k8sClient.Clientset) {
-	log.Info("Running CRD identity garbage collector")
+	log.Debug("Running CRD identity garbage collector")
 
 	if identityStore == nil {
-		log.Info("CRD Identity store cache is not ready yet")
+		log.Debug("Identity store cache is not ready yet")
 		return
 	}
 	select {
@@ -133,7 +133,7 @@ func identityGCIteration(ctx context.Context, clientset k8sClient.Clientset) {
 
 			log.WithFields(logrus.Fields{
 				logfields.Identity: identity,
-			}).Infof("Deleting unused CRD identity; marked for deletion at %s", ts)
+			}).Debugf("Deleting unused CRD identity; marked for deletion at %s", ts)
 			if err := deleteIdentity(ctx, clientset, identity); err != nil {
 				log.WithError(err).WithFields(logrus.Fields{
 					logfields.Identity: identity,

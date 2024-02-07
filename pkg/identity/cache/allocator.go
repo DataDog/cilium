@@ -259,7 +259,7 @@ func (m *CachingIdentityAllocator) InitIdentityAllocator(client clientset.Interf
 			}
 
 		case option.IdentityAllocationModeDoubleWrite:
-			log.Debug("Identity allocation backed by CRD and KVStore")
+			log.Debugf("Double-Write Identity allocation mode (CRD and KVStore) with reads from KVStore = %t", option.Config.IdentityAllocationModeDoubleWriteReadFromKVStore)
 			backend, err = doublewrite.NewDoubleWriteBackend(doublewrite.DoubleWriteBackendConfiguration{
 				CRDBackendConfiguration: identitybackend.CRDBackendConfiguration{
 					NodeName: owner.GetNodeSuffix(),
