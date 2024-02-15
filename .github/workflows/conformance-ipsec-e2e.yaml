@@ -132,7 +132,7 @@ jobs:
           fi
 
           CILIUM_INSTALL_DEFAULTS="--wait \
-            --chart-directory=./install/kubernetes/cilium \
+            --chart-directory=./untrusted/install/kubernetes/cilium \
             --helm-set=image.repository=quay.io/${{ env.QUAY_ORGANIZATION_DEV }}/cilium-ci \
             --helm-set=image.useDigest=false \
             --helm-set=image.tag=${SHA} \
@@ -214,13 +214,7 @@ jobs:
           echo junit_type="${JUNIT}" >> $GITHUB_OUTPUT
           echo sha=${SHA} >> $GITHUB_OUTPUT
 
-      - name: Checkout pull request for Helm chart
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
-        with:
-          ref: ${{ steps.vars.outputs.sha }}
-          persist-credentials: false
-
-      - name: Install Cilium CLI-cli
+      - name: Install Cilium CLI
         uses: cilium/cilium-cli@32109b32259a487c803648a3c9463cdcafa4c0c3 # v0.15.19
         with:
           release-version: ${{ env.cilium_cli_version }}
@@ -239,11 +233,22 @@ jobs:
           echo params="--xdp --secondary-network \"\" 3 \"\" \"\" ${{ matrix.kube-proxy }} $IP_FAM" >> $GITHUB_OUTPUT
 
       - name: Provision K8s on LVH VM
-        uses: cilium/cilium/.github/actions/lvh-kind@v1.13
+        uses: ./.github/actions/lvh-kind
         with:
           test-name: e2e-conformance
           kernel: ${{ matrix.kernel }}
           kind-params: "${{ steps.kind-params.outputs.params }}"
+
+      # Warning: since this is a privileged workflow, subsequent workflow job
+      # steps must take care not to execute untrusted code.
+      - name: Checkout pull request branch (NOT TRUSTED)
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        with:
+          ref: ${{ steps.vars.outputs.sha }}
+          persist-credentials: false
+          path: untrusted
+          sparse-checkout: |
+            install/kubernetes/cilium
 
       - name: Wait for images to be available
         timeout-minutes: 10
@@ -278,7 +283,7 @@ jobs:
             --flush-ct
 
       - name: Rotate IPsec Key & Test (${{ join(matrix.*, ', ') }})
-        uses: cilium/cilium/.github/actions/conn-disrupt-test@v1.13
+        uses: ./.github/actions/conn-disrupt-test
         with:
           job-name: conformance-ipsec-e2e-key-rotation-${{ matrix.name }}
           extra-connectivity-test-flags: --test '!check-log-errors'
@@ -321,25 +326,46 @@ jobs:
 
       - name: Upload artifacts
         if: ${{ !success() }}
-        uses: actions/upload-artifact@a8a3f3ad30e3422c9c7b888a15615d19a852ae32 # v3.1.3
+        uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 # v4.3.0
         with:
-          name: cilium-sysdumps
+          name: cilium-sysdumps-${{ matrix.name }}
           path: cilium-sysdump-*.zip
-          retention-days: 5
 
       - name: Upload JUnits [junit]
         if: ${{ always() }}
-        uses: actions/upload-artifact@a8a3f3ad30e3422c9c7b888a15615d19a852ae32 # v3.1.3
+        uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 # v4.3.0
         with:
-          name: cilium-junits
+          name: cilium-junits-${{ matrix.name }}
           path: cilium-junits/*.xml
-          retention-days: 2
 
       - name: Publish Test Results As GitHub Summary
         if: ${{ always() }}
         uses: aanm/junit2md@332ebf0fddd34e91b03a832cfafaa826306558f9 # v0.0.3
         with:
           junit-directory: "cilium-junits"
+
+  merge-upload:
+    if: ${{ always() }}
+    name: Merge and Upload Artifacts
+    runs-on: ubuntu-latest
+    needs: setup-and-test
+    steps:
+      - name: Merge Sysdumps
+        if: ${{ needs.setup-and-test.result == 'failure' }}
+        uses: actions/upload-artifact/merge@26f96dfa697d77e81fd5907df203aa23a56210a8 # v4.3.0
+        with:
+          name: cilium-sysdumps
+          pattern: cilium-sysdumps-*
+          retention-days: 5
+          delete-merged: true
+        continue-on-error: true
+      - name: Merge JUnits
+        uses: actions/upload-artifact/merge@26f96dfa697d77e81fd5907df203aa23a56210a8 # v4.3.0
+        with:
+          name: cilium-junits
+          pattern: cilium-junits-*
+          retention-days: 5
+          delete-merged: true
 
   commit-status-final:
     if: ${{ always() }}

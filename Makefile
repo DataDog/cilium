@@ -40,12 +40,6 @@ SKIP_CUSTOMVET_CHECK ?= "false"
 
 JOB_BASE_NAME ?= cilium_test
 
-GO_MAJOR_AND_MINOR_VERSION := $(shell awk '/^go/ { print $$2 }' go.mod)
-GO_INSTALLED_MAJOR_AND_MINOR_VERSION := $(shell $(GO) version | sed 's/go version go\([0-9]\+\).\([0-9]\+\)\(.[0-9]\+\)\?.*/\1.\2/')
-
-GO_CONTAINER := $(CONTAINER_ENGINE) run --rm -v $(CURDIR):$(CURDIR) -w $(CURDIR) golang:$(GO_VERSION)
-GOIMPORTS_VERSION ?= v0.1.12
-
 TEST_LDFLAGS=-ldflags "-X github.com/cilium/cilium/pkg/kvstore.consulDummyAddress=https://consul:8443 \
 	-X github.com/cilium/cilium/pkg/kvstore.etcdDummyAddress=http://etcd:4002 \
 	-X github.com/cilium/cilium/pkg/datapath.DatapathSHA256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -280,7 +274,7 @@ generate-api: api/v1/openapi.yaml ## Generate cilium-agent client, model and ser
 		-f api/v1/openapi.yaml \
 		-r hack/spdx-copyright-header.txt
 	@# sort goimports automatically
-	-$(QUIET)$(GO_CONTAINER) bash -c "go install golang.org/x/tools/cmd/goimports@$(GOIMPORTS_VERSION) && ./contrib/scripts/format-api.sh api/v1/client/ api/v1/models/ api/v1/server/"
+	-$(QUIET)$(GO) run golang.org/x/tools/cmd/goimports -w ./api/v1/client ./api/v1/models ./api/v1/server
 
 generate-health-api: api/v1/health/openapi.yaml ## Generate cilium-health client, model and server code from openapi spec.
 	@$(ECHO_GEN)api/v1/health/openapi.yaml
@@ -297,7 +291,7 @@ generate-health-api: api/v1/health/openapi.yaml ## Generate cilium-health client
 		-f api/v1/health/openapi.yaml \
 		-r hack/spdx-copyright-header.txt
 	@# sort goimports automatically
-	-$(QUIET)$(GO_CONTAINER) bash -c "go install golang.org/x/tools/cmd/goimports@$(GOIMPORTS_VERSION) && ./contrib/scripts/format-api.sh api/v1/health/"
+	-$(QUIET)$(GO) run golang.org/x/tools/cmd/goimports -w ./api/v1/health
 
 generate-operator-api: api/v1/operator/openapi.yaml ## Generate cilium-operator client, model and server code from openapi spec.
 	@$(ECHO_GEN)api/v1/operator/openapi.yaml
@@ -314,7 +308,7 @@ generate-operator-api: api/v1/operator/openapi.yaml ## Generate cilium-operator 
 		-f api/v1/operator/openapi.yaml \
 		-r hack/spdx-copyright-header.txt
 	@# sort goimports automatically
-	-$(QUIET)$(GO_CONTAINER) bash -c "go install golang.org/x/tools/cmd/goimports@$(GOIMPORTS_VERSION) && ./contrib/scripts/format-api.sh api/v1/operator/"
+	-$(QUIET)$(GO) run golang.org/x/tools/cmd/goimports -w ./api/v1/operator
 
 generate-hubble-api: api/v1/flow/flow.proto api/v1/peer/peer.proto api/v1/observer/observer.proto api/v1/relay/relay.proto ## Generate hubble proto Go sources.
 	$(QUIET) $(MAKE) $(SUBMAKEOPTS) -C api/v1
@@ -546,7 +540,7 @@ kind-debug-agent: ## Create a local kind development environment with cilium-age
 	@echo " - 23401: cilium-agent (kind-control-plane)"
 	@echo " - 23411: cilium-agent (kind-worker)"
 
-precheck: check-go-version logging-subsys-field ## Peform build precheck for the source code.
+precheck: logging-subsys-field ## Peform build precheck for the source code.
 ifeq ($(SKIP_K8S_CODE_GEN_CHECK),"false")
 	@$(ECHO_CHECK) contrib/scripts/check-k8s-code-gen.sh
 	$(QUIET) contrib/scripts/check-k8s-code-gen.sh
@@ -617,14 +611,6 @@ postcheck: build ## Run Cilium build postcheck (update-cmdref, build documentati
 
 licenses-all: ## Generate file with all the License from dependencies.
 	@$(GO) run ./tools/licensegen > LICENSE.all || ( rm -f LICENSE.all ; false )
-
-check-go-version: ## Check locally install Go version against required Go version.
-ifneq ($(GO_MAJOR_AND_MINOR_VERSION),$(GO_INSTALLED_MAJOR_AND_MINOR_VERSION))
-	@echo "Installed Go version $(GO_INSTALLED_MAJOR_AND_MINOR_VERSION) does not match requested Go version $(GO_MAJOR_AND_MINOR_VERSION)"
-	@exit 1
-else
-	@$(ECHO_CHECK) "Installed Go version $(GO_INSTALLED_MAJOR_AND_MINOR_VERSION) matches required version $(GO_MAJOR_AND_MINOR_VERSION)"
-endif
 
 dev-doctor: ## Run Cilium dev-doctor to validate local development environment.
 	$(QUIET)$(GO) version 2>/dev/null || ( echo "go not found, see https://golang.org/doc/install" ; false )

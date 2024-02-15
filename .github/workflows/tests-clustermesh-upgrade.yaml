@@ -76,7 +76,7 @@ jobs:
 
   upgrade-and-downgrade:
     name: "Upgrade and Downgrade Test"
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.GH_RUNNER_EXTRA_POWER }}
     timeout-minutes: 60
     env:
       job_name: "Installation and Connectivity Test"
@@ -111,7 +111,7 @@ jobs:
           CILIUM_DOWNGRADE_VERSION=$(contrib/scripts/print-downgrade-version.sh)
 
           CILIUM_IMAGE_SETTINGS=" \
-            --chart-directory=./cilium-newest/install/kubernetes/cilium \
+            --chart-directory=./untrusted/cilium-newest/install/kubernetes/cilium \
             --set=image.override=quay.io/${{ env.QUAY_ORGANIZATION_DEV }}/cilium-ci:${SHA} \
             --set=operator.image.override=quay.io/${{ env.QUAY_ORGANIZATION_DEV }}/operator-generic-ci:${SHA} \
             --set=clustermesh.apiserver.image.override=quay.io/${{ env.QUAY_ORGANIZATION_DEV }}/clustermesh-apiserver-ci:${SHA} \
@@ -265,27 +265,27 @@ jobs:
       - name: Checkout pull request branch (NOT TRUSTED)
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
-          path: cilium-newest
           ref: ${{ steps.vars.outputs.sha }}
+          persist-credentials: false
+          path: untrusted/cilium-newest
           sparse-checkout: |
             install/kubernetes/cilium
-          persist-credentials: false
 
       - name: Checkout ${{ steps.vars.outputs.downgrade_version }} branch
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
-          path: cilium-downgrade
           ref: ${{ steps.vars.outputs.downgrade_version }}
+          persist-credentials: false
+          path: untrusted/cilium-downgrade
           sparse-checkout: |
             install/kubernetes/cilium
-          persist-credentials: false
 
       - name: Set up downgrade settings
         id: downgrade-vars
         run: |
-          SHA="$(cd cilium-downgrade && git rev-parse HEAD)"
+          SHA="$(cd untrusted/cilium-downgrade && git rev-parse HEAD)"
           CILIUM_IMAGE_SETTINGS=" \
-            --chart-directory=./cilium-downgrade/install/kubernetes/cilium \
+            --chart-directory=./untrusted/cilium-downgrade/install/kubernetes/cilium \
             --set=image.override=quay.io/${{ env.QUAY_ORGANIZATION_DEV }}/cilium-ci:${SHA} \
             --set=operator.image.override=quay.io/${{ env.QUAY_ORGANIZATION_DEV }}/operator-generic-ci:${SHA} \
             --set=clustermesh.apiserver.image.override=quay.io/${{ env.QUAY_ORGANIZATION_DEV }}/clustermesh-apiserver-ci:${SHA} \
@@ -421,25 +421,46 @@ jobs:
 
       - name: Upload artifacts
         if: ${{ !success() }}
-        uses: actions/upload-artifact@a8a3f3ad30e3422c9c7b888a15615d19a852ae32 # v3.1.3
+        uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 # v4.3.0
         with:
-          name: cilium-sysdumps
+          name: cilium-sysdumps-${{ matrix.name }}
           path: cilium-sysdump-*.zip
-          retention-days: 5
 
       - name: Upload JUnits [junit]
         if: ${{ always() }}
-        uses: actions/upload-artifact@a8a3f3ad30e3422c9c7b888a15615d19a852ae32 # v3.1.3
+        uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 # v4.3.0
         with:
-          name: cilium-junits
+          name: cilium-junits-${{ matrix.name }}
           path: cilium-junits/*.xml
-          retention-days: 2
 
       - name: Publish Test Results As GitHub Summary
         if: ${{ always() }}
         uses: aanm/junit2md@332ebf0fddd34e91b03a832cfafaa826306558f9 # v0.0.3
         with:
           junit-directory: "cilium-junits"
+
+  merge-upload:
+    if: ${{ always() }}
+    name: Merge and Upload Artifacts
+    runs-on: ubuntu-latest
+    needs: upgrade-and-downgrade
+    steps:
+      - name: Merge Sysdumps
+        if: ${{ needs.upgrade-and-downgrade.result == 'failure' }}
+        uses: actions/upload-artifact/merge@26f96dfa697d77e81fd5907df203aa23a56210a8 # v4.3.0
+        with:
+          name: cilium-sysdumps
+          pattern: cilium-sysdumps-*
+          retention-days: 5
+          delete-merged: true
+        continue-on-error: true
+      - name: Merge JUnits
+        uses: actions/upload-artifact/merge@26f96dfa697d77e81fd5907df203aa23a56210a8 # v4.3.0
+        with:
+          name: cilium-junits
+          pattern: cilium-junits-*
+          retention-days: 5
+          delete-merged: true
 
   commit-status-final:
     if: ${{ always() }}

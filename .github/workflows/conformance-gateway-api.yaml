@@ -1,4 +1,4 @@
-name: Conformance Gateway API
+name: Conformance Gateway API (ci-gateway-api)
 
 # Any change in triggers needs to be reflected in the concurrency group.
 on:
@@ -105,7 +105,7 @@ jobs:
           fi
           echo ::set-output name=sha::${SHA}
 
-          CILIUM_INSTALL_DEFAULTS="--chart-directory=install/kubernetes/cilium \
+          CILIUM_INSTALL_DEFAULTS="--chart-directory=./untrusted/install/kubernetes/cilium \
             --helm-set=image.repository=quay.io/${{ env.QUAY_ORGANIZATION_DEV }}/cilium-ci \
             --helm-set=image.useDigest=false \
             --helm-set=image.tag=${SHA} \
@@ -126,6 +126,9 @@ jobs:
         with:
           ref: ${{ steps.vars.outputs.sha }}
           persist-credentials: false
+          path: untrusted
+          sparse-checkout: |
+            install/kubernetes/cilium
 
       - name: Create kind cluster
         uses: helm/kind-action@dda0770415bac9fc20092cacbc54aa298604d140 # v1.8.0
@@ -137,7 +140,7 @@ jobs:
         uses: actions/setup-go@93397bea11091df50f3d7e59dc26a7711a8bcfbe # v4.1.0
         with:
           # renovate: datasource=golang-version depName=go
-          go-version: 1.19.13
+          go-version: 1.21.6
 
       - name: Wait for images to be available
         timeout-minutes: 30
@@ -216,10 +219,10 @@ jobs:
 
       - name: Upload artifacts
         if: ${{ !success() }}
-        uses: actions/upload-artifact@a8a3f3ad30e3422c9c7b888a15615d19a852ae32 # v3.1.3
+        uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 # v4.3.0
         with:
-          name: cilium-sysdump-out.zip
-          path: cilium-sysdump-out.zip
+          name: cilium-sysdump-out-${{ matrix.conformance-profile }}-${{ matrix.crd-channel }}
+          path: cilium-sysdump-out-*.zip
           retention-days: 5
 
   commit-status-final:
