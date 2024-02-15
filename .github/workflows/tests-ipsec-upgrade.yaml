@@ -158,6 +158,12 @@ jobs:
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
           ref: ${{ inputs.context-ref || github.sha }}
+          # We need to be able to check the existence of the tag we want to
+          # downgrade to, in case we're on a release preparation commit and the
+          # value in VERSION does not correspond to an existing tag yet. In
+          # that case, print-downgrade-version.sh needs to adjust the patch
+          # release number to downgrade to.
+          fetch-tags: true
           persist-credentials: false
 
       - name: Set Environment Variables
@@ -178,12 +184,8 @@ jobs:
           else
             # Upgrade from / downgrade to patch release.
             # In some cases we expect to fail to get the version number, do not
-            # fail the workflow in such case. This includes:
-            # - on main branch where we don't have preceeding patch releases
-            # - on stable branches on top of release preparation commits, where
-            #   we bump the patch version number to 90 and we can't easily
-            #   derive the number of the previous patch release version from
-            #   that.
+            # fail the workflow in such case. This is typically the case on
+            # main branch where we don't have preceeding patch releases.
             CILIUM_DOWNGRADE_VERSION=$(contrib/scripts/print-downgrade-version.sh patch || true)
             # Pass an empty tag to the cilium-config action to fall back to the
             # default release image, without crafting an image path with the
@@ -199,7 +201,7 @@ jobs:
         uses: ./.github/actions/cilium-config
         with:
           image-tag: ${{ steps.vars.outputs.image_tag }}
-          chart-dir: './cilium-${{ steps.vars.outputs.downgrade_version }}/install/kubernetes/cilium/'
+          chart-dir: './untrusted/cilium-downgrade/install/kubernetes/cilium'
           tunnel: ${{ matrix.tunnel }}
           endpoint-routes: ${{ matrix.endpoint-routes }}
           ipv6: ${{ matrix.ipv6 }}
@@ -219,7 +221,7 @@ jobs:
         uses: ./.github/actions/cilium-config
         with:
           image-tag: ${{ steps.vars.outputs.sha }}
-          chart-dir: './install/kubernetes/cilium'
+          chart-dir: './untrusted/cilium-newest/install/kubernetes/cilium'
           tunnel: ${{ matrix.tunnel }}
           endpoint-routes: ${{ matrix.endpoint-routes }}
           ipv6: ${{ matrix.ipv6 }}
@@ -233,24 +235,7 @@ jobs:
           mutual-auth: false
           misc: 'bpfClockProbe=false,cni.uninstall=false'
 
-      # Warning: since this is a privileged workflow, subsequent workflow job
-      # steps must take care not to execute untrusted code.
-      - name: Checkout pull request branch (NOT TRUSTED)
-        if: ${{ steps.vars.outputs.downgrade_version != '' }}
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
-        with:
-          ref: ${{ steps.vars.outputs.sha }}
-          persist-credentials: false
-
-      - name: Checkout ${{ steps.vars.outputs.downgrade_version }} branch to get the Helm chart
-        if: ${{ steps.vars.outputs.downgrade_version != '' }}
-        uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
-        with:
-          path: cilium-${{ steps.vars.outputs.downgrade_version }}
-          ref: ${{ steps.vars.outputs.downgrade_version }}
-          persist-credentials: false
-
-      - name: Install Cilium CLI-cli
+      - name: Install Cilium CLI
         if: ${{ steps.vars.outputs.downgrade_version != '' }}
         uses: cilium/cilium-cli@32109b32259a487c803648a3c9463cdcafa4c0c3 # v0.15.19
         with:
@@ -293,6 +278,28 @@ jobs:
                 --from-literal=keys="3 rfc4106(gcm(aes)) $(echo $(dd if=/dev/urandom count=20 bs=1 2> /dev/null | xxd -p -c 64)) 128"
 
             mkdir -p cilium-junits
+
+      # Warning: since this is a privileged workflow, subsequent workflow job
+      # steps must take care not to execute untrusted code.
+      - name: Checkout pull request branch (NOT TRUSTED)
+        if: ${{ steps.vars.outputs.downgrade_version != '' }}
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        with:
+          ref: ${{ steps.vars.outputs.sha }}
+          persist-credentials: false
+          path: untrusted/cilium-newest
+          sparse-checkout: |
+            install/kubernetes/cilium
+
+      - name: Checkout ${{ steps.vars.outputs.downgrade_version }} branch to get the Helm chart
+        if: ${{ steps.vars.outputs.downgrade_version != '' }}
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        with:
+          ref: ${{ steps.vars.outputs.downgrade_version }}
+          persist-credentials: false
+          path: untrusted/cilium-downgrade
+          sparse-checkout: |
+            install/kubernetes/cilium
 
       - name: Wait for images to be available
         timeout-minutes: 30
