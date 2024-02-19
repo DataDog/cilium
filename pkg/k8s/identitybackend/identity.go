@@ -88,6 +88,7 @@ func sanitizeK8sLabels(old map[string]string) (selected, skipped map[string]stri
 // AllocateID will create an identity CRD, thus creating the identity for this
 // key-> ID mapping.
 // Note: the lock field is not supported with the k8s CRD allocator.
+// Returns an allocator key with the cilium identity stored in it.
 func (c *CRDBackend) AllocateID(ctx context.Context, id idpool.ID, key allocator.AllocatorKey) (allocator.AllocatorKey, error) {
 	selectedLabels, skippedLabels := sanitizeK8sLabels(key.GetAsMap())
 	if skippedLabels != nil && len(skippedLabels) != 0 {
