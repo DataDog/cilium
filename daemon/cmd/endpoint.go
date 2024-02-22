@@ -472,6 +472,13 @@ func (d *Daemon) createEndpoint(ctx context.Context, owner regeneration.Owner, e
 			value, _ := annotation.Get(p, annotation.NoTrack, annotation.NoTrackAlias)
 			return value, nil
 		})
+		ep.UpdateTCPBPFSettings(func(ns, podName string) (TCPBPFSettings string, err error) {
+			p, err := d.k8sWatcher.GetCachedPod(ns, podName)
+			if err != nil {
+				return "", err
+			}
+			return p.Annotations[annotation.TCPBPFSettingsKey], nil
+		})
 	}
 
 	regenTriggered := ep.UpdateLabels(ctx, addLabels, infoLabels, true)

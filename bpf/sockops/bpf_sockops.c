@@ -19,6 +19,7 @@
 #include "../lib/eps.h"
 #include "../lib/events.h"
 #include "../lib/policy.h"
+#include "../lib/dbg.h"
 
 #include "bpf_sockops.h"
 
@@ -129,12 +130,32 @@ static inline void bpf_sock_ops_ipv6(struct bpf_sock_ops *skops)
 __section("sockops")
 int cil_sockops(struct bpf_sock_ops *skops)
 {
+    struct sock_key key = {};
+    struct endpoint_info *exists;
+    struct tcp_settings_info *settings_info;
 	__u32 family, op;
 
+    printk("In sockops\n");
 	family = skops->family;
 	op = skops->op;
 
 	switch (op) {
+        case BPF_SOCK_OPS_TIMEOUT_INIT:
+            printk("In timeout init\n");
+            sk_extract4_key(skops, &key);
+            exists = __lookup_ip4_endpoint(key.sip4);
+            if (!exists) {
+                return 0;
+            }
+
+            settings_info = map_lookup_elem(&TCP_SETTINGS_MAP, &exists->lxc_id);
+            if (!settings_info) {
+                return 0;
+            }
+
+            skops->reply = 250 * settings_info->initial_tcp_rto;
+            printk("Set TCP connect timeout = %ds\n", settings_info->initial_tcp_rto);
+            return 1;
 	case BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB:
 	case BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB:
 #ifdef ENABLE_IPV6

@@ -102,6 +102,10 @@ const (
 // compile time interface check
 var _ notifications.RegenNotificationInfo = (*Endpoint)(nil)
 
+type TCPBPFSettings struct {
+	InitialTCPRTOTimeout uint64
+}
+
 // Endpoint represents a container or similar which can be individually
 // addresses on L3 with its own IP addresses. This structured is managed by the
 // endpoint manager in pkg/endpointmanager.
@@ -162,6 +166,9 @@ type Endpoint struct {
 
 	// bps is the egress rate of the endpoint
 	bps uint64
+
+	// tcpBPFSettings stores endpoint level TCP settings that can customized with eBPF
+	tcpBPFSettings TCPBPFSettings
 
 	// mac is the MAC address of the endpoint
 	//
@@ -1605,6 +1612,13 @@ func (e *Endpoint) RunMetadataResolver(resolveMetadata MetadataResolverCB) {
 						return "", err
 					}
 					return annotations[bandwidth.EgressBandwidth], nil
+				})
+				e.UpdateTCPBPFSettings(func(ns, podName string) (TCPBPFSettings string, err error) {
+					_, _, _, _, annotations, err := resolveMetadata(ns, podName)
+					if err != nil {
+						return "", err
+					}
+					return annotations[annotation.TCPBPFSettingsKey], nil
 				})
 				e.UpdateLabels(ctx, identityLabels, info, true)
 				close(done)

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	tcpbpf "github.com/cilium/cilium/pkg/maps/tcpbpfsettingsmap"
 	"io"
 	"net"
 	"sort"
@@ -594,6 +595,9 @@ func (h *HeaderfileWriter) WriteNodeConfig(w io.Writer, cfg *datapath.LocalNodeC
 
 	cDefinesMap["CIDR_IDENTITY_RANGE_START"] = fmt.Sprintf("%d", identity.MinLocalIdentity)
 	cDefinesMap["CIDR_IDENTITY_RANGE_END"] = fmt.Sprintf("%d", identity.MaxLocalIdentity)
+
+	cDefinesMap["TCP_SETTINGS_MAP"] = tcpbpf.MapName
+	cDefinesMap["TCP_SETTINGS_MAP_SIZE"] = fmt.Sprintf("%d", bwmap.MapSize)
 
 	// Since golang maps are unordered, we sort the keys in the map
 	// to get a consistent written format to the writer. This maintains

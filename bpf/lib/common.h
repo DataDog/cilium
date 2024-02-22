@@ -304,6 +304,14 @@ struct edt_info {
 	__u64		pad[4];
 };
 
+struct tcp_settings_id {
+	__u64		id;
+};
+
+struct tcp_settings_info {
+	__u64		initial_tcp_rto;
+};
+
 struct remote_endpoint_info {
 	__u32		sec_label;
 	__u32		tunnel_endpoint;

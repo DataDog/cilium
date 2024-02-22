@@ -950,6 +950,25 @@ func (e *Endpoint) UpdateBandwidthPolicy(annoCB AnnotationsResolverCB) {
 	}
 }
 
+// UpdateTCPBPFSettings updates TCP settings that can only be updated at eBPF level
+// TODO(hemanthmalla) : Find a better home for this method
+func (e *Endpoint) UpdateTCPBPFSettings(annoCB AnnotationsResolverCB) {
+	ch, err := e.eventQueue.Enqueue(eventqueue.NewEvent(&TCPSettingsEvent{
+		ep:     e,
+		annoCB: annoCB,
+	}))
+	if err != nil {
+		e.getLogger().WithError(err).Error("Unable to enqueue endpoint TCP settings event")
+		return
+	}
+
+	updateRes := <-ch
+	regenResult, ok := updateRes.(*EndpointRegenerationResult)
+	if ok && regenResult.err != nil {
+		e.getLogger().WithError(regenResult.err).Error("TCPSettingsEvent event failed")
+	}
+}
+
 // GetRealizedPolicyRuleLabelsForKey returns the list of policy rule labels
 // which match a given flow key (in host byte-order). The returned
 // LabelArrayList is shallow-copied and therefore must not be mutated.

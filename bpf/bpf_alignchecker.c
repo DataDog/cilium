@@ -74,3 +74,5 @@ struct srv6_policy_key6 _51;
 struct trace_sock_notify _52;
 struct tunnel_key _53;
 struct tunnel_value _54;
+struct tcp_settings_id _55;
+struct tcp_settings_info _56;

@@ -4,6 +4,7 @@
 package alignchecker
 
 import (
+	tcpbpf "github.com/cilium/cilium/pkg/maps/tcpbpfsettingsmap"
 	"reflect"
 
 	check "github.com/cilium/cilium/pkg/alignchecker"
@@ -88,6 +89,8 @@ func CheckStructAlignments(path string) error {
 		"lb6_src_range_key":      {reflect.TypeOf(lbmap.SourceRangeKey6{})},
 		"edt_id":                 {reflect.TypeOf(bwmap.EdtId{})},
 		"edt_info":               {reflect.TypeOf(bwmap.EdtInfo{})},
+		"tcp_settings_id":        {reflect.TypeOf(tcpbpf.TCPSettingsId{})},
+		"tcp_settings_info":      {reflect.TypeOf(tcpbpf.TCPSettingsInfo{})},
 		"egress_gw_policy_key":   {reflect.TypeOf(egressmap.EgressPolicyKey4{})},
 		"egress_gw_policy_entry": {reflect.TypeOf(egressmap.EgressPolicyVal4{})},
 		"srv6_vrf_key4":          {reflect.TypeOf(srv6map.VRFKey4{})},

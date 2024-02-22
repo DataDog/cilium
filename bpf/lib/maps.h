@@ -64,6 +64,17 @@ struct {
 } THROTTLE_MAP __section_maps_btf;
 #endif /* ENABLE_BANDWIDTH_MANAGER */
 
+//#ifdef CUSTOM_TCP_BPF_SETTINGS
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__type(key, struct tcp_settings_id);
+	__type(value, struct tcp_settings_info);
+	__uint(pinning, LIBBPF_PIN_BY_NAME);
+	__uint(max_entries, TCP_SETTINGS_MAP_SIZE);
+	__uint(map_flags, BPF_F_NO_PREALLOC);
+} TCP_SETTINGS_MAP __section_maps_btf;
+//#endif /* CUSTOM_TCP_BPF_SETTINGS */
+
 /* Map to link endpoint id to per endpoint cilium_policy map */
 #ifdef SOCKMAP
 struct {

@@ -5,6 +5,7 @@ package endpoint
 
 import (
 	"fmt"
+	"github.com/cilium/cilium/pkg/annotation"
 	"strconv"
 
 	"github.com/sirupsen/logrus"
@@ -13,6 +14,7 @@ import (
 	"github.com/cilium/cilium/pkg/eventqueue"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/maps/bwmap"
+	"github.com/cilium/cilium/pkg/maps/tcpbpfsettingsmap"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/policy"
 )
@@ -317,6 +319,61 @@ func (ev *EndpointPolicyBandwidthEvent) Handle(res chan interface{}) {
 	e.getLogger().Debugf("Updating %s from %s to %s bytes/sec", bandwidth.EgressBandwidth,
 		bpsOld, bpsNew)
 	e.bps = bps
+	res <- &EndpointRegenerationResult{
+		err: nil,
+	}
+}
+
+// TCPSettingsEvent contains all fields necessary to update
+// the Pod's TCP settings that can be updates via eBPF.
+type TCPSettingsEvent struct {
+	ep     *Endpoint
+	annoCB AnnotationsResolverCB
+}
+
+// Handle handles endpoint's TCP settings update.
+func (ev *TCPSettingsEvent) Handle(res chan interface{}) {
+	var initTCPRTO uint64
+
+	e := ev.ep
+	if err := e.lockAlive(); err != nil {
+		// If the endpoint is being deleted, we don't need to
+		// update its TCP settings.
+		res <- &EndpointRegenerationResult{
+			err: nil,
+		}
+		return
+	}
+	defer func() {
+		e.unlock()
+	}()
+
+	tcpBPFSettings, err := ev.annoCB(e.K8sNamespace, e.K8sPodName)
+	if err != nil {
+		res <- &EndpointRegenerationResult{
+			err: err,
+		}
+		return
+	}
+	if tcpBPFSettings != "" {
+		initTCPRTO, err = strconv.ParseUint(tcpBPFSettings, 10, 64)
+		if err == nil {
+			err = tcpbpf.Update(e.ID, initTCPRTO)
+		}
+	} else {
+		err = tcpbpf.SilentDelete(e.ID)
+	}
+	if err != nil {
+		res <- &EndpointRegenerationResult{
+			err: err,
+		}
+		return
+	}
+	if e.tcpBPFSettings.InitialTCPRTOTimeout != initTCPRTO {
+		e.getLogger().Debugf("Updating %s from %s to %s", annotation.TCPBPFSettingsKey,
+			e.tcpBPFSettings.InitialTCPRTOTimeout, initTCPRTO)
+		e.tcpBPFSettings.InitialTCPRTOTimeout = initTCPRTO
+	}
 	res <- &EndpointRegenerationResult{
 		err: nil,
 	}
