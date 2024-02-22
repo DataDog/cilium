@@ -11,6 +11,7 @@ cilium-agent [flags]
 ### Options
 
 ```
+<<<<<<< HEAD
       --agent-health-port int                                   TCP port for agent health status API (default 9879)
       --agent-labels strings                                    Additional labels to identify this agent
       --agent-not-ready-taint-key string                        Key of the taint indicating that Cilium is not ready on the node (default "node.cilium.io/agent-not-ready")
@@ -34,6 +35,9 @@ cilium-agent [flags]
       --bpf-ct-timeout-service-any duration                     Timeout for service entries in non-TCP CT table (default 1m0s)
       --bpf-ct-timeout-service-tcp duration                     Timeout for established service entries in TCP CT table (default 6h0m0s)
       --bpf-ct-timeout-service-tcp-grace duration               Timeout for graceful shutdown of service entries in TCP CT table (default 1m0s)
+      --bpf-events-drop-enabled                                 Expose 'drop' events for Cilium monitor and/or Hubble (default true)
+      --bpf-events-policy-verdict-enabled                       Expose 'policy verdict' events for Cilium monitor and/or Hubble (default true)
+      --bpf-events-trace-enabled                                Expose 'trace' events for Cilium monitor and/or Hubble (default true)
       --bpf-fragments-map-max int                               Maximum number of entries in fragments tracking map (default 8192)
       --bpf-lb-acceleration string                              BPF load balancing acceleration via XDP ("native", "disabled") (default "disabled")
       --bpf-lb-algorithm string                                 BPF load balancing algorithm ("random", "maglev") (default "random")

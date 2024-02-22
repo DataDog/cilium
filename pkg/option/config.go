@@ -1142,6 +1142,15 @@ const (
 	// EnableStaleCiliumEndpointCleanup sets whether Cilium should perform cleanup of
 	// stale CiliumEndpoints during init.
 	EnableStaleCiliumEndpointCleanup = "enable-stale-cilium-endpoint-cleanup"
+
+	// BPFEventsDropEnabled defines the DropNotification setting for any endpoint
+	BPFEventsDropEnabled = "bpf-events-drop-enabled"
+
+	// BPFEventsPolicyVerdictEnabled defines the PolicyVerdictNotification setting for any endpoint
+	BPFEventsPolicyVerdictEnabled = "bpf-events-policy-verdict-enabled"
+
+	// BPFEventsTraceEnabled defines the TraceNotification setting for any endpoint
+	BPFEventsTraceEnabled = "bpf-events-trace-enabled"
 )
 
 // Default string arguments
@@ -2336,10 +2345,54 @@ type DaemonConfig struct {
 	BPFMapEventBuffersValidator func(val string) (string, error) `json:"-"`
 	bpfMapEventConfigs          BPFEventBufferConfigs
 
+<<<<<<< HEAD
 	// EnableStaleCiliumEndpointCleanup enables cleanup routine during Cilium init.
 	// This will attempt to remove local CiliumEndpoints that are not managed by Cilium
 	// following Endpoint restoration.
 	EnableStaleCiliumEndpointCleanup bool
+=======
+	// BPFEventsDropEnabled controls whether the Cilium datapath exposes "drop" events to Cilium monitor and Hubble.
+	BPFEventsDropEnabled bool
+
+	// BPFEventsPolicyVerdictEnabled controls whether the Cilium datapath exposes "policy verdict" events to Cilium monitor and Hubble.
+	BPFEventsPolicyVerdictEnabled bool
+
+	// BPFEventsTraceEnabled  controls whether the Cilium datapath exposes "trace" events to Cilium monitor and Hubble.
+	BPFEventsTraceEnabled bool
+
+	// IPAMCiliumNodeUpdateRate is the maximum rate at which the CiliumNode custom
+	// resource is updated.
+	IPAMCiliumNodeUpdateRate time.Duration
+
+	// EnableK8sNetworkPolicy enables support for K8s NetworkPolicy.
+	EnableK8sNetworkPolicy bool
+
+	// PolicyCIDRMatchMode is the list of entities that can be selected by CIDR policy.
+	// Currently supported values:
+	// - world
+	// - world, remote-node
+	PolicyCIDRMatchMode []string
+
+	// MaxConnectedClusters sets the maximum number of clusters that can be
+	// connected in a clustermesh.
+	// The value is used to determine the bit allocation for cluster ID and
+	// identity in a numeric identity. Values > 255 will decrease the number of
+	// allocatable identities.
+	MaxConnectedClusters uint32
+
+	// ForceDeviceRequired enforces the attachment of BPF programs on native device.
+	ForceDeviceRequired bool
+
+	// ServiceNoBackendResponse determines how we handle traffic to a service with no backends.
+	ServiceNoBackendResponse string
+
+	// EnableNodeSelectorLabels enables use of the node label based identity
+	EnableNodeSelectorLabels bool
+
+	// NodeLabels is the list of label prefixes used to determine identity of a node (requires enabling of
+	// EnableNodeSelectorLabels)
+	NodeLabels []string
+>>>>>>> 430ccca645 (agent: define new flags to control Cilium's datapath events notifications)
 }
 
 var (
@@ -2387,9 +2440,22 @@ var (
 		K8sEnableLeasesFallbackDiscovery: defaults.K8sEnableLeasesFallbackDiscovery,
 		APIRateLimit:                     make(map[string]string),
 
+<<<<<<< HEAD
 		ExternalClusterIP:     defaults.ExternalClusterIP,
 		EnableVTEP:            defaults.EnableVTEP,
 		EnableBGPControlPlane: defaults.EnableBGPControlPlane,
+=======
+		ExternalClusterIP:      defaults.ExternalClusterIP,
+		EnableVTEP:             defaults.EnableVTEP,
+		EnableBGPControlPlane:  defaults.EnableBGPControlPlane,
+		EnableK8sNetworkPolicy: defaults.EnableK8sNetworkPolicy,
+		PolicyCIDRMatchMode:    defaults.PolicyCIDRMatchMode,
+		MaxConnectedClusters:   defaults.MaxConnectedClusters,
+
+		BPFEventsDropEnabled:          defaults.BPFEventsDropEnabled,
+		BPFEventsPolicyVerdictEnabled: defaults.BPFEventsPolicyVerdictEnabled,
+		BPFEventsTraceEnabled:         defaults.BPFEventsTraceEnabled,
+>>>>>>> 430ccca645 (agent: define new flags to control Cilium's datapath events notifications)
 	}
 )
 
@@ -3065,6 +3131,22 @@ func (c *DaemonConfig) Populate(vp *viper.Viper) {
 	c.DeriveMasqIPAddrFromDevice = vp.GetString(DeriveMasqIPAddrFromDevice)
 	c.EnablePMTUDiscovery = vp.GetBool(EnablePMTUDiscovery)
 	c.IPv6NAT46x64CIDR = defaults.IPv6NAT46x64CIDR
+<<<<<<< HEAD
+=======
+	c.IPAMCiliumNodeUpdateRate = vp.GetDuration(IPAMCiliumNodeUpdateRate)
+	c.BPFEventsDropEnabled = vp.GetBool(BPFEventsDropEnabled)
+	c.BPFEventsPolicyVerdictEnabled = vp.GetBool(BPFEventsPolicyVerdictEnabled)
+	c.BPFEventsTraceEnabled = vp.GetBool(BPFEventsTraceEnabled)
+
+	c.ServiceNoBackendResponse = vp.GetString(ServiceNoBackendResponse)
+	switch c.ServiceNoBackendResponse {
+	case ServiceNoBackendResponseReject, ServiceNoBackendResponseDrop:
+	case "":
+		c.ServiceNoBackendResponse = defaults.ServiceNoBackendResponse
+	default:
+		log.Fatalf("Invalid value for --%s: %s (must be 'reject' or 'drop')", ServiceNoBackendResponse, c.ServiceNoBackendResponse)
+	}
+>>>>>>> 430ccca645 (agent: define new flags to control Cilium's datapath events notifications)
 
 	c.populateLoadBalancerSettings(vp)
 	c.populateDevices(vp)
