@@ -110,6 +110,7 @@ func bpftoolLoad(bpfObject string, bpfFsFile string) error {
 		"cilium_lb6_services", "cilium_lb4_services",
 		"cilium_lb6_rr_seq", "cilium_lb4_seq",
 		"cilium_lb6_rr_seq", "cilium_lb4_seq",
+		"tcp_settings",
 	}
 
 	prog := "bpftool"

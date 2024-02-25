@@ -13,6 +13,14 @@
 
 #define SOCKMAP 1
 
+#ifndef printp
+# define printp(fmt, ...)                                      \
+    ({                                                         \
+     char ____fmt[] = fmt;                                  \
+     trace_printk(____fmt, sizeof(____fmt), ##__VA_ARGS__); \
+     })
+#endif
+
 #include "../lib/common.h"
 #include "../lib/maps.h"
 #include "../lib/lb.h"
@@ -132,29 +140,26 @@ int cil_sockops(struct bpf_sock_ops *skops)
 {
     struct sock_key key = {};
     struct endpoint_info *exists;
+    struct tcp_settings_id settings_id = {};
     struct tcp_settings_info *settings_info;
 	__u32 family, op;
-
-    printk("In sockops\n");
 	family = skops->family;
 	op = skops->op;
 
 	switch (op) {
         case BPF_SOCK_OPS_TIMEOUT_INIT:
-            printk("In timeout init\n");
             sk_extract4_key(skops, &key);
             exists = __lookup_ip4_endpoint(key.sip4);
             if (!exists) {
                 return 0;
             }
-
-            settings_info = map_lookup_elem(&TCP_SETTINGS_MAP, &exists->lxc_id);
+            settings_id.id = exists->lxc_id;
+            settings_info = map_lookup_elem(&TCP_SETTINGS_MAP, &settings_id);
             if (!settings_info) {
                 return 0;
             }
-
-            skops->reply = 250 * settings_info->initial_tcp_rto;
-            printk("Set TCP connect timeout = %ds\n", settings_info->initial_tcp_rto);
+            skops->reply = settings_info->initial_tcp_rto;
+            printp("Setting TCP connect timeout = %d for %d\n", settings_info->initial_tcp_rto, exists->lxc_id);
             return 1;
 	case BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB:
 	case BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB:
