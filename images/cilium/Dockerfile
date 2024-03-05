@@ -30,7 +30,7 @@ RUN /out/${BUILDPLATFORM}/bin/hubble completion bash > /out/linux/bash_completio
 #
 FROM --platform=${BUILDPLATFORM} ${CILIUM_BUILDER_IMAGE} as builder
 
-RUN apt-get update -y && apt-get install -y binutils
+RUN apt-get update -y && apt-get install -y binutils awscli
 
 # TARGETOS is an automatic platform ARG enabled by Docker BuildKit.
 ARG TARGETOS
