@@ -60,13 +60,13 @@ RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium --mount=
     DESTDIR=/tmp/install/${TARGETOS}/${TARGETARCH} install-bash-completion licenses-all && \
     mv LICENSE.all /tmp/install/${TARGETOS}/${TARGETARCH}/LICENSE.all
 
-RUN echo $(ls -1 /tmp/install/${TARGETOS}/${TARGETARCH}/)
+RUN echo $(ls -1 /tmp/install/${TARGETOS}/${TARGETARCH}/usr/)
 
-RUN objcopy --only-keep-debug  --remove-section .gdb_index /tmp/install/${TARGETOS}/${TARGETARCH}/cilium-agent /tmp/install/${TARGETOS}/${TARGETARCH}/cilium-agent.dbg
+RUN objcopy --only-keep-debug  --remove-section .gdb_index /tmp/install/${TARGETOS}/${TARGETARCH}/usr/bin/cilium-agent /tmp/install/${TARGETOS}/${TARGETARCH}/cilium-agent.dbg
 
-RUN objcopy --strip-debug /tmp/install/${TARGETOS}/${TARGETARCH}/cilium-agent 
+RUN objcopy --strip-debug /tmp/install/${TARGETOS}/${TARGETARCH}/usr/bin/cilium-agent 
 
-RUN sha256sum /tmp/install/${TARGETOS}/${TARGETARCH}/cilium-agent | aws s3 cp --sse AES256 --acl bucket-owner-full-control /tmp/install/${TARGETOS}/${TARGETARCH}/cilium-agent.dbg s3://profile-symbols-us1-staging-dog/us1.staging.dog/symbols/2/$1/symbols.dbg
+RUN sha256sum /tmp/install/${TARGETOS}/${TARGETARCH}/usr/bin/cilium-agent | aws s3 cp --sse AES256 --acl bucket-owner-full-control /tmp/install/${TARGETOS}/${TARGETARCH}/cilium-agent.dbg s3://profile-symbols-us1-staging-dog/us1.staging.dog/symbols/2/$1/symbols.dbg
 
 COPY images/cilium/init-container.sh \
      plugins/cilium-cni/cni-install.sh \
