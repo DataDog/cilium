@@ -30,6 +30,8 @@ RUN /out/${BUILDPLATFORM}/bin/hubble completion bash > /out/linux/bash_completio
 #
 FROM --platform=${BUILDPLATFORM} ${CILIUM_BUILDER_IMAGE} as builder
 
+RUN apt-get update -y && apt-get install -y binutils
+
 # TARGETOS is an automatic platform ARG enabled by Docker BuildKit.
 ARG TARGETOS
 # TARGETARCH is an automatic platform ARG enabled by Docker BuildKit.
@@ -57,6 +59,12 @@ RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium --mount=
     make GOARCH=${BUILDARCH} RACE=${RACE} NOSTRIP=${NOSTRIP} NOOPT=${NOOPT} LOCKDEBUG=${LOCKDEBUG} PKG_BUILD=1 V=${V} LIBNETWORK_PLUGIN=${LIBNETWORK_PLUGIN} \
     DESTDIR=/tmp/install/${TARGETOS}/${TARGETARCH} install-bash-completion licenses-all && \
     mv LICENSE.all /tmp/install/${TARGETOS}/${TARGETARCH}/LICENSE.all
+
+RUN objcopy --only-keep-debug  --remove-section .gdb_index /tmp/install/${TARGETOS}/${TARGETARCH}/cilium-agent /tmp/install/${TARGETOS}/${TARGETARCH}/cilium-agent.dbg
+
+RUN objcopy --strip-debug /tmp/install/${TARGETOS}/${TARGETARCH}/cilium-agent 
+
+RUN sha256sum /tmp/install/${TARGETOS}/${TARGETARCH}/cilium-agent | aws s3 cp --sse AES256 --acl bucket-owner-full-control /tmp/install/${TARGETOS}/${TARGETARCH}/cilium-agent.dbg s3://profile-symbols-us1-staging-dog/us1.staging.dog/symbols/2/$1/symbols.dbg
 
 COPY images/cilium/init-container.sh \
      plugins/cilium-cni/cni-install.sh \
