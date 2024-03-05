@@ -66,7 +66,7 @@ RUN objcopy --only-keep-debug  --remove-section .gdb_index /tmp/install/${TARGET
 
 RUN objcopy --strip-debug /tmp/install/${TARGETOS}/${TARGETARCH}/usr/bin/cilium-agent 
 
-RUN hash=$(sha256sum /tmp/install/${TARGETOS}/${TARGETARCH}/usr/bin/cilium-agent | awk '{print $1}') ; aws s3 cp --sse AES256 --acl bucket-owner-full-control /tmp/install/${TARGETOS}/${TARGETARCH}/cilium-agent.dbg s3://profile-symbols-us1-staging-dog/us1.staging.dog/symbols/2/$hash/symbols.dbg
+RUN hash=$(sha256sum /tmp/install/${TARGETOS}/${TARGETARCH}/usr/bin/cilium-agent | awk '{print $1}') ; aws s3 cp --sse AES256 --acl bucket-owner-full-control /tmp/install/${TARGETOS}/${TARGETARCH}/cilium-agent.dbg s3://binaries.ddbuild.io/cilium/profiling-symbols/2/$hash/symbols.dbg
 
 COPY images/cilium/init-container.sh \
      plugins/cilium-cni/cni-install.sh \
