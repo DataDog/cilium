@@ -47,25 +47,25 @@ ARG LIBNETWORK_PLUGIN
 #
 WORKDIR /go/src/github.com/cilium/cilium
 RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium --mount=target=/root/.cache,type=cache --mount=target=/go/pkg,type=cache \
-    make GOARCH=${TARGETARCH} RACE=${RACE} NOSTRIP=${NOSTRIP} NOOPT=${NOOPT} LOCKDEBUG=${LOCKDEBUG} PKG_BUILD=1 V=${V} LIBNETWORK_PLUGIN=${LIBNETWORK_PLUGIN} \
+    make GOARCH=${TARGETARCH} RACE=${RACE} NOSTRIP=1 NOOPT=${NOOPT} LOCKDEBUG=${LOCKDEBUG} PKG_BUILD=1 V=${V} LIBNETWORK_PLUGIN=${LIBNETWORK_PLUGIN} \
     DESTDIR=/tmp/install/${TARGETOS}/${TARGETARCH} build-container install-container-binary
 
 RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium --mount=target=/root/.cache,type=cache --mount=target=/go/pkg,type=cache \
     # install-bash-completion will execute the bash_completion script. It is
     # fine to run this with same architecture as BUILDARCH since the output of
     # bash_completion is the same for both architectures.
-    make GOARCH=${BUILDARCH} RACE=${RACE} NOSTRIP=${NOSTRIP} NOOPT=${NOOPT} LOCKDEBUG=${LOCKDEBUG} PKG_BUILD=1 V=${V} LIBNETWORK_PLUGIN=${LIBNETWORK_PLUGIN} \
+    make GOARCH=${BUILDARCH} RACE=${RACE} NOSTRIP=1 NOOPT=${NOOPT} LOCKDEBUG=${LOCKDEBUG} PKG_BUILD=1 V=${V} LIBNETWORK_PLUGIN=${LIBNETWORK_PLUGIN} \
     DESTDIR=/tmp/install/${TARGETOS}/${TARGETARCH} install-bash-completion licenses-all && \
     mv LICENSE.all /tmp/install/${TARGETOS}/${TARGETARCH}/LICENSE.all
 
-RUN cd /tmp/install/${TARGETOS}/${TARGETARCH} && \
-    S=/tmp/install/${TARGETOS}/${TARGETARCH} && \
+RUN S=/tmp/install/${TARGETOS}/${TARGETARCH} && \
     D=/tmp/debug/${TARGETOS}/${TARGETARCH} && \
     mkdir -p $D && \
+    cd $S && \
     find -type f \
       -executable \
       -exec sh -c \
-        'objcopy --only-keep-debug $0 $0.debug && objcopy --strip-debug $0 && objcopy --add-gnu-debuglink=$0.debug $0 && mkdir -p $D/$(dirname $0) && cp ${0}.debug $D/$0.debug' {} \;
+        'objcopy --only-keep-debug $0 $0.debug && if [ $NOSTRIP -ne 1 ] ; then objcopy --strip-debug $0 ; fi && objcopy --add-gnu-debuglink=$0.debug $0 && mkdir -p $D/$(dirname $0) && cp ${0}.debug $D/$0.debug' {} \;
 
 COPY images/cilium/init-container.sh \
      plugins/cilium-cni/cni-install.sh \
@@ -119,3 +119,14 @@ ARG TARGETARCH
 COPY --from=builder /go/bin/dlv /usr/bin/dlv
 RUN mv /usr/bin/cilium-agent /usr/bin/cilium-agent-bin
 COPY images/scripts/debug-wrapper.sh /usr/bin/cilium-agent
+
+#
+# Cilium debug symbols image.
+#
+FROM builder as debug-symbols
+# TARGETOS is an automatic platform ARG enabled by Docker BuildKit.
+ARG TARGETOS
+# TARGETARCH is an automatic platform ARG enabled by Docker BuildKit.
+ARG TARGETARCH
+LABEL maintainer="maintainer@cilium.io"
+COPY --from=builder /tmp/debug/${TARGETOS}/${TARGETARCH} /
