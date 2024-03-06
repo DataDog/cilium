@@ -61,6 +61,7 @@ RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium --mount=
 RUN mkdir -p /tmp/debug/${TARGETOS}/${TARGETARCH}
 
 RUN for x in /tmp/install/${TARGETOS}/${TARGETARCH}/* ; do \
+        if [ ! -x ${x} ] ; then continue ; fi ; \
         objcopy --only-keep-debug ${x} ${x}.debug && \
         objcopy --strip-debug ${x} && \
         objcopy --add-gnu-debuglink=${x}.debug ${x} && \
