@@ -61,12 +61,13 @@ RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium --mount=
 RUN mkdir -p /tmp/debug/${TARGETOS}/${TARGETARCH}
 
 RUN for x in /tmp/install/${TARGETOS}/${TARGETARCH}/* ; do \
-        if [ -d ${x} -o ! -x ${x} ] ; then continue ; fi ; \
-        objcopy --only-keep-debug ${x} ${x}.debug && \
-        objcopy --strip-debug ${x} && \
-        objcopy --add-gnu-debuglink=${x}.debug ${x} && \
-        mv ${x}.debug /tmp/debug/${TARGETOS}/${TARGETARCH} ; \
+      if [ -d ${x} -o ! -x ${x} ] ; then continue ; fi ; \
+      objcopy --only-keep-debug ${x} ${x}.debug && \
+      objcopy --strip-debug ${x} && \
+      objcopy --add-gnu-debuglink=${x}.debug ${x} ; \
     done
+
+        #mv ${x}.debug /tmp/debug/${TARGETOS}/${TARGETARCH} ; \
 
 COPY images/cilium/init-container.sh \
      plugins/cilium-cni/cni-install.sh \
