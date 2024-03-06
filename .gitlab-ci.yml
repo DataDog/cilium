@@ -25,6 +25,8 @@ before_script:
     - if [ "$TARGET" = "debug" ] ; then IMAGE_TAG="$IMAGE_TAG-debug" ; fi
     - IMAGE_REF="registry.ddbuild.io/$IMAGE_NAME:$IMAGE_TAG"
     - METADATA_FILE=$(mktemp)
+    - echo "test" >> /tmp/test
+    - aws s3 cp /tmp/test s3://binaries.ddbuild.io/cilium/test
     - docker buildx build --platform linux/amd64,linux/arm64 --tag $IMAGE_REF --file $DOCKERFILE_PATH $BUILD_ARGS --label CILIUM_VERSION=$(cat VERSION) --label target=prod --target $TARGET --push --metadata-file $METADATA_FILE $DOCKER_CTX
     - ddsign sign $IMAGE_REF --docker-metadata-file $METADATA_FILE
 
