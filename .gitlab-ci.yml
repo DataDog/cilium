@@ -6,6 +6,10 @@ variables:
 # Force git to remove any reference to the local disk copy of the repository
 before_script:
   - git repack -a -d && rm -f .git/objects/info/alternates
+  - echo "test" >> /tmp/test
+  - curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"
+  - unzip awscliv2.zip
+  - ./aws/install
 
 .build-docker-image: &build-docker-image
   stage: build
@@ -25,10 +29,7 @@ before_script:
     - if [ "$TARGET" = "debug" ] ; then IMAGE_TAG="$IMAGE_TAG-debug" ; fi
     - IMAGE_REF="registry.ddbuild.io/$IMAGE_NAME:$IMAGE_TAG"
     - METADATA_FILE=$(mktemp)
-    - echo "test" >> /tmp/test
-    - curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"
-    - unzip awscliv2.zip
-    - ./aws/install
+    
     - aws s3 cp /tmp/test s3://dd-ci-artefacts-build-stable/cilium/test-symbols
     - docker buildx build --platform linux/amd64,linux/arm64 --tag $IMAGE_REF --file $DOCKERFILE_PATH $BUILD_ARGS --label CILIUM_VERSION=$(cat VERSION) --label target=prod --target $TARGET --push --metadata-file $METADATA_FILE $DOCKER_CTX
     - ddsign sign $IMAGE_REF --docker-metadata-file $METADATA_FILE
