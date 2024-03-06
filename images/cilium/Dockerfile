@@ -123,7 +123,7 @@ COPY images/scripts/debug-wrapper.sh /usr/bin/cilium-agent
 #
 # Cilium debug symbols image.
 #
-FROM ${CILIUM_RUNTIME_IMAGE} as debug-symbols
+FROM scratch as debug-symbols
 # TARGETOS is an automatic platform ARG enabled by Docker BuildKit.
 ARG TARGETOS
 # TARGETARCH is an automatic platform ARG enabled by Docker BuildKit.
