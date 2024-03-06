@@ -70,7 +70,7 @@ RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium --mount=
 RUN cd /tmp/install/${TARGETOS}/${TARGETARCH} && \
     S=/tmp/install/${TARGETOS}/${TARGETARCH} && \
     D=/tmp/debug/${TARGETOS}/${TARGETARCH} && \
-    mkdir -c $D && \
+    mkdir -p $D && \
     find -type f \
       -executable \
       -exec sh -c \
