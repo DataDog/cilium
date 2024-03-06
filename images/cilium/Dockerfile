@@ -58,6 +58,15 @@ RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium --mount=
     DESTDIR=/tmp/install/${TARGETOS}/${TARGETARCH} install-bash-completion licenses-all && \
     mv LICENSE.all /tmp/install/${TARGETOS}/${TARGETARCH}/LICENSE.all
 
+RUN cd /tmp/install/${TARGETOS}/${TARGETARCH} && \
+    S=/tmp/install/${TARGETOS}/${TARGETARCH} && \
+    D=/tmp/debug/${TARGETOS}/${TARGETARCH} && \
+    mkdir -p $D && \
+    find -type f \
+      -executable \
+      -exec sh -c \
+        'objcopy --only-keep-debug $0 $0.debug && objcopy --strip-debug $0 && objcopy --add-gnu-debuglink=$0.debug $0 && mkdir -p $D/$(dirname $0) && cp ${0}.debug $D/$0.debug' {} \;
+
 COPY images/cilium/init-container.sh \
      plugins/cilium-cni/cni-install.sh \
      plugins/cilium-cni/install-plugin.sh \
