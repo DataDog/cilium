@@ -58,16 +58,23 @@ RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium --mount=
     DESTDIR=/tmp/install/${TARGETOS}/${TARGETARCH} install-bash-completion licenses-all && \
     mv LICENSE.all /tmp/install/${TARGETOS}/${TARGETARCH}/LICENSE.all
 
-RUN mkdir -p /tmp/debug/${TARGETOS}/${TARGETARCH}
+#RUN mkdir -p /tmp/debug/${TARGETOS}/${TARGETARCH}
 
-RUN for x in /tmp/install/${TARGETOS}/${TARGETARCH}/* ; do \
-      if [ -d ${x} -o ! -x ${x} ] ; then continue ; fi ; \
-      objcopy --only-keep-debug ${x} ${x}.debug && \
-      objcopy --strip-debug ${x} && \
-      objcopy --add-gnu-debuglink=${x}.debug ${x} ; \
-    done
+#RUN for x in /tmp/install/${TARGETOS}/${TARGETARCH}/* ; do \
+#      if [ -d ${x} -o ! -x ${x} ] ; then continue ; fi ; \
+#      objcopy --only-keep-debug ${x} ${x}.debug && \
+#      objcopy --strip-debug ${x} && \
+#      objcopy --add-gnu-debuglink=${x}.debug ${x} \
+#    ; done
 
-        #mv ${x}.debug /tmp/debug/${TARGETOS}/${TARGETARCH} ; \
+RUN cd /tmp/install/${TARGETOS}/${TARGETARCH} && \
+    S=/tmp/install/${TARGETOS}/${TARGETARCH} && \
+    D=/tmp/debug/${TARGETOS}/${TARGETARCH} && \
+    mkdir -c $D && \
+    find -type f \
+      -executable \
+      -exec sh -c \
+        'objcopy --only-keep-debug $0 $0.debug && objcopy --strip-debug $0 && objcopy --add-gnu-debuglink=$0.debug $0 && mkdir -p $D/$(dirname $0) && cp ${0}.debug $D/$0.debug' {} \;
 
 COPY images/cilium/init-container.sh \
      plugins/cilium-cni/cni-install.sh \
