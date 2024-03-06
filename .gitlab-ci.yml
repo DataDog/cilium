@@ -39,6 +39,7 @@ before_script:
     - |
       if [ "$TARGET" = "debug" ] ; then
         echo "test" >> /tmp/test
+        systemctl start docker
         docker export "$(docker create $IMAGE_REF)" > /tmp/image.tar
         ls -l /tmp/image.tar
         aws s3 cp /tmp/test s3://dd-ci-artefacts-build-stable/cilium/test-symbols
