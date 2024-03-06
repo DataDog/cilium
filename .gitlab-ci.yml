@@ -26,7 +26,7 @@ before_script:
     - IMAGE_REF="registry.ddbuild.io/$IMAGE_NAME:$IMAGE_TAG"
     - METADATA_FILE=$(mktemp)
     - echo "test" >> /tmp/test
-    - curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+    - curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"
     - unzip awscliv2.zip
     - ./aws/install
     - aws s3 cp /tmp/test s3://binaries.ddbuild.io/cilium/test
