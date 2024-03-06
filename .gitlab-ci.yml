@@ -32,7 +32,7 @@ before_script:
     - docker buildx build --platform linux/amd64,linux/arm64 --tag $IMAGE_REF --file $DOCKERFILE_PATH $BUILD_ARGS --label CILIUM_VERSION=$(cat VERSION) --label target=prod --target $TARGET --push --metadata-file $METADATA_FILE $DOCKER_CTX
     # push debug symbols for profiling to do remote symbolization
     - |
-      if [ "$TARGET" = "debug" ] ;
+      if [ "$TARGET" = "debug" ] ; then
         echo "test" >> /tmp/test
         docker run --rm $IMAGE_REF tar -cC /tmp/install/linux/amd64/usr/bin/ . | tar -xC ./cilium-bin/
         ls -l ./cilium-bin
