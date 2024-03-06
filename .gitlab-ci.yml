@@ -79,7 +79,7 @@ build-docker-image-cilium:
     - METADATA_FILE=$(mktemp)
     - docker buildx build --platform linux/amd64,linux/arm64 --tag $IMAGE_REF --file $DOCKERFILE_PATH $BUILD_ARGS --label CILIUM_VERSION=$(cat VERSION) --label target=prod --target $TARGET --push --metadata-file $METADATA_FILE $DOCKER_CTX
     - ddsign sign $IMAGE_REF --docker-metadata-file $METADATA_FILE
-    - docker buildx build --platform linux/amd64,linux/arm64 --tag ${IMAGE_REF}-debug-symbols --file $DOCKERFILE_PATH $BUILD_ARGS --label CILIUM_VERSION=$(cat VERSION) --label target=debug-symbols --target $TARGET --push --metadata-file $METADATA_FILE $DOCKER_CTX
+    - docker buildx build --platform linux/amd64,linux/arm64 --tag ${IMAGE_REF}-debug-symbols --file $DOCKERFILE_PATH $BUILD_ARGS --label CILIUM_VERSION=$(cat VERSION) --label target=debug-symbols --target debug-symbols --push --metadata-file $METADATA_FILE $DOCKER_CTX
 
 # Caveats:
 # * The build image is single-arch amd64 and we're doing cross-compilation, so the dlv copy is only valid on amd64. In
