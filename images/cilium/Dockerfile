@@ -60,14 +60,6 @@ RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium --mount=
     DESTDIR=/tmp/install/${TARGETOS}/${TARGETARCH} install-bash-completion licenses-all && \
     mv LICENSE.all /tmp/install/${TARGETOS}/${TARGETARCH}/LICENSE.all
 
-RUN echo $(ls -1 /tmp/install/${TARGETOS}/${TARGETARCH}/usr/)
-
-RUN objcopy --only-keep-debug  --remove-section .gdb_index /tmp/install/${TARGETOS}/${TARGETARCH}/usr/bin/cilium-agent /tmp/install/${TARGETOS}/${TARGETARCH}/cilium-agent.dbg
-
-RUN objcopy --strip-debug /tmp/install/${TARGETOS}/${TARGETARCH}/usr/bin/cilium-agent 
-
-RUN hash=$(sha256sum /tmp/install/${TARGETOS}/${TARGETARCH}/usr/bin/cilium-agent | awk '{print $1}') ; aws s3 cp /tmp/install/${TARGETOS}/${TARGETARCH}/cilium-agent.dbg s3://binaries.ddbuild.io/cilium/profiling-symbols/2/$hash/symbols.dbg
-
 COPY images/cilium/init-container.sh \
      plugins/cilium-cni/cni-install.sh \
      plugins/cilium-cni/install-plugin.sh \
