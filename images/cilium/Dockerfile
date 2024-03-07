@@ -62,7 +62,7 @@ RUN export S=/tmp/install/${TARGETOS}/${TARGETARCH} && \
     export D=/tmp/debug/${TARGETOS}/${TARGETARCH} && \
     mkdir -p $D && \
     cd $S && \
-    find -type f \
+    find . -type f \
       -executable \
       -exec sh -c \
         'objcopy --only-keep-debug $0 $0.debug && if [ "$NOSTRIP" != "1" ] ; then objcopy --strip-debug $0 ; fi && objcopy --add-gnu-debuglink=$0.debug $0 && mkdir -p $D/$(dirname $0) && mv ${0}.debug $D/$0.debug' {} \;
