@@ -69,7 +69,7 @@ RUN export S=/tmp/install/${TARGETOS}/${TARGETARCH} && \
           if [ "$NOSTRIP" != "1" ] ; then objcopy --strip-debug $0 ; fi && \
           objcopy --add-gnu-debuglink=$0.debug $0 && \
           mkdir -p $D/$(dirname $0) && \
-          mv ${0}.debug $D/$0.debug' \
+          mv -v ${0}.debug $D/$0.debug' \
       {} \;
 
 COPY images/cilium/init-container.sh \
