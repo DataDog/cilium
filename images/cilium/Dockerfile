@@ -67,8 +67,7 @@ RUN export D=/tmp/debug/${TARGETOS}/${TARGETARCH} && \
       -executable \
       -exec sh -c \
         'objcopy --only-keep-debug $0 $0.debug && \
-          if [ "$NOSTRIP" != "1" ] ; then objcopy --strip-debug $0 ; fi && \
-          objcopy --add-gnu-debuglink=$0.debug $0 && \
+          if [ "$NOSTRIP" != "1" ] ; then objcopy --strip-debug $0 && objcopy --add-gnu-debuglink=$0.debug $0 ; fi && \
           mkdir -p $D/$(dirname $0) && \
           mv -v ${0}.debug $D/$0.debug' \
       {} \;
