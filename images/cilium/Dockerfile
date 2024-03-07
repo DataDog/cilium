@@ -58,8 +58,8 @@ RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium --mount=
     DESTDIR=/tmp/install/${TARGETOS}/${TARGETARCH} install-bash-completion licenses-all && \
     mv LICENSE.all /tmp/install/${TARGETOS}/${TARGETARCH}/LICENSE.all
 
-RUN export S=/tmp/install/${TARGETOS}/${TARGETARCH} && \
-    export D=/tmp/debug/${TARGETOS}/${TARGETARCH} && \
+RUN S=/tmp/install/${TARGETOS}/${TARGETARCH} && \
+    D=/tmp/debug/${TARGETOS}/${TARGETARCH} && \
     mkdir -p $D && \
     cd $S && \
     find . -type f \
