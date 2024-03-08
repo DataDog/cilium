@@ -137,10 +137,10 @@ RUN if [ "$NOSTRIP" != "1" ] ; then \
 #
 # Cilium debug symbols image.
 #
-FROM scratch as debug-symbols
-# TARGETOS is an automatic platform ARG enabled by Docker BuildKit.
-ARG TARGETOS
-# TARGETARCH is an automatic platform ARG enabled by Docker BuildKit.
-ARG TARGETARCH
-LABEL maintainer="maintainer@cilium.io"
-COPY --from=builder /tmp/debug/${TARGETOS}/${TARGETARCH} /
+#FROM scratch as debug-symbols
+## TARGETOS is an automatic platform ARG enabled by Docker BuildKit.
+#ARG TARGETOS
+## TARGETARCH is an automatic platform ARG enabled by Docker BuildKit.
+#ARG TARGETARCH
+#LABEL maintainer="maintainer@cilium.io"
+#COPY --from=builder /tmp/debug/${TARGETOS}/${TARGETARCH} /
