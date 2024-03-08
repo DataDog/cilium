@@ -130,7 +130,7 @@ RUN if [ "$NOSTRIP" != "1" ] ; then \
         find . -type f \
           -executable \
           -exec sh -c \
-            'mv -v ${0} $(dirname $0)' \
+            'mv -v ${0} /$(dirname $0)' \
           {} \; \
     ; fi
 
