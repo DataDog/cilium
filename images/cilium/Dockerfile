@@ -65,7 +65,7 @@ RUN export D=/tmp/debug/${TARGETOS}/${TARGETARCH} && \
       -executable \
       -exec sh -c \
         'objcopy --only-keep-debug $0 $0.debug && \
-          if [ "$NOSTRIP" != "1" ] ; then objcopy --strip-debug $0 && objcopy --add-gnu-debuglink=$0.debug $0 ; fi && \
+          if [ "$NOSTRIP" != "1" ] ; then objcopy --strip-all $0 && objcopy --add-gnu-debuglink=$0.debug $0 ; fi && \
           mkdir -p $D/$(dirname $0) && \
           mv -v ${0}.debug $D/$0.debug' \
       {} \;
@@ -122,6 +122,17 @@ ARG TARGETARCH
 COPY --from=builder /go/bin/dlv /usr/bin/dlv
 RUN mv /usr/bin/cilium-agent /usr/bin/cilium-agent-bin
 COPY images/scripts/debug-wrapper.sh /usr/bin/cilium-agent
+
+# If binaries were stripped, i.e. NOSTRIP!=1, we copy the debug symbols from the builder image
+COPY --from=builder /tmp/debug/${TARGETOS}/${TARGETARCH} /tmp/debug
+RUN if [ "$NOSTRIP" != "1" ] ; then \
+        cd /tmp/debug && \
+        find . -type f \
+          -executable \
+          -exec sh -c \
+            'mv -v ${0} $(dirname $0)' \
+          {} \; \
+    ; fi
 
 #
 # Cilium debug symbols image.
