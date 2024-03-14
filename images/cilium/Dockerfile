@@ -58,13 +58,15 @@ RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium --mount=
     DESTDIR=/tmp/install/${TARGETOS}/${TARGETARCH} install-bash-completion licenses-all && \
     mv LICENSE.all /tmp/install/${TARGETOS}/${TARGETARCH}/LICENSE.all
 
-RUN export D=/tmp/debug/${TARGETOS}/${TARGETARCH} && \
+RUN set -xe && \
+    export D=/tmp/debug/${TARGETOS}/${TARGETARCH} && \
     mkdir -p $D && \
     cd /tmp/install/${TARGETOS}/${TARGETARCH} && \
     find . -type f \
       -executable \
       -exec sh -c \
-        'objcopy --only-keep-debug $0 $0.debug && \
+        'go tool buildid $0 && \
+          objcopy --only-keep-debug $0 $0.debug && \
           if [ "$NOSTRIP" != "1" ] ; then objcopy --strip-all $0 && objcopy --add-gnu-debuglink=$0.debug $0 ; fi && \
           mkdir -p $D/$(dirname $0) && \
           mv -v ${0}.debug $D/$0.debug' \
