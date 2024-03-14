@@ -59,6 +59,7 @@ RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium --mount=
     mv LICENSE.all /tmp/install/${TARGETOS}/${TARGETARCH}/LICENSE.all
 
 RUN set -xe && \
+    (readelf -n /tmp/install/${TARGETOS}/${TARGETARCH}/usr/bin/cilium || true) && \
     export D=/tmp/debug/${TARGETOS}/${TARGETARCH} && \
     mkdir -p $D && \
     cd /tmp/install/${TARGETOS}/${TARGETARCH} && \
