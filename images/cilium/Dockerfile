@@ -65,11 +65,8 @@ RUN set -xe && \
     find . -type f \
       -executable \
       -exec sh -c \
-        'go tool buildid $0 &&  \
-          readelf -n $0 && \
-          objcopy --only-keep-debug $0 $0.debug && \
+        'objcopy --only-keep-debug $0 $0.debug && \
           if [ "$NOSTRIP" != "1" ] ; then objcopy --strip-all $0 && objcopy --add-gnu-debuglink=$0.debug $0 ; fi && \
-          mkdir -p $D/$(dirname $0) && \
           mv -v ${0}.debug $D/$0.debug' \
       {} \;
 
