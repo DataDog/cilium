@@ -66,8 +66,9 @@ RUN set -xe && \
       -executable \
       -exec sh -c \
         'filename=$(basename ${0}) && \
+         echo objcopy --only-keep-debug ${0} ${0}.debug && \
          objcopy --only-keep-debug ${0} ${0}.debug && \
-         if [ "$NOSTRIP" != "1" ] ; then objcopy --strip-all ${0} && (cd $(dirname ${0}) && objcopy --add-gnu-debuglink=${filename}.debug ${0}) ; fi && \
+         if [ "$NOSTRIP" != "1" ] ; then echo objcopy --strip-all ${0} && objcopy --strip-all ${0} && echo cd $(dirname ${0}) && echo objcopy --add-gnu-debuglink=${filename}.debug ${0} && (cd $(dirname ${0}) && objcopy --add-gnu-debuglink=${filename}.debug ${0}) ; fi && \
          mv -v ${0}.debug ${D}/${filename}.debug' \
       {} \;
 
