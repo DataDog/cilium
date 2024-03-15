@@ -127,5 +127,6 @@ COPY images/scripts/debug-wrapper.sh /usr/bin/cilium-agent
 # Copy in the debug symbols in case the binaries were stripped
 COPY --from=builder /tmp/debug/${TARGETOS}/${TARGETARCH} /usr/lib/debug
 
-# Ensure dlv finds the debug symbols. Due to CGO_ENABLED=0, we have no GNU build-id.
-RUN sed -i -e 's!"/usr/lib/debug/.build-id"!"/usr/lib/debug/.build-id", "/usr/lib/debug"!' ~/.config/dlv/config.yml
+# Ensure dlv finds the debug symbols. Due to CGO_ENABLED=0, we have no GNU build-id, so Delve's default configuration
+# is insufficient.
+RUN echo 'debug-info-directories: ["/usr/lib/debug/.build-id","/usr/lib/debug"]' > ~/.config/dlv/config.yml
