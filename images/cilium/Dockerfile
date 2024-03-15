@@ -65,9 +65,10 @@ RUN set -xe && \
     find . -type f \
       -executable \
       -exec sh -c \
-        'objcopy --only-keep-debug $0 $0.debug && \
-          if [ "$NOSTRIP" != "1" ] ; then objcopy --strip-all $0 && objcopy --add-gnu-debuglink=$0.debug $0 ; fi && \
-          mv -v ${0}.debug $D/$0.debug' \
+        'filename=$(basename ${0}) && \
+         objcopy --only-keep-debug ${0} ${0}.debug && \
+         if [ "$NOSTRIP" != "1" ] ; then objcopy --strip-all ${0} && objcopy --add-gnu-debuglink=${filename}.debug ${0} ; fi && \
+         mv -v ${0}.debug ${D}/${filename}.debug' \
       {} \;
 
 COPY images/cilium/init-container.sh \
