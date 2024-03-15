@@ -126,22 +126,3 @@ COPY images/scripts/debug-wrapper.sh /usr/bin/cilium-agent
 
 # Copy in the debug symbols in case the binaries were stripped
 COPY --from=builder /tmp/debug/${TARGETOS}/${TARGETARCH} /usr/lib/debug
-#RUN if [ "$NOSTRIP" != "1" ] ; then \
-#        cd /tmp/debug && \
-#        find . -type f \
-#          -executable \
-#          -exec sh -c \
-#            'mv -v ${0} /$(dirname $0)' \
-#          {} \; \
-#    ; fi
-
-#
-# Cilium debug symbols image.
-#
-#FROM scratch as debug-symbols
-## TARGETOS is an automatic platform ARG enabled by Docker BuildKit.
-#ARG TARGETOS
-## TARGETARCH is an automatic platform ARG enabled by Docker BuildKit.
-#ARG TARGETARCH
-#LABEL maintainer="maintainer@cilium.io"
-#COPY --from=builder /tmp/debug/${TARGETOS}/${TARGETARCH} /
