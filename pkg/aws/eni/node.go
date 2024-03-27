@@ -19,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	operatorOption "github.com/cilium/cilium/operator/option"
+	"github.com/cilium/cilium/pkg/aws/ec2"
 	"github.com/cilium/cilium/pkg/aws/eni/limits"
 	eniTypes "github.com/cilium/cilium/pkg/aws/eni/types"
 	"github.com/cilium/cilium/pkg/defaults"
@@ -38,9 +39,6 @@ const (
 
 	getMaximumAllocatableIPv4FailureWarningStr = "maximum allocatable ipv4 addresses will be 0 (unlimited)" +
 		" this could lead to ip allocation overflows if the max-allocate flag is not set"
-
-	// insufficientPrefixesInSubnetStr AWS error code for insufficient /28 prefixes in a subnet
-	insufficientPrefixesInSubnetStr = "InsufficientCidrBlocks"
 )
 
 // Node represents a Kubernetes node running Cilium with an associated
@@ -259,7 +257,9 @@ func (n *Node) PrepareIPAllocation(scopedLog *logrus.Entry) (a *ipam.AllocationA
 func isSubnetAtPrefixCapacity(err error) bool {
 	var apiErr smithy.APIError
 	if errors.As(err, &apiErr) {
-		return apiErr.ErrorCode() == insufficientPrefixesInSubnetStr
+		return apiErr.ErrorCode() == ec2.InsufficientPrefixesInSubnetStr ||
+			(apiErr.ErrorCode() == ec2.InvalidParameterValueStr &&
+				strings.Contains(apiErr.ErrorMessage(), ec2.SubnetFullErrMsgStr))
 	}
 	return false
 }
@@ -348,7 +348,8 @@ func (n *Node) errorInstanceNotRunning(err error) (notRunning bool) {
 func isAttachmentIndexConflict(err error) bool {
 	var apiErr smithy.APIError
 	if errors.As(err, &apiErr) {
-		return apiErr.ErrorCode() == "InvalidParameterValue" && strings.Contains(apiErr.ErrorMessage(), "interface attached at device")
+		return apiErr.ErrorCode() == ec2.InvalidParameterValueStr &&
+			strings.Contains(apiErr.ErrorMessage(), "interface attached at device")
 	}
 	return false
 }
