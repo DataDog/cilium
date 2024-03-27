@@ -105,4 +105,4 @@ test:
   image: $CI_TEST_IMAGE
   tags: [ "arch:arm64" ]
   script:
-    - CGO_ENABLED=0 go test -mod=vendor -vet=all -tags=osusergo -ldflags "-X github.com/cilium/cilium/pkg/datapath.datapathSHA256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" ./... -timeout 600s
+    - make test
