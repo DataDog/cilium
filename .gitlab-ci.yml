@@ -105,4 +105,4 @@ test:
   image: $CI_TEST_IMAGE
   tags: [ "arch:arm64" ]
   script:
-    - make test
+    - make tests-privileged
