@@ -112,7 +112,7 @@ $(SUBDIRS): force ## Execute default make target(make all) for the provided subd
 	@ $(MAKE) $(SUBMAKEOPTS) -C $@ all
 
 tests-privileged: ## Run Go tests including ones that require elevated privileges.
-	PRIVILEGED_TESTS=true PATH=$(PATH):$(ROOT_DIR)/bpf $(GO_TEST) $(TEST_LDFLAGS) \
+	PATH=$(PATH):$(ROOT_DIR)/bpf $(GO_TEST) $(TEST_LDFLAGS) \
 		$(TESTPKGS) $(GOTEST_BASE) $(GOTEST_COVER_OPTS) | $(GOTEST_FORMATTER)
 	$(MAKE) generate-cov
 
