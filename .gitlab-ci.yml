@@ -1,5 +1,6 @@
 variables:
   CI_DOCKER_IMAGE: registry.ddbuild.io/images/docker:24.0.4-gbi-focal
+  CI_TEST_IMAGE: registry.ddbuild.io/images/mirror/golang:1.21.6
   DOCKER_CTX: "."
   DOCKER_BUILD_ARGS: ""
 
@@ -98,3 +99,10 @@ build-docker-image-hubble-relay:
       GOLANG_IMAGE=registry.ddbuild.io/images/mirror/golang:1.21.6@sha256:7b575fe0d9c2e01553b04d9de8ffea6d35ca3ab3380d2a8db2acc8f0f1519a53
       ALPINE_IMAGE=registry.ddbuild.io/images/mirror/library/alpine:3.17.5@sha256:f71a5f071694a785e064f05fed657bf8277f1b2113a8ed70c90ad486d6ee54dc
     TARGET: release
+
+test:
+  stage: test
+  image: $CI_TEST_IMAGE
+  tags: [ "arch:arm64" ]
+  script:
+    - CGO_ENABLED=0 go test -mod=vendor -vet=all -tags=osusergo -ldflags "-X github.com/cilium/cilium/pkg/datapath.datapathSHA256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" ./... -timeout 600s -json
