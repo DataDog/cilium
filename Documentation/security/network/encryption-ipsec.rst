@@ -45,7 +45,7 @@ following command:
 .. code-block:: shell-session
 
     $ kubectl create -n kube-system secret generic cilium-ipsec-keys \
-        --from-literal=keys="3 rfc4106(gcm(aes)) $(echo $(dd if=/dev/urandom count=20 bs=1 2> /dev/null | xxd -p -c 64)) 128"
+        --from-literal=keys="3+ rfc4106(gcm(aes)) $(echo $(dd if=/dev/urandom count=20 bs=1 2> /dev/null | xxd -p -c 64)) 128"
 
 The secret can be seen with ``kubectl -n kube-system get secrets`` and will be
 listed as ``cilium-ipsec-keys``.
@@ -162,13 +162,19 @@ commands:
 Key Rotation
 ============
 
+.. attention::
+
+   Key rotations should not be performed during upgrades and downgrades. That
+   is, all nodes in the cluster (or clustermesh) should be on the same Cilium
+   version before rotating keys.
+
 To replace cilium-ipsec-keys secret with a new key:
 
 .. code-block:: shell-session
 
-    KEYID=$(kubectl get secret -n kube-system cilium-ipsec-keys -o go-template --template={{.data.keys}} | base64 -d | cut -d' ' -f1)
+    KEYID=$(kubectl get secret -n kube-system cilium-ipsec-keys -o go-template --template={{.data.keys}} | base64 -d | grep -oP "^\d+")
     if [[ $KEYID -ge 15 ]]; then KEYID=0; fi
-    data=$(echo "{\"stringData\":{\"keys\":\"$((($KEYID+1))) "rfc4106\(gcm\(aes\)\)" $(echo $(dd if=/dev/urandom count=20 bs=1 2> /dev/null| xxd -p -c 64)) 128\"}}")
+    data=$(echo "{\"stringData\":{\"keys\":\"$((($KEYID+1)))+ "rfc4106\(gcm\(aes\)\)" $(echo $(dd if=/dev/urandom count=20 bs=1 2> /dev/null| xxd -p -c 64)) 128\"}}")
     kubectl patch secret -n kube-system cilium-ipsec-keys -p="${data}" -v=1
 
 During transition the new and old keys will be in use. The Cilium agent keeps
@@ -206,22 +212,30 @@ Troubleshooting
        $ cilium encrypt status
        Encryption: IPsec
        Decryption interface(s): eth0, eth1, eth2
-       Keys in use: 1
+       Keys in use: 4
        Max Seq. Number: 0x1e3/0xffffffff
        Errors: 0
 
    If the error counter is non-zero, additional information will be displayed
    with the specific errors the kernel encountered. If the sequence number
-   reaches its maximum value, it will also result in errors. The number of
-   keys in use should be 2 during a key rotation and always 1 otherwise. The
-   list of decryption interfaces should have all native devices that may
+   reaches its maximum value, it will also result in errors.
+
+   The number of keys in use should be 2 per remote node per enabled IP family.
+   During a key rotation, it can double to 4 per remote node per IP family. For
+   example, in a 3-nodes cluster, if both IPv4 and IPv6 are enabled and no key
+   rotation is ongoing, there should be 8 keys in use on each node.
+
+   The list of decryption interfaces should have all native devices that may
    receive pod traffic (for example, ENI interfaces).
 
- * All XFRM errors correspond to a packet drop in the kernel. Except for
-   ``XfrmFwdHdrError`` and ``XfrmInError``, all XFRM errors indicate a bug in
-   Cilium or an operational mistake. ``XfrmOutStateSeqError`` and
-   ``XfrmInStateProtoError`` may be caused by operational mistakes, as detailed
-   in the following points.
+All XFRM errors correspond to a packet drop in the kernel. The following
+details operational mistakes and expected behaviors that can cause those
+errors.
+
+ * When a node reboots, the key used to communicate with it is expected to
+   change on other nodes. You may notice the ``XfrmInNoStates`` and
+   ``XfrmOutNoStates`` counters increase while the new node key is being
+   deployed.
 
  * If the sequence number reaches its maximum value for any XFRM OUT state, it
    will result in packet drops and XFRM errors of type
@@ -249,6 +263,10 @@ Troubleshooting
    errors can also happen under memory pressure when the kernel fails to
    allocate memory.
 
+ * ``XfrmInStateInvalid`` can happen on rare occasions if packets are received
+   while an XFRM state is being deleted. XFRM states get deleted as part of
+   node scale-downs and for some upgrades and downgrades.
+
  * The following table documents the known explanations for several XFRM errors
    that were observed in the past. Many other error types exist, but they are
    usually for Linux subfeatures that Cilium doesn't use (e.g., XFRM
@@ -262,6 +280,8 @@ Troubleshooting
                             allocate memory.
    XfrmInNoStates           Bug in the XFRM configuration for decryption.
    XfrmInStateProtoError    There is a key mismatch between nodes.
+   XfrmInStateInvalid       A received packet matched an XFRM state that is
+                            being deleted.
    XfrmInTmplMismatch       Bug in the XFRM configuration for decryption.
    XfrmInNoPols             Bug in the XFRM configuration for decryption.
    XfrmInPolBlock           Explicit drop, not used by Cilium.
