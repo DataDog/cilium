@@ -1,0 +1,97 @@
+variables:
+  CI_DOCKER_IMAGE: registry.ddbuild.io/images/docker:24.0.4-gbi-focal
+  DOCKER_CTX: "."
+  DOCKER_BUILD_ARGS: ""
+
+# Force git to remove any reference to the local disk copy of the repository
+before_script:
+  - git repack -a -d && rm -f .git/objects/info/alternates
+
+.build-docker-image: &build-docker-image
+  stage: build
+  image: $CI_DOCKER_IMAGE
+  tags: ["arch:arm64"]
+  rules:
+    # Automatically run the pipeline for all pushed tags
+    - if: $CI_COMMIT_TAG
+  id_tokens:
+    DDSIGN_ID_TOKEN:
+      aud: image-integrity
+  script:
+    - set -x
+    # Construct valid --build-args arguments from the DOCKER_BUILD_ARGS variable
+    - BUILD_ARGS=""; IFS=$'\n'; for arg in $DOCKER_BUILD_ARGS; do BUILD_ARGS+=" $(echo "--build-arg $arg")"; done; IFS=$' ';
+    - IMAGE_TAG="$CI_COMMIT_TAG"
+    - if [ "$TARGET" = "debug" ] ; then IMAGE_TAG="$IMAGE_TAG-debug" ; fi
+    - IMAGE_REF="registry.ddbuild.io/$IMAGE_NAME:$IMAGE_TAG"
+    - METADATA_FILE=$(mktemp)
+    - docker buildx build --platform linux/amd64,linux/arm64 --tag $IMAGE_REF --file $DOCKERFILE_PATH $BUILD_ARGS --label CILIUM_VERSION=$(cat VERSION) --label target=prod --target $TARGET --push --metadata-file $METADATA_FILE $DOCKER_CTX
+    - ddsign sign $IMAGE_REF --docker-metadata-file $METADATA_FILE
+
+build-docker-image-operator:
+  <<: *build-docker-image
+  variables:
+    IMAGE_NAME: cilium-operator
+    DOCKERFILE_PATH: images/operator/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      OPERATOR_VARIANT=operator
+      BASE_IMAGE=registry.ddbuild.io/images/base/gbi-distroless:release
+      GOLANG_IMAGE=registry.ddbuild.io/images/mirror/golang:1.21.8@sha256:856073656d1a517517792e6cdd2f7a5ef080d3ca2dff33e518c8412f140fdd2d
+      ALPINE_IMAGE=registry.ddbuild.io/images/mirror/library/alpine:3.18.6@sha256:11e21d7b981a59554b3f822c49f6e9f57b6068bb74f49c4cd5cc4c663c7e5160
+      CILIUM_BUILDER_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-builder:19ec78840c470dbb591ee4c7bc4471c93946e30c@sha256:bf15e349cb8f500419ac98f36dfa4d88945c9b9c8ef25021c1bfeaf79543b5f5
+    TARGET: release
+
+build-docker-image-runtime:
+  <<: *build-docker-image
+  variables:
+    IMAGE_NAME: cilium-runtime
+    DOCKERFILE_PATH: images/runtime/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      TESTER_IMAGE=registry.ddbuild.io/images/mirror/cilium/image-tester:dd09c8d3ef349a909fbcdc99279516baef153f22@sha256:c056d064cb47c97acd607343db5457e1d49d9338d6d8a87e93e23cc93f052c73
+      GOLANG_IMAGE=registry.ddbuild.io/images/mirror/golang:1.21.8@sha256:856073656d1a517517792e6cdd2f7a5ef080d3ca2dff33e518c8412f140fdd2d
+      UBUNTU_IMAGE=registry.ddbuild.io/images/base/gbi-ubuntu_2204:release
+      CILIUM_LLVM_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-llvm:a8c542efc076b62ba683e7699c0013adb6955f0f@sha256:38e8941107bd19eb30bdde6e478760a22325f38d1f2771dfd1b9af81d74235e7
+      CILIUM_BPFTOOL_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-bpftool:d3093f6aeefef8270306011109be623a7e80ad1b@sha256:2c28c64195dee20ab596d70a59a4597a11058333c6b35a99da32c339dcd7df56
+      CILIUM_IPTABLES_IMAGE=registry.ddbuild.io/images/mirror/cilium/iptables:67f517af50e18f64cd12625021f1c39246bb4f92@sha256:d075f03e89aacf51908346ec8ed5d251b8d3ad528ce30a710fcd074cdf91f11d
+    DOCKER_CTX: "./images/runtime"
+    TARGET: release
+
+# Caveats:
+# * The build image is single-arch amd64 and we're doing cross-compilation, so the dlv copy is only valid on amd64. In
+#   other words, the arm64 image does not work.
+build-docker-image-cilium:
+  <<: *build-docker-image
+  needs:
+    # The cilium image depends on the runtime image
+    - build-docker-image-runtime
+  variables:
+    IMAGE_NAME: cilium
+    DOCKERFILE_PATH: images/cilium/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      CILIUM_RUNTIME_IMAGE=registry.ddbuild.io/cilium-runtime:$CI_COMMIT_TAG
+      CILIUM_BUILDER_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-builder:19ec78840c470dbb591ee4c7bc4471c93946e30c@sha256:bf15e349cb8f500419ac98f36dfa4d88945c9b9c8ef25021c1bfeaf79543b5f5
+      CILIUM_ENVOY_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-envoy:v1.26-bbde4095997ea57ead209f56158790d47224a0f5@sha256:39b75548447978230dedcf25da8940e4d3540c741045ef391a8e74dbb9661a86
+    TARGET: release
+    NOSTRIP: 0
+  script:
+    - set -x
+    # Construct valid --build-args arguments from the DOCKER_BUILD_ARGS variable
+    - BUILD_ARGS=""; IFS=$'\n'; for arg in $DOCKER_BUILD_ARGS; do BUILD_ARGS+=" $(echo "--build-arg $arg")"; done; IFS=$' ';
+    - IMAGE_TAG="$CI_COMMIT_TAG"
+    - IMAGE_REF="registry.ddbuild.io/$IMAGE_NAME:$IMAGE_TAG"
+    - METADATA_FILE1=$(mktemp)
+    - METADATA_FILE2=$(mktemp)
+    - docker buildx build --platform linux/amd64,linux/arm64 --tag $IMAGE_REF --file $DOCKERFILE_PATH $BUILD_ARGS --label CILIUM_VERSION=$(cat VERSION) --label target=prod --target $TARGET --push --metadata-file $METADATA_FILE1 $DOCKER_CTX
+    - ddsign sign $IMAGE_REF --docker-metadata-file $METADATA_FILE1
+    - docker buildx build --platform linux/amd64,linux/arm64 --tag $IMAGE_REF-debug --file $DOCKERFILE_PATH $BUILD_ARGS --label CILIUM_VERSION=$(cat VERSION) --label target=debug --target debug --push --metadata-file $METADATA_FILE2 $DOCKER_CTX
+    - ddsign sign $IMAGE_REF-debug --docker-metadata-file $METADATA_FILE2
+
+build-docker-image-hubble-relay:
+  <<: *build-docker-image
+  variables:
+    IMAGE_NAME: hubble-relay
+    DOCKERFILE_PATH: images/hubble-relay/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      BASE_IMAGE=registry.ddbuild.io/images/base/gbi-distroless:release
+      GOLANG_IMAGE=registry.ddbuild.io/images/mirror/golang:1.21.8@sha256:856073656d1a517517792e6cdd2f7a5ef080d3ca2dff33e518c8412f140fdd2d
+    TARGET: release
