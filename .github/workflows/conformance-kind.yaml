@@ -21,7 +21,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  kind_version: v0.17.0
   kind_config: .github/kind-config.yaml
   cilium_cli_version: v0.12.12
 
@@ -31,11 +30,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - name: Checkout master branch to access local actions
+      - name: Checkout target branch to access local actions
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ github.base_ref || github.ref }}
           persist-credentials: false
+
       - name: Set Environment Variables
         uses: ./.github/actions/set-env-variables
 
@@ -93,9 +93,11 @@ jobs:
           persist-credentials: false
 
       - name: Create kind cluster
-        uses: helm/kind-action@dda0770415bac9fc20092cacbc54aa298604d140 # v1.8.0
+        uses: helm/kind-action@99576bfa6ddf9a8e612d83b513da5a75875caced # v1.9.0
         with:
-          version: ${{ env.kind_version }}
+          version: ${{ env.KIND_VERSION }}
+          node_image: ${{ env.KIND_K8S_IMAGE }}
+          kubectl_version: ${{ env.KIND_K8S_VERSION }}
           config: ${{ env.kind_config }}
 
       - name: Wait for images to be available
@@ -158,7 +160,7 @@ jobs:
 
       - name: Upload artifacts
         if: ${{ !success() }}
-        uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 # v4.3.0
+        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
         with:
           name: cilium-sysdumps
           path: cilium-sysdump-*.zip

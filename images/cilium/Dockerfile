@@ -1,9 +1,9 @@
 # Copyright Authors of Cilium
 # SPDX-License-Identifier: Apache-2.0
 
-ARG CILIUM_BUILDER_IMAGE=quay.io/cilium/cilium-builder:f229913ec72a183640bd46d0dd0579ebea3bb1c6@sha256:6ec80f7123cbf83008420b34c458f2e18e2091a648c0926ae3a601820468d902
-ARG CILIUM_RUNTIME_IMAGE=quay.io/cilium/cilium-runtime:112ec8fbb1e6a29932ae50ec976b1f4eddb89264@sha256:57d64a1203e9e3eede8a2e1faa622d0e9ed5a3de4c3e3b25f98f6bcead975453
-ARG CILIUM_ENVOY_IMAGE=quay.io/cilium/cilium-envoy:v1.26-39dc41f86c465d2a2d16386339dc0bf4d425babc@sha256:e77adfe8a263fe4b8c56dcb9bd0f4d68bb36067602e7be1388528c02fb8765c5
+ARG CILIUM_BUILDER_IMAGE=quay.io/cilium/cilium-builder:056c38941975f5f8ab2fa83e5376de34de6dbba8@sha256:6f8dcf1da07c8a684781a8437caaa94b58542dbc6e82077ff812b88270a0c0b9
+ARG CILIUM_RUNTIME_IMAGE=quay.io/cilium/cilium-runtime:a83a56dbedd41d0b53415122e1df44527f2503af@sha256:d7f85f9e7caf1e731885673f12b26c9dbff92187408c762c71ce1fae7a0d655a
+ARG CILIUM_ENVOY_IMAGE=quay.io/cilium/cilium-envoy:v1.26-bbde4095997ea57ead209f56158790d47224a0f5@sha256:39b75548447978230dedcf25da8940e4d3540c741045ef391a8e74dbb9661a86
 
 # cilium-envoy from github.com/cilium/proxy
 #
@@ -47,16 +47,29 @@ ARG LIBNETWORK_PLUGIN
 #
 WORKDIR /go/src/github.com/cilium/cilium
 RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium --mount=target=/root/.cache,type=cache --mount=target=/go/pkg,type=cache \
-    make GOARCH=${TARGETARCH} RACE=${RACE} NOSTRIP=${NOSTRIP} NOOPT=${NOOPT} LOCKDEBUG=${LOCKDEBUG} PKG_BUILD=1 V=${V} LIBNETWORK_PLUGIN=${LIBNETWORK_PLUGIN} \
+    make GOARCH=${TARGETARCH} RACE=${RACE} NOSTRIP=1 NOOPT=${NOOPT} LOCKDEBUG=${LOCKDEBUG} PKG_BUILD=1 V=${V} LIBNETWORK_PLUGIN=${LIBNETWORK_PLUGIN} \
     DESTDIR=/tmp/install/${TARGETOS}/${TARGETARCH} build-container install-container-binary
 
 RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium --mount=target=/root/.cache,type=cache --mount=target=/go/pkg,type=cache \
     # install-bash-completion will execute the bash_completion script. It is
     # fine to run this with same architecture as BUILDARCH since the output of
     # bash_completion is the same for both architectures.
-    make GOARCH=${BUILDARCH} RACE=${RACE} NOSTRIP=${NOSTRIP} NOOPT=${NOOPT} LOCKDEBUG=${LOCKDEBUG} PKG_BUILD=1 V=${V} LIBNETWORK_PLUGIN=${LIBNETWORK_PLUGIN} \
+    make GOARCH=${BUILDARCH} RACE=${RACE} NOSTRIP=1 NOOPT=${NOOPT} LOCKDEBUG=${LOCKDEBUG} PKG_BUILD=1 V=${V} LIBNETWORK_PLUGIN=${LIBNETWORK_PLUGIN} \
     DESTDIR=/tmp/install/${TARGETOS}/${TARGETARCH} install-bash-completion licenses-all && \
     mv LICENSE.all /tmp/install/${TARGETOS}/${TARGETARCH}/LICENSE.all
+
+RUN set -xe && \
+    export D=/tmp/debug/${TARGETOS}/${TARGETARCH} && \
+    mkdir -p $D && \
+    cd /tmp/install/${TARGETOS}/${TARGETARCH} && \
+    find . -type f \
+      -executable \
+      -exec sh -c \
+        'filename=$(basename ${0}) && \
+         objcopy --only-keep-debug ${0} ${0}.debug && \
+         if [ "$NOSTRIP" != "1" ] ; then objcopy --strip-all ${0} && (cd $(dirname ${0}) && objcopy --add-gnu-debuglink=${filename}.debug ${filename}) ; fi && \
+         mv -v ${0}.debug ${D}/${filename}.debug' \
+      {} \;
 
 COPY images/cilium/init-container.sh \
      plugins/cilium-cni/cni-install.sh \
@@ -110,3 +123,12 @@ ARG TARGETARCH
 COPY --from=builder /go/bin/dlv /usr/bin/dlv
 RUN mv /usr/bin/cilium-agent /usr/bin/cilium-agent-bin
 COPY images/scripts/debug-wrapper.sh /usr/bin/cilium-agent
+
+# Copy in the debug symbols in case the binaries were stripped
+COPY --from=builder /tmp/debug/${TARGETOS}/${TARGETARCH} /usr/lib/debug
+
+# Ensure dlv finds the debug symbols. Due to CGO_ENABLED=0, we have no GNU build-id, so Delve's default search path
+# is insufficient.
+RUN mkdir -p ${HOME}/.config/dlv && \
+    echo 'debug-info-directories: ["/usr/lib/debug/.build-id","/usr/lib/debug"]' > ${HOME}/.config/dlv/config.yml && \
+    ln -s /usr/lib/debug/cilium-agent.debug /usr/lib/debug/cilium-agent-bin.debug

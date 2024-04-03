@@ -1,5 +1,94 @@
 # Changelog
 
+## v1.13.14
+
+Summary of Changes
+------------------
+
+**Minor Changes:**
+* cni: use default logger with timestamps. (Backport PR #31309, Upstream PR #31014, @tommyp1ckles)
+* Introduce `cilium-dbg encrypt flush --stale` flag to remove XFRM states and policies with stale node IDs. (Backport PR #31309, Upstream PR #31159, @pchaigno)
+
+**Bugfixes:**
+* Fix a bug where pod label updates are not reflected in endpoint labels in presence of filtered labels. (Backport PR #31476, Upstream PR #31395, @tklauser)
+* Fix bug leading to missed ipcache updates for the CiliumInternalIP when `--enable-remote-node-identity=false`, and unnecessary `ipcache_errors_total` metric increase if Cilium operates in kvstore mode. (#31396, @giorio94)
+* gateway-api: Retrieve LB service from same namespace (Backport PR #31496, Upstream PR #31271, @sayboras)
+* Handle InvalidParameterValue as well for PD fallback (Backport PR #31496, Upstream PR #31016, @hemanthmalla)
+* Hubble: fix traffic direction and is reply when IPSec is enabled (Backport PR #31496, Upstream PR #31211, @kaworu)
+* k8s/utils: correctly filter out labels in StripPodSpecialLabels (Backport PR #31476, Upstream PR #31421, @tklauser)
+
+**CI Changes:**
+* AKS: avoid overlapping pod and service CIDRs (Backport PR #31570, Upstream PR #31504, @bimmlerd)
+* Centralize configuration of kind version/image in GitHub Action workflows (Backport PR #31195, Upstream PR #30916, @giorio94)
+* Checkout the target branch, instead of the default one, on pull_request based GHA test workflows (Backport PR #31195, Upstream PR #31198, @giorio94)
+* ci: Bump lvh-kind ssh-startup-wait-retries (Backport PR #31496, Upstream PR #31387, @YutaroHayakawa)
+* gha: disable fail-fast on integration tests (Backport PR #31496, Upstream PR #31420, @giorio94)
+* gha: drop unused check_url environment variable (Backport PR #31195, Upstream PR #30928, @giorio94)
+* introduce ARM github workflows (Backport PR #31309, Upstream PR #31196, @aanm)
+* ipam: deepcopy interface resource correctly. (Backport PR #31496, Upstream PR #26998, @tommyp1ckles)
+* loader: fix issue where errors cancelled compile cause error logs. (Backport PR #31309, Upstream PR #30988, @tommyp1ckles)
+
+**Misc Changes:**
+* Add monitor aggregation for all events related to packets ingressing to the network-facing device. (Backport PR #31309, Upstream PR #31015, @learnitall)
+* chore(deps): update all github action dependencies (v1.13) (#31485, @renovate[bot])
+* chore(deps): update all github action dependencies (v1.13) (#31584, @renovate[bot])
+* chore(deps): update docker.io/library/golang:1.21.8 docker digest to 8560736 (v1.13) (#31484, @renovate[bot])
+* cilium-dbg: listing load-balancing configurations displays L7LB proxy port (Backport PR #31570, Upstream PR #31503, @mhofstetter)
+* doc: Clarified GwAPI KPR prerequisites (Backport PR #31496, Upstream PR #31366, @PhilipSchmid)
+* docs: Warn on key rotations during upgrades (Backport PR #31496, Upstream PR #31437, @pchaigno)
+
+**Other Changes:**
+* install: Update image digests for v1.13.13 (#31405, @thorn3r)
+* v1.13: IPsec Fixes (#31612, @pchaigno)
+
+## v1.13.13
+
+Summary of Changes
+------------------
+
+**Bugfixes:**
+* Fixes an L7 proxy issue by re-introducing 2005 route table. (Backport PR #31161, Upstream PR #29530, @jschwinger233)
+* Fixes proxy issues by opting out from SNAT for L7 + Tunnel. (Backport PR #31161, Upstream PR #29594, @jschwinger233)
+* Fixes proxy issues in egress direction (Backport PR #31161, Upstream PR #30095, @jschwinger233)
+
+**CI Changes:**
+* ci/ipsec: Fix downgrade version retrieval (Backport PR #31049, Upstream PR #30742, @qmonnet)
+* ci: Enhance test execution security by restricting permissions to the 'organization-members' team (Backport PR #30865, Upstream PR #30790, @brlbil)
+* CI: Update tested K8S versions across all cloud providers (Backport PR #30865, Upstream PR #30795, @brlbil)
+* Fix datapath mode in Network Performance CI test (Backport PR #30865, Upstream PR #30756, @marseel)
+* k8s_install.sh: specify the CNI version (Backport PR #31246, Upstream PR #31182, @aanm)
+* workflows: Clean IPsec test output (Backport PR #30801, Upstream PR #30759, @pchaigno)
+
+**Misc Changes:**
+* bpf: host: skip from-proxy handling in from-netdev (Backport PR #31161, Upstream PR #29962, @julianwiedmann)
+* bpf: l3: restore MARK_MAGIC_PROXY_INGRESS for from-proxy traffic (Backport PR #31161, Upstream PR #29721, @julianwiedmann)
+* bugtool: Capture memory fragmentation info from /proc (Backport PR #31157, Upstream PR #30966, @pchaigno)
+* Bump google.golang.org/protobuf (v1.13) (#31312, @ferozsalam)
+* Change ariane config CODEOWNERS (Backport PR #30865, Upstream PR #30803, @brlbil)
+* chore(deps): update all github action dependencies (v1.13) (#30957, @renovate[bot])
+* chore(deps): update all github action dependencies (v1.13) (#31115, @renovate[bot])
+* chore(deps): update all github action dependencies (v1.13) (#31298, @renovate[bot])
+* chore(deps): update all github action dependencies to v4 (v1.13) (major) (#30783, @renovate[bot])
+* chore(deps): update all-dependencies (v1.13) (#30955, @renovate[bot])
+* chore(deps): update docker.io/library/ubuntu:22.04 docker digest to 77906da (v1.13) (#31295, @renovate[bot])
+* chore(deps): update docker.io/library/ubuntu:22.04 docker digest to e9569c2 (v1.13) (#30737, @renovate[bot])
+* chore(deps): update go to v1.21.7 (v1.13) (#30956, @renovate[bot])
+* chore(deps): update go to v1.21.8 (v1.13) (#31185, @renovate[bot])
+* chore(deps): update hubble cli to v0.13.2 (v1.13) (#31340, @renovate[bot])
+* chore(deps): update kindest/node docker tag to v1.27.11 (v1.13) (#31141, @renovate[bot])
+* chore(deps): update quay.io/lvh-images/kind docker tag to v6.6-20240221.111541 (v1.13) (#30982, @renovate[bot])
+* chore(deps): update stable lvh-images (v1.13) (patch) (#30812, @renovate[bot])
+* chore(deps): update stable lvh-images (v1.13) (patch) (#31142, @renovate[bot])
+* chore(deps): update stable lvh-images (v1.13) (patch) (#31296, @renovate[bot])
+* docs: Document XfrmInStateInvalid errors (Backport PR #30801, Upstream PR #30151, @pchaigno)
+* docs: Fix 'kubectl exec' invocations (quotes, double dash separator) in example script kafka-sw-gen-traffic.sh (Backport PR #31157, Upstream PR #30462, @saintdle)
+* images: bump cni plugins to v1.4.1 (#31350, @aanm)
+* pkg: proxy: only install from-proxy rules/routes for native routing (Backport PR #31161, Upstream PR #29761, @julianwiedmann)
+
+**Other Changes:**
+* [v1.13] envoy: Bump golang version to 1.21.8 (#31223, @sayboras)
+* install: Update image digests for v1.13.12 (#30753, @michi-covalent)
+
 ## v1.13.12
 
 Summary of Changes
