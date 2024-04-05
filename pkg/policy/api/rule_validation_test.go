@@ -1077,24 +1077,6 @@ func (s *PolicyAPITestSuite) TestL7RuleDirectionalitySupport(c *C) {
 
 }
 
-func BenchmarkCIDRSanitize(b *testing.B) {
-	cidr4 := CIDRRule{Cidr: "192.168.100.200/24"}
-	cidr6 := CIDRRule{Cidr: "2001:0db8:85a3:0000:0000:8a2e:0370:7334/128"}
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		err := cidr4.sanitize()
-		if err != nil {
-			b.Fatal(err)
-		}
-		err = cidr6.sanitize()
-		if err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
 func TestSanitizeDefaultDeny(t *testing.T) {
 	for _, tc := range []struct {
 		before      Rule
