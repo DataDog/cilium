@@ -2454,7 +2454,7 @@ func (ds *PolicyTestSuite) TestDefaultAllow(c *C) {
 		repo.selectorCache = testSelectorCache
 
 		for _, rule := range tc.rules {
-			_, _, err := repo.Add(rule)
+			_, _, err := repo.Add(rule, []Endpoint{})
 			c.Assert(err, IsNil, Commentf("unable to add rule to policy repository"))
 		}
 
@@ -2469,7 +2469,7 @@ func (ds *PolicyTestSuite) TestDefaultAllow(c *C) {
 		repo.selectorCache = testSelectorCache
 
 		for _, rule := range tc.rules {
-			_, _, err := repo.Add(rule)
+			_, _, err := repo.Add(rule, []Endpoint{})
 			c.Assert(err, IsNil, Commentf("unable to add rule to policy repository"))
 		}
 
@@ -2486,12 +2486,12 @@ func (ds *PolicyTestSuite) TestDefaultAllow(c *C) {
 			repo.selectorCache = testSelectorCache
 
 			for _, rule := range etc.rules {
-				_, _, err := repo.Add(rule)
+				_, _, err := repo.Add(rule, []Endpoint{})
 				c.Assert(err, IsNil, Commentf("unable to add rule to policy repository"))
 			}
 
 			for _, rule := range itc.rules {
-				_, _, err := repo.Add(rule)
+				_, _, err := repo.Add(rule, []Endpoint{})
 				c.Assert(err, IsNil, Commentf("unable to add rule to policy repository"))
 			}
 
