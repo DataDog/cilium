@@ -30,8 +30,9 @@ fi
 
 echo "Latest image from branch ${github_branch}: ${image_full}"
 
-echo "Updating image in ./images/cilium/Dockerfile"
-sed -i -E "s|(FROM ${image}:)(.*)(@sha256:[0-9a-z]*)( as cilium-envoy)|\1${image_tag}@${image_sha256}\4|" ./images/cilium/Dockerfile
+DOCKERFILEPATH="./images/cilium/Dockerfile"
+echo "Updating image in ${DOCKERFILEPATH}"
+sed -i -E "s|ARG CILIUM_ENVOY_IMAGE=quay.io/cilium/cilium-envoy.*:.*@sha256:[0-9a-z]*|ARG CILIUM_ENVOY_IMAGE=${image}:${image_tag}@${image_sha256}|" ${DOCKERFILEPATH}
 
 echo "Updating image in ./install/kubernetes/cilium/values.yaml.tmpl"
 # Using tr to workaround matching the multiline regex with sed

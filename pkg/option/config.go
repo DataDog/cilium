@@ -1182,6 +1182,15 @@ const (
 
 	// EnableK8sNetworkPolicy enables support for K8s NetworkPolicy.
 	EnableK8sNetworkPolicy = "enable-k8s-networkpolicy"
+
+	// BPFEventsDropEnabled defines the DropNotification setting for any endpoint
+	BPFEventsDropEnabled = "bpf-events-drop-enabled"
+
+	// BPFEventsPolicyVerdictEnabled defines the PolicyVerdictNotification setting for any endpoint
+	BPFEventsPolicyVerdictEnabled = "bpf-events-policy-verdict-enabled"
+
+	// BPFEventsTraceEnabled defines the TraceNotification setting for any endpoint
+	BPFEventsTraceEnabled = "bpf-events-trace-enabled"
 )
 
 // Default string arguments
@@ -2418,6 +2427,15 @@ type DaemonConfig struct {
 
 	// EnableK8sNetworkPolicy enables support for K8s NetworkPolicy.
 	EnableK8sNetworkPolicy bool
+
+	// BPFEventsDropEnabled controls whether the Cilium datapath exposes "drop" events to Cilium monitor and Hubble.
+	BPFEventsDropEnabled bool
+
+	// BPFEventsPolicyVerdictEnabled controls whether the Cilium datapath exposes "policy verdict" events to Cilium monitor and Hubble.
+	BPFEventsPolicyVerdictEnabled bool
+
+	// BPFEventsTraceEnabled  controls whether the Cilium datapath exposes "trace" events to Cilium monitor and Hubble.
+	BPFEventsTraceEnabled bool
 }
 
 var (
@@ -2468,6 +2486,10 @@ var (
 		EnableVTEP:             defaults.EnableVTEP,
 		EnableBGPControlPlane:  defaults.EnableBGPControlPlane,
 		EnableK8sNetworkPolicy: defaults.EnableK8sNetworkPolicy,
+
+		BPFEventsDropEnabled:          defaults.BPFEventsDropEnabled,
+		BPFEventsPolicyVerdictEnabled: defaults.BPFEventsPolicyVerdictEnabled,
+		BPFEventsTraceEnabled:         defaults.BPFEventsTraceEnabled,
 	}
 )
 
@@ -3170,6 +3192,9 @@ func (c *DaemonConfig) Populate(vp *viper.Viper) {
 	c.EnablePMTUDiscovery = vp.GetBool(EnablePMTUDiscovery)
 	c.IPv6NAT46x64CIDR = defaults.IPv6NAT46x64CIDR
 	c.IPAMCiliumNodeUpdateRate = vp.GetDuration(IPAMCiliumNodeUpdateRate)
+	c.BPFEventsDropEnabled = vp.GetBool(BPFEventsDropEnabled)
+	c.BPFEventsPolicyVerdictEnabled = vp.GetBool(BPFEventsPolicyVerdictEnabled)
+	c.BPFEventsTraceEnabled = vp.GetBool(BPFEventsTraceEnabled)
 
 	c.populateLoadBalancerSettings(vp)
 	c.populateDevices(vp)

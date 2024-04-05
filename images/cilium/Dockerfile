@@ -3,10 +3,11 @@
 
 ARG CILIUM_BUILDER_IMAGE=quay.io/cilium/cilium-builder:19ec78840c470dbb591ee4c7bc4471c93946e30c@sha256:bf15e349cb8f500419ac98f36dfa4d88945c9b9c8ef25021c1bfeaf79543b5f5
 ARG CILIUM_RUNTIME_IMAGE=quay.io/cilium/cilium-runtime:f384debcdc15d46ae82b8a87fce359f1f2e31ae5@sha256:d14e0ca65b09c8e8d6786d2c7304a9f17517ef0b3fd5030f28b3fa4ebbfebf1f
+ARG CILIUM_ENVOY_IMAGE=quay.io/cilium/cilium-envoy:v1.26.7-bbde4095997ea57ead209f56158790d47224a0f5@sha256:39b75548447978230dedcf25da8940e4d3540c741045ef391a8e74dbb9661a86
 
 # cilium-envoy from github.com/cilium/proxy
 #
-FROM quay.io/cilium/cilium-envoy:v1.26.7-bbde4095997ea57ead209f56158790d47224a0f5@sha256:39b75548447978230dedcf25da8940e4d3540c741045ef391a8e74dbb9661a86 as cilium-envoy
+FROM ${CILIUM_ENVOY_IMAGE} as cilium-envoy
 
 #
 # Hubble CLI
@@ -46,16 +47,29 @@ ARG LIBNETWORK_PLUGIN
 #
 WORKDIR /go/src/github.com/cilium/cilium
 RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium --mount=target=/root/.cache,type=cache --mount=target=/go/pkg,type=cache \
-    make GOARCH=${TARGETARCH} RACE=${RACE} NOSTRIP=${NOSTRIP} NOOPT=${NOOPT} LOCKDEBUG=${LOCKDEBUG} PKG_BUILD=1 V=${V} LIBNETWORK_PLUGIN=${LIBNETWORK_PLUGIN} \
+    make GOARCH=${TARGETARCH} RACE=${RACE} NOSTRIP=1 NOOPT=${NOOPT} LOCKDEBUG=${LOCKDEBUG} PKG_BUILD=1 V=${V} LIBNETWORK_PLUGIN=${LIBNETWORK_PLUGIN} \
     DESTDIR=/tmp/install/${TARGETOS}/${TARGETARCH} build-container install-container-binary
 
 RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium --mount=target=/root/.cache,type=cache --mount=target=/go/pkg,type=cache \
     # install-bash-completion will execute the bash_completion script. It is
     # fine to run this with same architecture as BUILDARCH since the output of
     # bash_completion is the same for both architectures.
-    make GOARCH=${BUILDARCH} RACE=${RACE} NOSTRIP=${NOSTRIP} NOOPT=${NOOPT} LOCKDEBUG=${LOCKDEBUG} PKG_BUILD=1 V=${V} LIBNETWORK_PLUGIN=${LIBNETWORK_PLUGIN} \
+    make GOARCH=${BUILDARCH} RACE=${RACE} NOSTRIP=1 NOOPT=${NOOPT} LOCKDEBUG=${LOCKDEBUG} PKG_BUILD=1 V=${V} LIBNETWORK_PLUGIN=${LIBNETWORK_PLUGIN} \
     DESTDIR=/tmp/install/${TARGETOS}/${TARGETARCH} install-bash-completion licenses-all && \
     mv LICENSE.all /tmp/install/${TARGETOS}/${TARGETARCH}/LICENSE.all
+
+RUN set -xe && \
+    export D=/tmp/debug/${TARGETOS}/${TARGETARCH} && \
+    mkdir -p $D && \
+    cd /tmp/install/${TARGETOS}/${TARGETARCH} && \
+    find . -type f \
+      -executable \
+      -exec sh -c \
+        'filename=$(basename ${0}) && \
+         objcopy --only-keep-debug ${0} ${0}.debug && \
+         if [ "$NOSTRIP" != "1" ] ; then objcopy --strip-all ${0} && (cd $(dirname ${0}) && objcopy --add-gnu-debuglink=${filename}.debug ${filename}) ; fi && \
+         mv -v ${0}.debug ${D}/${filename}.debug' \
+      {} \;
 
 COPY images/cilium/init-container.sh \
      plugins/cilium-cni/install-plugin.sh \
@@ -111,3 +125,12 @@ ENV DEBUG_HOLD=${DEBUG_HOLD}
 COPY --from=builder /tmp/install/${TARGETOS}/${TARGETARCH}/usr/bin/cilium-agent /usr/bin/cilium-agent-bin
 COPY --from=builder /go/bin/dlv /usr/bin/dlv
 COPY --from=builder /out/${TARGETOS}/${TARGETARCH}/bin/debug-wrapper /usr/bin/cilium-agent
+
+# Copy in the debug symbols in case the binaries were stripped
+COPY --from=builder /tmp/debug/${TARGETOS}/${TARGETARCH} /usr/lib/debug
+
+# Ensure dlv finds the debug symbols. Due to CGO_ENABLED=0, we have no GNU build-id, so Delve's default search path
+# is insufficient.
+RUN mkdir -p ${HOME}/.config/dlv && \
+    echo 'debug-info-directories: ["/usr/lib/debug/.build-id","/usr/lib/debug"]' > ${HOME}/.config/dlv/config.yml && \
+    ln -s /usr/lib/debug/cilium-agent.debug /usr/lib/debug/cilium-agent-bin.debug

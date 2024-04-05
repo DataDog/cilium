@@ -544,6 +544,15 @@ const (
 
 	// EnableK8sNetworkPolicy enables support for K8s NetworkPolicy.
 	EnableK8sNetworkPolicy = true
+
+	// BPFEventsDropEnabled controls whether the Cilium datapath exposes "drop" events to Cilium monitor and Hubble.
+	BPFEventsDropEnabled = true
+
+	// BPFEventsPolicyVerdictEnabled controls whether the Cilium datapath exposes "policy verdict" events to Cilium monitor and Hubble.
+	BPFEventsPolicyVerdictEnabled = true
+
+	// BPFEventsTraceEnabled controls whether the Cilium datapath exposes "trace" events to Cilium monitor and Hubble.
+	BPFEventsTraceEnabled = true
 )
 
 var (

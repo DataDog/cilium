@@ -342,6 +342,15 @@ func initializeFlags() {
 	flags.Bool(option.EnableL7Proxy, defaults.EnableL7Proxy, "Enable L7 proxy for L7 policy enforcement")
 	option.BindEnv(Vp, option.EnableL7Proxy)
 
+	flags.Bool(option.BPFEventsDropEnabled, defaults.BPFEventsDropEnabled, "Expose 'drop' events for Cilium monitor and/or Hubble")
+	option.BindEnv(Vp, option.BPFEventsDropEnabled)
+
+	flags.Bool(option.BPFEventsPolicyVerdictEnabled, defaults.BPFEventsPolicyVerdictEnabled, "Expose 'policy verdict' events for Cilium monitor and/or Hubble")
+	option.BindEnv(Vp, option.BPFEventsPolicyVerdictEnabled)
+
+	flags.Bool(option.BPFEventsTraceEnabled, defaults.BPFEventsTraceEnabled, "Expose 'trace' events for Cilium monitor and/or Hubble")
+	option.BindEnv(Vp, option.BPFEventsTraceEnabled)
+
 	flags.Bool(option.EnableTracing, false, "Enable tracing while determining policy (debugging)")
 	option.BindEnv(Vp, option.EnableTracing)
 
@@ -1299,9 +1308,9 @@ func initEnv() {
 
 	option.Config.Opts.SetBool(option.Debug, debugDatapath)
 	option.Config.Opts.SetBool(option.DebugLB, debugDatapath)
-	option.Config.Opts.SetBool(option.DropNotify, true)
-	option.Config.Opts.SetBool(option.TraceNotify, true)
-	option.Config.Opts.SetBool(option.PolicyVerdictNotify, true)
+	option.Config.Opts.SetBool(option.DropNotify, option.Config.BPFEventsDropEnabled)
+	option.Config.Opts.SetBool(option.PolicyVerdictNotify, option.Config.BPFEventsPolicyVerdictEnabled)
+	option.Config.Opts.SetBool(option.TraceNotify, option.Config.BPFEventsTraceEnabled)
 	option.Config.Opts.SetBool(option.PolicyTracing, option.Config.EnableTracing)
 	option.Config.Opts.SetBool(option.ConntrackAccounting, true)
 	option.Config.Opts.SetBool(option.ConntrackLocal, false)
