@@ -1,0 +1,6 @@
+---
+trusted-ca-file: /var/lib/etcd-kvstore-secrets/etcd-client-ca.crt
+key-file: /var/lib/etcd-kvstore-secrets/etcd-client.key
+cert-file: /var/lib/etcd-kvstore-secrets/etcd-client.crt
+endpoints:
+- https://kvstore1:2379

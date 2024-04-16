@@ -202,9 +202,9 @@ spec:
           mountPath: /var/lib/etcd-config
           readOnly: true
         {{- if or .Values.etcd.ssl .Values.etcd.managed }}
-        - name: etcd-secrets
-          mountPath: /var/lib/etcd-secrets
-          readOnly: true
+              - name: etcd-secrets
+                mountPath: /var/lib/etcd-secrets
+                readOnly: true
         {{- end }}
         {{- end }}
         {{- if .Values.kubeConfigPath }}

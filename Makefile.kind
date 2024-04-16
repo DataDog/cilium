@@ -123,6 +123,59 @@ kind-install-cilium-clustermesh: kind-clustermesh-ready ## Install a local Ciliu
 
 	$(MAKE) kind-connect-clustermesh
 
+$(eval $(call KIND_ENV,kind-install-cilium-kvkvmesh))
+kind-install-cilium-kvkvmesh: kind-clustermesh-ready ## Install a local Cilium version into the kvstoremesh clusters running in kvstore identity alloc mode and enable clustermesh.
+
+        -$(CILIUM_CLI) --context=kind-clustermesh1 uninstall >/dev/null;
+
+
+        -$(CILIUM_CLI) --context=kind-clustermesh2 uninstall >/dev/null;
+
+        export ROOT_DIR; echo $(ROOT_DIR) \
+        $(CILIUM_CLI) version \
+        NUM_CLUSTERS=2; \
+        CLUSTER_PREFIX=kvstore; \
+        KV_KVMESH_SETTINGS=""; \
+        for i in $$(seq 1 $(iNUM_CLUSTERS)); do \
+                        IP=$$(docker inspect --format '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $${CLUSTER_PREFIX}$$i); \
+                        KV_KVMESH_SETTINGS="$$KV_KVMESH_SETTINGS \
+                        --set clustermesh.config.clusters[$$(( i-1 ))].ips={$$IP} \
+                        --set clustermesh.config.clusters[$$(( i-1 ))].port=2379 \
+                        --set clustermesh.config.clusters[$$(( i-1 ))].tls.caCert=$$(base64 -w0 $$DIR/kvstore-ca-crt.pem) \
+                        --set clustermesh.config.clusters[$$(( i-1 ))].tls.cert=$$(base64 -w0 $$DIR/kvstore-client-crt.pem) \
+                        --set clustermesh.config.clusters[$$(( i-1 ))].tls.key=$$(base64 -w0 $$DIR/kvstore-client-key.pem) \
+                        "; \
+        done; echo $$KV_KVMESH_SETTINGS;export KV_KVMESH_SETTINGS;\
+        echo "  INSTALL cilium on clustermesh1 cluster"; \
+        $(CILIUM_CLI) --context=kind-clustermesh1 install \
+                        --chart-directory=$(ROOT_DIR)/install/kubernetes/cilium \
+                        --values=$(ROOT_DIR)/contrib/testing/kind-clustermesh1.yaml \
+                        --set=image.override=$${LOCAL_AGENT_IMAGE} \
+                        --set=operator.image.override=$${LOCAL_OPERATOR_IMAGE} \
+                        --set=clustermesh.apiserver.image.override=$${LOCAL_CLUSTERMESH_IMAGE} \
+                        --set=clustermesh.apiserver.kvstoremesh.enabled=true \
+                        --set etcd.enabled=true \
+                        --set etcd.endpoints={https://kvstore1:2379} \
+                        --set etcd.ssl=true \
+                        $$KV_KVMESH_SETTINGS \
+                        --set identityAllocationMode=kvstore; \
+        kubectl --context=kind-clustermesh1 get secret -n kube-system cilium-ca -o yaml | \
+                kubectl --context=kind-clustermesh2 replace --force -f -; \
+        cilium --context=kind-clustermesh2 install \
+                --chart-directory=$(ROOT_DIR)/install/kubernetes/cilium \
+                --values=$(ROOT_DIR)/contrib/testing/kind-clustermesh2.yaml \
+                --set=image.override=$${LOCAL_AGENT_IMAGE} \
+                --set=operator.image.override=$${LOCAL_OPERATOR_IMAGE} \
+                --set=clustermesh.apiserver.image.override=$${LOCAL_CLUSTERMESH_IMAGE} \
+                --set=clustermesh.apiserver.kvstoremesh.enabled=true \
+                --set etcd.enabled=true \
+                --set etcd.endpoints={https://kvstore2:2379} \
+                --set etcd.ssl=true \
+                $$KV_KVMESH_SETTINGS \
+                --set identityAllocationMode=kvstore;
+
+        $(MAKE) kind-connect-clustermesh
+
 .PHONY: kind-install-cilium-clustermesh-fast
 kind-install-cilium-clustermesh-fast: kind-clustermesh-ready ## "Fast" Install a local Cilium version using volume-mounted binaries into the ClusterMesh clusters and enable ClusterMesh.
 	@echo "  INSTALL cilium on clustermesh1 cluster"

@@ -13,6 +13,7 @@ ARG ALPINE_IMAGE=docker.io/library/alpine:3.19.1@sha256:c5b1261d6d3e43071626931f
 # We don't use ETCD_IMAGE because that's used in Makefile.defs to select a ETCD image approrpate for the *host platform*
 # to run tests with.
 ARG ETCD_SERVER_IMAGE=gcr.io/etcd-development/etcd:v3.5.12@sha256:cebe24b890641de3e7ff8a640c4597bdda321090c29f4dedcedaa8cadbbe08e1
+ARG CILIUM_RUNTIME_IMAGE=quay.io/cilium/cilium-runtime:a6ce8fe335c696aa88a5d45d0a810263f9c8449b@sha256:da65d53e6e5c659ec5b15ab1c3ef2f12bc90c619f4170236dc1f6421eeb428be
 
 # BUILDPLATFORM is an automatic platform ARG enabled by Docker BuildKit.
 # Represents the plataform where the build is happening, do not mix with
@@ -30,7 +31,9 @@ ARG RACE
 
 WORKDIR /go/src/github.com/cilium/cilium/clustermesh-apiserver
 RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium --mount=target=/root/.cache,type=cache --mount=target=/go/pkg,type=cache \
-    mkdir -p /out/${TARGETOS}/${TARGETARCH} && cp etcd-config.yaml /out/${TARGETOS}/${TARGETARCH}/etcd-config.yaml
+    mkdir -p /out/${TARGETOS}/${TARGETARCH} && cp etcd-config.yaml /out/${TARGETOS}/${TARGETARCH}/etcd-config.yaml \
+    && cp kvstore1.yaml /out/${TARGETOS}/${TARGETARCH}/kvstore1.yaml \
+    && cp kvstore2.yaml /out/${TARGETOS}/${TARGETARCH}/kvstore2.yaml
 RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium --mount=target=/root/.cache,type=cache --mount=target=/go/pkg,type=cache \
     make GOARCH=${TARGETARCH} RACE=${RACE} NOSTRIP=${NOSTRIP} NOOPT=${NOOPT} LOCKDEBUG=${LOCKDEBUG} \
     && mkdir -p /out/${TARGETOS}/${TARGETARCH}/usr/bin && mv clustermesh-apiserver /out/${TARGETOS}/${TARGETARCH}/usr/bin
@@ -45,6 +48,8 @@ RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium --mount=
 # Represents the plataform where the build is happening, do not mix with
 # TARGETARCH
 FROM --platform=${BUILDPLATFORM} ${ALPINE_IMAGE} as certs
+WORKDIR /go/src/github.com/cilium/cilium/clustermesh-apiserver
+COPY ./clustermesh-apiserver/kvstore-ca-crt.pem /usr/local/share/ca-certificates/kvstore-ca-crt.crt
 RUN apk --update add ca-certificates
 
 # BUILDPLATFORM is an automatic platform ARG enabled by Docker BuildKit.
@@ -60,7 +65,7 @@ RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium --mount=
 
 FROM --platform=${TARGETARCH} ${ETCD_SERVER_IMAGE} as etcd
 
-FROM ${BASE_IMAGE} as release
+FROM ${CILIUM_RUNTIME_IMAGE} as release
 # TARGETOS is an automatic platform ARG enabled by Docker BuildKit.
 ARG TARGETOS
 # TARGETARCH is an automatic platform ARG enabled by Docker BuildKit.
@@ -71,7 +76,10 @@ COPY --from=gops /out/${TARGETOS}/${TARGETARCH}/bin/gops /bin/gops
 # While the etcd image uses /usr/local/bin, we're moving it to /usr/bin to keep consistency with the rest of our images.
 # We also don't grab the etcdctl or etcdutl binaries, as we don't need them for our application.
 COPY --from=etcd /usr/local/bin/etcd /usr/bin/etcd
+COPY --from=etcd /usr/local/bin/etcdctl /usr/bin/etcdctl
 COPY --from=builder /out/${TARGETOS}/${TARGETARCH}/etcd-config.yaml /var/lib/cilium/etcd-config.yaml
+COPY --from=builder /out/${TARGETOS}/${TARGETARCH}/kvstore1.yaml /var/lib/cilium/kvstore1.yaml
+COPY --from=builder /out/${TARGETOS}/${TARGETARCH}/kvstore2.yaml /var/lib/cilium/kvstore2.yaml
 COPY --from=builder /out/${TARGETOS}/${TARGETARCH}/usr/bin/clustermesh-apiserver /usr/bin/clustermesh-apiserver
 COPY --from=builder /out/${TARGETOS}/${TARGETARCH}/LICENSE.all /LICENSE.all
 WORKDIR /
