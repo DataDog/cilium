@@ -95,3 +95,14 @@ build-docker-image-hubble-relay:
       BASE_IMAGE=registry.ddbuild.io/images/base/gbi-distroless:release
       GOLANG_IMAGE=registry.ddbuild.io/images/mirror/golang:1.21.8@sha256:856073656d1a517517792e6cdd2f7a5ef080d3ca2dff33e518c8412f140fdd2d
     TARGET: release
+
+build-docker-image-kvstoremesh:
+  <<: *build-docker-image
+  variables:
+    IMAGE_NAME: kvstoremesh
+    DOCKERFILE_PATH: images/kvstoremesh/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      BASE_IMAGE=registry.ddbuild.io/images/base/gbi-distroless:release
+      GOLANG_IMAGE=registry.ddbuild.io/images/mirror/golang:1.21.8@sha256:856073656d1a517517792e6cdd2f7a5ef080d3ca2dff33e518c8412f140fdd2d
+      ALPINE_IMAGE=registry.ddbuild.io/images/mirror/library/alpine:3.18.6@sha256:11e21d7b981a59554b3f822c49f6e9f57b6068bb74f49c4cd5cc4c663c7e5160
+    TARGET: release
