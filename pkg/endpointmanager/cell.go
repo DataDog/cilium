@@ -56,6 +56,9 @@ type EndpointsLookup interface {
 	// LookupPodName looks up endpoint by namespace + pod name, e.g. "prod/pod-0"
 	LookupPodName(name string) *endpoint.Endpoint
 
+	// GetEndpointsByContainerID looks up endpoints by container ID
+	GetEndpointsByContainerID(containerID string) []*endpoint.Endpoint
+
 	// GetEndpoints returns a slice of all endpoints present in endpoint manager.
 	GetEndpoints() []*endpoint.Endpoint
 
@@ -112,9 +115,6 @@ type EndpointsModify interface {
 	// RemoveEndpoint stops the active handling of events by the specified endpoint,
 	// and prevents the endpoint from being globally acccessible via other packages.
 	RemoveEndpoint(ep *endpoint.Endpoint, conf endpoint.DeleteConfig) []error
-
-	// RemoveAll removes all endpoints from the global maps.
-	RemoveAll()
 }
 
 type EndpointManager interface {

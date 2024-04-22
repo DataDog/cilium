@@ -18,7 +18,6 @@ import (
 	"github.com/cilium/cilium/pkg/endpoint"
 	endpointid "github.com/cilium/cilium/pkg/endpoint/id"
 	"github.com/cilium/cilium/pkg/endpoint/regeneration"
-	"github.com/cilium/cilium/pkg/endpointmanager/idallocator"
 	"github.com/cilium/cilium/pkg/identity/cache"
 	"github.com/cilium/cilium/pkg/ipcache"
 	"github.com/cilium/cilium/pkg/k8s/watchers/subscriber"
@@ -82,10 +81,11 @@ type endpointManager struct {
 
 	// controllers associated with the endpoint manager.
 	controllers *controller.Manager
+
+	// Allocator for local endpoint identifiers.
+	epIDAllocator *epIDAllocator
 }
 
-// EndpointResourceSynchronizer is an interface which synchronizes CiliumEndpoint
-// resources with Kubernetes.
 type EndpointResourceSynchronizer interface {
 	RunK8sCiliumEndpointSync(ep *endpoint.Endpoint, conf endpoint.EndpointStatusConfiguration)
 	DeleteK8sCiliumEndpointSync(e *endpoint.Endpoint)
@@ -104,6 +104,7 @@ func New(epSynchronizer EndpointResourceSynchronizer) *endpointManager {
 		EndpointResourceSynchronizer: epSynchronizer,
 		subscribers:                  make(map[Subscriber]struct{}),
 		controllers:                  controller.NewManager(),
+		epIDAllocator:                newEPIDAllocator(),
 	}
 	mgr.deleteEndpoint = mgr.removeEndpoint
 
@@ -209,12 +210,12 @@ func (mgr *endpointManager) InitMetrics(registry *metrics.Registry) {
 func (mgr *endpointManager) AllocateID(currID uint16) (uint16, error) {
 	var newID uint16
 	if currID != 0 {
-		if err := idallocator.Reuse(currID); err != nil {
+		if err := mgr.epIDAllocator.reuse(currID); err != nil {
 			return 0, fmt.Errorf("unable to reuse endpoint ID: %s", err)
 		}
 		newID = currID
 	} else {
-		id := idallocator.Allocate()
+		id := mgr.epIDAllocator.allocate()
 		if id == uint16(0) {
 			return 0, fmt.Errorf("no more endpoint IDs available")
 		}
@@ -335,10 +336,38 @@ func (mgr *endpointManager) LookupPodName(name string) *endpoint.Endpoint {
 	return ep
 }
 
+// GetEndpointsByPodName looks up endpoints by namespace + pod name
+func (mgr *endpointManager) GetEndpointsByPodName(namespacedName string) []*endpoint.Endpoint {
+	mgr.mutex.RLock()
+	defer mgr.mutex.RUnlock()
+	eps := make([]*endpoint.Endpoint, 0, 1)
+	for _, ep := range mgr.endpoints {
+		if ep.GetK8sNamespaceAndPodName() == namespacedName {
+			eps = append(eps, ep)
+		}
+	}
+
+	return eps
+}
+
+// GetEndpointsByContainerID looks up endpoints by container ID
+func (mgr *endpointManager) GetEndpointsByContainerID(containerID string) []*endpoint.Endpoint {
+	mgr.mutex.RLock()
+	defer mgr.mutex.RUnlock()
+
+	eps := make([]*endpoint.Endpoint, 0, 1)
+	for _, ep := range mgr.endpoints {
+		if ep.GetContainerID() == containerID {
+			eps = append(eps, ep)
+		}
+	}
+	return eps
+}
+
 // ReleaseID releases the ID of the specified endpoint from the endpointManager.
 // Returns an error if the ID cannot be released.
 func (mgr *endpointManager) ReleaseID(ep *endpoint.Endpoint) error {
-	return idallocator.Release(ep.ID)
+	return mgr.epIDAllocator.release(ep.ID)
 }
 
 // unexpose removes the endpoint from the endpointmanager, so subsequent
@@ -395,15 +424,6 @@ func (mgr *endpointManager) removeEndpoint(ep *endpoint.Endpoint, conf endpoint.
 // and prevents the endpoint from being globally acccessible via other packages.
 func (mgr *endpointManager) RemoveEndpoint(ep *endpoint.Endpoint, conf endpoint.DeleteConfig) []error {
 	return mgr.deleteEndpoint(ep, conf)
-}
-
-// RemoveAll removes all endpoints from the global maps.
-func (mgr *endpointManager) RemoveAll() {
-	mgr.mutex.Lock()
-	defer mgr.mutex.Unlock()
-	idallocator.ReallocatePool()
-	mgr.endpoints = map[uint16]*endpoint.Endpoint{}
-	mgr.endpointsAux = map[string]*endpoint.Endpoint{}
 }
 
 // lookupCiliumID looks up endpoint by endpoint ID
