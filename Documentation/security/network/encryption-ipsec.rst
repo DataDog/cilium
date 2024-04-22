@@ -298,12 +298,12 @@ errors.
  * In addition to the above XFRM errors, packet drops of type ``No node ID
    found`` (code 197) may also occur under normal operations. These drops can
    happen if a pod attempts to send traffic to a pod on a new node for which
-   the Cilium agent didn't yet receive the CiliumNode object. It can also
-   happen if the IP address of the destination node changed and the agent
-   didn't receive the updated CiliumNode object yet. In both cases, the IPsec
-   configuration in the kernel isn't ready yet, so Cilium drops the packets at
-   the source. These drops will stop once the CiliumNode information is
-   propagated across the cluster.
+   the Cilium agent didn't yet receive the CiliumNode object or to a pod on a
+   node that was recently deleted. It can also happen if the IP address of the
+   destination node changed and the agent didn't receive the updated CiliumNode
+   object yet. In both cases, the IPsec configuration in the kernel isn't ready
+   yet, so Cilium drops the packets at the source. These drops will stop once
+   the CiliumNode information is propagated across the cluster.
 
 Disabling Encryption
 ====================
@@ -314,6 +314,10 @@ To disable the encryption, regenerate the YAML with the option
 Limitations
 ===========
 
+    * For clusters running in native routing mode, IPsec encryption is not applied to
+      connections which are selected by an L7 Egress Network Policy or a DNS Policy.
+      For more information see `GHSA-j89h-qrvr-xc36
+      <https://github.com/cilium/cilium/security/advisories/GHSA-j89h-qrvr-xc36>`__.
     * Transparent encryption is not currently supported when chaining Cilium on
       top of other CNI plugins. For more information, see :gh-issue:`15596`.
     * :ref:`HostPolicies` are not currently supported with IPsec encryption.

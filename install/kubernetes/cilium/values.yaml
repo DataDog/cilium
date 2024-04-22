@@ -125,7 +125,7 @@ rollOutCiliumPods: false
 image:
   override: ~
   repository: "quay.io/cilium/cilium"
-  tag: "v1.13.14"
+  tag: "v1.13.15"
   pullPolicy: "IfNotPresent"
   # cilium-digest
   digest: ""
@@ -871,7 +871,7 @@ certgen:
   image:
     override: ~
     repository: "quay.io/cilium/certgen"
-    tag: "v0.1.9@sha256:89a0847753686444daabde9474b48340993bd19c7bea66a46e45b2974b82041f"
+    tag: "v0.1.11@sha256:5586de5019abc104637a9818a626956cd9b1e827327b958186ec412ae3d5dea6"
     pullPolicy: "IfNotPresent"
   # -- Seconds after which the completed job pod will be deleted
   ttlSecondsAfterFinished: 1800
@@ -1052,7 +1052,7 @@ hubble:
     image:
       override: ~
       repository: "quay.io/cilium/hubble-relay"
-      tag: "v1.13.14"
+      tag: "v1.13.15"
        # hubble-relay-digest
       digest: ""
       useDigest: false
@@ -1909,7 +1909,7 @@ operator:
   image:
     override: ~
     repository: "quay.io/cilium/operator"
-    tag: "v1.13.14"
+    tag: "v1.13.15"
     # operator-generic-digest
     genericDigest: ""
     # operator-azure-digest
@@ -2093,6 +2093,8 @@ nodeinit:
     override: ~
     repository: "quay.io/cilium/startup-script"
     tag: "62093c5c233ea914bfa26a10ba41f8780d9b737f"
+    digest: "sha256:e1d442546e868db1a3289166c14011e0dbd32115b338b963e56f830972bc22a2"
+    useDigest: true
     pullPolicy: "IfNotPresent"
 
   # -- The priority class to use for the nodeinit pod.
@@ -2172,7 +2174,7 @@ preflight:
   image:
     override: ~
     repository: "quay.io/cilium/cilium"
-    tag: "v1.13.14"
+    tag: "v1.13.15"
     # cilium-digest
     digest: ""
     useDigest: false
@@ -2319,7 +2321,7 @@ clustermesh:
     image:
       override: ~
       repository: "quay.io/cilium/clustermesh-apiserver"
-      tag: "v1.13.14"
+      tag: "v1.13.15"
       # clustermesh-apiserver-digest
       digest: ""
       useDigest: false

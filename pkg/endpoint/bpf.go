@@ -155,13 +155,13 @@ func (e *Endpoint) writeHeaderfile(prefix string) error {
 	}
 	defer f.Cleanup()
 
-	if e.DNSRules != nil {
-		// Note: e.DNSRules is updated by syncEndpointHeaderFile and regenerateBPF
+	if e.DNSRulesV2 != nil {
+		// Note: e.DNSRulesV2 is updated by syncEndpointHeaderFile and regenerateBPF
 		// before they call into writeHeaderfile, because GetDNSRules must not be
 		// called with endpoint.mutex held.
 		e.getLogger().WithFields(logrus.Fields{
 			logfields.Path: headerPath,
-			"DNSRules":     e.DNSRules,
+			"DNSRulesV2":   e.DNSRulesV2,
 		}).Debug("writing header file with DNSRules")
 	}
 
@@ -192,6 +192,31 @@ func (e *Endpoint) writeHeaderfile(prefix string) error {
 	}
 
 	return err
+}
+
+// proxyPolicy implements policy.ProxyPolicy interface, and passes most of the calls
+// to policy.L4Filter, but re-implements GetPort() to return the resolved named port,
+// instead of returning a 0 port number.
+type proxyPolicy struct {
+	*policy.L4Filter
+	port     uint16
+	protocol uint8
+}
+
+// newProxyPolicy returns a new instance of proxyPolicy by value
+func (e *Endpoint) newProxyPolicy(l4 *policy.L4Filter, port uint16, proto uint8) proxyPolicy {
+	return proxyPolicy{L4Filter: l4, port: port, protocol: proto}
+}
+
+// GetPort returns the destination port number on which the proxy policy applies
+// This version properly returns the port resolved from a named port, if any.
+func (p *proxyPolicy) GetPort() uint16 {
+	return p.port
+}
+
+// GetProtocol returns the destination protocol number on which the proxy policy applies
+func (p *proxyPolicy) GetProtocol() uint8 {
+	return p.protocol
 }
 
 // addNewRedirectsFromDesiredPolicy must be called while holding the endpoint lock for
@@ -240,7 +265,7 @@ func (e *Endpoint) addNewRedirectsFromDesiredPolicy(ingress bool, desiredRedirec
 				var finalizeFunc revert.FinalizeFunc
 				var revertFunc revert.RevertFunc
 
-				proxyID := e.proxyID(l4)
+				proxyID, dstPort, dstProto := e.proxyID(l4)
 				if proxyID == "" {
 					// Skip redirects for which a proxyID cannot be created.
 					// This may happen due to the named port mapping not
@@ -252,7 +277,8 @@ func (e *Endpoint) addNewRedirectsFromDesiredPolicy(ingress bool, desiredRedirec
 				}
 
 				var err error
-				redirectPort, err, finalizeFunc, revertFunc = e.proxy.CreateOrUpdateRedirect(e.aliveCtx, l4, proxyID, e, proxyWaitGroup)
+				pp := e.newProxyPolicy(l4, dstPort, dstProto)
+				redirectPort, err, finalizeFunc, revertFunc = e.proxy.CreateOrUpdateRedirect(e.aliveCtx, &pp, proxyID, e, proxyWaitGroup)
 				if err != nil {
 					// Skip redirects that can not be created or updated.  This
 					// can happen when a listener is missing, for example when
@@ -592,11 +618,28 @@ func (e *Endpoint) regenerateBPF(regenContext *regenerationContext) (revnum uint
 	}()
 
 	if err != nil {
-		return 0, compilationExecuted, err
+		return 0, false, err
 	}
 
 	// No need to compile BPF in dry mode.
 	if option.Config.DryMode {
+		return e.nextPolicyRevision, false, nil
+	}
+
+	// Skip BPF if the endpoint has no policy map
+	if !e.HasBPFPolicyMap() {
+		// Allow another builder to start while we wait for the proxy
+		if regenContext.DoneFunc != nil {
+			regenContext.DoneFunc()
+		}
+
+		stats.proxyWaitForAck.Start()
+		err = e.waitForProxyCompletions(datapathRegenCtxt.proxyWaitGroup)
+		stats.proxyWaitForAck.End(err == nil)
+		if err != nil {
+			return 0, false, fmt.Errorf("Error while updating network policy: %s", err)
+		}
+
 		return e.nextPolicyRevision, false, nil
 	}
 
@@ -800,6 +843,30 @@ func (e *Endpoint) runPreCompilationSteps(regenContext *regenerationContext, rul
 		}
 
 		log.WithField(logfields.EndpointID, e.ID).Debug("Skipping bpf updates due to dry mode")
+		return false, nil
+	}
+
+	// Endpoints without policy maps only need Network Policy Updates
+	if !e.HasBPFPolicyMap() {
+		if e.Options.IsEnabled(option.Debug) {
+			log.WithField(logfields.EndpointID, e.ID).Debug("Ingress Endpoint skipping bpf regeneration")
+		}
+
+		if e.SecurityIdentity != nil {
+			_ = e.updateAndOverrideEndpointOptions(nil)
+
+			if e.Options.IsEnabled(option.Debug) {
+				log.WithField(logfields.EndpointID, e.ID).Debug("Ingress Endpoint updating Network policy")
+			}
+
+			stats.proxyPolicyCalculation.Start()
+			err, networkPolicyRevertFunc := e.updateNetworkPolicy(datapathRegenCtxt.proxyWaitGroup)
+			stats.proxyPolicyCalculation.End(err == nil)
+			if err != nil {
+				return false, err
+			}
+			datapathRegenCtxt.revertStack.Push(networkPolicyRevertFunc)
+		}
 		return false, nil
 	}
 
@@ -1424,6 +1491,11 @@ func (e *Endpoint) syncPolicyMapWithDump() error {
 }
 
 func (e *Endpoint) startSyncPolicyMapController() {
+	// Skip the controller if the endpoint has no policy map
+	if !e.HasBPFPolicyMap() {
+		return
+	}
+
 	ctrlName := fmt.Sprintf("sync-policymap-%d", e.ID)
 	e.controllers.CreateController(ctrlName,
 		controller.ControllerParams{
