@@ -516,7 +516,7 @@ func initializeFlags() {
 	flags.MarkHidden(option.KVstoreLeaseTTL)
 	option.BindEnv(Vp, option.KVstoreLeaseTTL)
 
-	flags.Int(option.KVstoreMaxConsecutiveQuorumErrorsName, defaults.KVstoreMaxConsecutiveQuorumErrors, "Max acceptable kvstore consecutive quorum errors before the agent assumes permanent failure")
+	flags.Uint(option.KVstoreMaxConsecutiveQuorumErrorsName, defaults.KVstoreMaxConsecutiveQuorumErrors, "Max acceptable kvstore consecutive quorum errors before the agent assumes permanent failure")
 	option.BindEnv(Vp, option.KVstoreMaxConsecutiveQuorumErrorsName)
 
 	flags.Duration(option.KVstorePeriodicSync, defaults.KVstorePeriodicSync, "Periodic KVstore synchronization interval")
