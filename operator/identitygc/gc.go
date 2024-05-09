@@ -93,6 +93,7 @@ func registerGC(p params) {
 		heartbeatTimeout:   p.Cfg.HeartbeatTimeout,
 		gcRateInterval:     p.Cfg.RateInterval,
 		gcRateLimit:        p.Cfg.RateLimit,
+		enableMetrics:      p.SharedCfg.EnableMetrics,
 		heartbeatStore: newHeartbeatStore(
 			p.Cfg.HeartbeatTimeout,
 		),
