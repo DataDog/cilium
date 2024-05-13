@@ -26,6 +26,7 @@ import (
 	operatorApi "github.com/cilium/cilium/api/v1/operator/server"
 	"github.com/cilium/cilium/operator/api"
 	"github.com/cilium/cilium/operator/auth"
+	"github.com/cilium/cilium/operator/doublewrite"
 	"github.com/cilium/cilium/operator/identitygc"
 	operatorK8s "github.com/cilium/cilium/operator/k8s"
 	operatorMetrics "github.com/cilium/cilium/operator/metrics"
@@ -137,6 +138,10 @@ var (
 			// setup operations. This is a hacky workaround until the kvstore is
 			// refactored into a proper cell.
 			identitygc.Cell,
+
+			// When the Double Write Identity Allocation mode is enabled, the Double Write
+			// Metric Reporter helps with monitoring the state of identities in KVStore and CRD
+			doublewrite.Cell,
 		),
 	)
 
