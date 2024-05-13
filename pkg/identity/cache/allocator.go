@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"path"
 
+	"github.com/cilium/cilium/pkg/kvstore/doublewrite"
+
 	"github.com/cilium/stream"
 	"github.com/sirupsen/logrus"
 
@@ -195,6 +197,29 @@ func (m *CachingIdentityAllocator) InitIdentityAllocator(client clientset.Interf
 				log.WithError(err).Fatal("Unable to initialize Kubernetes CRD backend for identity allocation")
 			}
 
+		case option.IdentityAllocationModeDoubleWriteReadKVstore, option.IdentityAllocationModeDoubleWriteReadCRD:
+			readFromKVStore := true
+			if option.Config.IdentityAllocationMode == option.IdentityAllocationModeDoubleWriteReadCRD {
+				readFromKVStore = false
+			}
+			log.Debugf("Double-Write Identity allocation mode (CRD and KVStore) with reads from KVStore = %t", readFromKVStore)
+			backend, err = doublewrite.NewDoubleWriteBackend(doublewrite.DoubleWriteBackendConfiguration{
+				CRDBackendConfiguration: identitybackend.CRDBackendConfiguration{
+					Store:   nil,
+					Client:  client,
+					KeyFunc: (&key.GlobalIdentity{}).PutKeyFromMap,
+				},
+				KVStoreBackendConfiguration: kvstoreallocator.KVStoreBackendConfiguration{
+					BasePath: m.identitiesPath,
+					Suffix:   owner.GetNodeSuffix(),
+					Typ:      &key.GlobalIdentity{},
+					Backend:  kvstore.Client(),
+				},
+				ReadFromKVStore: readFromKVStore,
+			})
+			if err != nil {
+				log.WithError(err).Fatal("Unable to initialize the Double Write backend for identity allocation")
+			}
 		default:
 			log.Fatalf("Unsupported identity allocation mode %s", option.Config.IdentityAllocationMode)
 		}
