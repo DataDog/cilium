@@ -100,6 +100,22 @@ var (
 	// IdentityGCRuns records how many times identity GC has run
 	IdentityGCRuns *prometheus.GaugeVec
 
+	// IdentityCRDTotalCount records the total number of CRD identities
+	// Requires the Double-Write Identity allocation mode to be enabled
+	IdentityCRDTotalCount prometheus.Gauge
+
+	// IdentityKVStoreTotalCount records the total number of identities in the KVStore
+	// Requires the Double-Write Identity allocation mode to be enabled
+	IdentityKVStoreTotalCount prometheus.Gauge
+
+	// IdentityCRDOnlyCount records the number of CRD identities not present in the KVStore
+	// Requires the Double-Write Identity allocation mode to be enabled
+	IdentityCRDOnlyCount prometheus.Gauge
+
+	// IdentityKVStoreOnlyCount records the number of identities in the KVStore not present as a CRD
+	// Requires the Double-Write Identity allocation mode to be enabled
+	IdentityKVStoreOnlyCount prometheus.Gauge
+
 	// EndpointGCObjects records the number of times endpoint objects have been
 	// garbage-collected.
 	EndpointGCObjects *prometheus.CounterVec
@@ -185,6 +201,34 @@ func registerMetrics() []prometheus.Collector {
 		Help:      "The number of times identity garbage collector has run",
 	}, []string{LabelOutcome, LabelIdentityType})
 	collectors = append(collectors, IdentityGCRuns)
+
+	IdentityCRDTotalCount = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: Namespace,
+		Name:      "identity_crd_total_count",
+		Help:      "The total number of CRD identities (Requires the Double-Write Identity allocation mode to be enabled)",
+	})
+	collectors = append(collectors, IdentityCRDTotalCount)
+
+	IdentityKVStoreTotalCount = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: Namespace,
+		Name:      "identity_kvstore_total_count",
+		Help:      "The total number of identities in the KVStore (Requires the Double-Write Identity allocation mode to be enabled)",
+	})
+	collectors = append(collectors, IdentityKVStoreTotalCount)
+
+	IdentityCRDOnlyCount = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: Namespace,
+		Name:      "identity_crd_only_count",
+		Help:      "The number of CRD identities not present in the KVStore (Requires the Double-Write Identity allocation mode to be enabled)",
+	})
+	collectors = append(collectors, IdentityCRDOnlyCount)
+
+	IdentityKVStoreOnlyCount = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: Namespace,
+		Name:      "identity_kvstore_only_count",
+		Help:      "The number of identities in the KVStore not present as a CRD (Requires the Double-Write Identity allocation mode to be enabled)",
+	})
+	collectors = append(collectors, IdentityKVStoreOnlyCount)
 
 	EndpointGCObjects = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: Namespace,
