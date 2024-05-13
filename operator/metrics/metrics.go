@@ -132,6 +132,9 @@ const (
 	// LabelOutcome indicates whether the outcome of the operation was successful or not
 	LabelOutcome = "outcome"
 
+	// LabelIdentityType indicates the type of identity which was garbage collected (KVStore vs CRD)
+	LabelIdentityType = "identity_type"
+
 	// LabelOpcode indicates the kind of CES metric, could be CEP insert or remove
 	LabelOpcode = "opcode"
 
@@ -148,6 +151,12 @@ const (
 
 	// LabelValueOutcomeDeleted is used as outcome of deleted identity entries
 	LabelValueOutcomeDeleted = "deleted"
+
+	// LabelIdentityTypeKVStore is used to indicate that the identity was garbage collected from the KVStore
+	LabelIdentityTypeKVStore = "kvstore"
+
+	// LabelIdentityTypeCRD is used to indicate that the identity which was garbage collected was a CRD object
+	LabelIdentityTypeCRD = "crd"
 
 	// LabelValueCEPInsert is used to indicate the number of CEPs inserted in a CES
 	LabelValueCEPInsert = "cepinserted"
@@ -167,14 +176,14 @@ func registerMetrics() []prometheus.Collector {
 		Namespace: Namespace,
 		Name:      "identity_gc_entries",
 		Help:      "The number of alive and deleted identities at the end of a garbage collector run",
-	}, []string{LabelStatus})
+	}, []string{LabelStatus, LabelIdentityType})
 	collectors = append(collectors, IdentityGCSize)
 
 	IdentityGCRuns = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: Namespace,
 		Name:      "identity_gc_runs",
 		Help:      "The number of times identity garbage collector has run",
-	}, []string{LabelOutcome})
+	}, []string{LabelOutcome, LabelIdentityType})
 	collectors = append(collectors, IdentityGCRuns)
 
 	EndpointGCObjects = prometheus.NewCounterVec(prometheus.CounterOpts{
