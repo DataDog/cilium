@@ -2129,7 +2129,7 @@
      - object
      - ``{"rollingUpdate":{"maxUnavailable":1},"type":"RollingUpdate"}``
    * - :spelling:ignore:`identityAllocationMode`
-     - Method to use for identity allocation (\ ``crd`` or ``kvstore``\ ).
+     - Method to use for identity allocation (\ ``crd``\ , ``kvstore`` or ``doublewrite-readkvstore`` / ``doublewrite-readcrd``\ ).
      - string
      - ``"crd"``
    * - :spelling:ignore:`identityChangeGracePeriod`
