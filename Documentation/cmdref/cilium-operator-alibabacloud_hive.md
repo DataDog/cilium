@@ -29,6 +29,7 @@ cilium-operator-alibabacloud hive [flags]
       --clustermesh-endpoint-updates-batch-period duration   The length of endpoint slice updates batching period for remote cluster services. Processing of pod changes will be delayed by this duration to join them with potential upcoming updates and reduce the overall number of endpoints updates. Larger number = higher endpoint programming latency, but lower number of endpoints revision generated. (default 500ms)
       --clustermesh-endpoints-per-slice int                  The maximum number of endpoints that will be added to a remote cluster's EndpointSlice . More endpoints per slice will result in less endpoint slices, but larger resources. (default 100)
       --controller-group-metrics strings                     List of controller group names for which to to enable metrics. Accepts 'all' and 'none'. The set of controller group names available is not guaranteed to be stable between Cilium versions.
+      --double-write-metric-reporter-interval duration       Refresh interval for the Double Write Metric Reporter (default 1m0s)
       --enable-cilium-operator-server-access strings         List of cilium operator APIs which are administratively enabled. Supports '*'. (default [*])
       --enable-gateway-api-app-protocol                      Enables Backend Protocol selection (GEP-1911) for Gateway API via appProtocol
       --enable-gateway-api-proxy-protocol                    Enable proxy protocol for all GatewayAPI listeners. Note that _only_ Proxy protocol traffic will be accepted once this is enabled.
