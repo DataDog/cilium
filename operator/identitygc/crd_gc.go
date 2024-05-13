@@ -108,7 +108,7 @@ func (igc *GC) gc(ctx context.Context) error {
 				log.WithFields(logrus.Fields{
 					logfields.Identity: identity.Name,
 					logfields.K8sUID:   identity.UID,
-				}).Info("Marking identity for later deletion")
+				}).Info("Marking CRD identity for later deletion")
 
 				// Deep copy so we get a version we are allowed to update
 				identity = identity.DeepCopy()
@@ -120,7 +120,7 @@ func (igc *GC) gc(ctx context.Context) error {
 				if err := igc.updateIdentity(ctx, identity); err != nil {
 					log.WithError(err).
 						WithField(logfields.Identity, identity).
-						Error("Marking identity for later deletion")
+						Error("Marking CRD identity for later deletion")
 					return err
 				}
 
@@ -129,12 +129,12 @@ func (igc *GC) gc(ctx context.Context) error {
 
 			log.WithFields(logrus.Fields{
 				logfields.Identity: identity,
-			}).Debugf("Deleting unused identity; marked for deletion at %s", ts)
+			}).Debugf("Deleting unused CRD identity; marked for deletion at %s", ts)
 
 			if err := igc.deleteIdentity(ctx, identity); err != nil {
 				log.WithError(err).WithFields(logrus.Fields{
 					logfields.Identity: identity,
-				}).Error("Deleting unused identity")
+				}).Error("Deleting unused CRD identity")
 				return err
 			} else {
 				deletedEntries++
@@ -150,14 +150,14 @@ func (igc *GC) gc(ctx context.Context) error {
 	if igc.enableMetrics {
 		if ctx.Err() == nil {
 			igc.successfulRuns++
-			metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeSuccess).Set(float64(igc.successfulRuns))
+			metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeSuccess, metrics.LabelIdentityTypeCRD).Set(float64(igc.successfulRuns))
 		} else {
 			igc.failedRuns++
-			metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeFail).Set(float64(igc.failedRuns))
+			metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeFail, metrics.LabelIdentityTypeCRD).Set(float64(igc.failedRuns))
 		}
 		aliveEntries := totalEntries - deletedEntries
-		metrics.IdentityGCSize.WithLabelValues(metrics.LabelValueOutcomeAlive).Set(float64(aliveEntries))
-		metrics.IdentityGCSize.WithLabelValues(metrics.LabelValueOutcomeDeleted).Set(float64(deletedEntries))
+		metrics.IdentityGCSize.WithLabelValues(metrics.LabelValueOutcomeAlive, metrics.LabelIdentityTypeCRD).Set(float64(aliveEntries))
+		metrics.IdentityGCSize.WithLabelValues(metrics.LabelValueOutcomeDeleted, metrics.LabelIdentityTypeCRD).Set(float64(deletedEntries))
 	}
 
 	igc.heartbeatStore.gc()
@@ -191,7 +191,7 @@ func (igc *GC) deleteIdentity(ctx context.Context, identity *v2.CiliumIdentity) 
 		return err
 	}
 
-	log.WithField(logfields.Identity, identity.GetName()).Debug("Garbage collected identity")
+	log.WithField(logfields.Identity, identity.GetName()).Debug("Garbage collected CRD identity")
 
 	return nil
 }
@@ -205,7 +205,7 @@ func (igc *GC) updateIdentity(ctx context.Context, identity *v2.CiliumIdentity) 
 		return err
 	}
 
-	log.WithField(logfields.Identity, identity.GetName()).Debug("Updated identity")
+	log.WithField(logfields.Identity, identity.GetName()).Debug("Updated CRD identity")
 
 	return nil
 }
