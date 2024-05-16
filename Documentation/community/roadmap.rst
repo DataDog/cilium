@@ -33,7 +33,7 @@ Major Feature Status
 +-----------------------------+------------------------------------------------------------+
 | Service Mesh                | Stable (:ref:`Roadmap Details<rm-cilium-service-mesh>`)    |
 +-----------------------------+------------------------------------------------------------+
-| Tetragon Security           | Beta                                                       |
+| Tetragon Security           | Stable (:ref:`Roadmap Details<rm-tetragon>`)               |
 +-----------------------------+------------------------------------------------------------+
 
 "Stable" means that the feature is in use in production (though advanced
@@ -134,7 +134,6 @@ Hubble provides visibility into network flows through the :ref:`Hubble CLI<hubbl
 and :ref:`UI<hubble_ui>` (beta), with support for Prometheus and OpenTelemetry metrics. Areas of
 focus currently include:
 
-* Graduating the `Hubble OpenTelemetry collector`_ to stable
 * Hubble UI additional features
 
 CI Test Improvements
@@ -144,6 +143,8 @@ We have a comprehensive set of tests running in CI, but several contributors are
 currently working on `CI improvements`_ to make these more reliable and easier to
 maintain. This is a good area to get involved if you are interested in learning
 more about Cilium internals and development.
+
+.. _rm-tetragon:
 
 Tetragon Security
 ~~~~~~~~~~~~~~~~~
@@ -192,7 +193,6 @@ anything other than trivial fixes.
 .. _point releases: https://cilium.io/blog/categories/release/
 .. _Get Involved: https://cilium.io/get-involved
 .. _CNCF Graduation: https://github.com/cncf/toc/pull/952
-.. _Hubble OpenTelemetry collector: https://github.com/cilium/hubble-otel
 .. _CI improvements: https://github.com/cilium/cilium/issues?q=is%3Aopen+is%3Aissue+label%3Aarea%2FCI-improvement
 .. _good-first-issue: https://github.com/cilium/cilium/labels/good-first-issue
 .. _enterprise: https://cilium.io/enterprise

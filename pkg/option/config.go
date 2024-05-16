@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -400,6 +401,10 @@ const (
 
 	// IPTablesRandomFully sets iptables flag random-fully on masquerading rules
 	IPTablesRandomFully = "iptables-random-fully"
+
+	// ContainerIPLocalReservedPorts instructs the Cilium CNI plugin to reserve
+	// the provided comma-separated list of ports in the container network namespace
+	ContainerIPLocalReservedPorts = "container-ip-local-reserved-ports"
 
 	// IPv6NodeAddr is the IPv6 address of node
 	IPv6NodeAddr = "ipv6-node"
@@ -2266,6 +2271,10 @@ type DaemonConfig struct {
 	// InstallNoConntrackIptRules instructs Cilium to install Iptables rules to skip netfilter connection tracking on all pod traffic.
 	InstallNoConntrackIptRules bool
 
+	// ContainerIPLocalReservedPorts instructs the Cilium CNI plugin to reserve
+	// the provided comma-separated list of ports in the container network namespace
+	ContainerIPLocalReservedPorts string
+
 	// EnableCustomCalls enables tail call hooks for user-defined custom
 	// eBPF programs, typically used to collect custom per-endpoint
 	// metrics.
@@ -2707,15 +2716,27 @@ func (c *DaemonConfig) validateIPv6NAT46x64CIDR() error {
 	return nil
 }
 
+func (c *DaemonConfig) validateContainerIPLocalReservedPorts() error {
+	if c.ContainerIPLocalReservedPorts == "" || c.ContainerIPLocalReservedPorts == defaults.ContainerIPLocalReservedPortsAuto {
+		return nil
+	}
+
+	if regexp.MustCompile(`^(\d+(-\d+)?)(,\d+(-\d+)?)*$`).MatchString(c.ContainerIPLocalReservedPorts) {
+		return nil
+	}
+
+	return fmt.Errorf("Invalid comma separated list of of ranges for %s option", ContainerIPLocalReservedPorts)
+}
+
 // Validate validates the daemon configuration
 func (c *DaemonConfig) Validate(vp *viper.Viper) error {
 	if err := c.validateIPv6ClusterAllocCIDR(); err != nil {
-		return fmt.Errorf("unable to parse CIDR value '%s' of option --%s: %s",
+		return fmt.Errorf("unable to parse CIDR value '%s' of option --%s: %w",
 			c.IPv6ClusterAllocCIDR, IPv6ClusterAllocCIDRName, err)
 	}
 
 	if err := c.validateIPv6NAT46x64CIDR(); err != nil {
-		return fmt.Errorf("unable to parse internal CIDR value '%s': %s",
+		return fmt.Errorf("unable to parse internal CIDR value '%s': %w",
 			c.IPv6NAT46x64CIDR, err)
 	}
 
@@ -2800,6 +2821,10 @@ func (c *DaemonConfig) Validate(vp *viper.Viper) error {
 		}
 	}
 
+	if err := c.validateContainerIPLocalReservedPorts(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -2809,7 +2834,7 @@ func ReadDirConfig(dirName string) (map[string]interface{}, error) {
 	m := map[string]interface{}{}
 	files, err := os.ReadDir(dirName)
 	if err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("unable to read configuration directory: %s", err)
+		return nil, fmt.Errorf("unable to read configuration directory: %w", err)
 	}
 	for _, f := range files {
 		if f.IsDir() {
@@ -2850,7 +2875,7 @@ func ReadDirConfig(dirName string) (map[string]interface{}, error) {
 func MergeConfig(vp *viper.Viper, m map[string]interface{}) error {
 	err := vp.MergeConfigMap(m)
 	if err != nil {
-		return fmt.Errorf("unable to read merge directory configuration: %s", err)
+		return fmt.Errorf("unable to read merge directory configuration: %w", err)
 	}
 	return nil
 }
@@ -2882,7 +2907,7 @@ func (c *DaemonConfig) parseExcludedLocalAddresses(s []string) error {
 	for _, ipString := range s {
 		_, ipnet, err := net.ParseCIDR(ipString)
 		if err != nil {
-			return fmt.Errorf("unable to parse excluded local address %s: %s", ipString, err)
+			return fmt.Errorf("unable to parse excluded local address %s: %w", ipString, err)
 		}
 
 		c.ExcludeLocalAddresses = append(c.ExcludeLocalAddresses, ipnet)
@@ -3075,6 +3100,7 @@ func (c *DaemonConfig) Populate(vp *viper.Viper) {
 	c.LoadBalancerRSSv4CIDR = vp.GetString(LoadBalancerRSSv4CIDR)
 	c.LoadBalancerRSSv6CIDR = vp.GetString(LoadBalancerRSSv6CIDR)
 	c.InstallNoConntrackIptRules = vp.GetBool(InstallNoConntrackIptRules)
+	c.ContainerIPLocalReservedPorts = vp.GetString(ContainerIPLocalReservedPorts)
 	c.EnableCustomCalls = vp.GetBool(EnableCustomCallsName)
 	c.BGPAnnounceLBIP = vp.GetBool(BGPAnnounceLBIP)
 	c.BGPAnnouncePodCIDR = vp.GetBool(BGPAnnouncePodCIDR)
@@ -3501,11 +3527,11 @@ func (c *DaemonConfig) populateNodePortRange(vp *viper.Viper) error {
 
 		c.NodePortMin, err = strconv.Atoi(nodePortRange[0])
 		if err != nil {
-			return fmt.Errorf("Unable to parse min port value for NodePort range: %s", err.Error())
+			return fmt.Errorf("Unable to parse min port value for NodePort range: %w", err)
 		}
 		c.NodePortMax, err = strconv.Atoi(nodePortRange[1])
 		if err != nil {
-			return fmt.Errorf("Unable to parse max port value for NodePort range: %s", err.Error())
+			return fmt.Errorf("Unable to parse max port value for NodePort range: %w", err)
 		}
 		if c.NodePortMax <= c.NodePortMin {
 			return errors.New("NodePort range min port must be smaller than max port")
@@ -4161,7 +4187,7 @@ func parseBPFMapEventConfigs(confs BPFEventBufferConfigs, confMap map[string]str
 	for name, confStr := range confMap {
 		conf, err := ParseEventBufferTupleString(confStr)
 		if err != nil {
-			return fmt.Errorf("unable to parse %s: %s", BPFMapEventBuffers, err)
+			return fmt.Errorf("unable to parse %s: %w", BPFMapEventBuffers, err)
 		}
 		confs[name] = conf
 	}

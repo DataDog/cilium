@@ -125,7 +125,7 @@ rollOutCiliumPods: false
 image:
   override: ~
   repository: "quay.io/cilium/cilium"
-  tag: "v1.13.15"
+  tag: "v1.13.16"
   pullPolicy: "IfNotPresent"
   # cilium-digest
   digest: ""
@@ -1052,7 +1052,7 @@ hubble:
     image:
       override: ~
       repository: "quay.io/cilium/hubble-relay"
-      tag: "v1.13.15"
+      tag: "v1.13.16"
        # hubble-relay-digest
       digest: ""
       useDigest: false
@@ -1909,7 +1909,7 @@ operator:
   image:
     override: ~
     repository: "quay.io/cilium/operator"
-    tag: "v1.13.15"
+    tag: "v1.13.16"
     # operator-generic-digest
     genericDigest: ""
     # operator-azure-digest
@@ -2092,8 +2092,8 @@ nodeinit:
   image:
     override: ~
     repository: "quay.io/cilium/startup-script"
-    tag: "62093c5c233ea914bfa26a10ba41f8780d9b737f"
-    digest: "sha256:e1d442546e868db1a3289166c14011e0dbd32115b338b963e56f830972bc22a2"
+    tag: "19fb149fb3d5c7a37d3edfaf10a2be3ab7386661"
+    digest: "sha256:820155cb3b7f00c8d61c1cffa68c44440906cb046bdbad8ff544f5deb1103456"
     useDigest: true
     pullPolicy: "IfNotPresent"
 
@@ -2174,7 +2174,7 @@ preflight:
   image:
     override: ~
     repository: "quay.io/cilium/cilium"
-    tag: "v1.13.15"
+    tag: "v1.13.16"
     # cilium-digest
     digest: ""
     useDigest: false
@@ -2321,7 +2321,7 @@ clustermesh:
     image:
       override: ~
       repository: "quay.io/cilium/clustermesh-apiserver"
-      tag: "v1.13.15"
+      tag: "v1.13.16"
       # clustermesh-apiserver-digest
       digest: ""
       useDigest: false

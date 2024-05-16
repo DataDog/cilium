@@ -165,11 +165,11 @@ func UpdateElementFromPointers(fd int, mapName string, structPtr unsafe.Pointer,
 	if ret != 0 || err != 0 {
 		switch err {
 		case unix.E2BIG:
-			return fmt.Errorf("Unable to update element for %s map with file descriptor %d: the map is full, please consider resizing it. %w", mapName, fd, err)
+			return fmt.Errorf("Unable to update element for %s map with file descriptor %d: the map is full, please consider resizing it: %w", mapName, fd, err)
 		case unix.EEXIST:
-			return fmt.Errorf("Unable to update element for %s map with file descriptor %d: specified key already exists. %w", mapName, fd, err)
+			return fmt.Errorf("Unable to update element for %s map with file descriptor %d: specified key already exists: %w", mapName, fd, err)
 		case unix.ENOENT:
-			return fmt.Errorf("Unable to update element for %s map with file descriptor %d: key does not exist. %w", mapName, fd, err)
+			return fmt.Errorf("Unable to update element for %s map with file descriptor %d: key does not exist: %w", mapName, fd, err)
 		default:
 			return fmt.Errorf("Unable to update element for %s map with file descriptor %d: %w", mapName, fd, err)
 		}
@@ -268,7 +268,7 @@ func DeleteElement(fd int, key unsafe.Pointer) error {
 	ret, err := deleteElement(fd, key)
 
 	if ret != 0 || err != 0 {
-		return fmt.Errorf("Unable to delete element from map with file descriptor %d: %s", fd, err)
+		return fmt.Errorf("Unable to delete element from map with file descriptor %d: %w", fd, err)
 	}
 
 	return nil
@@ -299,7 +299,7 @@ func GetNextKeyFromPointers(fd int, structPtr unsafe.Pointer, sizeOfStruct uintp
 	}
 
 	if ret != 0 || err != 0 {
-		return fmt.Errorf("Unable to get next key from map with file descriptor %d: %s", fd, err)
+		return fmt.Errorf("Unable to get next key from map with file descriptor %d: %w", fd, err)
 	}
 
 	return nil
@@ -371,7 +371,7 @@ func ObjPin(fd int, pathname string) error {
 	}
 
 	if ret != 0 || errno != 0 {
-		return fmt.Errorf("Unable to pin object with file descriptor %d to %s: %s", fd, pathname, errno)
+		return fmt.Errorf("Unable to pin object with file descriptor %d to %s: %w", fd, pathname, errno)
 	}
 
 	return nil
@@ -442,7 +442,7 @@ func MapFdFromID(id int) (int, error) {
 	}
 
 	if fd == 0 || err != 0 {
-		return 0, fmt.Errorf("Unable to get object fd from id %d: %s", id, err)
+		return 0, fmt.Errorf("Unable to get object fd from id %d: %w", id, err)
 	}
 
 	return int(fd), nil
@@ -612,7 +612,7 @@ func GetMtime() (uint64, error) {
 
 	err := unix.ClockGettime(unix.CLOCK_MONOTONIC, &ts)
 	if err != nil {
-		return 0, fmt.Errorf("Unable get time: %s", err)
+		return 0, fmt.Errorf("Unable get time: %w", err)
 	}
 
 	return uint64(unix.TimespecToNsec(ts)), nil
