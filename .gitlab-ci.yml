@@ -36,7 +36,7 @@ build-docker-image-operator:
     DOCKER_BUILD_ARGS: |
       BASE_IMAGE=registry.ddbuild.io/images/base/gbi-distroless:release
       OPERATOR_VARIANT=operator
-      GOLANG_IMAGE=registry.ddbuild.io/images/mirror/golang:1.21.9@sha256:81811f8a883e238666dbadee6928ae2902243a3cd3f3e860f21c102543c6b5a7
+      GOLANG_IMAGE=registry.ddbuild.io/images/mirror/golang:1.21.10@sha256:16438a8e66c0c984f732e815ee5b7d715b8e33e81bac6d6a3750b1067744e7ca
       ALPINE_IMAGE=registry.ddbuild.io/images/mirror/library/alpine:3.17.7@sha256:53cf9478b76f4c8fae126acbdfb79bed6e69e628faff572ebe4a029d3d247d98
     TARGET: release
 
@@ -48,7 +48,7 @@ build-docker-image-runtime:
     DOCKER_BUILD_ARGS: |
       UBUNTU_IMAGE=registry.ddbuild.io/images/base/gbi-ubuntu_2204:release
       TESTER_IMAGE=registry.ddbuild.io/images/mirror/cilium/image-tester:dd09c8d3ef349a909fbcdc99279516baef153f22@sha256:c056d064cb47c97acd607343db5457e1d49d9338d6d8a87e93e23cc93f052c73
-      GOLANG_IMAGE=registry.ddbuild.io/images/mirror/golang:1.21.9@sha256:81811f8a883e238666dbadee6928ae2902243a3cd3f3e860f21c102543c6b5a7
+      GOLANG_IMAGE=registry.ddbuild.io/images/mirror/golang:1.21.10@sha256:16438a8e66c0c984f732e815ee5b7d715b8e33e81bac6d6a3750b1067744e7ca
       CILIUM_LLVM_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-llvm:3408daa17f6490a464dfc746961e28ae31964c66@sha256:ff13a1a9f973d102c6ac907d2bc38a524c8e1d26c6c1b16ed809a98925206a79
       CILIUM_BPFTOOL_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-bpftool:d3093f6aeefef8270306011109be623a7e80ad1b@sha256:2c28c64195dee20ab596d70a59a4597a11058333c6b35a99da32c339dcd7df56
       CILIUM_IPROUTE2_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-iproute2:f882e3fd516184703eea5ee9b3b915748b5d4ee8@sha256:f22b8aaf01952cf4b2ec959f0b8f4d242b95ce279480fbd73fded606ce0c3fa4
@@ -69,8 +69,8 @@ build-docker-image-cilium:
     DOCKERFILE_PATH: images/cilium/Dockerfile
     DOCKER_BUILD_ARGS: |
       CILIUM_RUNTIME_IMAGE=registry.ddbuild.io/cilium-runtime:$CI_COMMIT_TAG
-      CILIUM_BUILDER_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-builder:33f7daa87b97d51804c90686d188f9bd092d96a1@sha256:17173d91012679f8a2ca8cd00ff00a57b78f1e8406bcc1aeabb784e035698058
-      CILIUM_ENVOY_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-envoy:v1.27.4-21905253931655328edaacf3cd16aeda73bbea2f@sha256:d52f476c29a97c8b250fdbfbb8472191a268916f6a8503671d0da61e323b02cc
+      CILIUM_BUILDER_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-builder:7dbbc3b61e926da3c98bc0b1bc9c1233dac09ec5@sha256:bd3c7727fbe729355b426c158dc498445cfd6cce94a6ff41317e96dddb3f9be8
+      CILIUM_ENVOY_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-envoy:v1.27.5-cffb43e4ac1fa64788a5d638ade20a3d88e18b67@sha256:c494b69b128a40fee34b5caa8c61deeeb13b91b55e0aaddd43f92f788152df6d
     TARGET: release
     NOSTRIP: 0
   script:
@@ -93,6 +93,6 @@ build-docker-image-hubble-relay:
     DOCKERFILE_PATH: images/hubble-relay/Dockerfile
     DOCKER_BUILD_ARGS: |
       BASE_IMAGE=registry.ddbuild.io/images/base/gbi-distroless:release
-      GOLANG_IMAGE=registry.ddbuild.io/images/mirror/golang:1.21.9@sha256:81811f8a883e238666dbadee6928ae2902243a3cd3f3e860f21c102543c6b5a7
+      GOLANG_IMAGE=registry.ddbuild.io/images/mirror/golang:1.21.10@sha256:16438a8e66c0c984f732e815ee5b7d715b8e33e81bac6d6a3750b1067744e7ca
       ALPINE_IMAGE=registry.ddbuild.io/images/mirror/library/alpine:3.17.7@sha256:53cf9478b76f4c8fae126acbdfb79bed6e69e628faff572ebe4a029d3d247d98
     TARGET: release
