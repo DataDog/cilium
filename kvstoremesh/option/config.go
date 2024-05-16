@@ -23,10 +23,15 @@ type KVStoreMeshConfig struct {
 
 	ClusterName string
 	ClusterID   uint32
+
+	LogDriver []string
+	LogOpt    map[string]string
 }
 
 func (def KVStoreMeshConfig) Flags(flags *pflag.FlagSet) {
 	flags.BoolP(option.DebugArg, "D", def.Debug, "Enable debugging mode")
 	flags.String(option.ClusterName, def.ClusterName, "Name of the cluster")
 	flags.Uint32(option.ClusterIDName, def.ClusterID, "Unique identifier of the cluster")
+	flags.StringSlice(option.LogDriver, def.LogDriver, "Logging driver to use")
+	flags.Var(option.NewNamedMapOptions(option.LogOpt, &option.Config.LogOpt, nil), option.LogOpt, `Logger options`)
 }
