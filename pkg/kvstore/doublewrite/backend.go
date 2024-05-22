@@ -187,12 +187,27 @@ func (d *doubleWriteBackend) ListIDs(ctx context.Context) (identityIDs []idpool.
 	return (*d.crdBackend).ListIDs(ctx)
 }
 
+type NoOpHandler struct{}
+
+func (f NoOpHandler) OnListDone()                                       {}
+func (f NoOpHandler) OnAdd(id idpool.ID, key allocator.AllocatorKey)    {}
+func (f NoOpHandler) OnModify(id idpool.ID, key allocator.AllocatorKey) {}
+func (f NoOpHandler) OnDelete(id idpool.ID, key allocator.AllocatorKey) {}
+
 func (d *doubleWriteBackend) ListAndWatch(ctx context.Context, handler allocator.CacheMutations, stopChan chan struct{}) {
 	if d.readFromKVStore {
-		(*d.kvstoreBackend).ListAndWatch(ctx, handler, stopChan)
+		go (*d.kvstoreBackend).ListAndWatch(ctx, handler, stopChan)
+		// We still need to run ListAndWatch for the CRD backend to initialize the underlying store
+		// However we don't want to use the results of the list, so we use a no-op handler
+		crdStopChan := make(chan struct{})
+		go (*d.crdBackend).ListAndWatch(ctx, NoOpHandler{}, crdStopChan)
+		go func() {
+			<-stopChan
+			close(crdStopChan)
+		}()
 		return
 	}
-	(*d.crdBackend).ListAndWatch(ctx, handler, stopChan)
+	go (*d.crdBackend).ListAndWatch(ctx, handler, stopChan)
 }
 
 func (d *doubleWriteBackend) Status() (string, error) {
