@@ -126,6 +126,7 @@ func registerGC(p params) {
 				if err != nil {
 					return err
 				}
+				p.Logger.Info("Anton-Test-DoubleWriteRead started both CRD and KVstore GC")
 				return nil
 			default:
 				return fmt.Errorf("unknown Cilium identity allocation mode: %q", gc.allocationMode)
