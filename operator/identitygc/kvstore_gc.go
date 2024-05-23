@@ -57,7 +57,7 @@ func (igc *GC) runKVStoreModeGC(ctx context.Context) error {
 
 			if igc.enableMetrics {
 				igc.failedRuns++
-				metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeFail).Set(float64(igc.failedRuns))
+				metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeFail, metrics.LabelIdentityTypeKVStore).Set(float64(igc.failedRuns))
 			}
 		} else {
 			// Best effort to run auth identity GC
@@ -72,6 +72,7 @@ func (igc *GC) runKVStoreModeGC(ctx context.Context) error {
 
 			if igc.enableMetrics {
 				igc.successfulRuns++
+				log.Info("Anton-Test successfulRuns: ", igc.successfulRuns)
 				metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeSuccess, metrics.LabelIdentityTypeKVStore).Set(float64(igc.successfulRuns))
 
 				metrics.IdentityGCSize.WithLabelValues(metrics.LabelValueOutcomeAlive, metrics.LabelIdentityTypeKVStore).Set(float64(gcStats.Alive))
