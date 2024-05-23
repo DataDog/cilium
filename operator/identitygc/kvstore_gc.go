@@ -22,7 +22,7 @@ import (
 )
 
 func (igc *GC) startKVStoreModeGC(ctx context.Context) error {
-	log.WithField(logfields.Interval, igc.gcInterval).Info("Starting kvstore identity garbage collector")
+	log.WithField(logfields.Interval, igc.gcInterval).Info("Anton-Test-KVStore Starting kvstore identity garbage collector")
 	backend, err := kvstoreallocator.NewKVStoreBackend(kvstoreallocator.KVStoreBackendConfiguration{BasePath: cache.IdentitiesPath, Suffix: "", Typ: nil, Backend: kvstore.Client()})
 	if err != nil {
 		return fmt.Errorf("unable to initialize kvstore backend for identity allocation")
@@ -35,14 +35,17 @@ func (igc *GC) startKVStoreModeGC(ctx context.Context) error {
 		"min":        minID,
 		"max":        maxID,
 		"cluster-id": igc.allocationCfg.LocalClusterID(),
-	}).Info("Garbage Collecting kvstore identities between range")
+	}).Info("Anton-Test-KVStore Garbage Collecting kvstore identities between range")
 
 	igc.allocator = allocator.NewAllocatorForGC(backend, allocator.WithMin(minID), allocator.WithMax(maxID))
-
-	return igc.wp.Submit("kvstore-identity-gc", igc.runKVStoreModeGC)
+	log.Info("Anton-Test-KVStore created new allocator: ", igc.allocator)
+	err = igc.wp.Submit("kvstore-identity-gc", igc.runKVStoreModeGC)
+	log.Info("Anton-Test-KVStore submitted kvstore-identity-gc. WP length: / WP cap: ", igc.wp.Len(), igc.wp.Cap())
+	return err
 }
 
 func (igc *GC) runKVStoreModeGC(ctx context.Context) error {
+	log.Info("Anton-Test-KVStore Running kvstore identity garbage collector")
 	keysToDeletePrev := map[string]uint64{}
 
 	gcTimer, gcTimerDone := inctimer.New()
@@ -52,12 +55,14 @@ func (igc *GC) runKVStoreModeGC(ctx context.Context) error {
 
 		keysToDelete, gcStats, err := igc.allocator.RunGC(igc.rateLimiter, keysToDeletePrev)
 		gcDuration := time.Since(now)
+		log.Info("Anton-Test-KVStore keysToDelete: ", keysToDelete)
+		log.Info("Anton-Test-KVStore gcDuration: ", gcDuration)
 		if err != nil {
 			igc.logger.WithError(err).Warning("Unable to run kvstore security identity garbage collector")
 
 			if igc.enableMetrics {
-				igc.failedRuns++
-				metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeFail, metrics.LabelIdentityTypeKVStore).Set(float64(igc.failedRuns))
+				igc.failedRuns["kvstore"]++
+				metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeFail, metrics.LabelIdentityTypeKVStore).Set(float64(igc.failedRuns["kvstore"]))
 			}
 		} else {
 			// Best effort to run auth identity GC
@@ -71,9 +76,9 @@ func (igc *GC) runKVStoreModeGC(ctx context.Context) error {
 			keysToDeletePrev = keysToDelete
 
 			if igc.enableMetrics {
-				igc.successfulRuns++
-				log.Info("Anton-Test successfulRuns: ", igc.successfulRuns)
-				metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeSuccess, metrics.LabelIdentityTypeKVStore).Set(float64(igc.successfulRuns))
+				igc.successfulRuns["kvstore"]++
+				log.Info("Anton-Test-CRD successfulRuns: ", igc.successfulRuns["kvstore"])
+				metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeSuccess, metrics.LabelIdentityTypeKVStore).Set(float64(igc.successfulRuns["kvstore"]))
 
 				metrics.IdentityGCSize.WithLabelValues(metrics.LabelValueOutcomeAlive, metrics.LabelIdentityTypeKVStore).Set(float64(gcStats.Alive))
 				metrics.IdentityGCSize.WithLabelValues(metrics.LabelValueOutcomeDeleted, metrics.LabelIdentityTypeKVStore).Set(float64(gcStats.Deleted))
@@ -91,11 +96,13 @@ func (igc *GC) runKVStoreModeGC(ctx context.Context) error {
 			// but check if the context was canceled before running
 			// another gc cycle.
 			if ctx.Err() != nil {
+				log.Info("Anton-Test-KVStore ctx.Err() != nil")
 				return nil
 			}
 		} else {
 			select {
 			case <-ctx.Done():
+				log.Info("Anton-Test-KVStore ctx.Done()")
 				return nil
 			case <-gcTimer.After(igc.gcInterval - gcDuration):
 			}

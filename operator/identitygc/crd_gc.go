@@ -27,7 +27,7 @@ func (igc *GC) startCRDModeGC(ctx context.Context) error {
 		return nil
 	}
 
-	igc.logger.WithField(logfields.Interval, igc.gcInterval).Info("Starting CRD identity garbage collector")
+	igc.logger.WithField(logfields.Interval, igc.gcInterval).Info("Anton-Test-CRD Starting CRD identity garbage collector")
 
 	igc.mgr = controller.NewManager()
 	igc.mgr.UpdateController("crd-identity-gc",
@@ -36,11 +36,14 @@ func (igc *GC) startCRDModeGC(ctx context.Context) error {
 			DoFunc:       igc.gc,
 			NoErrorRetry: true,
 		})
-
-	return igc.wp.Submit("heartbeat-updater", igc.runHeartbeatUpdater)
+	igc.logger.Info("Anton-Test-CRD created new controller", igc.mgr)
+	err := igc.wp.Submit("heartbeat-updater", igc.runHeartbeatUpdater)
+	igc.logger.Info("Anton-Test-CRD submitted heartbeat-updater. WP length: / WP cap: ", igc.wp.Len(), igc.wp.Cap())
+	return err
 }
 
 func (igc *GC) runHeartbeatUpdater(ctx context.Context) error {
+	igc.logger.Info("Anton-Test-CRD Running CRD identity heartbeat updater")
 	for event := range igc.identity.Events(ctx) {
 		switch event.Kind {
 		case resource.Upsert:
@@ -64,11 +67,12 @@ func (igc *GC) runHeartbeatUpdater(ctx context.Context) error {
 // delete identities that have not had its heartbeat lifesign updated
 // since HeartbeatTimeout.
 func (igc *GC) gc(ctx context.Context) error {
-	igc.logger.Debug("Running CRD identity garbage collector")
+	igc.logger.Info("Anton-Test-CRD Running CRD identity garbage collector")
 
 	select {
 	case <-watchers.CiliumEndpointsSynced:
 	case <-ctx.Done():
+		igc.logger.Info("Anton-Test-CRD ctx.Done")
 		return nil
 	}
 
@@ -143,18 +147,22 @@ func (igc *GC) gc(ctx context.Context) error {
 
 		// If Context was canceled we should break
 		if ctx.Err() != nil {
+			igc.logger.Info("Anton-Test-CRD ctx.Err() != nil")
 			break
 		}
 	}
 
 	if igc.enableMetrics {
 		if ctx.Err() == nil {
-			igc.successfulRuns++
-			metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeSuccess, metrics.LabelIdentityTypeCRD).Set(float64(igc.successfulRuns))
+			igc.successfulRuns["crd"]++
+			metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeSuccess, metrics.LabelIdentityTypeCRD).Set(float64(igc.successfulRuns["crd"]))
 		} else {
-			igc.failedRuns++
-			metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeFail, metrics.LabelIdentityTypeCRD).Set(float64(igc.failedRuns))
+			igc.failedRuns["crd"]++
+			metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeFail, metrics.LabelIdentityTypeCRD).Set(float64(igc.failedRuns["crd"]))
 		}
+		igc.logger.Info("Anton-Test-CRD successfulRuns: ", igc.successfulRuns)
+		igc.logger.Info("Anton-Test-CRD totalEntries: ", totalEntries)
+		igc.logger.Info("Anton-Test-CRD deletedEntries: ", deletedEntries)
 		aliveEntries := totalEntries - deletedEntries
 		metrics.IdentityGCSize.WithLabelValues(metrics.LabelValueOutcomeAlive, metrics.LabelIdentityTypeCRD).Set(float64(aliveEntries))
 		metrics.IdentityGCSize.WithLabelValues(metrics.LabelValueOutcomeDeleted, metrics.LabelIdentityTypeCRD).Set(float64(deletedEntries))
@@ -191,7 +199,7 @@ func (igc *GC) deleteIdentity(ctx context.Context, identity *v2.CiliumIdentity) 
 		return err
 	}
 
-	log.WithField(logfields.Identity, identity.GetName()).Debug("Garbage collected CRD identity")
+	log.WithField(logfields.Identity, identity.GetName()).Info("Anton-Test-CRD Garbage collected CRD identity")
 
 	return nil
 }
