@@ -131,7 +131,9 @@ func registerGC(p params) {
 			}
 		},
 		OnStop: func(ctx cell.HookContext) error {
-			if gc.allocationMode == option.IdentityAllocationModeCRD {
+			if gc.allocationMode == option.IdentityAllocationModeCRD ||
+				gc.allocationMode == option.IdentityAllocationModeDoubleWriteReadCRD ||
+				gc.allocationMode == option.IdentityAllocationModeDoubleWriteReadKVstore {
 				// CRD mode GC runs in an additional goroutine
 				gc.mgr.RemoveAllAndWait()
 			}
