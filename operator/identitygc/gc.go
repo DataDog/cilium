@@ -73,9 +73,9 @@ type GC struct {
 	allocator     *allocator.Allocator
 
 	enableMetrics bool
-	// counters for GC failed/successful runs
-	failedRuns     int
-	successfulRuns int
+	// counters for GC failed/successful runs for each allocation mode
+	failedRuns     map[string]int
+	successfulRuns map[string]int
 }
 
 func registerGC(p params) {
@@ -126,6 +126,8 @@ func registerGC(p params) {
 				if err != nil {
 					return err
 				}
+				p.Logger.Info("Anton-Test-DoubleWriteRead started both CRD and KVstore GC")
+				p.Logger.Info("Anton-Test-DoubleWriteRead WP length: / WP cap: ", gc.wp.Len(), gc.wp.Cap())
 				return nil
 			default:
 				return fmt.Errorf("unknown Cilium identity allocation mode: %q", gc.allocationMode)
