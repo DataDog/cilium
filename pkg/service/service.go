@@ -879,7 +879,7 @@ func (s *Service) UpdateBackendsState(backends []*lb.Backend) error {
 			logfields.BackendPreferred: b.Preferred,
 		}).Info("Persisting updated backend state for backend")
 		if err := s.lbmap.UpdateBackendWithState(b); err != nil {
-			e := fmt.Errorf("failed to update backend %+v %w", b, err)
+			e := fmt.Errorf("failed to update backend %+v: %w", b, err)
 			errs = multierr.Append(errs, e)
 		}
 	}
@@ -1101,7 +1101,7 @@ func (s *Service) SyncWithK8sFinished(localOnly bool, localServices sets.Set[k8s
 				Warn("Deleting no longer present service")
 
 			if err := s.deleteServiceLocked(svc); err != nil {
-				return stale, fmt.Errorf("Unable to remove service %+v: %s", svc, err)
+				return stale, fmt.Errorf("Unable to remove service %+v: %w", svc, err)
 			}
 		} else if svc.restoredBackendHashes.Len() > 0 {
 			// The service is still associated with stale backends
@@ -1152,7 +1152,7 @@ func (s *Service) createSVCInfoIfNotExist(p *lb.SVC) (*svcInfo, bool, bool,
 		addrID, err := AcquireID(p.Frontend.L3n4Addr, uint32(p.Frontend.ID))
 		if err != nil {
 			return nil, false, false, nil,
-				fmt.Errorf("Unable to allocate service ID %d for %v: %s",
+				fmt.Errorf("Unable to allocate service ID %d for %v: %w",
 					p.Frontend.ID, p.Frontend, err)
 		}
 		p.Frontend.ID = addrID.ID
@@ -1406,7 +1406,7 @@ func (s *Service) restoreBackendsLocked(svcBackendsById map[lb.BackendID]struct{
 	failed, restored, skipped := 0, 0, 0
 	backends, err := s.lbmap.DumpBackendMaps()
 	if err != nil {
-		return fmt.Errorf("Unable to dump backend maps: %s", err)
+		return fmt.Errorf("Unable to dump backend maps: %w", err)
 	}
 
 	svcBackendsCount := len(svcBackendsById)
@@ -1652,7 +1652,7 @@ func (s *Service) deleteServiceLocked(svc *svcInfo) error {
 		s.lbmap.DeleteBackendByID(id)
 	}
 	if err := DeleteID(uint32(svc.frontend.ID)); err != nil {
-		return fmt.Errorf("Unable to release service ID %d: %s", svc.frontend.ID, err)
+		return fmt.Errorf("Unable to release service ID %d: %w", svc.frontend.ID, err)
 	}
 
 	if option.Config.EnableHealthCheckNodePort {
@@ -1682,7 +1682,7 @@ func (s *Service) updateBackendsCacheLocked(svc *svcInfo, backends []*lb.Backend
 				id, err := AcquireBackendID(backend.L3n4Addr)
 				if err != nil {
 					s.backendRefCount.Delete(hash)
-					return nil, nil, nil, fmt.Errorf("Unable to acquire backend ID for %q: %s",
+					return nil, nil, nil, fmt.Errorf("Unable to acquire backend ID for %q: %w",
 						backend.L3n4Addr, err)
 				}
 				backends[i].ID = id
@@ -1711,7 +1711,7 @@ func (s *Service) updateBackendsCacheLocked(svc *svcInfo, backends []*lb.Backend
 				b.State = backends[i].State
 				// Update the persisted backend state in BPF maps.
 				if err := s.lbmap.UpdateBackendWithState(backends[i]); err != nil {
-					return nil, nil, nil, fmt.Errorf("failed to update backend %+v %w",
+					return nil, nil, nil, fmt.Errorf("failed to update backend %+v: %w",
 						backends[i], err)
 				}
 			case backends[i].Weight != b.Weight:

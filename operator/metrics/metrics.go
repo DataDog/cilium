@@ -5,6 +5,7 @@ package metrics
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -16,6 +17,7 @@ import (
 	operatorOption "github.com/cilium/cilium/operator/option"
 	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/logging/logfields"
+	"github.com/cilium/cilium/pkg/metrics"
 )
 
 var (
@@ -65,13 +67,11 @@ func Register() {
 	go func() {
 		go func() {
 			err := srv.ListenAndServe()
-			switch err {
-			case http.ErrServerClosed:
+			if errors.Is(err, http.ErrServerClosed) {
 				log.Info("Metrics server shutdown successfully")
 				return
-			default:
-				log.WithError(err).Fatal("Metrics server ListenAndServe failed")
 			}
+			log.WithError(err).Fatal("Metrics server ListenAndServe failed")
 		}()
 
 		<-shutdownCh
@@ -222,6 +222,9 @@ func registerMetrics() []prometheus.Collector {
 	collectors = append(collectors, CiliumEndpointSliceQueueDelay)
 
 	Registry.MustRegister(collectors...)
+	metrics.InitOperatorMetrics()
+	Registry.MustRegister(metrics.ErrorsWarnings)
+	metrics.FlushLoggingMetrics()
 
 	return collectors
 }

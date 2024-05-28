@@ -58,7 +58,7 @@ Major Feature Status
 ++-------------------------------------------------+----------------------------------------------------------+
 || :ref:`SPIFFE integration<identity_management>`  | Beta                                                     |
 ++-------------------------------------------------+----------------------------------------------------------+
-| `Tetragon`_ Security                             | Beta (:ref:`Roadmap Details<rm-tetragon>`)               |
+| `Tetragon`_ Security                             | Stable (:ref:`Roadmap Details<rm-tetragon>`)             |
 +--------------------------------------------------+----------------------------------------------------------+
 
 "Stable" means that the feature is in use in production (though advanced
@@ -163,9 +163,6 @@ Tetragon Security
 `Tetragon`_ is a sub-project within the Cilium family. It provides security observability and runtime enforcement through the JSON events and the Tetragon
 CLI for things like process execution, file access, network observability, and
 privileged execution.
-
-Although Tetragon is still in Beta stage, a set of adopters already use it in
-production.
 
 Codebase modularization
 ~~~~~~~~~~~~~~~~~~~~~~~

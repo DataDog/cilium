@@ -76,6 +76,7 @@ cilium-agent [flags]
       --config-dir string                                         Configuration directory that contains a file for each option
       --conntrack-gc-interval duration                            Overwrite the connection-tracking garbage collection interval
       --conntrack-gc-max-interval duration                        Set the maximum interval for the connection-tracking garbage collection
+      --container-ip-local-reserved-ports string                  Instructs the Cilium CNI plugin to reserve the provided comma-separated list of ports in the container network namespace. Prevents the container from using these ports as ephemeral source ports (see Linux ip_local_reserved_ports). Use this flag if you observe port conflicts between transparent DNS proxy requests and host network namespace services. Value "auto" reserves the WireGuard and VXLAN ports used by Cilium (default "auto")
       --crd-wait-timeout duration                                 Cilium will exit if CRDs are not available within this duration upon startup (default 5m0s)
       --datapath-mode string                                      Datapath mode name (default "veth")
   -D, --debug                                                     Enable debugging mode
@@ -285,6 +286,8 @@ cilium-agent [flags]
       --proxy-max-connection-duration-seconds int                 Set Envoy HTTP option max_connection_duration seconds. Default 0 (disable)
       --proxy-max-requests-per-connection int                     Set Envoy HTTP option max_requests_per_connection. Default 0 (disable)
       --proxy-prometheus-port int                                 Port to serve Envoy metrics on. Default 0 (disabled).
+      --proxy-xff-num-trusted-hops-egress uint32                  Number of trusted hops regarding the x-forwarded-for and related HTTP headers for the egress L7 policy enforcement Envoy listeners.
+      --proxy-xff-num-trusted-hops-ingress uint32                 Number of trusted hops regarding the x-forwarded-for and related HTTP headers for the ingress L7 policy enforcement Envoy listeners.
       --read-cni-conf string                                      CNI configuration file to use as a source for --write-cni-conf-when-ready. If not supplied, a suitable one will be generated.
       --restore                                                   Restores state, if possible, from previous daemon (default true)
       --route-metric int                                          Overwrite the metric used by cilium when adding routes to its 'cilium_host' device

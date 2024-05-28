@@ -128,7 +128,7 @@ func initializeFlags() {
 		}
 		ni, err := identity.ParseNumericIdentity(vals[0])
 		if err != nil {
-			return "", fmt.Errorf(`invalid numeric identity %q: %s`, val, err)
+			return "", fmt.Errorf(`invalid numeric identity %q: %w`, val, err)
 		}
 		if !identity.IsUserReservedIdentity(ni) {
 			return "", fmt.Errorf(`invalid numeric identity %q: valid numeric identity is between %d and %d`,
@@ -423,6 +423,12 @@ func initializeFlags() {
 
 	flags.Uint(option.ProxyConnectTimeout, 2, "Time after which a TCP connect attempt is considered failed unless completed (in seconds)")
 	option.BindEnv(Vp, option.ProxyConnectTimeout)
+
+	flags.Uint32(option.ProxyXffNumTrustedHopsIngress, 0, "Number of trusted hops regarding the x-forwarded-for and related HTTP headers for the ingress L7 policy enforcement Envoy listeners.")
+	option.BindEnv(Vp, option.ProxyXffNumTrustedHopsIngress)
+
+	flags.Uint32(option.ProxyXffNumTrustedHopsEgress, 0, "Number of trusted hops regarding the x-forwarded-for and related HTTP headers for the egress L7 policy enforcement Envoy listeners.")
+	option.BindEnv(Vp, option.ProxyXffNumTrustedHopsEgress)
 
 	flags.Uint(option.ProxyGID, 1337, "Group ID for proxy control plane sockets.")
 	option.BindEnv(Vp, option.ProxyGID)
@@ -1053,6 +1059,11 @@ func initializeFlags() {
 
 	flags.Bool(option.InstallNoConntrackIptRules, defaults.InstallNoConntrackIptRules, "Install Iptables rules to skip netfilter connection tracking on all pod traffic. This option is only effective when Cilium is running in direct routing and full KPR mode. Moreover, this option cannot be enabled when Cilium is running in a managed Kubernetes environment or in a chained CNI setup.")
 	option.BindEnv(Vp, option.InstallNoConntrackIptRules)
+
+	flags.String(option.ContainerIPLocalReservedPorts, defaults.ContainerIPLocalReservedPortsAuto, "Instructs the Cilium CNI plugin to reserve the provided comma-separated list of ports in the container network namespace. "+
+		"Prevents the container from using these ports as ephemeral source ports (see Linux ip_local_reserved_ports). Use this flag if you observe port conflicts between transparent DNS proxy requests and host network namespace services. "+
+		"Value \"auto\" reserves the WireGuard and VXLAN ports used by Cilium")
+	option.BindEnv(Vp, option.ContainerIPLocalReservedPorts)
 
 	flags.Bool(option.EnableCustomCallsName, false, "Enable tail call hooks for custom eBPF programs")
 	option.BindEnv(Vp, option.EnableCustomCallsName)

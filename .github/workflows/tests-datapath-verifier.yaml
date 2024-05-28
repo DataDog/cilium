@@ -52,7 +52,7 @@ concurrency:
 
 env:
   # renovate: datasource=golang-version depName=go
-  go-version: 1.21.9
+  go-version: 1.21.10
 
 jobs:
   commit-status-start:
@@ -72,29 +72,29 @@ jobs:
       matrix:
         include:
             # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: '4.19-20240327.122820'
+          - kernel: '4.19-20240417.104652'
             ci-kernel: '419'
             # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: '5.4-20240327.122820'
+          - kernel: '5.4-20240417.104652'
             ci-kernel: '54'
             # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: '5.10-20240327.122820'
+          - kernel: '5.10-20240417.104652'
             ci-kernel: '510'
             # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: '5.15-20240327.122820'
+          - kernel: '5.15-20240417.104652'
             ci-kernel: '510'
             # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: '6.1-20240327.122820'
+          - kernel: '6.1-20240417.104652'
             ci-kernel: '61'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-          - kernel: '6.6-20240327.122820'
+          - kernel: '6.6-20240417.104652'
             ci-kernel: 'netnext'
     timeout-minutes: 60
     steps:
       # Warning: since this is a privileged workflow, subsequent workflow job
       # steps must take care not to execute untrusted code.
       - name: Checkout pull request branch (NOT TRUSTED)
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
         with:
           ref: ${{ inputs.SHA || github.sha }}
           persist-credentials: false
@@ -139,7 +139,7 @@ jobs:
 
       - name: Upload artifacts
         if: ${{ !success() }}
-        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
         with:
           name: datapath-verifier_${{ matrix.kernel }}
           path: datapath-verifier

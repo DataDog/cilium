@@ -75,7 +75,7 @@ jobs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -89,7 +89,6 @@ jobs:
           yq -o=json "${work_dir}/k8s-versions.yaml" | jq . > "${destination_directory}/azure.json"
 
       - name: Generate Matrix
-        id: set-matrix
         run: |
           cd /tmp/generated/azure
 
@@ -104,7 +103,31 @@ jobs:
 
           echo "Generated matrix:"
           cat /tmp/matrix.json
-          echo "matrix=$(jq -c . < /tmp/matrix.json)" >> $GITHUB_OUTPUT
+
+      - name: Login to Azure
+        uses: azure/login@6b2456866fc08b011acb422a92a4aa20e2c4de32 # v2.1.0
+        with:
+          creds: ${{ secrets.AZURE_PR_SP_CREDS }}
+
+      - name: Filter Matrix
+        id: set-matrix
+        run: |
+          cp /tmp/matrix.json /tmp/result.json
+          jq -c '.include[]' /tmp/matrix.json | while read i; do
+            VERSION=$(echo $i | jq -r '.version')
+            LOCATION=$(echo $i | jq -r '.location')
+            az aks get-versions --location $LOCATION > /tmp/output
+            if grep -q -F $VERSION /tmp/output; then
+              echo "Version $VERSION is valid for location $LOCATION"
+            else
+              echo "Removing version $VERSION as it's not valid for location $LOCATION"
+              jq 'del(.include[] | select(.version == "'$VERSION'"))' /tmp/result.json > /tmp/result.json.tmp
+              mv /tmp/result.json.tmp /tmp/result.json
+            fi
+          done
+          echo "Filtered matrix:"
+          cat /tmp/result.json
+          echo "matrix=$(jq -c . < /tmp/result.json)" >> $GITHUB_OUTPUT
 
   installation-and-connectivity:
     name: Installation and Connectivity Test
@@ -119,7 +142,7 @@ jobs:
 
     steps:
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -167,28 +190,22 @@ jobs:
             --helm-set=bpf.monitorAggregation=none \
             --helm-set ipam.operator.clusterPoolIPv4PodCIDRList=192.168.0.0/16" # To avoid clashing with the default Service CIDR of AKS (10.0.0.0/16)
           CONNECTIVITY_TEST_DEFAULTS="--flow-validation=disabled \
-            --hubble=false --collect-sysdump-on-failure --external-target bing.com --external-cidr 8.0.0.0/8 --external-ip 8.8.4.4 --external-other-ip 8.8.8.8"
+            --hubble=false --collect-sysdump-on-failure --external-target bing.com. --external-cidr 8.0.0.0/8 --external-ip 8.8.4.4 --external-other-ip 8.8.8.8"
           echo cilium_install_defaults=${CILIUM_INSTALL_DEFAULTS} >> $GITHUB_OUTPUT
           echo connectivity_test_defaults=${CONNECTIVITY_TEST_DEFAULTS} >> $GITHUB_OUTPUT
           echo sha=${SHA} >> $GITHUB_OUTPUT
           echo owner=${OWNER} >> $GITHUB_OUTPUT
 
       - name: Install Cilium CLI
-        uses: cilium/cilium-cli@a9579d1afc528b085930c5237a69ee77b2c2be76 # v0.16.4
+        uses: cilium/cilium-cli@bfa4f93a41da410a1b4c9373c1694ca6d5c35ade # v0.16.6
         with:
           release-version: ${{ env.CILIUM_CLI_VERSION }}
           ci-version: ${{ env.cilium_cli_ci_version }}
 
       - name: Login to Azure
-        uses: azure/login@8c334a195cbb38e46038007b304988d888bf676a # v2.0.0
+        uses: azure/login@6b2456866fc08b011acb422a92a4aa20e2c4de32 # v2.1.0
         with:
           creds: ${{ secrets.AZURE_PR_SP_CREDS }}
-
-      - name: Install aks-preview CLI extension
-        run: |
-            az extension add --name aks-preview
-            az extension update --name aks-preview
-            az version
 
       - name: Create AKS cluster
         run: |
@@ -226,7 +243,7 @@ jobs:
       # Warning: since this is a privileged workflow, subsequent workflow job
       # steps must take care not to execute untrusted code.
       - name: Checkout pull request branch (NOT TRUSTED)
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
         with:
           ref: ${{ steps.vars.outputs.sha }}
           persist-credentials: false
@@ -313,14 +330,14 @@ jobs:
 
       - name: Upload artifacts
         if: ${{ !success() }}
-        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
         with:
           name: cilium-sysdumps-${{ matrix.index }}
           path: cilium-sysdump-*.zip
 
       - name: Upload JUnits [junit]
         if: ${{ always() }}
-        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
         with:
           name: cilium-junits-${{ matrix.index }}
           path: cilium-junits/*.xml
@@ -339,7 +356,7 @@ jobs:
     steps:
       - name: Merge Sysdumps
         if: ${{ needs.installation-and-connectivity.result == 'failure' }}
-        uses: actions/upload-artifact/merge@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
+        uses: actions/upload-artifact/merge@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
         with:
           name: cilium-sysdumps
           pattern: cilium-sysdumps-*
@@ -347,7 +364,7 @@ jobs:
           delete-merged: true
         continue-on-error: true
       - name: Merge JUnits
-        uses: actions/upload-artifact/merge@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
+        uses: actions/upload-artifact/merge@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
         with:
           name: cilium-junits
           pattern: cilium-junits-*

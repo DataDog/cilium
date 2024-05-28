@@ -143,7 +143,7 @@ rollOutCiliumPods: false
 image:
   override: ~
   repository: "quay.io/cilium/cilium"
-  tag: "v1.14.10"
+  tag: "v1.14.11"
   pullPolicy: "IfNotPresent"
   # cilium-digest
   digest: ""
@@ -949,8 +949,8 @@ certgen:
   image:
     override: ~
     repository: "quay.io/cilium/certgen"
-    tag: "v0.1.11"
-    digest: "sha256:5586de5019abc104637a9818a626956cd9b1e827327b958186ec412ae3d5dea6"
+    tag: "v0.1.12"
+    digest: "sha256:bbc5e65e9dc65bc6b58967fe536b7f3b54e12332908aeb0a96a36866b4372b4e"
     useDigest: true
     pullPolicy: "IfNotPresent"
   # -- Seconds after which the completed job pod will be deleted
@@ -1125,7 +1125,7 @@ hubble:
     image:
       override: ~
       repository: "quay.io/cilium/hubble-relay"
-      tag: "v1.14.10"
+      tag: "v1.14.11"
        # hubble-relay-digest
       digest: ""
       useDigest: false
@@ -1864,14 +1864,18 @@ envoy:
   # -- Set Envoy upstream HTTP idle connection timeout seconds.
   # Does not apply to connections with pending requests. Default 60s
   idleTimeoutDurationSeconds: 60
+  # -- Number of trusted hops regarding the x-forwarded-for and related HTTP headers for the ingress L7 policy enforcement Envoy listeners.
+  xffNumTrustedHopsL7PolicyIngress: 0
+  # -- Number of trusted hops regarding the x-forwarded-for and related HTTP headers for the egress L7 policy enforcement Envoy listeners.
+  xffNumTrustedHopsL7PolicyEgress: 0
 
   # -- Envoy container image.
   image:
     override: ~
     repository: "quay.io/cilium/cilium-envoy"
-    tag: "v1.27.4-21905253931655328edaacf3cd16aeda73bbea2f"
+    tag: "v1.27.5-cffb43e4ac1fa64788a5d638ade20a3d88e18b67"
     pullPolicy: "IfNotPresent"
-    digest: "sha256:d52f476c29a97c8b250fdbfbb8472191a268916f6a8503671d0da61e323b02cc"
+    digest: "sha256:c494b69b128a40fee34b5caa8c61deeeb13b91b55e0aaddd43f92f788152df6d"
     useDigest: true
 
   # -- Additional containers added to the cilium Envoy DaemonSet.
@@ -2285,7 +2289,7 @@ operator:
   image:
     override: ~
     repository: "quay.io/cilium/operator"
-    tag: "v1.14.10"
+    tag: "v1.14.11"
     # operator-generic-digest
     genericDigest: ""
     # operator-azure-digest
@@ -2483,8 +2487,8 @@ nodeinit:
   image:
     override: ~
     repository: "quay.io/cilium/startup-script"
-    tag: "62093c5c233ea914bfa26a10ba41f8780d9b737f"
-    digest: "sha256:e1d442546e868db1a3289166c14011e0dbd32115b338b963e56f830972bc22a2"
+    tag: "19fb149fb3d5c7a37d3edfaf10a2be3ab7386661"
+    digest: "sha256:820155cb3b7f00c8d61c1cffa68c44440906cb046bdbad8ff544f5deb1103456"
     useDigest: true
     pullPolicy: "IfNotPresent"
 
@@ -2574,7 +2578,7 @@ preflight:
   image:
     override: ~
     repository: "quay.io/cilium/cilium"
-    tag: "v1.14.10"
+    tag: "v1.14.11"
     # cilium-digest
     digest: ""
     useDigest: false
@@ -2724,7 +2728,7 @@ clustermesh:
     image:
       override: ~
       repository: "quay.io/cilium/clustermesh-apiserver"
-      tag: "v1.14.10"
+      tag: "v1.14.11"
       # clustermesh-apiserver-digest
       digest: ""
       useDigest: false
@@ -2771,7 +2775,7 @@ clustermesh:
       image:
         override: ~
         repository: "quay.io/cilium/kvstoremesh"
-        tag: "v1.14.10"
+        tag: "v1.14.11"
         # kvstoremesh-digest
         digest: ""
         useDigest: false

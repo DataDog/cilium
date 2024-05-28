@@ -107,6 +107,7 @@ function move_local_rules()
 function setup_proxy_rules()
 {
 	from_ingress_rulespec="fwmark 0xA00/0xF00 pref 10 lookup $PROXY_RT_TABLE proto $DEFAULT_RTPROTO"
+        from_egress_rulespec="fwmark 0xB00/0xF00 pref 10 lookup $PROXY_RT_TABLE proto $DEFAULT_RTPROTO"
 	use_from_ingress_proxy_rules=0
 
 	if [ "$IPSEC_ENCRYPTION" = "true" ] && [ "$MODE" != "tunnel" ]; then
@@ -134,6 +135,9 @@ function setup_proxy_rules()
 					ip -4 rule delete $from_ingress_rulespec 2> /dev/null || true
 				fi
 			fi
+                        if [ ! -z "$(ip -4 rule list $from_egress_rulespec)" ]; then
+                                ip -4 rule delete $from_egress_rulespec 2> /dev/null || true
+                        fi
 		fi
 
 		# Traffic to the host proxy is local
@@ -167,6 +171,9 @@ function setup_proxy_rules()
 					ip -6 rule delete $from_ingress_rulespec 2> /dev/null || true
 				fi
 			fi
+                        if [ ! -z "$(ip -6 rule list $from_egress_rulespec)" ]; then
+                                ip -6 rule delete $from_egress_rulespec 2> /dev/null || true
+                        fi
 		fi
 
 		IP6_LLADDR=$(ip -6 addr show dev $HOST_DEV2 | grep inet6 | head -1 | awk '{print $2}' | awk -F'/' '{print $1}')

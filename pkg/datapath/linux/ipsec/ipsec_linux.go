@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/prometheus/procfs"
 	"github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 
@@ -275,7 +276,7 @@ func ipSecAttachPolicyTempl(policy *netlink.XfrmPolicy, keys *ipSecKey, srcIP, d
 func xfrmStateReplace(new *netlink.XfrmState, remoteRebooted bool) error {
 	states, err := netlink.XfrmStateList(netlink.FAMILY_ALL)
 	if err != nil {
-		return fmt.Errorf("Cannot get XFRM state: %s", err)
+		return fmt.Errorf("Cannot get XFRM state: %w", err)
 	}
 
 	scopedLog := log.WithFields(logrus.Fields{
@@ -358,16 +359,11 @@ func xfrmStateReplace(new *netlink.XfrmState, remoteRebooted bool) error {
 				continue
 			}
 
-			err := netlink.XfrmStateDel(&s)
+			err, deferFn := xfrmTemporarilyRemoveState(scopedLog, s, dir)
 			if err != nil {
 				scopedLog.WithError(err).Errorf("Failed to remove old XFRM %s state", dir)
 			} else {
-				scopedLog.Infof("Temporarily removed old XFRM %s state", dir)
-				defer func(oldXFRMState netlink.XfrmState, dir string) {
-					if err := netlink.XfrmStateAdd(&oldXFRMState); err != nil {
-						scopedLog.WithError(err).Errorf("Failed to re-add old XFRM %s state", dir)
-					}
-				}(s, dir)
+				defer deferFn()
 			}
 		}
 	}
@@ -392,6 +388,47 @@ func xfrmStateReplace(new *netlink.XfrmState, remoteRebooted bool) error {
 		return firstAttemptErr
 	}
 	return netlink.XfrmStateAdd(new)
+}
+
+// Temporarily remove an XFRM state to allow the addition of another,
+// conflicting XFRM state. This function removes the conflicting state and
+// prepares a defer callback to re-add it with proper logging.
+func xfrmTemporarilyRemoveState(scopedLog *logrus.Entry, state netlink.XfrmState, dir string) (error, func()) {
+	stats, err := procfs.NewXfrmStat()
+	errorCnt := 0
+	if err != nil {
+		log.WithError(err).Error("Error while getting XFRM stats before state removal")
+	} else {
+		if dir == "IN" {
+			errorCnt = stats.XfrmInNoStates
+		} else {
+			errorCnt = stats.XfrmOutNoStates
+		}
+	}
+
+	start := time.Now()
+	if err := netlink.XfrmStateDel(&state); err != nil {
+		return err, nil
+	}
+	return nil, func() {
+		if err := netlink.XfrmStateAdd(&state); err != nil {
+			scopedLog.WithError(err).Errorf("Failed to re-add old XFRM %s state", dir)
+		}
+		elapsed := time.Since(start)
+
+		stats, err := procfs.NewXfrmStat()
+		if err != nil {
+			log.WithError(err).Error("Error while getting XFRM stats after state removal")
+			errorCnt = 0
+		} else {
+			if dir == "IN" {
+				errorCnt = stats.XfrmInNoStates - errorCnt
+			} else {
+				errorCnt = stats.XfrmOutNoStates - errorCnt
+			}
+		}
+		scopedLog.WithField(logfields.Duration, elapsed).Infof("Temporarily removed old XFRM %s state (%d packets dropped)", dir, errorCnt)
+	}
 }
 
 // Attempt to remove any XFRM state that conflicts with the state we just tried
@@ -787,28 +824,28 @@ func UpsertIPsecEndpoint(local, remote *net.IPNet, outerLocal, outerRemote net.I
 		localBootID := node.GetBootID()
 		if dir == IPSecDirIn || dir == IPSecDirBoth {
 			if spi, err = ipSecReplaceStateIn(outerLocal, outerRemote, remoteNodeID, outputMark, localBootID, remoteBootID, remoteRebooted); err != nil {
-				return 0, fmt.Errorf("unable to replace local state: %s", err)
+				return 0, fmt.Errorf("unable to replace local state: %w", err)
 			}
 			if err = ipSecReplacePolicyIn(remote, local, outerRemote, outerLocal); err != nil {
 				if !os.IsExist(err) {
-					return 0, fmt.Errorf("unable to replace policy in: %s", err)
+					return 0, fmt.Errorf("unable to replace policy in: %w", err)
 				}
 			}
 			if err = IpSecReplacePolicyFwd(local, outerLocal); err != nil {
 				if !os.IsExist(err) {
-					return 0, fmt.Errorf("unable to replace policy fwd: %s", err)
+					return 0, fmt.Errorf("unable to replace policy fwd: %w", err)
 				}
 			}
 		}
 
 		if dir == IPSecDirOut || dir == IPSecDirOutNode || dir == IPSecDirBoth {
 			if spi, err = ipSecReplaceStateOut(outerLocal, outerRemote, remoteNodeID, localBootID, remoteBootID, remoteRebooted); err != nil {
-				return 0, fmt.Errorf("unable to replace remote state: %s", err)
+				return 0, fmt.Errorf("unable to replace remote state: %w", err)
 			}
 
 			if err = ipSecReplacePolicyOut(local, remote, outerLocal, outerRemote, remoteNodeID, dir); err != nil {
 				if !os.IsExist(err) {
-					return 0, fmt.Errorf("unable to replace policy out: %s", err)
+					return 0, fmt.Errorf("unable to replace policy out: %w", err)
 				}
 			}
 		}
@@ -821,7 +858,7 @@ func UpsertIPsecEndpoint(local, remote *net.IPNet, outerLocal, outerRemote net.I
 func UpsertIPsecEndpointPolicy(local, remote *net.IPNet, localTmpl, remoteTmpl net.IP, remoteNodeID uint16, dir IPSecDir) error {
 	if err := ipSecReplacePolicyOut(local, remote, localTmpl, remoteTmpl, remoteNodeID, dir); err != nil {
 		if !os.IsExist(err) {
-			return fmt.Errorf("unable to replace templated policy out: %s", err)
+			return fmt.Errorf("unable to replace templated policy out: %w", err)
 		}
 	}
 	return nil
@@ -924,7 +961,7 @@ func LoadIPSecKeys(r io.Reader) (int, uint8, error) {
 	defer ipSecLock.Unlock()
 
 	if err := encrypt.MapCreate(); err != nil {
-		return 0, 0, fmt.Errorf("Encrypt map create failed: %v", err)
+		return 0, 0, fmt.Errorf("Encrypt map create failed: %w", err)
 	}
 
 	scanner := bufio.NewScanner(r)
