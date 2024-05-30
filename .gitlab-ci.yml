@@ -98,9 +98,44 @@ build-docker-image-hubble-relay:
     TARGET: release
 
 get-image-tags:
+  stage: gbilite
   rules:
     - if: $GBILITE_GITLAB_ACTION == "gbilite-get-images"
   script: .campaigns/get_image_tags.sh > .campaigns/allimages.txt
   artifacts:
     paths:
       - .campaigns/allimages.txt
+
+.build-gbilite-docker-image: &build-gbilite-docker-image
+  stage: gbilite
+  image: $CI_DOCKER_IMAGE
+  tags: ["arch:arm64"]
+  rules:
+    -if: $GBILITE_GITLAB_ACTION == "gbilite-build-image"
+  id_tokens:
+    DDSIGN_ID_TOKEN:
+      aud: image-integrity
+  script:
+    - set -x
+    # Construct valid --build-args arguments from the DOCKER_BUILD_ARGS variable
+    - BUILD_ARGS=""; IFS=$'\n'; for arg in $DOCKER_BUILD_ARGS; do BUILD_ARGS+=" $(echo "--build-arg $arg")"; done; IFS=$' ';
+    - IMAGE_TAG="$( echo $GBILITE_IMAGE_TO_BUILD | awk -F: '{ print $2 }' )"
+    - git checkout "${IMAGE_TAG}"
+    - if [ "$TARGET" = "debug" ] ; then IMAGE_TAG="$IMAGE_TAG-debug" ; fi
+    - IMAGE_REF="registry.ddbuild.io/$IMAGE_NAME:$IMAGE_TAG"
+    - METADATA_FILE=$(mktemp)
+    - docker buildx build --platform linux/amd64,linux/arm64 --tag $IMAGE_REF --file $DOCKERFILE_PATH $BUILD_ARGS --label CILIUM_VERSION=$(cat VERSION) --label target=prod --target $TARGET --push --metadata-file $METADATA_FILE $DOCKER_CTX
+    - ddsign sign $IMAGE_REF --docker-metadata-file $METADATA_FILE
+
+build-gbilite-docker-image-operator:
+  <<: *build-gbilite-docker-image
+  variables:
+    IMAGE_NAME: cilium-operator
+    DOCKERFILE_PATH: images/operator/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      BASE_IMAGE=registry.ddbuild.io/images/base/gbi-distroless:release
+      OPERATOR_VARIANT=operator
+      GOLANG_IMAGE=registry.ddbuild.io/images/mirror/golang:1.21.10@sha256:16438a8e66c0c984f732e815ee5b7d715b8e33e81bac6d6a3750b1067744e7ca
+      ALPINE_IMAGE=registry.ddbuild.io/images/mirror/library/alpine:3.17.7@sha256:53cf9478b76f4c8fae126acbdfb79bed6e69e628faff572ebe4a029d3d247d98
+    TARGET: release
+
