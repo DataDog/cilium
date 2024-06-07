@@ -97,7 +97,7 @@ func newKVReferenceCounter(s store) *kvReferenceCounter {
 // UpsertIPToKVStore updates / inserts the provided IP->Identity mapping into the
 // kvstore, which will subsequently trigger an event in NewIPIdentityWatcher().
 func UpsertIPToKVStore(ctx context.Context, IP, hostIP netip.Addr, ID identity.NumericIdentity, key uint8,
-	metadata, k8sNamespace, k8sPodName string, npm types.NamedPortMap) error {
+	metadata, k8sNamespace, k8sPodName string, npm types.NamedPortMap, k8sPodUID string) error {
 	// Sort named ports into a slice
 	namedPorts := make([]identity.NamedPort, 0, len(npm))
 	for name, value := range npm {
@@ -121,6 +121,7 @@ func UpsertIPToKVStore(ctx context.Context, IP, hostIP netip.Addr, ID identity.N
 		K8sNamespace: k8sNamespace,
 		K8sPodName:   k8sPodName,
 		NamedPorts:   namedPorts,
+		UID:          k8sPodUID,
 	}
 
 	marshaledIPIDPair, err := json.Marshal(ipIDPair)

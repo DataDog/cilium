@@ -66,6 +66,7 @@ type IPIdentityPair struct {
 	K8sNamespace string          `json:"K8sNamespace,omitempty"`
 	K8sPodName   string          `json:"K8sPodName,omitempty"`
 	NamedPorts   []NamedPort     `json:"NamedPorts,omitempty"`
+	UID          string          `json:"UID,omitempty"`
 }
 
 type IdentityMap map[NumericIdentity]labels.LabelArray
