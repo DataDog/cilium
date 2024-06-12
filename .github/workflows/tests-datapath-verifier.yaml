@@ -52,9 +52,18 @@ concurrency:
 
 env:
   # renovate: datasource=golang-version depName=go
-  go-version: 1.21.10
+  go-version: 1.21.11
 
 jobs:
+  echo-inputs:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    name: Echo Workflow Dispatch Inputs
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Echo Workflow Dispatch Inputs
+        run: |
+          echo '${{ tojson(inputs) }}'
+
   commit-status-start:
     name: Commit Status Start
     runs-on: ubuntu-latest
@@ -72,35 +81,35 @@ jobs:
       matrix:
         include:
             # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: '4.19-20240417.104652'
+          - kernel: '4.19-20240515.073534'
             ci-kernel: '419'
             # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: '5.4-20240417.104652'
+          - kernel: '5.4-20240515.073534'
             ci-kernel: '54'
             # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: '5.10-20240417.104652'
+          - kernel: '5.10-20240515.073534'
             ci-kernel: '510'
             # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: '5.15-20240417.104652'
+          - kernel: '5.15-20240515.073534'
             ci-kernel: '510'
             # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: '6.1-20240417.104652'
+          - kernel: '6.1-20240515.073534'
             ci-kernel: '61'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-          - kernel: '6.6-20240417.104652'
+          - kernel: '6.6-20240515.073534'
             ci-kernel: 'netnext'
     timeout-minutes: 60
     steps:
       # Warning: since this is a privileged workflow, subsequent workflow job
       # steps must take care not to execute untrusted code.
       - name: Checkout pull request branch (NOT TRUSTED)
-        uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
+        uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
         with:
           ref: ${{ inputs.SHA || github.sha }}
           persist-credentials: false
 
       - name: Provision LVH VMs
-        uses: cilium/little-vm-helper@a4311c6d054de3008bdf9195b0fabf6ee60d8bdd # v0.0.17
+        uses: cilium/little-vm-helper@3c748d6fc9d6c44a433de85a66f70e8f7043be04 # v0.0.18
         with:
           test-name: datapath-bpf-complexity
           image: 'complexity-test'
@@ -119,7 +128,7 @@ jobs:
             go${{ env.go-version }} download
 
       - name: Run verifier tests
-        uses: cilium/little-vm-helper@a4311c6d054de3008bdf9195b0fabf6ee60d8bdd # v0.0.17
+        uses: cilium/little-vm-helper@3c748d6fc9d6c44a433de85a66f70e8f7043be04 # v0.0.18
         with:
           provision: 'false'
           cmd: |
@@ -129,7 +138,7 @@ jobs:
 
       - name: Fetch artifacts
         if: ${{ !success() }}
-        uses: cilium/little-vm-helper@a4311c6d054de3008bdf9195b0fabf6ee60d8bdd # v0.0.17
+        uses: cilium/little-vm-helper@3c748d6fc9d6c44a433de85a66f70e8f7043be04 # v0.0.18
         with:
           provision: 'false'
           cmd: |

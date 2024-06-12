@@ -451,11 +451,13 @@ func (m *IptablesManager) inboundProxyRedirectRule(cmd string) []string {
 	//    by ip_early_demux
 	toProxyMark := fmt.Sprintf("%#08x", linux_defaults.MagicMarkIsToProxy)
 	matchFromIPSecEncrypt := fmt.Sprintf("%#08x/%#08x", linux_defaults.RouteMarkEncrypt, linux_defaults.RouteMarkMask)
+	matchProxyToWorld := fmt.Sprintf("%#08x/%#08x", linux_defaults.MarkProxyToWorld, linux_defaults.RouteMarkMask)
 	return []string{
 		"-t", "mangle",
 		cmd, ciliumPreMangleChain,
 		"-m", "socket", "--transparent",
 		"-m", "mark", "!", "--mark", matchFromIPSecEncrypt,
+		"-m", "mark", "!", "--mark", matchProxyToWorld,
 		"-m", "comment", "--comment", "cilium: any->pod redirect proxied traffic to host proxy",
 		"-j", "MARK",
 		"--set-mark", toProxyMark}
@@ -514,6 +516,8 @@ func (m *IptablesManager) installStaticProxyRules() error {
 	matchToProxy := fmt.Sprintf("%#08x/%#08x", linux_defaults.MagicMarkIsToProxy, linux_defaults.MagicMarkHostMask)
 	// proxy return traffic has 0 ID in the mask
 	matchProxyReply := fmt.Sprintf("%#08x/%#08x", linux_defaults.MagicMarkIsProxy, linux_defaults.MagicMarkProxyNoIDMask)
+	// proxy forward traffic
+	matchProxyForward := fmt.Sprintf("%#08x/%#08x", linux_defaults.MagicMarkEgress, linux_defaults.MagicMarkHostMask)
 	// L7 proxy upstream return traffic has Endpoint ID in the mask
 	matchL7ProxyUpstream := fmt.Sprintf("%#08x/%#08x", linux_defaults.MagicMarkIsProxyEPID, linux_defaults.MagicMarkProxyMask)
 	// match traffic from a proxy (either in forward or in return direction)
@@ -561,6 +565,19 @@ func (m *IptablesManager) installStaticProxyRules() error {
 			"-m", "comment", "--comment", "cilium: NOTRACK for proxy return traffic",
 			"-j", "CT", "--notrack"}); err != nil {
 			return err
+		}
+
+		// No conntrack for proxy forward traffic that is heading to cilium_host
+		if option.Config.EnableIPSec {
+			if err := ip4tables.runProg([]string{
+				"-t", "raw",
+				"-A", ciliumOutputRawChain,
+				"-o", defaults.HostDevice,
+				"-m", "mark", "--mark", matchProxyForward,
+				"-m", "comment", "--comment", "cilium: NOTRACK for proxy forward traffic",
+				"-j", "CT", "--notrack"}); err != nil {
+				return err
+			}
 		}
 
 		// No conntrack for proxy upstream traffic that is heading to lxc+
@@ -1595,11 +1612,12 @@ func (m *IptablesManager) installRules(ifName string) error {
 		}
 	}
 
-	if skipPodTrafficConntrack(false) {
+	if option.Config.GetIPv4NativeRoutingCIDR() != nil {
 		podsCIDR := option.Config.GetIPv4NativeRoutingCIDR().String()
-
-		if err := m.addNoTrackPodTrafficRules(ip4tables, podsCIDR); err != nil {
-			return fmt.Errorf("cannot install pod traffic no CT rules: %w", err)
+		if skipPodTrafficConntrack(false) && podsCIDR != "" {
+			if err := m.addNoTrackPodTrafficRules(ip4tables, podsCIDR); err != nil {
+				return fmt.Errorf("cannot install pod traffic no CT rules: %w", err)
+			}
 		}
 	}
 
