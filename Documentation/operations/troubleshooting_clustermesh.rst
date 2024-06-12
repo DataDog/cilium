@@ -7,25 +7,44 @@ Install the Cilium CLI
 
 .. include:: /installation/cli-download.rst
 
-Generic
--------
+Automatic Verification
+----------------------
 
- #. Validate that the ``cilium-xxx`` as well as the ``cilium-operator-xxx`` pods
-    are healthy and ready.
+ #. Validate that Cilium pods are healthy and ready:
 
     .. code-block:: shell-session
 
        cilium status
 
- #. Validate the Cluster Mesh is enabled correctly and operational:
+ #. Validate the Cluster Mesh is enabled and operational:
 
     .. code-block:: shell-session
 
        cilium clustermesh status
 
+ #. In case of errors, run the troubleshoot command to automatically investigate
+    Cilium agents connectivity issues towards the ClusterMesh control plane in
+    remote clusters:
 
-Manual Verification of Setup
-----------------------------
+    .. code-block:: shell-session
+
+       kubectl exec -it -n kube-system ds/cilium -c cilium-agent -- cilium troubleshoot clustermesh
+
+    The troubleshoot command performs a set of automatic checks to validate
+    DNS resolution, network connectivity, TLS authentication, etcd authorization
+    and more, and reports the output in a user friendly format.
+
+    .. tip::
+
+      You can specify one or more cluster names as parameters of the troubleshoot
+      command to run the checks only towards a subset of remote clusters.
+
+
+Manual Verification
+-------------------
+
+As an alternative to leveraging the tools presented in the previous section,
+you may perform the following steps to troubleshoot ClusterMesh issues.
 
  #. Validate that each cluster is assigned a **unique** human-readable name as well
     as a numeric cluster ID (1-255).
@@ -42,7 +61,7 @@ Manual Verification of Setup
         level=info msg="Initial etcd session established" config=/var/lib/cilium/etcd-config.yaml endpoints="[https://127.0.0.1:2379]" subsys=kvstore
         level=info msg="Successfully verified version of etcd endpoint" config=/var/lib/cilium/etcd-config.yaml endpoints="[https://127.0.0.1:2379]" etcdEndpoint="https://127.0.0.1:2379" subsys=kvstore version=3.4.13
 
- #. Validate that the ClusterMesh is healthy with ``cilium status``::
+ #. Validate that ClusterMesh is healthy running ``cilium status --all-clusters`` inside each Cilium agent::
 
         ClusterMesh:   1/1 clusters ready, 10 global-services
            k8s-c2: ready, 3 nodes, 8 identities, 10 services, 0 failures (last: never)
@@ -58,14 +77,6 @@ Manual Verification of Setup
       to establish connection to etcd cluster (either internal or external).
 
     * cilium-ca, which is CA used to generate the above two certs.
-
-    If any of above secrets are not configured correctly, there will be potential error message like below::
-
-       level=warning msg="Error observed on etcd connection, reconnecting etcd" clusterName=eks-dev-1 config=/var/lib/cilium/clustermesh/eks-dev-1 error="not able to connect to any etcd endpoints" kvstoreErr="quorum check failed 12 times in a row: timeout while waiting for initial connection" kvstoreStatus="quorum check failed 12 times in a row: timeout while waiting for initial connection" subsys=clustermesh
-
-    or::
-
-        {"level":"warn","ts":"2022-06-08T14:06:29.198Z","caller":"clientv3/retry_interceptor.go:62","msg":"retrying of unary invoker failed","target":"passthrough:///https://eks-dev-1.mesh.cilium.io:2379","attempt":0,"error":"rpc error: code = DeadlineExceeded desc = latest balancer error: connection error: desc = \"transport: authentication handshake failed: remote error: tls: bad certificate\""}
 
  #. Validate that the configuration for remote clusters is picked up correctly.
     For each remote cluster, an info log message ``New remote cluster
@@ -131,66 +142,28 @@ State Propagation
 -----------------
 
  #. Run ``cilium node list`` in one of the Cilium pods and validate that it
-    lists both local nodes and nodes from remote clusters. If this discovery
-    does not work, validate the following:
-
-    * In each cluster, check that the kvstore contains information about
-      *local* nodes by running:
-
-      .. code-block:: shell-session
-
-          cilium kvstore get --recursive cilium/state/nodes/v1/
-
-      .. note::
-
-         The kvstore will only contain nodes of the **local cluster**. It will
-         **not** contain nodes of remote clusters. The state in the kvstore is
-         used for other clusters to discover all nodes so it is important that
-         local nodes are listed.
+    lists both local nodes and nodes from remote clusters. If remote nodes are
+    not present, validate that Cilium agents are correctly connected to the
+    given remote cluster.
 
  #. Validate the connectivity health matrix across clusters by running
     ``cilium-health status`` inside any Cilium pod. It will list the status of
-    the connectivity health check to each remote node.
-
-    If this fails:
-
-    * Make sure that the network allows the health checking traffic as
-      specified in the section :ref:`firewall_requirements`.
+    the connectivity health check to each remote node. If this fails, make sure
+    that the network allows the health checking traffic as specified in the
+    :ref:`firewall_requirements` section.
 
  #. Validate that identities are synchronized correctly by running ``cilium
     identity list`` in one of the Cilium pods. It must list identities from all
     clusters. You can determine what cluster an identity belongs to by looking
-    at the label ``io.cilium.k8s.policy.cluster``.
-
-    If this fails:
-
-    * Is the identity information available in the kvstore of each cluster? You
-      can confirm this by running ``cilium kvstore get --recursive
-      cilium/state/identities/v1/``.
-
-      .. note::
-
-         The kvstore will only contain identities of the **local cluster**. It
-         will **not** contain identities of remote clusters. The state in the
-         kvstore is used for other clusters to discover all identities so it is
-         important that local identities are listed.
+    at the label ``io.cilium.k8s.policy.cluster``. If remote identities are
+    not present, validate that Cilium agents are correctly connected to the
+    given remote cluster.
 
  #. Validate that the IP cache is synchronized correctly by running ``cilium
     bpf ipcache list`` or ``cilium map get cilium_ipcache``. The output must
-    contain pod IPs from local and remote clusters.
-
-    If this fails:
-
-    * Is the IP cache information available in the kvstore of each cluster? You
-      can confirm this by running ``cilium kvstore get --recursive
-      cilium/state/ip/v1/``.
-
-      .. note::
-
-         The kvstore will only contain IPs of the **local cluster**. It will
-         **not** contain IPs of remote clusters. The state in the kvstore is
-         used for other clusters to discover all pod IPs so it is important
-         that local identities are listed.
+    contain pod IPs from local and remote clusters. If remote IP addresses are
+    not present, validate that Cilium agents are correctly connected to the
+    given remote cluster.
 
  #. When using global services, ensure that global services are configured with
     endpoints from all clusters. Run ``cilium service list`` in any Cilium pod
@@ -200,10 +173,6 @@ State Propagation
     maps.
 
     If this fails:
-
-    * Are services available in the kvstore of each cluster? You can confirm
-      this by running ``cilium kvstore get --recursive
-      cilium/state/services/v1/``.
 
     * Run ``cilium debuginfo`` and look for the section ``k8s-service-cache``. In
       that section, you will find the contents of the service correlation

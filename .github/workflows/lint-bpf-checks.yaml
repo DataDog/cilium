@@ -26,7 +26,7 @@ jobs:
     steps:
       - name: Checkout code
         if: ${{ !github.event.pull_request }}
-        uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
+        uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
+        uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -68,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
+        uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
         with:
           persist-credentials: false
       - name: Run coccicheck
@@ -103,7 +103,7 @@ jobs:
         uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
         with:
           # renovate: datasource=golang-version depName=go
-          go-version: 1.21.10
+          go-version: 1.21.11
       - name: Cache LLVM and Clang
         id: cache-llvm
         uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4.0.2
@@ -115,13 +115,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libtinfo5
       - name: Install LLVM and Clang
-        uses: KyleMayes/install-llvm-action@8b37482c5a2997a3ab5dbf6561f8109e2eaa7d3b # v2.0.2
+        uses: KyleMayes/install-llvm-action@82fd451e4380968e8336eefc5b8b9292a619de01 # v2.0.3
         with:
           version: "10.0"
           directory: ${{ needs.set_clang_dir.outputs.clang_dir }}
           cached: ${{ steps.cache-llvm.outputs.cache-hit }}
       - name: Checkout code
-        uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
+        uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -141,7 +141,7 @@ jobs:
         uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
         with:
           # renovate: datasource=golang-version depName=go
-          go-version: 1.21.10
+          go-version: 1.21.11
       - name: Cache LLVM and Clang
         id: cache-llvm
         uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4.0.2
@@ -153,13 +153,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libtinfo5
       - name: Install LLVM and Clang
-        uses: KyleMayes/install-llvm-action@8b37482c5a2997a3ab5dbf6561f8109e2eaa7d3b # v2.0.2
+        uses: KyleMayes/install-llvm-action@82fd451e4380968e8336eefc5b8b9292a619de01 # v2.0.3
         with:
           version: "10.0"
           directory: ${{ needs.set_clang_dir.outputs.clang_dir }}
           cached: ${{ steps.cache-llvm.outputs.cache-hit }}
       - name: Checkout code
-        uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
+        uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
         with:
           persist-credentials: false
           fetch-depth: 0
