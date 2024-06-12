@@ -72,7 +72,7 @@ build-docker-image-cilium:
       CILIUM_BUILDER_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-builder:9a2da128fc8376b6b4f84e5c21b06210c91b0491@sha256:4d3a0ad69b8125c4a55ac382279b4f9afdc57a830522f2583230a5fa5cff5728
       CILIUM_ENVOY_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-envoy:v1.28.4-b35188ffa1bbe54d1720d2e392779f7a48e58f6b@sha256:b528b291561e459024f66414ac3325b88cdd8f9f4854828a155a11e5b10b78a3
     TARGET: release
-    NOSTRIP: 0
+    NOSTRIP: 1
   script:
     - set -x
     # Construct valid --build-args arguments from the DOCKER_BUILD_ARGS variable
