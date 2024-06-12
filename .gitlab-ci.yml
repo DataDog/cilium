@@ -83,7 +83,7 @@ build-docker-image-cilium:
     - METADATA_FILE2=$(mktemp)
     - docker buildx build --platform linux/amd64,linux/arm64 --tag $IMAGE_REF --file $DOCKERFILE_PATH $BUILD_ARGS --label CILIUM_VERSION=$(cat VERSION) --label target=prod --target $TARGET --push --metadata-file $METADATA_FILE1 $DOCKER_CTX
     - ddsign sign $IMAGE_REF --docker-metadata-file $METADATA_FILE1
-    - docker buildx build --platform linux/amd64,linux/arm64 --tag $IMAGE_REF-debug --file $DOCKERFILE_PATH $BUILD_ARGS --label CILIUM_VERSION=$(cat VERSION) --label target=debug --target debug --push --metadata-file $METADATA_FILE2 $DOCKER_CTX
+    - docker buildx build --platform linux/amd64,linux/arm64 --tag $IMAGE_REF-debug --file $DOCKERFILE_PATH --build-arg NOSTRIP=1 $BUILD_ARGS --label CILIUM_VERSION=$(cat VERSION) --label target=debug --target debug --push --metadata-file $METADATA_FILE2 $DOCKER_CTX
     - ddsign sign $IMAGE_REF-debug --docker-metadata-file $METADATA_FILE2
 
 build-docker-image-hubble-relay:
