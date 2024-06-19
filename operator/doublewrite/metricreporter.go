@@ -5,6 +5,8 @@ package doublewrite
 import (
 	"context"
 	"github.com/cilium/cilium/operator/metrics"
+	"github.com/cilium/cilium/pkg/kvstore/doublewrite"
+	"sync"
 	"time"
 
 	"github.com/cilium/cilium/pkg/allocator"
@@ -45,16 +47,11 @@ type DoubleWriteMetricReporter struct {
 	clientset                 k8sClient.Clientset
 	crdBackend                allocator.Backend
 	crdBackendWatcherStopChan chan struct{}
+	crdBackendListDone        chan struct{}
 
 	mgr *controller.Manager
+	wg  sync.WaitGroup
 }
-
-type NoOpHandler struct{}
-
-func (f NoOpHandler) OnListDone()                                       {}
-func (f NoOpHandler) OnAdd(id idpool.ID, key allocator.AllocatorKey)    {}
-func (f NoOpHandler) OnModify(id idpool.ID, key allocator.AllocatorKey) {}
-func (f NoOpHandler) OnDelete(id idpool.ID, key allocator.AllocatorKey) {}
 
 func registerDoubleWriteMetricReporter(p params) {
 	doubleWriteMetricReporter := &DoubleWriteMetricReporter{
@@ -63,6 +60,16 @@ func registerDoubleWriteMetricReporter(p params) {
 		clientset: p.Clientset,
 	}
 	p.Lifecycle.Append(doubleWriteMetricReporter)
+}
+
+type NoOpHandlerWithListDone struct {
+	doublewrite.NoOpHandler
+
+	listDone chan struct{}
+}
+
+func (h NoOpHandlerWithListDone) OnListDone() {
+	close(h.listDone)
 }
 
 func (g *DoubleWriteMetricReporter) Start(ctx cell.HookContext) error {
@@ -86,7 +93,12 @@ func (g *DoubleWriteMetricReporter) Start(ctx cell.HookContext) error {
 	g.crdBackend = crdBackend
 	// Initialize the CRD backend store
 	g.crdBackendWatcherStopChan = make(chan struct{})
-	go g.crdBackend.ListAndWatch(context.Background(), NoOpHandler{}, g.crdBackendWatcherStopChan)
+	g.wg = sync.WaitGroup{}
+	g.wg.Add(1)
+	go func() {
+		g.crdBackend.ListAndWatch(context.Background(), NoOpHandlerWithListDone{listDone: g.crdBackendListDone}, g.crdBackendWatcherStopChan)
+		g.wg.Done()
+	}()
 
 	g.mgr = controller.NewManager()
 	g.mgr.UpdateController("double-write-metric-reporter",
@@ -103,6 +115,7 @@ func (g *DoubleWriteMetricReporter) Stop(ctx cell.HookContext) error {
 		g.mgr.RemoveAllAndWait()
 	}
 	close(g.crdBackendWatcherStopChan)
+	g.wg.Wait()
 	return nil
 }
 
@@ -127,6 +140,7 @@ func difference(a, b []idpool.ID, maxElements int) (int, []idpool.ID) {
 
 func (g *DoubleWriteMetricReporter) compareCRDAndKVStoreIdentities(ctx context.Context) error {
 	// Get CRD identities
+	<-g.crdBackendListDone
 	crdIdentityIds, err := g.crdBackend.ListIDs(ctx)
 	if err != nil {
 		g.logger.WithError(err).Error("Unable to get CRD identities")
