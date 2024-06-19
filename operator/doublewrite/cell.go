@@ -20,7 +20,7 @@ var Cell = cell.Module(
 	"double-write-metric-reporter",
 	"Double-Write Metric Reporter",
 
-	cell.Config(Config{}),
+	cell.Config(defaultConfig),
 
 	cell.Invoke(registerDoubleWriteMetricReporter),
 )
@@ -34,5 +34,5 @@ var defaultConfig = Config{
 }
 
 func (def Config) Flags(flags *pflag.FlagSet) {
-	flags.Duration(Interval, defaultConfig.Interval, "Refresh interval for the Double Write Metric Reporter")
+	flags.Duration(Interval, def.Interval, "Refresh interval for the Double Write Metric Reporter")
 }

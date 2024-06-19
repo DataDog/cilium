@@ -22,8 +22,8 @@ import (
 )
 
 func (igc *GC) startKVStoreModeGC(ctx context.Context) error {
-	log.WithField(logfields.Interval, igc.gcInterval).Info("Anton-Test-KVStore Starting kvstore identity garbage collector")
-	backend, err := kvstoreallocator.NewKVStoreBackend(kvstoreallocator.KVStoreBackendConfiguration{BasePath: cache.IdentitiesPath, Suffix: "", Typ: nil, Backend: kvstore.Client()})
+	log.WithField(logfields.Interval, igc.gcInterval).Info("Starting kvstore identity garbage collector")
+	backend, err := kvstoreallocator.NewKVStoreBackend(kvstoreallocator.KVStoreBackendConfiguration{BasePath: cache.IdentitiesPath, Backend: kvstore.Client()})
 	if err != nil {
 		return fmt.Errorf("unable to initialize kvstore backend for identity allocation")
 	}
@@ -61,8 +61,8 @@ func (igc *GC) runKVStoreModeGC(ctx context.Context) error {
 			igc.logger.WithError(err).Warning("Unable to run kvstore security identity garbage collector")
 
 			if igc.enableMetrics {
-				igc.failedRuns["kvstore"]++
-				metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeFail, metrics.LabelIdentityTypeKVStore).Set(float64(igc.failedRuns["kvstore"]))
+				igc.failedRuns[metrics.LabelIdentityTypeKVStore]++
+				metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeFail, metrics.LabelIdentityTypeKVStore).Set(float64(igc.failedRuns[metrics.LabelIdentityTypeKVStore]))
 			}
 		} else {
 			// Best effort to run auth identity GC
@@ -76,9 +76,9 @@ func (igc *GC) runKVStoreModeGC(ctx context.Context) error {
 			keysToDeletePrev = keysToDelete
 
 			if igc.enableMetrics {
-				igc.successfulRuns["kvstore"]++
-				log.Info("Anton-Test-CRD successfulRuns: ", igc.successfulRuns["kvstore"])
-				metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeSuccess, metrics.LabelIdentityTypeKVStore).Set(float64(igc.successfulRuns["kvstore"]))
+				igc.successfulRuns[metrics.LabelIdentityTypeKVStore]++
+				log.Info("Anton-Test-CRD successfulRuns: ", igc.successfulRuns[metrics.LabelIdentityTypeKVStore])
+				metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeSuccess, metrics.LabelIdentityTypeKVStore).Set(float64(igc.successfulRuns[metrics.LabelIdentityTypeKVStore]))
 
 				metrics.IdentityGCSize.WithLabelValues(metrics.LabelValueOutcomeAlive, metrics.LabelIdentityTypeKVStore).Set(float64(gcStats.Alive))
 				metrics.IdentityGCSize.WithLabelValues(metrics.LabelValueOutcomeDeleted, metrics.LabelIdentityTypeKVStore).Set(float64(gcStats.Deleted))

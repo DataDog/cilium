@@ -37,6 +37,7 @@ cilium-operator-azure [flags]
       --config string                                        Configuration file (default "$HOME/ciliumd.yaml")
       --config-dir string                                    Configuration directory that contains a file for each option
   -D, --debug                                                Enable debugging mode
+      --double-write-metric-reporter-interval duration       Refresh interval for the Double Write Metric Reporter (default 1m0s)
       --enable-cilium-endpoint-slice                         If set to true, the CiliumEndpointSlice feature is enabled. If any CiliumEndpoints resources are created, updated, or deleted in the cluster, all those changes are broadcast as CiliumEndpointSlice updates to all of the Cilium agents.
       --enable-cilium-operator-server-access strings         List of cilium operator APIs which are administratively enabled. Supports '*'. (default [*])
       --enable-ipv4                                          Enable IPv4 support (default true)

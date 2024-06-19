@@ -65,8 +65,6 @@ func startKvstoreWatchdog() {
 
 	backend, err := kvstoreallocator.NewKVStoreBackend(kvstoreallocator.KVStoreBackendConfiguration{
 		BasePath: cache.IdentitiesPath,
-		Suffix:   "",
-		Typ:      nil,
 		Backend:  kvstore.Client(),
 	})
 	if err != nil {
