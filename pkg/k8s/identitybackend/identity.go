@@ -365,6 +365,7 @@ func (c *crdBackend) ListIDs(ctx context.Context) (identityIDs []idpool.ID, err 
 }
 
 func (c *crdBackend) ListAndWatch(ctx context.Context, handler allocator.CacheMutations, stopChan chan struct{}) {
+	log.Info("Anton-Test starting ListAndWatch")
 	c.Store = cache.NewIndexer(
 		cache.DeletionHandlingMetaNamespaceKeyFunc,
 		cache.Indexers{byKeyIndex: getIdentitiesByKeyFunc(c.KeyFunc)})
@@ -414,6 +415,7 @@ func (c *crdBackend) ListAndWatch(ctx context.Context, handler allocator.CacheMu
 
 	go func() {
 		if ok := cache.WaitForCacheSync(stopChan, identityInformer.HasSynced); ok {
+			log.Info("Anton-Test ListAndWatch done")
 			handler.OnListDone()
 		}
 	}()
