@@ -578,13 +578,13 @@ func (k *kvstoreBackend) keyToID(key string) (id idpool.ID, err error) {
 func (k *kvstoreBackend) ListIDs(ctx context.Context) (identityIDs []idpool.ID, err error) {
 	identities, err := k.backend.ListPrefix(ctx, k.idPrefix)
 	if err != nil {
-		return []idpool.ID{}, err
+		return nil, err
 	}
 
 	for key := range identities {
 		id, err := k.keyToID(key)
 		if err != nil {
-			return []idpool.ID{}, err
+			return nil, err
 		}
 		identityIDs = append(identityIDs, id)
 	}
