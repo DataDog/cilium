@@ -140,7 +140,9 @@ func difference(a, b []idpool.ID, maxElements int) (int, []idpool.ID) {
 
 func (g *DoubleWriteMetricReporter) compareCRDAndKVStoreIdentities(ctx context.Context) error {
 	// Get CRD identities
+	g.logger.Info("Anton-Test waiting for the CRD backend list to be done")
 	<-g.crdBackendListDone
+	g.logger.Info("Anton-Test CRD backend list is done")
 	crdIdentityIds, err := g.crdBackend.ListIDs(ctx)
 	if err != nil {
 		g.logger.WithError(err).Error("Unable to get CRD identities")
