@@ -93,6 +93,7 @@ func (g *DoubleWriteMetricReporter) Start(ctx cell.HookContext) error {
 	g.crdBackend = crdBackend
 	// Initialize the CRD backend store
 	g.crdBackendWatcherStopChan = make(chan struct{})
+	g.crdBackendListDone = make(chan struct{})
 	g.wg = sync.WaitGroup{}
 	g.wg.Add(1)
 	go func() {
