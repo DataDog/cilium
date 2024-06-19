@@ -154,11 +154,11 @@ func (igc *GC) gc(ctx context.Context) error {
 
 	if igc.enableMetrics {
 		if ctx.Err() == nil {
-			igc.successfulRuns["crd"]++
-			metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeSuccess, metrics.LabelIdentityTypeCRD).Set(float64(igc.successfulRuns["crd"]))
+			igc.successfulRuns[metrics.LabelIdentityTypeCRD]++
+			metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeSuccess, metrics.LabelIdentityTypeCRD).Set(float64(igc.successfulRuns[metrics.LabelIdentityTypeCRD]))
 		} else {
-			igc.failedRuns["crd"]++
-			metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeFail, metrics.LabelIdentityTypeCRD).Set(float64(igc.failedRuns["crd"]))
+			igc.failedRuns[metrics.LabelIdentityTypeCRD]++
+			metrics.IdentityGCRuns.WithLabelValues(metrics.LabelValueOutcomeFail, metrics.LabelIdentityTypeCRD).Set(float64(igc.failedRuns[metrics.LabelIdentityTypeCRD]))
 		}
 		igc.logger.Info("Anton-Test-CRD successfulRuns: ", igc.successfulRuns)
 		igc.logger.Info("Anton-Test-CRD totalEntries: ", totalEntries)
