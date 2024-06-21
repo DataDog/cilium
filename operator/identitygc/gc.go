@@ -116,7 +116,9 @@ func registerGC(p params) {
 		allocationCfg: identityAllocationConfig{
 			k8sNamespace: p.SharedCfg.K8sNamespace,
 		},
-		metrics: p.Metrics,
+		metrics:        p.Metrics,
+		failedRuns:     make(map[string]int),
+		successfulRuns: make(map[string]int),
 	}
 	p.Lifecycle.Append(cell.Hook{
 		OnStart: func(ctx cell.HookContext) error {
