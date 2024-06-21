@@ -62,10 +62,12 @@ func (d *doubleWriteBackend) AllocateID(ctx context.Context, id idpool.ID, key a
 	crdKey, crdErr := d.crdBackend.AllocateID(ctx, id, key)
 	if crdErr != nil {
 		log.WithFields(logrus.Fields{logfields.Identity: id.String(), logfields.Key: key.String()}).WithError(crdErr).Error("CRD backend failed to allocate identity")
+		return nil, crdErr
 	}
 	kvStoreKey, kvStoreErr := d.kvstoreBackend.AllocateID(ctx, id, key)
 	if kvStoreErr != nil {
 		log.WithFields(logrus.Fields{logfields.Identity: id.String(), logfields.Key: key.String()}).WithError(kvStoreErr).Error("KVStore backend failed to allocate identity")
+		return nil, kvStoreErr
 	}
 	if d.readFromKVStore {
 		return kvStoreKey, kvStoreErr
@@ -77,10 +79,12 @@ func (d *doubleWriteBackend) AllocateIDIfLocked(ctx context.Context, id idpool.I
 	crdKey, crdErr := d.crdBackend.AllocateIDIfLocked(ctx, id, key, lock)
 	if crdErr != nil {
 		log.WithFields(logrus.Fields{logfields.Identity: id.String(), logfields.Key: key.String()}).WithError(crdErr).Error("CRD backend failed to allocate identity with lock")
+		return nil, crdErr
 	}
 	kvStoreKey, kvStoreErr := d.kvstoreBackend.AllocateIDIfLocked(ctx, id, key, lock)
 	if kvStoreErr != nil {
 		log.WithFields(logrus.Fields{logfields.Identity: id.String(), logfields.Key: key.String()}).WithError(kvStoreErr).Error("KVStore backend failed to allocate identity with lock")
+		return nil, kvStoreErr
 	}
 	if d.readFromKVStore {
 		return kvStoreKey, kvStoreErr
@@ -122,30 +126,27 @@ func (d *doubleWriteBackend) UpdateKey(ctx context.Context, id idpool.ID, key al
 	crdErr := d.crdBackend.UpdateKey(ctx, id, key, true)
 	if crdErr != nil {
 		log.WithFields(logrus.Fields{logfields.Identity: id.String(), logfields.Key: key.String(), "reliablyMissing": reliablyMissing}).WithError(crdErr).Error("CRD backend failed to update key")
+		return crdErr
 	}
 	kvStoreErr := d.kvstoreBackend.UpdateKey(ctx, id, key, true)
 	if kvStoreErr != nil {
 		log.WithFields(logrus.Fields{logfields.Identity: id.String(), logfields.Key: key.String(), "reliablyMissing": reliablyMissing}).WithError(kvStoreErr).Error("KVStore backend failed to update key")
 	}
-	if d.readFromKVStore {
-		return kvStoreErr
-	}
-	return crdErr
+	return nil
 }
 
 func (d *doubleWriteBackend) UpdateKeyIfLocked(ctx context.Context, id idpool.ID, key allocator.AllocatorKey, reliablyMissing bool, lock kvstore.KVLocker) error {
 	crdErr := d.crdBackend.UpdateKeyIfLocked(ctx, id, key, true, lock)
 	if crdErr != nil {
 		log.WithFields(logrus.Fields{logfields.Identity: id.String(), logfields.Key: key.String(), "reliablyMissing": reliablyMissing}).WithError(crdErr).Error("CRD backend failed to update key with lock")
+		return crdErr
 	}
 	kvStoreErr := d.kvstoreBackend.UpdateKeyIfLocked(ctx, id, key, true, lock)
 	if kvStoreErr != nil {
 		log.WithFields(logrus.Fields{logfields.Identity: id.String(), logfields.Key: key.String(), "reliablyMissing": reliablyMissing}).WithError(kvStoreErr).Error("KVStore backend failed to update key with lock")
-	}
-	if d.readFromKVStore {
 		return kvStoreErr
 	}
-	return crdErr
+	return nil
 }
 
 func (d *doubleWriteBackend) Lock(ctx context.Context, key allocator.AllocatorKey) (kvstore.KVLocker, error) {
