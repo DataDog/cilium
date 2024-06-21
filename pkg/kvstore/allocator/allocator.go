@@ -24,7 +24,7 @@ var (
 	log = logging.DefaultLogger.WithField(logfields.LogSubsys, "kvstorebackend")
 )
 
-// kvstoreBackend is an implementaton of pkg/allocator.Backend. It store
+// kvstoreBackend is an implementation of pkg/allocator.Backend. It stores
 // identities in the following format:
 //
 // Slave keys:
@@ -92,22 +92,29 @@ func prefixMatchesKey(prefix, key string) bool {
 	return len(prefix) == lastSlash
 }
 
+type KVStoreBackendConfiguration struct {
+	BasePath string
+	Suffix   string
+	Typ      allocator.AllocatorKey
+	Backend  kvstore.BackendOperations
+}
+
 // NewKVStoreBackend creates a pkg/allocator.Backend compatible instance. The
 // specific kvstore used is configured in pkg/kvstore.
-func NewKVStoreBackend(basePath, suffix string, typ allocator.AllocatorKey, backend kvstore.BackendOperations) (*kvstoreBackend, error) {
-	if backend == nil {
+func NewKVStoreBackend(c KVStoreBackendConfiguration) (allocator.Backend, error) {
+	if c.Backend == nil {
 		return nil, fmt.Errorf("kvstore client not configured")
 	}
 
 	return &kvstoreBackend{
-		basePrefix:  basePath,
-		idPrefix:    path.Join(basePath, "id"),
-		valuePrefix: path.Join(basePath, "value"),
-		lockPrefix:  path.Join(basePath, "locks"),
-		suffix:      suffix,
-		keyType:     typ,
-		lockless:    locklessCapability(backend),
-		backend:     backend,
+		basePrefix:  c.BasePath,
+		idPrefix:    path.Join(c.BasePath, "id"),
+		valuePrefix: path.Join(c.BasePath, "value"),
+		lockPrefix:  path.Join(c.BasePath, "locks"),
+		suffix:      c.Suffix,
+		keyType:     c.Typ,
+		lockless:    locklessCapability(c.Backend),
+		backend:     c.Backend,
 	}, nil
 }
 
@@ -120,6 +127,10 @@ func (k *kvstoreBackend) lockPath(ctx context.Context, key string) (*kvstore.Loc
 // DeleteAllKeys will delete all keys
 func (k *kvstoreBackend) DeleteAllKeys(ctx context.Context) {
 	k.backend.DeletePrefix(ctx, k.basePrefix)
+}
+
+func (k *kvstoreBackend) DeleteID(ctx context.Context, id idpool.ID) error {
+	return k.backend.Delete(ctx, path.Join(k.idPrefix, id.String()))
 }
 
 // AllocateID allocates a key->ID mapping in the kvstore.
@@ -513,7 +524,7 @@ func (k *kvstoreBackend) RunGC(
 						scopedLog.WithError(err).Warning("Unable to delete unused allocator master key")
 					} else {
 						deletedEntries++
-						scopedLog.Info("Deleted unused allocator master key")
+						scopedLog.Info("Deleted unused allocator master key in KVStore")
 					}
 					// consider the key regardless if there was an error from
 					// the kvstore. We want to rate limit the number of requests
@@ -564,10 +575,27 @@ func (k *kvstoreBackend) keyToID(key string) (id idpool.ID, err error) {
 	return idpool.ID(idParsed), nil
 }
 
+func (k *kvstoreBackend) ListIDs(ctx context.Context) (identityIDs []idpool.ID, err error) {
+	identities, err := k.backend.ListPrefix(ctx, k.idPrefix)
+	if err != nil {
+		return nil, err
+	}
+
+	for key := range identities {
+		id, err := k.keyToID(key)
+		if err != nil {
+			log.WithField(logfields.Identity, key).Warn("Cannot parse identity ID")
+			continue
+		}
+		identityIDs = append(identityIDs, id)
+	}
+
+	return identityIDs, nil
+}
+
 func (k *kvstoreBackend) ListAndWatch(ctx context.Context, handler allocator.CacheMutations, stopChan chan struct{}) {
 	ctx, cancel := context.WithCancel(ctx)
 	watcher := k.backend.ListAndWatch(ctx, k.idPrefix, 512)
-
 	for {
 		select {
 		case event, ok := <-watcher.Events:
