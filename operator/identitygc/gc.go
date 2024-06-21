@@ -82,8 +82,8 @@ type GC struct {
 	allocator *allocator.Allocator
 
 	// counters for GC failed/successful runs
-	failedRuns     int
-	successfulRuns int
+	failedRuns     map[string]int
+	successfulRuns map[string]int
 	metrics        *Metrics
 }
 
