@@ -5,6 +5,7 @@ package dropeventemitter
 
 import (
 	"context"
+	"github.com/sirupsen/logrus"
 	"slices"
 	"strconv"
 	"strings"
@@ -25,9 +26,10 @@ import (
 type DropEventEmitter struct {
 	reasons  []string
 	recorder record.EventRecorder
+	logger   *logrus.Entry
 }
 
-func NewDropEventEmitter(interval time.Duration, reasons []string, k8s client.Clientset) *DropEventEmitter {
+func NewDropEventEmitter(interval time.Duration, reasons []string, k8s client.Clientset, logger *logrus.Entry) *DropEventEmitter {
 	broadcaster := record.NewBroadcasterWithCorrelatorOptions(record.CorrelatorOptions{
 		BurstSize:            1,
 		QPS:                  1 / float32(interval.Seconds()),
@@ -40,6 +42,7 @@ func NewDropEventEmitter(interval time.Duration, reasons []string, k8s client.Cl
 	return &DropEventEmitter{
 		reasons:  reasons,
 		recorder: broadcaster.NewRecorder(slimscheme.Scheme, v1.EventSource{Component: "cilium"}),
+		logger:   logger,
 	}
 }
 
@@ -70,6 +73,7 @@ func (e *DropEventEmitter) ProcessFlow(ctx context.Context, flow *flowpb.Flow) e
 				Namespace: flow.Destination.Namespace,
 			},
 		}, v1.EventTypeWarning, "PacketDrop", message)
+		e.logger.Debug("Emitted event for ingress on destination", "message", message)
 	} else {
 		message := "Outgoing packet dropped (" + reason + ") to " +
 			e.endpointToString(flow.IP.Destination, flow.Destination) + " " +
@@ -84,6 +88,7 @@ func (e *DropEventEmitter) ProcessFlow(ctx context.Context, flow *flowpb.Flow) e
 				Namespace: flow.Source.Namespace,
 			},
 		}, v1.EventTypeWarning, "PacketDrop", message)
+		e.logger.Debug("Emitted event for egress on source", "message", message)
 	}
 
 	return nil
