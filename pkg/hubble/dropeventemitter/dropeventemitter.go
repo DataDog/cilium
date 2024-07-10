@@ -74,6 +74,25 @@ func (e *DropEventEmitter) ProcessFlow(ctx context.Context, flow *flowpb.Flow) e
 			},
 		}, v1.EventTypeWarning, "PacketDrop", message)
 		e.logger.Debug("Emitted event for ingress on destination", "message", message)
+
+		// Best effort attempt to emit an event on the source pod on ingress.
+		// May not be possible if source is not a pod, or is in another cluster.
+		if flow.Source.PodName != "" {
+			message := "Outgoing packet dropped (" + reason + ") at destination " +
+				e.endpointToString(flow.IP.Destination, flow.Destination) + " " +
+				e.l4protocolToString(flow.L4)
+			e.recorder.Event(&slimv1.Pod{
+				TypeMeta: metaslimv1.TypeMeta{
+					Kind:       "Pod",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metaslimv1.ObjectMeta{
+					Name:      flow.Source.PodName,
+					Namespace: flow.Source.Namespace,
+				},
+			}, v1.EventTypeWarning, "PacketDrop", message)
+			e.logger.Debug("Emitted event for ingress on source", "message", message)
+		}
 	} else {
 		message := "Outgoing packet dropped (" + reason + ") to " +
 			e.endpointToString(flow.IP.Destination, flow.Destination) + " " +
