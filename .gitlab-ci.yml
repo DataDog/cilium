@@ -29,7 +29,7 @@ before_script:
       
       TAGS_TO_BUILD=( $(git tag --sort=-creatordate --merged HEAD | head -n $N_TAGS_TO_BUILD) )
       
-      for TAG in $TAGS_TO_BUILD; do
+      for TAG in "${TAGS_TO_BUILD[@]}"; do
         IMAGE_TAG="$TAG"
         if [ "$TARGET" = "debug" ] ; then IMAGE_TAG="$IMAGE_TAG-debug" ; fi
         if [ "$CI_PIPELINE_SOURCE" == "schedule" ]; then IMAGE_TAG="$IMAGE_TAG-$(date +"%Y-%m-%d-%H-%M")"; fi
@@ -96,7 +96,7 @@ build-docker-image-cilium:
       
       TAGS_TO_BUILD=( $(git tag --sort=-creatordate --merged HEAD | head -n $N_TAGS_TO_BUILD) )
       
-      for TAG in $TAGS_TO_BUILD; do
+      for TAG in "${TAGS_TO_BUILD[@]}"; do
         IMAGE_TAG="$TAG"
         if [ "$CI_PIPELINE_SOURCE" == "schedule" ]; then IMAGE_TAG="$IMAGE_TAG-$(date +"%Y-%m-%d-%H-%M")"; fi
         IMAGE_REF="registry.ddbuild.io/$IMAGE_NAME:$IMAGE_TAG"
