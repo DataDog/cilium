@@ -670,10 +670,6 @@ func (s *Service) upsertService(params *lb.SVC) (bool, lb.ID, error) {
 		backendsCopy = append(backendsCopy, b.DeepCopy())
 	}
 
-	// TODO (Aditi) When we filter backends for LocalRedirect service, there
-	// might be some backend pods with active connections. We may need to
-	// defer filtering the backends list (thereby defer redirecting traffic)
-	// in such cases. GH #12859
 	// Update backends cache and allocate/release backend IDs
 	newBackends, obsoleteBackendIDs, obsoleteSVCBackendIDs, err :=
 		s.updateBackendsCacheLocked(svc, backendsCopy)
@@ -736,9 +732,11 @@ func (s *Service) upsertService(params *lb.SVC) (bool, lb.ID, error) {
 // filterServiceBackends returns the list of backends based on given front end ports.
 // The returned map will have key as port name/number, and value as list of respective backends.
 func filterServiceBackends(svc *svcInfo, onlyPorts []string) map[string][]*lb.Backend {
+	preferredBackends := filterPreferredBackends(svc.backends)
+
 	if len(onlyPorts) == 0 {
 		return map[string][]*lb.Backend{
-			anyPort: filterPreferredBackends(svc.backends),
+			anyPort: preferredBackends,
 		}
 	}
 
@@ -746,12 +744,11 @@ func filterServiceBackends(svc *svcInfo, onlyPorts []string) map[string][]*lb.Ba
 	for _, port := range onlyPorts {
 		// check for port number
 		if port == strconv.Itoa(int(svc.frontend.Port)) {
-			return map[string][]*lb.Backend{
-				port: filterPreferredBackends(svc.backends),
-			}
+			res[port] = preferredBackends
 		}
-		// check for either named port
-		for _, backend := range filterPreferredBackends(svc.backends) {
+		// Continue checking for either named port as the same service
+		// can be used with multiple port types together
+		for _, backend := range preferredBackends {
 			if port == backend.FEPortName {
 				res[port] = append(res[port], backend)
 			}

@@ -143,7 +143,7 @@ rollOutCiliumPods: false
 image:
   override: ~
   repository: "quay.io/cilium/cilium"
-  tag: "v1.14.12"
+  tag: "v1.14.13"
   pullPolicy: "IfNotPresent"
   # cilium-digest
   digest: ""
@@ -949,8 +949,8 @@ certgen:
   image:
     override: ~
     repository: "quay.io/cilium/certgen"
-    tag: "v0.1.12"
-    digest: "sha256:bbc5e65e9dc65bc6b58967fe536b7f3b54e12332908aeb0a96a36866b4372b4e"
+    tag: "v0.1.13"
+    digest: "sha256:01802e6a153a9473b06ebade7ee5730f8f2c6cc8db8768508161da3cdd778641"
     useDigest: true
     pullPolicy: "IfNotPresent"
   # -- Seconds after which the completed job pod will be deleted
@@ -1125,7 +1125,7 @@ hubble:
     image:
       override: ~
       repository: "quay.io/cilium/hubble-relay"
-      tag: "v1.14.12"
+      tag: "v1.14.13"
        # hubble-relay-digest
       digest: ""
       useDigest: false
@@ -1353,8 +1353,8 @@ hubble:
       image:
         override: ~
         repository: "quay.io/cilium/hubble-ui-backend"
-        tag: "v0.13.0"
-        digest: "sha256:1e7657d997c5a48253bb8dc91ecee75b63018d16ff5e5797e5af367336bc8803"
+        tag: "v0.13.1"
+        digest: "sha256:0e0eed917653441fded4e7cdb096b7be6a3bddded5a2dd10812a27b1fc6ed95b"
         useDigest: true
         pullPolicy: "IfNotPresent"
 
@@ -1384,8 +1384,8 @@ hubble:
       image:
         override: ~
         repository: "quay.io/cilium/hubble-ui"
-        tag: "v0.13.0"
-        digest: "sha256:7d663dc16538dd6e29061abd1047013a645e6e69c115e008bee9ea9fef9a6666"
+        tag: "v0.13.1"
+        digest: "sha256:e2e9313eb7caf64b0061d9da0efbdad59c6c461f6ca1752768942bfeda0796c6"
         useDigest: true
         pullPolicy: "IfNotPresent"
 
@@ -1873,9 +1873,9 @@ envoy:
   image:
     override: ~
     repository: "quay.io/cilium/cilium-envoy"
-    tag: "v1.28.4-b35188ffa1bbe54d1720d2e392779f7a48e58f6b"
+    tag: "v1.29.7-39a2a56bbd5b3a591f69dbca51d3e30ef97e0e51"
     pullPolicy: "IfNotPresent"
-    digest: "sha256:b528b291561e459024f66414ac3325b88cdd8f9f4854828a155a11e5b10b78a3"
+    digest: "sha256:bd5ff8c66716080028f414ec1cb4f7dc66f40d2fb5a009fff187f4a9b90b566b"
     useDigest: true
 
   # -- Additional containers added to the cilium Envoy DaemonSet.
@@ -2289,7 +2289,7 @@ operator:
   image:
     override: ~
     repository: "quay.io/cilium/operator"
-    tag: "v1.14.12"
+    tag: "v1.14.13"
     # operator-generic-digest
     genericDigest: ""
     # operator-azure-digest
@@ -2487,8 +2487,8 @@ nodeinit:
   image:
     override: ~
     repository: "quay.io/cilium/startup-script"
-    tag: "19fb149fb3d5c7a37d3edfaf10a2be3ab7386661"
-    digest: "sha256:820155cb3b7f00c8d61c1cffa68c44440906cb046bdbad8ff544f5deb1103456"
+    tag: "c54c7edeab7fde4da68e59acd319ab24af242c3f"
+    digest: "sha256:8d7b41c4ca45860254b3c19e20210462ef89479bb6331d6760c4e609d651b29c"
     useDigest: true
     pullPolicy: "IfNotPresent"
 
@@ -2578,7 +2578,7 @@ preflight:
   image:
     override: ~
     repository: "quay.io/cilium/cilium"
-    tag: "v1.14.12"
+    tag: "v1.14.13"
     # cilium-digest
     digest: ""
     useDigest: false
@@ -2728,7 +2728,7 @@ clustermesh:
     image:
       override: ~
       repository: "quay.io/cilium/clustermesh-apiserver"
-      tag: "v1.14.12"
+      tag: "v1.14.13"
       # clustermesh-apiserver-digest
       digest: ""
       useDigest: false
@@ -2775,7 +2775,7 @@ clustermesh:
       image:
         override: ~
         repository: "quay.io/cilium/kvstoremesh"
-        tag: "v1.14.12"
+        tag: "v1.14.13"
         # kvstoremesh-digest
         digest: ""
         useDigest: false
@@ -3095,7 +3095,10 @@ cgroup:
       #   memory: 128Mi
   # -- Configure cgroup root where cgroup2 filesystem is mounted on the host (see also: `cgroup.autoMount`)
   hostRoot: /run/cilium/cgroupv2
-
+# -- Configure sysctl override described in #20072.
+sysctlfix:
+  # -- Enable the sysctl override. When enabled, the init container will mount the /proc of the host so that the `sysctlfix` utility can execute.
+  enabled: true
 # -- Configure whether to enable auto detect of terminating state for endpoints
 # in order to support graceful termination.
 enableK8sTerminatingEndpoint: true

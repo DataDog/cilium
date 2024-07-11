@@ -17,6 +17,9 @@ on:
         description: "[JSON object] Arbitrary arguments passed from the trigger comment via regex capture group. Parse with 'fromJson(inputs.extra-args).argName' in workflow."
         required: false
         default: '{}'
+  push:
+    branches:
+      - 'renovate/v1.14-**'
   # Run every 6 hours
   schedule:
     - cron:  '0 5/6 * * *'
@@ -45,6 +48,7 @@ concurrency:
     ${{ github.workflow }}
     ${{ github.event_name }}
     ${{
+      (github.event_name == 'push' && github.sha) ||
       (github.event_name == 'schedule' && github.sha) ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.PR-number)
     }}
@@ -87,7 +91,7 @@ jobs:
           # Define three config sets
           - config: '5.4'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '5.4-20240515.073534'
+            kernel: '5.4-20240703.151759'
             kube-proxy: 'iptables'
             kpr: 'disabled'
             tunnel: 'disabled'
@@ -95,7 +99,7 @@ jobs:
 
           - config: '5.10'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '5.10-20240515.073534'
+            kernel: '5.10-20240703.151759'
             kube-proxy: 'iptables'
             kpr: 'disabled'
             tunnel: 'disabled'
@@ -104,7 +108,7 @@ jobs:
 
           - config: '6.1'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '6.1-20240515.073534'
+            kernel: '6.1-20240703.151759'
             kube-proxy: 'iptables'
             kpr: 'disabled'
             tunnel: 'vxlan'
@@ -115,7 +119,7 @@ jobs:
 
           - config: '6.6'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '6.6-20240515.073534'
+            kernel: '6.6-20240703.151759'
             kube-proxy: 'iptables'
             kpr: 'disabled'
             tunnel: 'vxlan'
@@ -154,7 +158,7 @@ jobs:
     timeout-minutes: 70
     steps:
       - name: Checkout context ref
-        uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           # We keep the credentials here, to make sure we're able to run
@@ -202,7 +206,7 @@ jobs:
           echo image_tag=${IMAGE_TAG} >> $GITHUB_OUTPUT
 
       - name: Call actions/checkout again to remove credentials
-        uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -267,7 +271,7 @@ jobs:
 
       - name: Install Cilium CLI
         if: ${{ steps.vars.outputs.downgrade_version != '' }}
-        uses: cilium/cilium-cli@d86ae1ca5755139d6ca9423b9606cb047fc8e00f # v0.16.9
+        uses: cilium/cilium-cli@9d071f99ae32af95cb15c3e0a280d222b569a1cf # v0.16.11
         with:
           release-version: ${{ env.CILIUM_CLI_VERSION }}
           ci-version: ${{ env.cilium_cli_ci_version }}
@@ -298,7 +302,7 @@ jobs:
       # steps must take care not to execute untrusted code.
       - name: Checkout pull request branch (NOT TRUSTED)
         if: ${{ steps.vars.outputs.downgrade_version != '' }}
-        uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
           ref: ${{ steps.vars.outputs.sha }}
           persist-credentials: false
@@ -308,7 +312,7 @@ jobs:
 
       - name: Checkout ${{ steps.vars.outputs.downgrade_version }} branch to get the Helm chart
         if: ${{ steps.vars.outputs.downgrade_version != '' }}
-        uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
           ref: ${{ steps.vars.outputs.downgrade_version }}
           persist-credentials: false
@@ -342,41 +346,49 @@ jobs:
           kubectl get pods --all-namespaces -o wide
           kubectl -n kube-system exec daemonset/cilium -c cilium-agent -- cilium status
 
-      - name: Start conn-disrupt-test
+      - name: Setup conn-disrupt-test before upgrading (${{ matrix.name }})
+        if: ${{ steps.vars.outputs.downgrade_version != '' }}
+        uses: ./.github/actions/conn-disrupt-test-setup
+
+      - name: Upgrade Cilium (${{ matrix.name }})
         if: ${{ steps.vars.outputs.downgrade_version != '' }}
         shell: bash
         run: |
-          # Create pods which establish long lived connections. It will be used by
-          # subsequent connectivity tests with --include-conn-disrupt-test to catch any
-          # interruption in such flows.
-          ./cilium-cli connectivity test --include-conn-disrupt-test --conn-disrupt-test-setup \
-            --conn-disrupt-dispatch-interval 0ms
+          CILIUM_CLI_MODE=helm ./cilium-cli upgrade \
+            ${{ steps.cilium-newest-config.outputs.config }}
 
-      - name: Upgrade Cilium & Test (${{ matrix.name }})
+          ./cilium-cli status --wait
+          kubectl get pods --all-namespaces -o wide
+          kubectl -n kube-system exec daemonset/cilium -c cilium-agent -- cilium status
+
+      - name: Run tests after upgrading (${{ matrix.name }})
         if: ${{ steps.vars.outputs.downgrade_version != '' }}
-        uses: ./.github/actions/conn-disrupt-test
+        uses: ./.github/actions/conn-disrupt-test-check
         with:
-          job-name: ipsec-upgrade-${{ matrix.name }}
-          operation-cmd: |
-            CILIUM_CLI_MODE=helm ./cilium-cli upgrade \
-              ${{ steps.cilium-newest-config.outputs.config }}
+          job-name: cilium-upgrade-${{ matrix.name }}
+          full-test: 'true'
 
-            ./cilium-cli status --wait
-            kubectl get pods --all-namespaces -o wide
-            kubectl -n kube-system exec daemonset/cilium -c cilium-agent -- cilium status
+      - name: Setup conn-disrupt-test before downgrading
+        if: ${{ steps.vars.outputs.downgrade_version != '' }}
+        uses: ./.github/actions/conn-disrupt-test-setup
 
       - name: Downgrade Cilium to ${{ steps.vars.outputs.downgrade_version }} & Test (${{ matrix.name }})
         if: ${{ steps.vars.outputs.downgrade_version != '' }}
-        uses: ./.github/actions/conn-disrupt-test
-        with:
-          job-name: ipsec-downgrade-${{ matrix.name }}
-          operation-cmd: |
-            CILIUM_CLI_MODE=helm ./cilium-cli upgrade \
-              ${{ steps.cilium-stable-config.outputs.config }}
+        shell: bash
+        run: |
+          CILIUM_CLI_MODE=helm ./cilium-cli upgrade \
+            ${{ steps.cilium-stable-config.outputs.config }}
 
-            ./cilium-cli status --wait
-            kubectl get pods --all-namespaces -o wide
-            kubectl -n kube-system exec daemonset/cilium -c cilium-agent -- cilium status
+          ./cilium-cli status --wait
+          kubectl get pods --all-namespaces -o wide
+          kubectl -n kube-system exec daemonset/cilium -c cilium-agent -- cilium status
+
+      - name: Check conn-disrupt-test after downgrading
+        if: ${{ steps.vars.outputs.downgrade_version != '' }}
+        uses: ./.github/actions/conn-disrupt-test-check
+        with:
+          job-name: cilium-downgrade-${{ matrix.name }}
+          full-test: 'true'
 
       - name: Fetch artifacts
         if: ${{ steps.vars.outputs.downgrade_version != '' && !success() }}
@@ -389,14 +401,14 @@ jobs:
 
       - name: Upload artifacts
         if: ${{ steps.vars.outputs.downgrade_version != '' && !success() }}
-        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+        uses: actions/upload-artifact@0b2256b8c012f0828dc542b3febcab082c67f72b # v4.3.4
         with:
           name: cilium-sysdumps-${{ matrix.config }}-${{ matrix.mode }}
           path: cilium-sysdump-*.zip
 
       - name: Upload JUnits [junit]
         if: ${{ steps.vars.outputs.downgrade_version != '' && always() }}
-        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+        uses: actions/upload-artifact@0b2256b8c012f0828dc542b3febcab082c67f72b # v4.3.4
         with:
           name: cilium-junits-${{ matrix.config }}-${{ matrix.mode }}
           path: cilium-junits/*.xml
@@ -415,7 +427,7 @@ jobs:
     steps:
       - name: Merge Sysdumps
         if: ${{ needs.setup-and-test.result == 'failure' }}
-        uses: actions/upload-artifact/merge@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+        uses: actions/upload-artifact/merge@0b2256b8c012f0828dc542b3febcab082c67f72b # v4.3.4
         with:
           name: cilium-sysdumps
           pattern: cilium-sysdumps-*
@@ -423,7 +435,7 @@ jobs:
           delete-merged: true
         continue-on-error: true
       - name: Merge JUnits
-        uses: actions/upload-artifact/merge@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+        uses: actions/upload-artifact/merge@0b2256b8c012f0828dc542b3febcab082c67f72b # v4.3.4
         with:
           name: cilium-junits
           pattern: cilium-junits-*
