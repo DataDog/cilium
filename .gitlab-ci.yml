@@ -27,7 +27,7 @@ before_script:
       N_TAGS_TO_BUILD=1
       if [ "$CI_PIPELINE_SOURCE" == "schedule" ]; then N_TAGS_TO_BUILD=3; fi
       
-      TAGS_TO_BUILD=$(git tag --sort=-creatordate --merged HEAD | head -n $N_TAGS_TO_BUILD)
+      TAGS_TO_BUILD=( $(git tag --sort=-creatordate --merged HEAD | head -n $N_TAGS_TO_BUILD) )
       
       for TAG in $TAGS_TO_BUILD; do
         IMAGE_TAG="$TAG"
@@ -94,7 +94,7 @@ build-docker-image-cilium:
       N_TAGS_TO_BUILD=1
       if [ "$CI_PIPELINE_SOURCE" == "schedule" ]; then N_TAGS_TO_BUILD=3; fi
       
-      TAGS_TO_BUILD=$(git tag --sort=-creatordate --merged HEAD | head -n $N_TAGS_TO_BUILD)
+      TAGS_TO_BUILD=( $(git tag --sort=-creatordate --merged HEAD | head -n $N_TAGS_TO_BUILD) )
       
       for TAG in $TAGS_TO_BUILD; do
         IMAGE_TAG="$TAG"
