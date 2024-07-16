@@ -18,6 +18,7 @@ fi
 GIT_TAGS_TO_BUILD=$(git tag --sort=-creatordate --merged HEAD | head -n $N_GIT_TAGS_TO_BUILD)
 
 while IFS= read -r GIT_TAG ; do
+  # Construct the image tag
   IMAGE_TAG="$GIT_TAG"
   if [ "$TARGET" = "debug" ]; then
     IMAGE_TAG="$IMAGE_TAG-debug"
@@ -25,13 +26,15 @@ while IFS= read -r GIT_TAG ; do
   if [ "$CI_PIPELINE_SOURCE" == "schedule" ]; then
     IMAGE_TAG="$IMAGE_TAG-$(date +"%Y-%m-%d-%H-%M")"
   fi
-  # TODO remove this
-  echo $IMAGE_TAG
   IMAGE_REF="registry.ddbuild.io/$IMAGE_NAME:$IMAGE_TAG"
 
-  METADATA_FILE=$(mktemp)
+  # Find the right Cilium Runtime image to use for the main Cilium image build
+  if [ "$IMAGE_NAME" == "cilium" ]; then
+    CILIUM_RUNTIME_IMAGE="registry.ddbuild.io/cilium-runtime:$IMAGE_TAG"
+    BUILD_ARGS+=" --build-arg CILIUM_RUNTIME_IMAGE=$CILIUM_RUNTIME_IMAGE"
+  fi
 
-  continue
+  METADATA_FILE=$(mktemp)
   docker buildx build --platform linux/amd64,linux/arm64 \
     --tag "$IMAGE_REF" \
     --file "$DOCKERFILE_PATH" \
@@ -44,4 +47,20 @@ while IFS= read -r GIT_TAG ; do
     "$DOCKER_CTX"
 
   ddsign sign "$IMAGE_REF" --docker-metadata-file "$METADATA_FILE"
+
+  # Always build the debug version of the Cilium image
+  if [ "$IMAGE_NAME" == "cilium" ]; then
+    METADATA_FILE_DEBUG=$(mktemp)
+    docker buildx build --platform linux/amd64,linux/arm64 \
+      --tag "$IMAGE_REF"-debug \
+      --file "$DOCKERFILE_PATH" \
+      "$BUILD_ARGS" \
+      --label CILIUM_VERSION="$(cat VERSION)" \
+      --label target=debug \
+      --target debug \
+      --push \
+      --metadata-file "$METADATA_FILE_DEBUG" \
+      "$DOCKER_CTX"
+    ddsign sign "$IMAGE_REF"-debug --docker-metadata-file "$METADATA_FILE_DEBUG"
+  fi
 done <<< "$GIT_TAGS_TO_BUILD"

@@ -61,34 +61,12 @@ build-docker-image-cilium:
     IMAGE_NAME: cilium
     DOCKERFILE_PATH: images/cilium/Dockerfile
     DOCKER_BUILD_ARGS: |
-      CILIUM_RUNTIME_IMAGE=registry.ddbuild.io/cilium-runtime:$CI_COMMIT_TAG
       CILIUM_BUILDER_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-builder:c9a0fac9eaf925a150a055c43592f283868ba2b1@sha256:9cdc6e2e3c3dedc798c71672811b7cfa67d2c7b6d6e3046d917b9c4483c1a065
       CILIUM_ENVOY_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-envoy:v1.29.7-39a2a56bbd5b3a591f69dbca51d3e30ef97e0e51@sha256:bd5ff8c66716080028f414ec1cb4f7dc66f40d2fb5a009fff187f4a9b90b566b
     TARGET: release
     NOSTRIP: 0
   script:
-    - |
-      set -x
-      # Construct valid --build-args arguments from the DOCKER_BUILD_ARGS variable
-      BUILD_ARGS=""; IFS=$'\n'; for arg in $DOCKER_BUILD_ARGS; do BUILD_ARGS+=" $(echo "--build-arg $arg")"; done; IFS=$' ';
-      
-      N_TAGS_TO_BUILD=1
-      if [ "$CI_PIPELINE_SOURCE" == "schedule" ]; then N_TAGS_TO_BUILD=3; fi
-      
-      TAGS_TO_BUILD=$(git tag --sort=-creatordate --merged HEAD | head -n $N_TAGS_TO_BUILD)
-      
-      while IFS= read -r TAG ; do
-        IMAGE_TAG="$TAG"
-        if [ "$CI_PIPELINE_SOURCE" == "schedule" ]; then IMAGE_TAG="$IMAGE_TAG-$(date +"%Y-%m-%d-%H-%M")"; fi
-        IMAGE_REF="registry.ddbuild.io/$IMAGE_NAME:$IMAGE_TAG"
-        METADATA_FILE1=$(mktemp)
-        METADATA_FILE2=$(mktemp)
-        echo $IMAGE_TAG
-        docker buildx build --platform linux/amd64,linux/arm64 --tag $IMAGE_REF --file $DOCKERFILE_PATH $BUILD_ARGS --label CILIUM_VERSION=$(cat VERSION) --label target=prod --target $TARGET --push --metadata-file $METADATA_FILE1 $DOCKER_CTX
-        ddsign sign $IMAGE_REF --docker-metadata-file $METADATA_FILE1
-        docker buildx build --platform linux/amd64,linux/arm64 --tag $IMAGE_REF-debug --file $DOCKERFILE_PATH $BUILD_ARGS --label CILIUM_VERSION=$(cat VERSION) --label target=debug --target debug --push --metadata-file $METADATA_FILE2 $DOCKER_CTX
-        ddsign sign $IMAGE_REF-debug --docker-metadata-file $METADATA_FILE2
-      done <<< $TAGS_TO_BUILD
+    - .gitlab/build-image.sh
 
 build-docker-image-hubble-relay:
   <<: *build-docker-image
