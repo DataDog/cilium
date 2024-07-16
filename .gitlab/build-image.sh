@@ -21,10 +21,10 @@ while IFS= read -r GIT_TAG; do
   # Construct the image tag
   IMAGE_TAG="$GIT_TAG"
   if [ "$TARGET" = "debug" ]; then
-    IMAGE_TAG="$IMAGE_TAG-debug"
+    IMAGE_TAG="${IMAGE_TAG}-debug"
   fi
   if [ "$CI_PIPELINE_SOURCE" == "schedule" ]; then
-    IMAGE_TAG="$IMAGE_TAG-$(date +"%Y-%m-%d-%H-%M")"
+    IMAGE_TAG="${IMAGE_TAG}-${CI_PIPELINE_CREATED_AT}"
   fi
   IMAGE_REF="registry.ddbuild.io/$IMAGE_NAME:$IMAGE_TAG"
 
