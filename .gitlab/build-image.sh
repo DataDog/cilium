@@ -3,11 +3,11 @@ set -exuo pipefail
 
 # Construct valid --build-args arguments from the DOCKER_BUILD_ARGS variable
 BUILD_ARGS=""
-while IFS= read -r ARG; do
-  BUILD_ARGS+=" --build-arg $ARG"
-done <<< "$DOCKER_BUILD_ARGS"
-
-echo "Here: $BUILD_ARGS"
+IFS=$'\n'
+for arg in $DOCKER_BUILD_ARGS; do
+  BUILD_ARGS+=" $(echo "--build-arg $arg")"
+done
+IFS=$' '
 
 # Build 3 latest git tags when the pipeline is triggered by a schedule, otherwise build the latest tag
 N_GIT_TAGS_TO_BUILD=1
@@ -54,7 +54,7 @@ while IFS= read -r GIT_TAG; do
     docker buildx build --platform linux/amd64,linux/arm64 \
       --tag "$IMAGE_REF"-debug \
       --file "$DOCKERFILE_PATH" \
-      "$BUILD_ARGS" \
+      $BUILD_ARGS \
       --label CILIUM_VERSION="$(cat VERSION)" \
       --label target=debug \
       --target debug \
