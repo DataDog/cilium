@@ -54,7 +54,7 @@ while IFS= read -r GIT_TAG; do
     docker buildx build --platform linux/amd64,linux/arm64 \
       --tag "$IMAGE_REF"-debug \
       --file "$DOCKERFILE_PATH" \
-      $BUILD_ARGS \
+      $(echo $BUILD_ARGS) \
       --label CILIUM_VERSION="$(cat VERSION)" \
       --label target=debug \
       --target debug \
