@@ -16,7 +16,7 @@ if [ "$CI_PIPELINE_SOURCE" == "schedule" ]; then
 fi
 
 # Get the N_GIT_TAGS_TO_BUILD latest git tags containing the dd suffix
-GIT_TAGS_TO_BUILD=$(git tag --sort=-creatordate --merged HEAD | grep dd | head -n $N_GIT_TAGS_TO_BUILD)
+GIT_TAGS_TO_BUILD=$(git --no-pager tag --sort=-creatordate --merged HEAD --list \*-dd\* | head -n $N_GIT_TAGS_TO_BUILD)
 
 while IFS= read -r GIT_TAG; do
   git checkout "$GIT_TAG"
