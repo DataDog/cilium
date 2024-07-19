@@ -401,6 +401,8 @@ const (
 	unableToAttachENI            = "unableToAttachENI"
 	unableToMarkENIForDeletion   = "unableToMarkENIForDeletion"
 	unableToFindSubnet           = "unableToFindSubnet"
+	unableToAssociateEIP         = "unableToAssociateEIP"
+	errUnableToAssociateEIP      = "unable to associate EIP"
 )
 
 // CreateInterface creates an additional interface with the instance and
@@ -476,6 +478,13 @@ func (n *Node) CreateInterface(ctx context.Context, allocation *ipam.AllocationA
 
 	if subnet.CIDR != nil {
 		eni.Subnet.CIDR = subnet.CIDR.String()
+	}
+
+	if resource.Spec.ENI.EIPTags != nil {
+		err := n.manager.api.AssociateEIP(ctx, eniID, resource.Spec.ENI.EIPTags)
+		if err != nil {
+			return 0, unableToAssociateEIP, fmt.Errorf("%s: %w", errUnableToAssociateEIP, err)
+		}
 	}
 
 	var attachmentID string
