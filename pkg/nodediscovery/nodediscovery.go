@@ -623,6 +623,10 @@ func (n *NodeDiscovery) mutateNodeResource(nodeResource *ciliumv2.CiliumNode) er
 				nodeResource.Spec.ENI.SubnetTags = c.ENI.SubnetTags
 			}
 
+			if len(c.ENI.EIPTags) > 0 {
+				nodeResource.Spec.ENI.EIPTags = c.ENI.EIPTags
+			}
+
 			if c.ENI.VpcID != "" {
 				nodeResource.Spec.ENI.VpcID = c.ENI.VpcID
 			}
