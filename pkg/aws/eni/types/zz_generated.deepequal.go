@@ -272,6 +272,27 @@ func (in *ENISpec) DeepEqual(other *ENISpec) bool {
 		}
 	}
 
+	if ((in.EIPTags != nil) && (other.EIPTags != nil)) || ((in.EIPTags == nil) != (other.EIPTags == nil)) {
+		in, other := &in.EIPTags, &other.EIPTags
+		if other == nil {
+			return false
+		}
+
+		if len(*in) != len(*other) {
+			return false
+		} else {
+			for key, inValue := range *in {
+				if otherValue, present := (*other)[key]; !present {
+					return false
+				} else {
+					if inValue != otherValue {
+						return false
+					}
+				}
+			}
+		}
+	}
+
 	if in.NodeSubnetID != other.NodeSubnetID {
 		return false
 	}

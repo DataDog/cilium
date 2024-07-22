@@ -146,6 +146,10 @@ spec:
                     description: DisablePrefixDelegation determines whether ENI prefix
                       delegation should be disabled on this node.
                     type: boolean
+                  eip-tags:
+                    additionalProperties:
+                      type: string
+                    type: object
                   exclude-interface-tags:
                     additionalProperties:
                       type: string
