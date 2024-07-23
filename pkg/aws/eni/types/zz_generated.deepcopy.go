@@ -117,6 +117,13 @@ func (in *ENISpec) DeepCopyInto(out *ENISpec) {
 			(*out)[key] = val
 		}
 	}
+	if in.EIPTags != nil {
+		in, out := &in.EIPTags, &out.EIPTags
+		*out = make(map[string]string, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
+	}
 	if in.ExcludeInterfaceTags != nil {
 		in, out := &in.ExcludeInterfaceTags, &out.ExcludeInterfaceTags
 		*out = make(map[string]string, len(*in))
