@@ -691,7 +691,7 @@ func (c *Client) UnassignENIPrefixes(ctx context.Context, eniID string, prefixes
 	return err
 }
 
-func (c *Client) AssociateEIP(ctx context.Context, eniID string, eipTags ipamTypes.Tags) error {
+func (c *Client) AssociateEIP(ctx context.Context, instanceID string, eipTags ipamTypes.Tags) error {
 	filters := make([]ec2_types.Filter, 0, len(eipTags))
 	for k, v := range eipTags {
 		filters = append(filters, ec2_types.Filter{
@@ -715,7 +715,7 @@ func (c *Client) AssociateEIP(ctx context.Context, eniID string, eipTags ipamTyp
 			// TODO rate-limiting
 			associateAddressInput := &ec2.AssociateAddressInput{
 				AllocationId:       address.AllocationId,
-				NetworkInterfaceId: aws.String(eniID),
+				InstanceId:         aws.String(instanceID),
 				AllowReassociation: aws.Bool(false),
 			}
 			association, err := c.ec2Client.AssociateAddress(ctx, associateAddressInput)
@@ -724,7 +724,7 @@ func (c *Client) AssociateEIP(ctx context.Context, eniID string, eipTags ipamTyp
 				// TODO some errors can be skipped and next EIP can be tried?
 				return err
 			}
-			log.Infof("Associated EIP %s with ENI %s (association ID: %s)", *address.PublicIp, eniID, *association.AssociationId)
+			log.Infof("Associated EIP %s with Instance %s (association ID: %s)", *address.PublicIp, instanceID, *association.AssociationId)
 			return nil
 		}
 	}
