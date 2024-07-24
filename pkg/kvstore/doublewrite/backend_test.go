@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -83,6 +84,28 @@ func TestAllocateID(t *testing.T) {
 		k.GetKey(),
 		string(kvPairs[fmt.Sprintf("%s/id/%s", kvstorePrefix, identityID)].Data),
 	)
+}
+
+func TestAllocateIDFailure(t *testing.T) {
+	kvstorePrefix, kubeClient, backend := setup(t)
+
+	// Allocate a new identity
+	lbls := labels.NewLabelsFromSortedList("id=foo")
+	k := &key.GlobalIdentity{LabelArray: lbls.LabelArray()}
+	identityID := idpool.ID(10)
+
+	// Pre-create the identity in the KVStore so as to trigger failure during allocation
+	_, err := kvstore.Client().CreateOnly(context.Background(), path.Join(kvstorePrefix, "id", strconv.FormatUint(uint64(identityID), 10)), []byte(k.GetKey()), false)
+	require.NoError(t, err)
+
+	_, err = backend.AllocateID(context.Background(), identityID, k)
+	// The KVStore allocation should have failed
+	require.ErrorContains(t, err, "unable to create master key")
+
+	// Verify that the identity has not been created as a CRD
+	ids, err := kubeClient.CiliumV2().CiliumIdentities().List(context.Background(), metav1.ListOptions{})
+	require.NoError(t, err)
+	require.Len(t, ids.Items, 0)
 }
 
 func TestGetID(t *testing.T) {

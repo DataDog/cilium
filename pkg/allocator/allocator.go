@@ -193,6 +193,9 @@ type Backend interface {
 	// DeleteAllKeys will delete all keys. It is used in tests.
 	DeleteAllKeys(ctx context.Context)
 
+	// DeleteID deletes the identity with the given ID
+	DeleteID(ctx context.Context, id idpool.ID) error
+
 	// Encode encodes a key string as required to conform to the key
 	// restrictions of the backend
 	Encode(string) string
