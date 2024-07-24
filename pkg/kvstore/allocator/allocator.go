@@ -133,6 +133,10 @@ func (k *kvstoreBackend) DeleteAllKeys(ctx context.Context) {
 	k.backend.DeletePrefix(ctx, k.basePrefix)
 }
 
+func (k *kvstoreBackend) DeleteID(ctx context.Context, id idpool.ID) error {
+	return k.backend.Delete(ctx, path.Join(k.idPrefix, id.String()))
+}
+
 // AllocateID allocates a key->ID mapping in the kvstore.
 func (k *kvstoreBackend) AllocateID(ctx context.Context, id idpool.ID, key allocator.AllocatorKey) (allocator.AllocatorKey, error) {
 	// create /id/<ID> and fail if it already exists
