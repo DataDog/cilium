@@ -403,6 +403,8 @@ func (e *etcdClient) waitForInitLock(ctx context.Context) <-chan error {
 	initLockSucceeded := make(chan error)
 
 	go func() {
+		limiter := GetExpBackoffRateLimiter(e, "etcd-client-init-lock")
+		defer limiter.Reset()
 		for {
 			select {
 			case <-e.client.Ctx().Done():
@@ -432,7 +434,7 @@ func (e *etcdClient) waitForInitLock(ctx context.Context) <-chan error {
 				return
 			}
 
-			time.Sleep(100 * time.Millisecond)
+			limiter.Wait(ctx)
 		}
 	}()
 
@@ -467,11 +469,26 @@ func (e *etcdClient) isConnectedAndHasQuorum(ctx context.Context) error {
 	return nil
 }
 
+func GetExpBackoffRateLimiter(e *etcdClient, name string) backoff.Exponential {
+	errLimiter := backoff.Exponential{
+		Name: name,
+		Min:  50 * time.Millisecond,
+		Max:  1 * time.Minute,
+	}
+
+	if e != nil && e.extraOptions != nil {
+		errLimiter.NodeManager = backoff.NewNodeManager(e.extraOptions.ClusterSizeDependantInterval)
+	}
+	return errLimiter
+}
+
 // Connected closes the returned channel when the etcd client is connected. If
 // the context is cancelled or if the etcd client is closed, an error is
 // returned on the channel.
 func (e *etcdClient) Connected(ctx context.Context) <-chan error {
 	out := make(chan error)
+	limiter := GetExpBackoffRateLimiter(e, "etcd-client-connected")
+	defer limiter.Reset()
 	go func() {
 		defer close(out)
 		for {
@@ -487,7 +504,7 @@ func (e *etcdClient) Connected(ctx context.Context) <-chan error {
 			if e.isConnectedAndHasQuorum(ctx) == nil {
 				return
 			}
-			time.Sleep(100 * time.Millisecond)
+			limiter.Wait(ctx)
 		}
 	}()
 	return out
