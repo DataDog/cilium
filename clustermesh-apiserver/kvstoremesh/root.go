@@ -4,7 +4,6 @@
 package kvstoremesh
 
 import (
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/cilium/cilium/pkg/clustermesh/types"
