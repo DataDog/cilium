@@ -481,7 +481,7 @@ func (n *Node) CreateInterface(ctx context.Context, allocation *ipam.AllocationA
 	}
 
 	if resource.Spec.ENI.EIPTags != nil {
-		err := n.manager.api.AssociateEIP(ctx, n.node.InstanceID(), resource.Spec.ENI.EIPTags)
+		err := n.manager.api.AssociateEIP(ctx, eniID, n.node.InstanceID(), resource.Spec.ENI.EIPTags, true)
 		if err != nil {
 			return 0, unableToAssociateEIP, fmt.Errorf("%s: %w", errUnableToAssociateEIP, err)
 		}
