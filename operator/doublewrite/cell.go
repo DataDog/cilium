@@ -18,7 +18,7 @@ const (
 
 var Cell = cell.Module(
 	"double-write-metric-reporter",
-	"When the Double Write Identity Allocation mode is enabled, the Double-Write Metric Reporter helps with monitoring the state of identities in KVStore and CRD",
+	"The Double-Write Metric Reporter compares identities in KVStore and CRD",
 
 	cell.Config(defaultConfig),
 
