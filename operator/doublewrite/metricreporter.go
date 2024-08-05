@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cilium/cilium/pkg/slices"
+
 	"github.com/cilium/cilium/pkg/allocator"
 	"github.com/cilium/cilium/pkg/identity/key"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
@@ -19,7 +21,6 @@ import (
 	"github.com/cilium/cilium/pkg/controller"
 	"github.com/cilium/cilium/pkg/hive/cell"
 	"github.com/cilium/cilium/pkg/identity/cache"
-	"github.com/cilium/cilium/pkg/idpool"
 	"github.com/cilium/cilium/pkg/kvstore"
 	kvstoreallocator "github.com/cilium/cilium/pkg/kvstore/allocator"
 	"github.com/cilium/cilium/pkg/option"
@@ -54,6 +55,9 @@ type DoubleWriteMetricReporter struct {
 }
 
 func registerDoubleWriteMetricReporter(p params) {
+	if option.Config.IdentityAllocationMode != option.IdentityAllocationModeDoubleWriteReadKVstore && option.Config.IdentityAllocationMode != option.IdentityAllocationModeDoubleWriteReadCRD {
+		return
+	}
 	doubleWriteMetricReporter := &DoubleWriteMetricReporter{
 		logger:    p.Logger,
 		interval:  p.Cfg.Interval,
@@ -73,9 +77,6 @@ func (h NoOpHandlerWithListDone) OnListDone() {
 }
 
 func (g *DoubleWriteMetricReporter) Start(ctx cell.HookContext) error {
-	if option.Config.IdentityAllocationMode != option.IdentityAllocationModeDoubleWriteReadKVstore && option.Config.IdentityAllocationMode != option.IdentityAllocationModeDoubleWriteReadCRD {
-		return nil
-	}
 	g.logger.Info("Starting the Double Write Metric Reporter")
 
 	kvStoreBackend, err := kvstoreallocator.NewKVStoreBackend(kvstoreallocator.KVStoreBackendConfiguration{BasePath: cache.IdentitiesPath, Suffix: "", Typ: nil, Backend: kvstore.Client()})
@@ -120,25 +121,6 @@ func (g *DoubleWriteMetricReporter) Stop(ctx cell.HookContext) error {
 	return nil
 }
 
-// difference counts the elements in `a` that aren't in `b` and returns a sample of differing elements (up to `maxElements`)
-func difference(a, b []idpool.ID, maxElements int) (int, []idpool.ID) {
-	mb := make(map[idpool.ID]struct{}, len(b))
-	for _, x := range b {
-		mb[x] = struct{}{}
-	}
-	c := 0
-	var diff []idpool.ID
-	for _, x := range a {
-		if _, found := mb[x]; !found {
-			c++
-			if len(diff) < maxElements {
-				diff = append(diff, x)
-			}
-		}
-	}
-	return c, diff
-}
-
 func (g *DoubleWriteMetricReporter) compareCRDAndKVStoreIdentities(ctx context.Context) error {
 	// Get CRD identities
 	g.logger.Info("Anton-Test waiting for the CRD backend list to be done")
@@ -159,18 +141,30 @@ func (g *DoubleWriteMetricReporter) compareCRDAndKVStoreIdentities(ctx context.C
 
 	// Compare CRD and KVStore identities
 	maxPrintedDiffIDs := 5 // Cap the number of differing IDs so as not to log too many
-	onlyInCrdCount, onlyInCrdSample := difference(crdIdentityIds, kvstoreIdentityIds, maxPrintedDiffIDs)
-	onlyInKVStoreCount, onlyInKVStoreSample := difference(kvstoreIdentityIds, crdIdentityIds, maxPrintedDiffIDs)
-	g.logger.Infof("CRD identities: %d\n"+
-		"KVStore identities: %d\n"+
-		"Identities only in CRD: %d. Example IDs (capped at %d): %v\n"+
-		"Identities only in KVStore: %d. Example IDs (capped at %d): %v\n",
-		len(crdIdentityIds), len(kvstoreIdentityIds), onlyInCrdCount, maxPrintedDiffIDs, onlyInCrdSample, onlyInKVStoreCount, maxPrintedDiffIDs, onlyInKVStoreSample)
+	onlyInCrd := slices.Diff(crdIdentityIds, kvstoreIdentityIds)
+	onlyInKVStore := slices.Diff(kvstoreIdentityIds, crdIdentityIds)
+	onlyInCrdCount := len(onlyInCrd)
+	onlyInKVStoreCount := len(onlyInKVStore)
+	onlyInCrdSample := onlyInCrd[:min(onlyInCrdCount, maxPrintedDiffIDs)]
+	onlyInKVStoreSample := onlyInKVStore[:min(onlyInKVStoreCount, maxPrintedDiffIDs)]
 
 	metrics.IdentityCRDTotalCount.Set(float64(len(crdIdentityIds)))
 	metrics.IdentityKVStoreTotalCount.Set(float64(len(kvstoreIdentityIds)))
 	metrics.IdentityCRDOnlyCount.Set(float64(onlyInCrdCount))
 	metrics.IdentityKVStoreOnlyCount.Set(float64(onlyInKVStoreCount))
+
+	if onlyInCrdCount == 0 && onlyInKVStoreCount == 0 {
+		g.logger.Info("CRD and KVStore identities are in sync")
+	} else {
+		g.logger.WithFields(logrus.Fields{
+			"crd_identity_count":     len(crdIdentityIds),
+			"kvstore_identity_count": len(kvstoreIdentityIds),
+			"only_in_crd_count":      onlyInCrdCount,
+			"only_in_kvstore_count":  onlyInKVStoreCount,
+			"only_in_crd_sample":     onlyInCrdSample,
+			"only_in_kvstore_sample": onlyInKVStoreSample,
+		}).Infof("Detected differences between CRD and KVStore identities")
+	}
 
 	return nil
 }
