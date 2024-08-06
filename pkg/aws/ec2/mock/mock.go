@@ -529,6 +529,11 @@ func (e *API) UnassignENIPrefixes(ctx context.Context, eniID string, prefixes []
 	return fmt.Errorf("Unable to find ENI with ID %s", eniID)
 }
 
+func (c *Client) AssociateEIP(ctx context.Context, instanceID string, eipTags ipamTypes.Tags) error {
+	// TODO
+	return nil
+}
+
 func (e *API) GetInstance(ctx context.Context, vpcs ipamTypes.VirtualNetworkMap, subnets ipamTypes.SubnetMap, instanceID string) (*ipamTypes.Instance, error) {
 	instance := ipamTypes.Instance{}
 	instance.Interfaces = map[string]ipamTypes.InterfaceRevision{}
