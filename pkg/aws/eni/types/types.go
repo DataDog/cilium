@@ -206,6 +206,9 @@ type ENI struct {
 	//
 	// +optional
 	Tags map[string]string `json:"tags,omitempty"`
+
+	// +optional
+	PublicIP string `json:"public-ip,omitempty"`
 }
 
 func (e *ENI) DeepCopyInterface() types.Interface {
