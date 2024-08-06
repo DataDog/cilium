@@ -15,4 +15,6 @@ type InterfaceStats struct {
 
 	// RemainingAvailableInterfaceCount is the number of interfaces currently available.
 	RemainingAvailableInterfaceCount int
+
+	AssignedStaticIP string
 }
