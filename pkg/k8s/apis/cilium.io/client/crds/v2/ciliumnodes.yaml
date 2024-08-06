@@ -389,6 +389,10 @@ spec:
                       cilium-operator to get involved.
                     minimum: 0
                     type: integer
+                  static-ip-tags:
+                    additionalProperties:
+                      type: string
+                    type: object
                 type: object
               nodeidentity:
                 description: NodeIdentity is the Cilium numeric identity allocated
@@ -588,6 +592,8 @@ spec:
                           items:
                             type: string
                           type: array
+                        public-ip:
+                          type: string
                         security-groups:
                           description: SecurityGroups are the security groups associated
                             with the ENI
@@ -637,6 +643,8 @@ spec:
               ipam:
                 description: IPAM is the IPAM status of the node.
                 properties:
+                  assigned-static-ip:
+                    type: string
                   operator-status:
                     description: Operator is the Operator status of the node
                     properties:

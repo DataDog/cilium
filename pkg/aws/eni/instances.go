@@ -35,6 +35,7 @@ type EC2API interface {
 	UnassignPrivateIpAddresses(ctx context.Context, eniID string, addresses []string) error
 	AssignENIPrefixes(ctx context.Context, eniID string, prefixes int32) error
 	UnassignENIPrefixes(ctx context.Context, eniID string, prefixes []string) error
+	AssociateEIP(ctx context.Context, instanceID string, eipTags ipamTypes.Tags) (string, error)
 }
 
 // InstancesManager maintains the list of instances. It must be kept up to date
