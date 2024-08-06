@@ -566,8 +566,10 @@ func (n *NodeDiscovery) mutateNodeResource(nodeResource *ciliumv2.CiliumNode) er
 
 	switch option.Config.IPAM {
 	case ipamOption.IPAMKubernetes:
-		if c.IPAM.StaticIPTags != nil && len(c.IPAM.StaticIPTags) > 0 {
-			nodeResource.Spec.IPAM.StaticIPTags = c.IPAM.StaticIPTags
+		if c := n.NetConf; c != nil {
+			if c.IPAM.StaticIPTags != nil && len(c.IPAM.StaticIPTags) > 0 {
+				nodeResource.Spec.IPAM.StaticIPTags = c.IPAM.StaticIPTags
+			}
 		}
 	case ipamOption.IPAMClusterPoolV2:
 		if c := n.NetConf; c != nil {
