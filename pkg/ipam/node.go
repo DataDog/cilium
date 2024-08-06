@@ -167,6 +167,8 @@ type Statistics struct {
 	// EmptyInterfaceSlots is the number of empty interface slots available
 	// for interfaces to be attached
 	EmptyInterfaceSlots int
+
+	AssignedStaticIP string
 }
 
 // IsRunning returns true if the node is considered to be running
@@ -262,6 +264,13 @@ func (n *Node) getMaxAllocate() int {
 	}
 
 	return instanceMax
+}
+
+func (n *Node) getStaticIPTags() ipamTypes.Tags {
+	if n.resource.Spec.IPAM.StaticIPTags != nil {
+		return n.resource.Spec.IPAM.StaticIPTags
+	}
+	return ipamTypes.Tags{}
 }
 
 // GetNeededAddresses returns the number of needed addresses that need to be
@@ -431,6 +440,10 @@ func (n *Node) recalculate() {
 	}
 
 	n.available = a
+	if stats.AssignedStaticIP != "" {
+		n.stats.AssignedStaticIP = stats.AssignedStaticIP
+	}
+	n.stats.AssignedStaticIP = stats.AssignedStaticIP
 	n.stats.UsedIPs = len(n.resource.Status.IPAM.Used)
 
 	// Get used IP count with prefixes included
@@ -887,6 +900,16 @@ func (n *Node) maintainIPPool(ctx context.Context) (instanceMutated bool, err er
 		n.removeStaleReleaseIPs()
 	}
 
+	if len(n.getStaticIPTags()) >= 1 {
+		if n.stats.AssignedStaticIP == "" {
+			ip, err := n.ops.AllocateStaticIP(ctx, n.getStaticIPTags())
+			if err != nil {
+				return false, err
+			}
+			n.stats.AssignedStaticIP = ip
+		}
+	}
+
 	a, err := n.determineMaintenanceAction()
 	if err != nil {
 		n.abortNoLongerExcessIPs(nil)
@@ -981,6 +1004,14 @@ func (n *Node) PopulateIPReleaseStatus(node *v2.CiliumNode) {
 	node.Status.IPAM.ReleaseIPs = releaseStatus
 }
 
+func (n *Node) PopulateStaticIPStatus(node *v2.CiliumNode) {
+	n.mutex.Lock()
+	defer n.mutex.Unlock()
+	if n.stats.AssignedStaticIP != "" {
+		node.Status.IPAM.AssignedStaticIP = n.stats.AssignedStaticIP
+	}
+}
+
 // syncToAPIServer synchronizes the contents of the CiliumNode resource
 // [(*Node).resource)] with the K8s apiserver. This operation occurs on an
 // interval to refresh the CiliumNode resource.
@@ -1029,6 +1060,7 @@ func (n *Node) syncToAPIServer() (err error) {
 
 		n.ops.PopulateStatusFields(node)
 		n.PopulateIPReleaseStatus(node)
+		n.PopulateStaticIPStatus(node)
 
 		err = n.update(origNode, node, retry, true)
 		if err == nil {

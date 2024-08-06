@@ -41,6 +41,7 @@ const (
 	AssignPrivateIpAddresses
 	UnassignPrivateIpAddresses
 	TagENI
+	AssociateEIP
 	MaxOperation
 )
 
@@ -529,6 +530,34 @@ func (e *API) UnassignENIPrefixes(ctx context.Context, eniID string, prefixes []
 		return nil
 	}
 	return fmt.Errorf("Unable to find ENI with ID %s", eniID)
+}
+
+func (e *API) AssociateEIP(ctx context.Context, instanceID string, eipTags ipamTypes.Tags) (string, error) {
+	e.rateLimit()
+	e.delaySim.Delay(AssociateEIP)
+
+	e.mutex.Lock()
+	defer e.mutex.Unlock()
+
+	if err, ok := e.errors[AssociateEIP]; ok {
+		return "", err
+	}
+
+	ipAddr := "192.0.2.254"
+
+	// Assign the EIP to the ENI 0 of the instance
+	for iid, enis := range e.enis {
+		if iid == instanceID {
+			for _, eni := range enis {
+				if eni.Number == 0 {
+					eni.PublicIP = ipAddr
+					return ipAddr, nil
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("unable to find ENI 0 for instance %s", instanceID)
 }
 
 func (e *API) GetInstances(ctx context.Context, vpcs ipamTypes.VirtualNetworkMap, subnets ipamTypes.SubnetMap) (*ipamTypes.InstanceMap, error) {
