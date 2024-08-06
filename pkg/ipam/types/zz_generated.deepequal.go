@@ -210,6 +210,26 @@ func (in *IPAMSpec) DeepEqual(other *IPAMSpec) bool {
 	if in.PodCIDRReleaseThreshold != other.PodCIDRReleaseThreshold {
 		return false
 	}
+	if ((in.StaticIPTags != nil) && (other.StaticIPTags != nil)) || ((in.StaticIPTags == nil) != (other.StaticIPTags == nil)) {
+		in, other := &in.StaticIPTags, &other.StaticIPTags
+		if other == nil {
+			return false
+		}
+
+		if len(*in) != len(*other) {
+			return false
+		} else {
+			for key, inValue := range *in {
+				if otherValue, present := (*other)[key]; !present {
+					return false
+				} else {
+					if inValue != otherValue {
+						return false
+					}
+				}
+			}
+		}
+	}
 
 	return true
 }

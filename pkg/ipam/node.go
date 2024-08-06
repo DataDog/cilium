@@ -264,6 +264,14 @@ func (n *Node) getMaxAllocate() int {
 	return instanceMax
 }
 
+func (n *Node) getStaticIPTags() ipamTypes.Tags {
+	if n.resource.Spec.IPAM.StaticIPTags != nil {
+		return n.resource.Spec.IPAM.StaticIPTags
+	} else {
+		return ipamTypes.Tags{}
+	}
+}
+
 // GetNeededAddresses returns the number of needed addresses that need to be
 // allocated or released. A positive number is returned to indicate allocation.
 // A negative number is returned to indicate release of addresses.
@@ -885,6 +893,13 @@ func (n *Node) handleIPAllocation(ctx context.Context, a *maintenanceAction) (in
 func (n *Node) maintainIPPool(ctx context.Context) (instanceMutated bool, err error) {
 	if n.manager.releaseExcessIPs {
 		n.removeStaleReleaseIPs()
+	}
+
+	if len(n.getStaticIPTags()) > 1 { // TODO check if static IP already allocated
+		err := n.ops.AllocateStaticIP(ctx, n.getStaticIPTags())
+		if err != nil {
+			return false, err
+		}
 	}
 
 	a, err := n.determineMaintenanceAction()

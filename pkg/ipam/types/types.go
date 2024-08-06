@@ -176,6 +176,9 @@ type IPAMSpec struct {
 	//
 	// +kubebuilder:validation:Minimum=0
 	PodCIDRReleaseThreshold int `json:"pod-cidr-release-threshold,omitempty"`
+
+	// +optional
+	StaticIPTags map[string]string `json:"static-ip-tags,omitempty"`
 }
 
 // IPReleaseStatus  defines the valid states in IP release handshake

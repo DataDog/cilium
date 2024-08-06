@@ -691,6 +691,48 @@ func (c *Client) UnassignENIPrefixes(ctx context.Context, eniID string, prefixes
 	return err
 }
 
+func (c *Client) AssociateEIP(ctx context.Context, instanceID string, eipTags ipamTypes.Tags) error {
+	filters := make([]ec2_types.Filter, 0, len(eipTags))
+	for k, v := range eipTags {
+		filters = append(filters, ec2_types.Filter{
+			Name:   aws.String(fmt.Sprintf("tag:%s", k)),
+			Values: []string{v},
+		})
+	}
+
+	describeAddressesInput := &ec2.DescribeAddressesInput{
+		Filters: filters,
+	}
+	// TODO rate-limiting
+	addresses, err := c.ec2Client.DescribeAddresses(ctx, describeAddressesInput)
+	// TODO metrics
+	if err != nil {
+		return err
+	}
+	log.Infof("Found %d EIPs corresponding to tags %v", len(addresses.Addresses), eipTags)
+
+	for _, address := range addresses.Addresses {
+		// Only pick unassociated EIPs
+		if address.AssociationId == nil {
+			// TODO rate-limiting
+			associateAddressInput := &ec2.AssociateAddressInput{
+				AllocationId:       address.AllocationId,
+				AllowReassociation: aws.Bool(false),
+				InstanceId:         aws.String(instanceID),
+			}
+			association, err := c.ec2Client.AssociateAddress(ctx, associateAddressInput)
+			// TODO metrics
+			if err != nil {
+				// TODO some errors can probably be skipped and next EIP can be tried
+				return err
+			}
+			log.Infof("Associated EIP %s with Instance %s (association ID: %s)", *address.PublicIp, instanceID, *association.AssociationId)
+			return nil
+		}
+	}
+	return fmt.Errorf("no unassociated EIPs found for tags %v", eipTags)
+}
+
 func createAWSTagSlice(tags map[string]string) []ec2_types.Tag {
 	awsTags := make([]ec2_types.Tag, 0, len(tags))
 	for k, v := range tags {
