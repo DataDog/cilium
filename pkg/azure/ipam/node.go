@@ -130,9 +130,9 @@ func (n *Node) AllocateIPs(ctx context.Context, a *ipam.AllocationAction) error 
 	}
 }
 
-func (n *Node) AllocateStaticIP(ctx context.Context, staticIPTags ipamTypes.Tags) error {
+func (n *Node) AllocateStaticIP(ctx context.Context, staticIPTags ipamTypes.Tags) (string, error) {
 	// TODO
-	return nil
+	return "", nil
 }
 
 // CreateInterface is called to create a new interface. This operation is

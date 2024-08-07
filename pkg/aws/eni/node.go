@@ -295,7 +295,7 @@ func (n *Node) AllocateIPs(ctx context.Context, a *ipam.AllocationAction) error 
 	return n.manager.api.AssignPrivateIpAddresses(ctx, a.InterfaceID, int32(a.AvailableForAllocation))
 }
 
-func (n *Node) AllocateStaticIP(ctx context.Context, staticIPTags ipamTypes.Tags) error {
+func (n *Node) AllocateStaticIP(ctx context.Context, staticIPTags ipamTypes.Tags) (string, error) {
 	return n.manager.api.AssociateEIP(ctx, n.node.InstanceID(), staticIPTags)
 }
 

@@ -655,6 +655,8 @@ spec:
               ipam:
                 description: IPAM is the IPAM status of the node.
                 properties:
+                  assigned-static-ip:
+                    type: string
                   operator-status:
                     description: Operator is the Operator status of the node
                     properties:

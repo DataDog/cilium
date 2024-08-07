@@ -306,9 +306,9 @@ func (n *Node) AllocateIPs(ctx context.Context, a *ipam.AllocationAction) error 
 	return err
 }
 
-func (n *Node) AllocateStaticIP(ctx context.Context, staticIPTags ipamTypes.Tags) error {
+func (n *Node) AllocateStaticIP(ctx context.Context, staticIPTags ipamTypes.Tags) (string, error) {
 	// TODO
-	return nil
+	return "", nil
 }
 
 // PrepareIPRelease prepares the release of ENI IPs.

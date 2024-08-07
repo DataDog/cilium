@@ -280,6 +280,10 @@ func (in *IPAMStatus) DeepEqual(other *IPAMStatus) bool {
 		}
 	}
 
+	if in.AssignedStaticIP != other.AssignedStaticIP {
+		return false
+	}
+
 	return true
 }
 

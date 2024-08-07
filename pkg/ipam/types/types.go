@@ -215,6 +215,9 @@ type IPAMStatus struct {
 	//
 	// +optional
 	ReleaseIPs map[string]IPReleaseStatus `json:"release-ips,omitempty"`
+
+	// +optional
+	AssignedStaticIP string `json:"assigned-static-ip,omitempty"`
 }
 
 // IPAMPoolRequest is a request from the agent to the operator, indicating how
