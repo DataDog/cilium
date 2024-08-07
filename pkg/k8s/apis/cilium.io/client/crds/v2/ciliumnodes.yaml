@@ -409,6 +409,10 @@ spec:
                       cilium-operator to get involved.
                     minimum: 0
                     type: integer
+                  static-ip-tags:
+                    additionalProperties:
+                      type: string
+                    type: object
                 type: object
               nodeidentity:
                 description: NodeIdentity is the Cilium numeric identity allocated
