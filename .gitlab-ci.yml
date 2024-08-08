@@ -102,4 +102,5 @@ run-campaign:
     # Set the branch where .campaigns.toml is located
     - git remote set-head origin $CI_COMMIT_REF_NAME
     - envsubst < .gitlab/campaign-template.yaml > campaign.yaml
+    - cat campaign.yaml
     - campaigns start --env prod --config-file campaign.yaml
