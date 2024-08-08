@@ -22,5 +22,5 @@ file_patterns:
   regex: ["k8s/${CHART_NAME}/values.yaml"]
 changes:
   - op: "custom/search_and_replace"
-    key: !perl/regexp '(experimental: ")[0-9a-zA-Z.-]+'
+    key: !perl/regexp 'experimental: "([0-9a-zA-Z.-]+)"'
     value: "1.14.13-dd1-latest-and-greatest"
