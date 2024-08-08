@@ -72,4 +72,7 @@ while IFS= read -r GIT_TAG; do
       "$DOCKER_CTX"
     ddsign sign "$IMAGE_REF"-debug --docker-metadata-file "$METADATA_FILE_DEBUG"
   fi
+
+  # Save the tags to a file for later use with Campaigner
+  printf "%s %s\n" "$GIT_TAG" "$IMAGE_TAG" >> image_tags.txt
 done <<< "$GIT_TAGS_TO_BUILD"

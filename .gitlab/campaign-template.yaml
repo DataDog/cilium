@@ -1,0 +1,26 @@
+campaigner_settings:
+  name: "Bump ${CI_PROJECT_NAME} image"
+  owner: "Compute"
+  slack_channel: "${SLACK_CHANNEL}"
+  description: "Campaign to bump ${CI_PROJECT_NAME} image"
+  manual_refresh: false
+  make_edits: true
+  draft: false
+  batch_pr: true
+  allow_automerge: ${AUTO_MERGE}
+github:
+  repos:
+    - repo: k8s-platform-resources
+      branch: master
+  pull_request:
+    branch_name: "campaign/${BRANCH_NAME}"
+    title: Bump ${CI_PROJECT_NAME} image to the latest version
+    description: This pull request bumps the ${CI_PROJECT_NAME} image to its latest version.
+    default_commit_msg: "chore: bump ${CI_PROJECT_NAME} image to the latest version"
+file_patterns:
+  root: .
+  regex:
+   - k8s/k8s-platform-cluster-cni/values.yaml
+   - k8s/k8s-platform-cilium-control-plane/values.yaml
+   - k8s/k8s-platform-cilium-pre-flight/values.yaml
+changes:
