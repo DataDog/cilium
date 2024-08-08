@@ -92,7 +92,12 @@ before_script:
     TARGET: release
 
 run-campaign:
-  before_script:
+  extends: .run-campaign
+  variables:
+    CHART_NAME: k8s-platform-cluster-cni
+    COMPONENT: experimental
+    SLACK_CHANNEL: cilium-alerts-testing
+  script:
     # This is required for the set-head command to succeed
     - git config --global --add safe.directory $CI_PROJECT_DIR
     # Set the branch where .campaigns.toml is located
@@ -101,10 +106,8 @@ run-campaign:
       cat <<EOF | envsubst > campaign.yaml
       $CAMPAIGN_TEMPLATE
       EOF
-    - "sed -i 's/branch: master/branch: ai-campaign/' campaign.yaml"
+    # - "sed -i 's/branch: master/branch: ai-campaign/' campaign.yaml"
+    - "sed -i 's/values\\/environments\\/\\/common.yaml\\/values.yaml'"
     - cat campaign.yaml
-  variables:
-    CHART_NAME: k8s-platform-cluster-cni
-    COMPONENT: experimental
-    SLACK_CHANNEL: cilium-alerts-testing
-  extends: .run-campaign
+    - campaigns start --env prod --config-file campaign.yaml
+
