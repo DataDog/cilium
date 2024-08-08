@@ -92,6 +92,8 @@ before_script:
     TARGET: release
 
 run-campaign:
+  before_script:
+    - git remote set-head origin ai/campaign
   variables:
     CHART_NAME: k8s-platform-cluster-cni
     COMPONENT: experimental
