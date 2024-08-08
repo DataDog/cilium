@@ -93,9 +93,18 @@ before_script:
 
 run-campaign:
   before_script:
-    - git config --global --add safe.directory /go/src/github.com/DataDog/cilium
+    # This is required for the set-head command to succeed
+    - git config --global --add safe.directory $CI_PROJECT_DIR
+    # Set the branch where .campaigns.toml is located
     - git remote set-head origin ai/campaign
+    - |
+      cat <<EOF | envsubst > campaign.yaml
+      $CAMPAIGN_TEMPLATE
+      EOF
+    - "sed -i 's/branch: master/branch: ai\/campaign/' campaign.yaml"
+    - cat campaign.yaml
   variables:
     CHART_NAME: k8s-platform-cluster-cni
     COMPONENT: experimental
+    SLACK_CHANNEL: cilium-alerts-testing
   extends: .run-campaign
