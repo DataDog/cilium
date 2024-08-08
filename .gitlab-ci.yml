@@ -93,6 +93,7 @@ before_script:
 
 run-campaign:
   before_script:
+    - git config --global --add safe.directory /go/src/github.com/DataDog/cilium
     - git remote set-head origin ai/campaign
   variables:
     CHART_NAME: k8s-platform-cluster-cni
