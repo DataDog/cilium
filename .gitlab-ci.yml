@@ -1,3 +1,5 @@
+include: https://gitlab-templates.ddbuild.io/compute-delivery/v2/compute-delivery.yml
+
 variables:
   CI_DOCKER_IMAGE: registry.ddbuild.io/images/docker:24.0.4-gbi-focal
   DOCKER_CTX: "."
@@ -21,7 +23,7 @@ before_script:
   script:
     - .gitlab/build-image.sh
 
-build-docker-image-operator:
+.build-docker-image-operator:
   <<: *build-docker-image
   variables:
     IMAGE_NAME: cilium-operator
@@ -34,7 +36,7 @@ build-docker-image-operator:
       CILIUM_BUILDER_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-builder:c9a0fac9eaf925a150a055c43592f283868ba2b1@sha256:9cdc6e2e3c3dedc798c71672811b7cfa67d2c7b6d6e3046d917b9c4483c1a065
     TARGET: release
 
-build-docker-image-runtime:
+.build-docker-image-runtime:
   <<: *build-docker-image
   variables:
     IMAGE_NAME: cilium-runtime
@@ -52,7 +54,7 @@ build-docker-image-runtime:
 # Caveats:
 # * The build image is single-arch amd64 and we're doing cross-compilation, so the dlv copy is only valid on amd64. In
 #   other words, the arm64 image does not work.
-build-docker-image-cilium:
+.build-docker-image-cilium:
   <<: *build-docker-image
   needs:
     # The cilium image depends on the runtime image
@@ -68,7 +70,7 @@ build-docker-image-cilium:
   script:
     - .gitlab/build-image.sh
 
-build-docker-image-hubble-relay:
+.build-docker-image-hubble-relay:
   <<: *build-docker-image
   variables:
     IMAGE_NAME: hubble-relay
@@ -78,7 +80,7 @@ build-docker-image-hubble-relay:
       GOLANG_IMAGE=registry.ddbuild.io/images/mirror/golang:1.21.12@sha256:7e0e13add7f57a3e030ef4c9180843ace2fff7c788d54a8b12945d7b5739a055
     TARGET: release
 
-build-docker-image-kvstoremesh:
+.build-docker-image-kvstoremesh:
   <<: *build-docker-image
   variables:
     IMAGE_NAME: kvstoremesh
@@ -88,3 +90,9 @@ build-docker-image-kvstoremesh:
       GOLANG_IMAGE=registry.ddbuild.io/images/mirror/golang:1.21.12@sha256:7e0e13add7f57a3e030ef4c9180843ace2fff7c788d54a8b12945d7b5739a055
       ALPINE_IMAGE=registry.ddbuild.io/images/mirror/library/alpine:3.18.7@sha256:1875c923b73448b558132e7d4a44b815d078779ed7a73f76209c6372de95ea8d
     TARGET: release
+
+run-campaign:
+  variables:
+    CHART_NAME: k8s-platform-cluster-cni
+    COMPONENT: experimental
+  extends: .run-campaign
