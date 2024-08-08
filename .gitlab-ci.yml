@@ -107,7 +107,7 @@ run-campaign:
       $CAMPAIGN_TEMPLATE
       EOF
     # - "sed -i 's/branch: master/branch: ai-campaign/' campaign.yaml"
-    - "sed -i 's/values\\/environments\\/\\/common.yaml\\/values.yaml/' campaign.yaml"
+    - "sed -i 's/values\\/environments\\/\\/common.yaml/values.yaml/' campaign.yaml"
     - cat campaign.yaml
     - campaigns start --env prod --config-file campaign.yaml
 
