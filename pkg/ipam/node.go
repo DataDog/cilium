@@ -131,6 +131,8 @@ type Node struct {
 	// IPAMReleased        : IP released by the operator
 	ipReleaseStatus map[string]string
 
+	assignedStaticIP string
+
 	// logLimiter rate limits potentially repeating warning logs
 	logLimiter logging.Limiter
 }
@@ -262,6 +264,14 @@ func (n *Node) getMaxAllocate() int {
 	}
 
 	return instanceMax
+}
+
+func (n *Node) getStaticIPTags() ipamTypes.Tags {
+	if n.resource.Spec.IPAM.StaticIPTags != nil {
+		return n.resource.Spec.IPAM.StaticIPTags
+	} else {
+		return ipamTypes.Tags{}
+	}
 }
 
 // GetNeededAddresses returns the number of needed addresses that need to be
@@ -887,6 +897,16 @@ func (n *Node) maintainIPPool(ctx context.Context) (instanceMutated bool, err er
 		n.removeStaleReleaseIPs()
 	}
 
+	if len(n.getStaticIPTags()) > 1 {
+		if n.assignedStaticIP == "" {
+			ip, err := n.ops.AllocateStaticIP(ctx, n.getStaticIPTags())
+			if err != nil {
+				return false, err
+			}
+			n.assignedStaticIP = ip
+		}
+	}
+
 	a, err := n.determineMaintenanceAction()
 	if err != nil {
 		n.abortNoLongerExcessIPs(nil)
@@ -981,6 +1001,14 @@ func (n *Node) PopulateIPReleaseStatus(node *v2.CiliumNode) {
 	node.Status.IPAM.ReleaseIPs = releaseStatus
 }
 
+func (n *Node) PopulateStaticIPStatus(node *v2.CiliumNode) {
+	n.mutex.Lock()
+	defer n.mutex.Unlock()
+	if n.assignedStaticIP != "" {
+		node.Status.IPAM.AssignedStaticIP = n.assignedStaticIP
+	}
+}
+
 // syncToAPIServer synchronizes the contents of the CiliumNode resource
 // [(*Node).resource)] with the K8s apiserver. This operation occurs on an
 // interval to refresh the CiliumNode resource.
@@ -1029,6 +1057,7 @@ func (n *Node) syncToAPIServer() (err error) {
 
 		n.ops.PopulateStatusFields(node)
 		n.PopulateIPReleaseStatus(node)
+		n.PopulateStaticIPStatus(node)
 
 		err = n.update(origNode, node, retry, true)
 		if err == nil {

@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/cilium/cilium/pkg/logging"
+	"github.com/cilium/cilium/pkg/logging/logfields"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
@@ -14,7 +16,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2_types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/cilium/cilium/pkg/api/helpers"
 	"github.com/cilium/cilium/pkg/aws/endpoints"
@@ -38,6 +39,8 @@ const (
 	// requires looking at the error message to get the actual reason. See SubnetFullErrMsgStr for example.
 	InvalidParameterValueStr = "InvalidParameterValue"
 )
+
+var log = logging.DefaultLogger.WithField(logfields.LogSubsys, "ec2")
 
 // Client represents an EC2 API client
 type Client struct {
@@ -689,6 +692,51 @@ func (c *Client) UnassignENIPrefixes(ctx context.Context, eniID string, prefixes
 	_, err := c.ec2Client.UnassignPrivateIpAddresses(ctx, input)
 	c.metricsAPI.ObserveAPICall("UnassignPrivateIpAddresses", deriveStatus(err), sinceStart.Seconds())
 	return err
+}
+
+func (c *Client) AssociateEIP(ctx context.Context, instanceID string, eipTags ipamTypes.Tags) (string, error) {
+	filters := make([]ec2_types.Filter, 0, len(eipTags))
+	for k, v := range eipTags {
+		filters = append(filters, ec2_types.Filter{
+			Name:   aws.String(fmt.Sprintf("tag:%s", k)),
+			Values: []string{v},
+		})
+	}
+
+	describeAddressesInput := &ec2.DescribeAddressesInput{
+		Filters: filters,
+	}
+	c.limiter.Limit(ctx, "DescribeAddresses")
+	sinceStart := spanstat.Start()
+	addresses, err := c.ec2Client.DescribeAddresses(ctx, describeAddressesInput)
+	c.metricsAPI.ObserveAPICall("DescribeAddresses", deriveStatus(err), sinceStart.Seconds())
+	if err != nil {
+		return "", err
+	}
+	log.Infof("Found %d EIPs corresponding to tags %v", len(addresses.Addresses), eipTags)
+
+	for _, address := range addresses.Addresses {
+		// Only pick unassociated EIPs
+		if address.AssociationId == nil {
+			associateAddressInput := &ec2.AssociateAddressInput{
+				AllocationId:       address.AllocationId,
+				AllowReassociation: aws.Bool(false),
+				InstanceId:         aws.String(instanceID),
+			}
+			c.limiter.Limit(ctx, "AssociateAddress")
+			sinceStart = spanstat.Start()
+			association, err := c.ec2Client.AssociateAddress(ctx, associateAddressInput)
+			c.metricsAPI.ObserveAPICall("AssociateAddress", deriveStatus(err), sinceStart.Seconds())
+			if err != nil {
+				// TODO some errors can probably be skipped and next EIP can be tried
+				return "", err
+			}
+			log.Infof("Associated EIP %s with instance %s (association ID: %s)", *address.PublicIp, instanceID, *association.AssociationId)
+			return *address.PublicIp, nil
+		}
+	}
+
+	return "", fmt.Errorf("no unassociated EIPs found for tags %v", eipTags)
 }
 
 func createAWSTagSlice(tags map[string]string) []ec2_types.Tag {
