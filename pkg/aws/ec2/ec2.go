@@ -706,9 +706,10 @@ func (c *Client) AssociateEIP(ctx context.Context, instanceID string, eipTags ip
 	describeAddressesInput := &ec2.DescribeAddressesInput{
 		Filters: filters,
 	}
-	// TODO rate-limiting
+	c.limiter.Limit(ctx, "DescribeAddresses")
+	sinceStart := spanstat.Start()
 	addresses, err := c.ec2Client.DescribeAddresses(ctx, describeAddressesInput)
-	// TODO metrics
+	c.metricsAPI.ObserveAPICall("DescribeAddresses", deriveStatus(err), sinceStart.Seconds())
 	if err != nil {
 		return "", err
 	}
@@ -717,19 +718,20 @@ func (c *Client) AssociateEIP(ctx context.Context, instanceID string, eipTags ip
 	for _, address := range addresses.Addresses {
 		// Only pick unassociated EIPs
 		if address.AssociationId == nil {
-			// TODO rate-limiting
 			associateAddressInput := &ec2.AssociateAddressInput{
 				AllocationId:       address.AllocationId,
 				AllowReassociation: aws.Bool(false),
 				InstanceId:         aws.String(instanceID),
 			}
+			c.limiter.Limit(ctx, "AssociateAddress")
+			sinceStart = spanstat.Start()
 			association, err := c.ec2Client.AssociateAddress(ctx, associateAddressInput)
-			// TODO metrics
+			c.metricsAPI.ObserveAPICall("AssociateAddress", deriveStatus(err), sinceStart.Seconds())
 			if err != nil {
 				// TODO some errors can probably be skipped and next EIP can be tried
 				return "", err
 			}
-			log.Infof("Associated EIP %s with Instance %s (association ID: %s)", *address.PublicIp, instanceID, *association.AssociationId)
+			log.Infof("Associated EIP %s with instance %s (association ID: %s)", *address.PublicIp, instanceID, *association.AssociationId)
 			return *address.PublicIp, nil
 		}
 	}
