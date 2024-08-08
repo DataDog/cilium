@@ -101,7 +101,7 @@ run-campaign:
       cat <<EOF | envsubst > campaign.yaml
       $CAMPAIGN_TEMPLATE
       EOF
-    - "sed -i 's/branch: master/branch: ai\/campaign/' campaign.yaml"
+    - "sed -i 's/branch: master/branch: ai-campaign/' campaign.yaml"
     - cat campaign.yaml
   variables:
     CHART_NAME: k8s-platform-cluster-cni
