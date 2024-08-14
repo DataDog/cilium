@@ -29,9 +29,9 @@ build-docker-image-operator:
     DOCKER_BUILD_ARGS: |
       OPERATOR_VARIANT=operator
       BASE_IMAGE=registry.ddbuild.io/images/base/gbi-distroless:release
-      GOLANG_IMAGE=registry.ddbuild.io/images/mirror/golang:1.21.12@sha256:7e0e13add7f57a3e030ef4c9180843ace2fff7c788d54a8b12945d7b5739a055
-      ALPINE_IMAGE=registry.ddbuild.io/images/mirror/library/alpine:3.18.7@sha256:1875c923b73448b558132e7d4a44b815d078779ed7a73f76209c6372de95ea8d
-      CILIUM_BUILDER_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-builder:c9a0fac9eaf925a150a055c43592f283868ba2b1@sha256:9cdc6e2e3c3dedc798c71672811b7cfa67d2c7b6d6e3046d917b9c4483c1a065
+      GOLANG_IMAGE=registry.ddbuild.io/images/mirror/golang:1.22.6@sha256:d5e49f92b9566b0ddfc59a0d9d85cd8a848e88c8dc40d97e29f306f07c3f8338
+      ALPINE_IMAGE=registry.ddbuild.io/images/mirror/library/alpine:3.18.8@sha256:5292533eb4efd4b5cf35e93b5a2b7d0e07ea193224c49446c7802c19ee4f2da5
+      CILIUM_BUILDER_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-builder:767c4152bb156a879fca4c5b76f445de4b4cdaa9@sha256:26392846fa25ab2607c120ece242d61365724a5f21e85f5733f72221637b70fa
     TARGET: release
 
 build-docker-image-runtime:
@@ -41,7 +41,7 @@ build-docker-image-runtime:
     DOCKERFILE_PATH: images/runtime/Dockerfile
     DOCKER_BUILD_ARGS: |
       TESTER_IMAGE=registry.ddbuild.io/images/mirror/cilium/image-tester:dd09c8d3ef349a909fbcdc99279516baef153f22@sha256:c056d064cb47c97acd607343db5457e1d49d9338d6d8a87e93e23cc93f052c73
-      GOLANG_IMAGE=registry.ddbuild.io/images/mirror/golang:1.21.12@sha256:7e0e13add7f57a3e030ef4c9180843ace2fff7c788d54a8b12945d7b5739a055
+      GOLANG_IMAGE=registry.ddbuild.io/images/mirror/golang:1.22.6@sha256:d5e49f92b9566b0ddfc59a0d9d85cd8a848e88c8dc40d97e29f306f07c3f8338
       UBUNTU_IMAGE=registry.ddbuild.io/images/base/gbi-ubuntu_2204:release
       CILIUM_LLVM_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-llvm:a8c542efc076b62ba683e7699c0013adb6955f0f@sha256:38e8941107bd19eb30bdde6e478760a22325f38d1f2771dfd1b9af81d74235e7
       CILIUM_BPFTOOL_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-bpftool:d3093f6aeefef8270306011109be623a7e80ad1b@sha256:2c28c64195dee20ab596d70a59a4597a11058333c6b35a99da32c339dcd7df56
@@ -61,7 +61,7 @@ build-docker-image-cilium:
     IMAGE_NAME: cilium
     DOCKERFILE_PATH: images/cilium/Dockerfile
     DOCKER_BUILD_ARGS: |
-      CILIUM_BUILDER_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-builder:c9a0fac9eaf925a150a055c43592f283868ba2b1@sha256:9cdc6e2e3c3dedc798c71672811b7cfa67d2c7b6d6e3046d917b9c4483c1a065
+      CILIUM_BUILDER_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-builder:767c4152bb156a879fca4c5b76f445de4b4cdaa9@sha256:26392846fa25ab2607c120ece242d61365724a5f21e85f5733f72221637b70fa
       CILIUM_ENVOY_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-envoy:v1.29.7-39a2a56bbd5b3a591f69dbca51d3e30ef97e0e51@sha256:bd5ff8c66716080028f414ec1cb4f7dc66f40d2fb5a009fff187f4a9b90b566b
     TARGET: release
     NOSTRIP: 0
@@ -75,7 +75,7 @@ build-docker-image-hubble-relay:
     DOCKERFILE_PATH: images/hubble-relay/Dockerfile
     DOCKER_BUILD_ARGS: |
       BASE_IMAGE=registry.ddbuild.io/images/base/gbi-distroless:release
-      GOLANG_IMAGE=registry.ddbuild.io/images/mirror/golang:1.21.12@sha256:7e0e13add7f57a3e030ef4c9180843ace2fff7c788d54a8b12945d7b5739a055
+      GOLANG_IMAGE=registry.ddbuild.io/images/mirror/golang:1.22.6@sha256:d5e49f92b9566b0ddfc59a0d9d85cd8a848e88c8dc40d97e29f306f07c3f8338
     TARGET: release
 
 build-docker-image-kvstoremesh:
@@ -85,6 +85,6 @@ build-docker-image-kvstoremesh:
     DOCKERFILE_PATH: images/kvstoremesh/Dockerfile
     DOCKER_BUILD_ARGS: |
       BASE_IMAGE=registry.ddbuild.io/images/base/gbi-distroless:release
-      GOLANG_IMAGE=registry.ddbuild.io/images/mirror/golang:1.21.12@sha256:7e0e13add7f57a3e030ef4c9180843ace2fff7c788d54a8b12945d7b5739a055
-      ALPINE_IMAGE=registry.ddbuild.io/images/mirror/library/alpine:3.18.7@sha256:1875c923b73448b558132e7d4a44b815d078779ed7a73f76209c6372de95ea8d
+      GOLANG_IMAGE=registry.ddbuild.io/images/mirror/golang:1.22.6@sha256:d5e49f92b9566b0ddfc59a0d9d85cd8a848e88c8dc40d97e29f306f07c3f8338
+      ALPINE_IMAGE=registry.ddbuild.io/images/mirror/library/alpine:3.18.8@sha256:5292533eb4efd4b5cf35e93b5a2b7d0e07ea193224c49446c7802c19ee4f2da5
     TARGET: release
