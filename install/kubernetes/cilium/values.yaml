@@ -143,7 +143,7 @@ rollOutCiliumPods: false
 image:
   override: ~
   repository: "quay.io/cilium/cilium"
-  tag: "v1.14.13"
+  tag: "v1.14.14"
   pullPolicy: "IfNotPresent"
   # cilium-digest
   digest: ""
@@ -949,8 +949,8 @@ certgen:
   image:
     override: ~
     repository: "quay.io/cilium/certgen"
-    tag: "v0.1.13"
-    digest: "sha256:01802e6a153a9473b06ebade7ee5730f8f2c6cc8db8768508161da3cdd778641"
+    tag: "v0.1.14"
+    digest: "sha256:40cdac65aa6ee86c16ce107f8726c4b55ce6654d07bbdf490db6bd492587bf54"
     useDigest: true
     pullPolicy: "IfNotPresent"
   # -- Seconds after which the completed job pod will be deleted
@@ -1125,7 +1125,7 @@ hubble:
     image:
       override: ~
       repository: "quay.io/cilium/hubble-relay"
-      tag: "v1.14.13"
+      tag: "v1.14.14"
        # hubble-relay-digest
       digest: ""
       useDigest: false
@@ -2289,7 +2289,7 @@ operator:
   image:
     override: ~
     repository: "quay.io/cilium/operator"
-    tag: "v1.14.13"
+    tag: "v1.14.14"
     # operator-generic-digest
     genericDigest: ""
     # operator-azure-digest
@@ -2578,7 +2578,7 @@ preflight:
   image:
     override: ~
     repository: "quay.io/cilium/cilium"
-    tag: "v1.14.13"
+    tag: "v1.14.14"
     # cilium-digest
     digest: ""
     useDigest: false
@@ -2728,7 +2728,7 @@ clustermesh:
     image:
       override: ~
       repository: "quay.io/cilium/clustermesh-apiserver"
-      tag: "v1.14.13"
+      tag: "v1.14.14"
       # clustermesh-apiserver-digest
       digest: ""
       useDigest: false
@@ -2775,7 +2775,7 @@ clustermesh:
       image:
         override: ~
         repository: "quay.io/cilium/kvstoremesh"
-        tag: "v1.14.13"
+        tag: "v1.14.14"
         # kvstoremesh-digest
         digest: ""
         useDigest: false
@@ -3111,6 +3111,8 @@ enableK8sTerminatingEndpoint: true
 agentNotReadyTaintKey: "node.cilium.io/agent-not-ready"
 
 dnsProxy:
+  # -- Timeout (in seconds) when closing the connection between the DNS proxy and the upstream server. If set to 0, the connection is closed immediately (with TCP RST). If set to -1, the connection is closed asynchronously in the background.
+  socketLingerTimeout: 10
   # -- DNS response code for rejecting DNS requests, available options are '[nameError refused]'.
   dnsRejectResponseCode: refused
   # -- Allow the DNS proxy to compress responses to endpoints that are larger than 512 Bytes or the EDNS0 option, if present.

@@ -73,6 +73,9 @@ jobs:
           make -C install/kubernetes
           test -z "$(git status --porcelain)" || (echo "please run 'make -C install/kubernetes' and submit your changes"; exit 1)
 
+          git rm --ignore-unmatch install/kubernetes/cilium/values.schema.json
+          test -z "$(git status --porcelain)" || (echo "please delete 'install/kubernetes/cilium/values.schema.json' and submit your changes"; exit 1)
+
   conformance-test:
     needs: check_changes
     if: ${{ needs.check_changes.outputs.tested == 'true' }}
@@ -210,7 +213,7 @@ jobs:
           cilium sysdump --output-filename cilium-sysdump-out
 
       - name: Upload cilium-sysdump
-        uses: actions/upload-artifact@0b2256b8c012f0828dc542b3febcab082c67f72b # v4.3.4
+        uses: actions/upload-artifact@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.3.5
         if: ${{ failure() }}
         with:
           name: cilium-sysdump-out.zip

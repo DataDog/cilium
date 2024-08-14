@@ -56,11 +56,10 @@ ifeq ($(DOCKER_IMAGE_TAG),)
     DOCKER_IMAGE_TAG=latest
 endif
 
-ifeq ($(shell uname -m),aarch64)
-    ETCD_IMAGE=quay.io/coreos/etcd:v3.3.20-arm64
-else
-    ETCD_IMAGE=quay.io/coreos/etcd:v3.3.20
-endif
+# renovate: datasource=docker depName=gcr.io/etcd-development/etcd
+ETCD_IMAGE_VERSION = v3.5.15
+ETCD_IMAGE_SHA = sha256:9a01b7da0a3cde485c03fcf58fef9b2a09c81b4926b2b7d7ae6d1e9b20a2a192
+ETCD_IMAGE=gcr.io/etcd-development/etcd:$(ETCD_IMAGE_VERSION)@$(ETCD_IMAGE_SHA)
 
 CONSUL_IMAGE=consul:1.7.2
 
