@@ -125,7 +125,7 @@ jobs:
         id: vars
         run: |
           echo sha=${{ steps.default_vars.outputs.sha }} >> $GITHUB_OUTPUT
-          
+
           EXEMPT_FEATURES="GatewayPort8080,GatewayStaticAddresses,Mesh"
           if [ ${{ matrix.crd-channel }} == "standard" ]; then
             EXEMPT_FEATURES+=",HTTPRouteParentRefPort,HTTPRouteDestinationPortMatching,HTTPRouteRequestTimeout,HTTPRouteBackendTimeout"
@@ -164,10 +164,10 @@ jobs:
           wait: 0 # The control-plane never becomes ready, since no CNI is present
 
       - name: Install Go
-        uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
+        uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # v5.0.2
         with:
           # renovate: datasource=golang-version depName=go
-          go-version: 1.22.5
+          go-version: 1.22.6
 
       - name: Wait for images to be available
         timeout-minutes: 30
@@ -226,7 +226,7 @@ jobs:
           EOF
           cat pool.yaml
           kubectl apply -f pool.yaml
-          
+
           echo "Deploying L2-Announcement Policy..."
           cat << 'EOF' > l2policy.yaml
           apiVersion: "cilium.io/v2alpha1"
@@ -276,7 +276,7 @@ jobs:
           fi
 
       - name: Upload report artifacts
-        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+        uses: actions/upload-artifact@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.3.5
         with:
           name: report-${{ matrix.conformance-profile }}-${{ matrix.crd-channel }}.yaml
           path: operator/pkg/gateway-api/report.yaml
@@ -293,7 +293,7 @@ jobs:
 
       - name: Upload artifacts
         if: ${{ !success() }}
-        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+        uses: actions/upload-artifact@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.3.5
         with:
           name: cilium-sysdump-out-${{ matrix.conformance-profile }}-${{ matrix.crd-channel }}
           path: cilium-sysdump-out-*.zip
@@ -306,7 +306,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Set final commit status
-        uses: myrotvorets/set-commit-status-action@3730c0a348a2ace3c110851bed53331bc6406e9f # v2.0.1  
+        uses: myrotvorets/set-commit-status-action@3730c0a348a2ace3c110851bed53331bc6406e9f # v2.0.1
         with:
           sha: ${{ inputs.SHA || github.sha }}
           status: ${{ needs.gateway-api-conformance-test.result }}

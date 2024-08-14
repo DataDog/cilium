@@ -59,7 +59,7 @@ env:
   CILIUM_CLI_MODE: helm
   USE_GKE_GCLOUD_AUTH_PLUGIN: True
   # renovate: datasource=docker depName=google/cloud-sdk
-  gcloud_version: 482.0.0
+  gcloud_version: 486.0.0
 
 jobs:
   echo-inputs:
@@ -76,7 +76,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Set initial commit status
-        uses: myrotvorets/set-commit-status-action@3730c0a348a2ace3c110851bed53331bc6406e9f # v2.0.1  
+        uses: myrotvorets/set-commit-status-action@3730c0a348a2ace3c110851bed53331bc6406e9f # v2.0.1
         with:
           sha: ${{ inputs.SHA || github.sha }}
 
@@ -85,6 +85,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
+      empty: ${{ steps.set-matrix.outputs.empty }}
     steps:
       - name: Checkout context ref (trusted)
         uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
@@ -160,10 +161,12 @@ jobs:
           cat /tmp/result.json
 
           echo "matrix=$(jq -c . < /tmp/result.json)" >> $GITHUB_OUTPUT
+          echo "empty=$(jq '(.k8s | length) == 0' /tmp/result.json)" >> $GITHUB_OUTPUT
 
   installation-and-connectivity:
     name: Installation and Connectivity Test
     needs: generate-matrix
+    if: ${{ needs.generate-matrix.outputs.empty == 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     env:
@@ -335,14 +338,14 @@ jobs:
 
       - name: Upload artifacts
         if: ${{ !success() }}
-        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+        uses: actions/upload-artifact@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.3.5
         with:
           name: cilium-sysdumps-${{ matrix.config.index }}-${{ matrix.k8s.vmIndex }}
           path: cilium-sysdump-*.zip
 
       - name: Upload JUnits [junit]
         if: ${{ always() }}
-        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+        uses: actions/upload-artifact@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.3.5
         with:
           name: cilium-junits-${{ matrix.config.index }}-${{ matrix.k8s.vmIndex }}
           path: cilium-junits/*.xml
@@ -354,14 +357,14 @@ jobs:
           junit-directory: "cilium-junits"
 
   merge-upload:
-    if: ${{ always() }}
+    if: ${{ always() && needs.installation-and-connectivity.result != 'skipped' }}
     name: Merge and Upload Artifacts
     runs-on: ubuntu-latest
     needs: installation-and-connectivity
     steps:
       - name: Merge Sysdumps
         if: ${{ needs.installation-and-connectivity.result == 'failure' }}
-        uses: actions/upload-artifact/merge@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+        uses: actions/upload-artifact/merge@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.3.5
         with:
           name: cilium-sysdumps
           pattern: cilium-sysdumps-*
@@ -369,7 +372,7 @@ jobs:
           delete-merged: true
         continue-on-error: true
       - name: Merge JUnits
-        uses: actions/upload-artifact/merge@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+        uses: actions/upload-artifact/merge@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.3.5
         with:
           name: cilium-junits
           pattern: cilium-junits-*
@@ -383,7 +386,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Set final commit status
-        uses: myrotvorets/set-commit-status-action@3730c0a348a2ace3c110851bed53331bc6406e9f # v2.0.1  
+        if: ${{ needs.installation-and-connectivity.result != 'skipped' }}
+        uses: myrotvorets/set-commit-status-action@3730c0a348a2ace3c110851bed53331bc6406e9f # v2.0.1
         with:
           sha: ${{ inputs.SHA || github.sha }}
           status: ${{ needs.installation-and-connectivity.result }}
+      - name: Set final commit status
+        if: ${{ needs.installation-and-connectivity.result == 'skipped' }}
+        uses: myrotvorets/set-commit-status-action@3730c0a348a2ace3c110851bed53331bc6406e9f # v2.0.1
+        with:
+          sha: ${{ inputs.SHA || github.sha }}
+          status: ${{ github.event_name != 'schedule' && 'success' || 'failure' }}
+          description: 'Skipped'
