@@ -97,6 +97,7 @@ func Connected() <-chan struct{} {
 				close(c)
 				return
 			}
+			// Client().Connected() call above has exp. backoff, this 100ms sleep is fine.
 			time.Sleep(100 * time.Millisecond)
 		}
 	}(c)
