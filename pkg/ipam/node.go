@@ -457,7 +457,9 @@ func (n *Node) recalculate() {
 	}
 
 	n.available = a
-	n.stats.AssignedStaticIP = stats.AssignedStaticIP
+	if stats.AssignedStaticIP != "" {
+		n.stats.AssignedStaticIP = stats.AssignedStaticIP
+	}
 	n.stats.UsedIPs = len(n.resource.Status.IPAM.Used)
 
 	// Get used IP count with prefixes included
@@ -1021,7 +1023,7 @@ func (n *Node) PopulateIPReleaseStatus(node *v2.CiliumNode) {
 func (n *Node) PopulateStaticIPStatus(node *v2.CiliumNode) {
 	n.mutex.Lock()
 	defer n.mutex.Unlock()
-	log.Info("Anton-Test PopulateStaticIPStatus node.stats.AssignedStaticIP", n.stats.AssignedStaticIP)
+	n.logger().Info(fmt.Sprintf("Anton-Test PopulateStaticIPStatus node.stats.AssignedStaticIP = %s", n.stats.AssignedStaticIP))
 	if n.stats.AssignedStaticIP != "" {
 		node.Status.IPAM.AssignedStaticIP = n.stats.AssignedStaticIP
 	}
