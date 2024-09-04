@@ -1021,9 +1021,9 @@ func (n *Node) PopulateIPReleaseStatus(node *v2.CiliumNode) {
 }
 
 func (n *Node) PopulateStaticIPStatus(node *v2.CiliumNode) {
+	n.logger().Info(fmt.Sprintf("Anton-Test PopulateStaticIPStatus node.stats.AssignedStaticIP = %s", n.stats.AssignedStaticIP))
 	n.mutex.Lock()
 	defer n.mutex.Unlock()
-	n.logger().Info(fmt.Sprintf("Anton-Test PopulateStaticIPStatus node.stats.AssignedStaticIP = %s", n.stats.AssignedStaticIP))
 	if n.stats.AssignedStaticIP != "" {
 		node.Status.IPAM.AssignedStaticIP = n.stats.AssignedStaticIP
 	}
