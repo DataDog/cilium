@@ -295,6 +295,10 @@ func (n *Node) AllocateIPs(ctx context.Context, a *ipam.AllocationAction) error 
 	return n.manager.api.AssignPrivateIpAddresses(ctx, a.InterfaceID, int32(a.AvailableForAllocation))
 }
 
+func (n *Node) AllocateStaticIP(ctx context.Context, staticIPTags ipamTypes.Tags) (string, error) {
+	return n.manager.api.AssociateEIP(ctx, n.node.InstanceID(), staticIPTags)
+}
+
 func (n *Node) getSecurityGroupIDs(ctx context.Context, eniSpec eniTypes.ENISpec) ([]string, error) {
 	// 1. check explicit security groups associations via checking Spec.ENI.SecurityGroups
 	// 2. check if Spec.ENI.SecurityGroupTags is passed and if so filter by those
@@ -600,6 +604,11 @@ func (n *Node) ResyncInterfacesAndIPs(ctx context.Context, scopedLog *logrus.Ent
 			for _, ip := range e.Addresses {
 				available[ip] = ipamTypes.AllocationIP{Resource: e.ID}
 			}
+
+			if e.Number == 0 && e.PublicIP != "" {
+				stats.AssignedStaticIP = e.PublicIP
+			}
+
 			return nil
 		})
 	enis := len(n.enis)

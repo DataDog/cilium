@@ -176,6 +176,9 @@ type IPAMSpec struct {
 	//
 	// +kubebuilder:validation:Minimum=0
 	PodCIDRReleaseThreshold int `json:"pod-cidr-release-threshold,omitempty"`
+
+	// +optional
+	StaticIPTags map[string]string `json:"static-ip-tags,omitempty"`
 }
 
 // IPReleaseStatus  defines the valid states in IP release handshake
@@ -212,6 +215,9 @@ type IPAMStatus struct {
 	//
 	// +optional
 	ReleaseIPs map[string]IPReleaseStatus `json:"release-ips,omitempty"`
+
+	// +optional
+	AssignedStaticIP string `json:"assigned-static-ip,omitempty"`
 }
 
 // IPAMPoolRequest is a request from the agent to the operator, indicating how
