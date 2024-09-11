@@ -1,3 +1,5 @@
+include: https://gitlab-templates.ddbuild.io/compute-delivery/v2/compute-delivery.yml
+
 variables:
   CI_DOCKER_IMAGE: registry.ddbuild.io/images/docker:24.0.4-gbi-focal
   DOCKER_CTX: "."
@@ -64,8 +66,9 @@ build-docker-image-cilium:
       CILIUM_ENVOY_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-envoy:v1.29.7-39a2a56bbd5b3a591f69dbca51d3e30ef97e0e51@sha256:bd5ff8c66716080028f414ec1cb4f7dc66f40d2fb5a009fff187f4a9b90b566b
     TARGET: release
     NOSTRIP: 0
-  script:
-    - .gitlab/build-image.sh
+  artifacts:
+    paths:
+      - image_tags.txt
 
 build-docker-image-hubble-relay:
   <<: *build-docker-image
@@ -87,3 +90,10 @@ build-docker-image-clustermesh-apiserver:
       BASE_IMAGE=registry.ddbuild.io/images/base/gbi-distroless:release
       GOLANG_IMAGE=registry.ddbuild.io/images/mirror/golang:1.22.6@sha256:d5e49f92b9566b0ddfc59a0d9d85cd8a848e88c8dc40d97e29f306f07c3f8338
     TARGET: release
+
+run-campaign:
+  extends: .run-campaign
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  script:
+    - .gitlab/run-campaign.sh
