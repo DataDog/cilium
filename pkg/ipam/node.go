@@ -511,7 +511,8 @@ func (n *Node) recalculate(ctx context.Context) {
 // allocationNeeded returns true if this node requires IPs to be allocated
 func (n *Node) allocationNeeded() (needed bool) {
 	n.mutex.RLock()
-	needed = !n.ipv4Alloc.waitingForPoolMaintenance && n.resyncNeeded.IsZero() && n.stats.IPv4.NeededIPs > 0
+	staticIPNeeded := len(n.getStaticIPTags()) > 0 && n.stats.IPv4.AssignedStaticIP == ""
+	needed = !n.ipv4Alloc.waitingForPoolMaintenance && n.resyncNeeded.IsZero() && (n.stats.IPv4.NeededIPs > 0 || staticIPNeeded)
 	n.mutex.RUnlock()
 	return
 }

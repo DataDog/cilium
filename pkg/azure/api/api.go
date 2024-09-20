@@ -36,6 +36,7 @@ const (
 	virtualMachineScaleSetVMsGet    = "VirtualMachineScaleSetVMs.Get"
 	virtualMachineScaleSetVMsUpdate = "VirtualMachineScaleSetVMs.Update"
 	virtualNetworksListAll          = "VirtualNetworks.ListAll"
+	publicIPPrefixesListAll         = "PublicIPPrefixes.ListAll"
 
 	interfacesListVirtualMachineScaleSetNetworkInterfaces   = "Interfaces.ListVirtualMachineScaleSetNetworkInterfaces"
 	interfacesListVirtualMachineScaleSetVMNetworkInterfaces = "Interfaces.ListVirtualMachineScaleSetVMNetworkInterfaces"
@@ -45,6 +46,7 @@ const (
 type Client struct {
 	resourceGroup             string
 	interfaces                *armnetwork.InterfacesClient
+	publicIPPrefixes          *armnetwork.PublicIPPrefixesClient
 	virtualNetworks           *armnetwork.VirtualNetworksClient
 	virtualMachineScaleSetVMs *armcompute.VirtualMachineScaleSetVMsClient
 	virtualMachineScaleSets   *armcompute.VirtualMachineScaleSetsClient
@@ -96,7 +98,7 @@ func newClientOptions(cloudName string) (*azcore.ClientOptions, error) {
 	default:
 		// Note: AzureGermanCloud closed on October 29 2021, see
 		// https://news.microsoft.com/europe/2018/08/31/microsoft-to-deliver-cloud-services-from-new-datacentres-in-germany-in-2019-to-meet-evolving-customer-needs/
-		return nil, fmt.Errorf("Unknown Azure cloud %q", cloudName)
+		return nil, fmt.Errorf("unknown Azure cloud %q", cloudName)
 	}
 
 	return clientOptions, nil
@@ -138,9 +140,15 @@ func NewClient(cloudName, subscriptionID, resourceGroup, userAssignedIdentityID 
 		return nil, err
 	}
 
+	publicIPPrefixesClient, err := armnetwork.NewPublicIPPrefixesClient(subscriptionID, credential, armClientOptions)
+	if err != nil {
+		return nil, err
+	}
+
 	c := &Client{
 		resourceGroup:             resourceGroup,
 		interfaces:                interfacesClient,
+		publicIPPrefixes:          publicIPPrefixesClient,
 		virtualNetworks:           virtualNetworksClient,
 		virtualMachineScaleSetVMs: virtualMachineScaleSetVMsClient,
 		virtualMachineScaleSets:   virtualMachineScaleSetsClient,
@@ -579,6 +587,168 @@ func (c *Client) AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, v
 	}
 
 	return nil
+}
+
+func (c *Client) AssignPublicIPAddressesVMSS(ctx context.Context, instanceID, vmssName string, publicIpTags ipamTypes.Tags) (string, error) {
+	var primaryNetIfConfig *armcompute.VirtualMachineScaleSetNetworkConfiguration
+
+	vmssGetOptions := &armcompute.VirtualMachineScaleSetVMsClientGetOptions{
+		Expand: to.Ptr(armcompute.InstanceViewTypesInstanceView),
+	}
+
+	c.limiter.Limit(ctx, virtualMachineScaleSetVMsGet)
+	sinceStart := spanstat.Start()
+
+	result, err := c.virtualMachineScaleSetVMs.Get(ctx, c.resourceGroup, vmssName, instanceID, vmssGetOptions)
+
+	c.metricsAPI.ObserveAPICall(virtualMachineScaleSetVMsGet, deriveStatus(err), sinceStart.Seconds())
+	if err != nil {
+		return "", fmt.Errorf("failed to get VM %s from VMSS %s: %w", instanceID, vmssName, err)
+	}
+
+	// Search for the primary network interface configuration
+	if result.Properties.NetworkProfileConfiguration != nil {
+		for _, networkInterfaceConfiguration := range result.Properties.NetworkProfileConfiguration.NetworkInterfaceConfigurations {
+			if networkInterfaceConfiguration.Properties.Primary != nil && *networkInterfaceConfiguration.Properties.Primary {
+				primaryNetIfConfig = networkInterfaceConfiguration
+				break
+			}
+		}
+	}
+
+	if primaryNetIfConfig == nil {
+		return "", fmt.Errorf("can't find primary interface for VM %s from VMSS %s", instanceID, vmssName)
+	}
+
+	// Find the primary IP configuration
+	var primaryIPConfig *armcompute.VirtualMachineScaleSetIPConfiguration
+	if primaryNetIfConfig.Properties.IPConfigurations != nil {
+		for _, ipConfig := range primaryNetIfConfig.Properties.IPConfigurations {
+			if ipConfig.Properties.Primary != nil && *ipConfig.Properties.Primary {
+				primaryIPConfig = ipConfig
+				break
+			}
+		}
+	}
+
+	if primaryIPConfig == nil {
+		netIfName := "<unknown>"
+		if primaryNetIfConfig.Name != nil {
+			netIfName = *primaryNetIfConfig.Name
+		}
+		return "", fmt.Errorf("can't find primary IP configuration for network configuration %s from VM %s from VMSS %s",
+			netIfName,
+			instanceID,
+			vmssName,
+		)
+	}
+
+	if primaryIPConfig.Properties.PublicIPAddressConfiguration != nil {
+		netIfName := "<unknown>"
+		if primaryNetIfConfig.Name != nil {
+			netIfName = *primaryNetIfConfig.Name
+		}
+		return "", fmt.Errorf("public IP address already assigned to primary IP configuration for network configuration %s from VM %s from VMSS %s",
+			netIfName,
+			instanceID,
+			vmssName,
+		)
+	}
+
+	// Find a public IP prefix with the given tags
+	publicIPPrefixID, err := c.getPublicIPPrefixIDByTags(ctx, publicIpTags)
+	if err != nil {
+		return "", err
+	}
+
+	// Create a new public IP configuration
+	primaryIPConfig.Properties.PublicIPAddressConfiguration = &armcompute.VirtualMachineScaleSetPublicIPAddressConfiguration{
+		Name: to.Ptr("cilium-managed-public-ip"),
+		Properties: &armcompute.VirtualMachineScaleSetPublicIPAddressConfigurationProperties{
+			PublicIPPrefix: &armcompute.SubResource{
+				ID: to.Ptr(publicIPPrefixID),
+			},
+		},
+	}
+
+	// Unset imageReference, because if this contains a reference to an image from the
+	// Azure Compute Gallery, including this reference in an update to the VMSS instance
+	// will cause a permissions error, because the reference includes an Azure-managed
+	// subscription ID.
+	// Removing the image reference indicates to the API that we don't want to change it.
+	// See https://github.com/Azure/AKS/issues/1819.
+	if result.Properties.StorageProfile != nil {
+		result.Properties.StorageProfile.ImageReference = nil
+	}
+
+	c.limiter.Limit(ctx, virtualMachineScaleSetVMsUpdate)
+	sinceStart = spanstat.Start()
+
+	poller, err := c.virtualMachineScaleSetVMs.BeginUpdate(ctx, c.resourceGroup, vmssName, instanceID, result.VirtualMachineScaleSetVM, nil)
+	if err != nil {
+		c.metricsAPI.ObserveAPICall(virtualMachineScaleSetVMsUpdate, deriveStatus(err), sinceStart.Seconds())
+		return "", fmt.Errorf("unable to update virtualMachineScaleSetVMs: %w", err)
+	}
+
+	_, err = poller.PollUntilDone(ctx, nil)
+	c.metricsAPI.ObserveAPICall(virtualMachineScaleSetVMsUpdate, deriveStatus(err), sinceStart.Seconds())
+	if err != nil {
+		return "", fmt.Errorf("error while waiting for virtualMachineScaleSetVMs Update to complete: %w", err)
+	}
+
+	// TODO return the public IP address
+	return publicIPPrefixID, nil
+}
+
+func (c *Client) getPublicIPPrefixIDByTags(ctx context.Context, searchTags ipamTypes.Tags) (string, error) {
+	c.limiter.Limit(ctx, publicIPPrefixesListAll)
+	sinceStart := spanstat.Start()
+
+	pager := c.publicIPPrefixes.NewListAllPager(nil)
+
+	var finalErr error
+	for pager.More() {
+		nextResult, err := pager.NextPage(ctx)
+		if err != nil {
+			finalErr = err
+			break
+		}
+
+		for _, publicIPPrefix := range nextResult.Value {
+			if publicIPPrefix.Tags == nil {
+				continue
+			}
+
+			// Verify that all tags match
+			allTagsMatch := true
+			for k, v := range searchTags {
+				if existing, ok := publicIPPrefix.Tags[k]; !ok || existing == nil || *existing != v {
+					allTagsMatch = false
+					break
+				}
+			}
+
+			if !allTagsMatch {
+				continue
+			}
+
+			if publicIPPrefix.ID == nil {
+				continue
+			}
+
+			c.metricsAPI.ObserveAPICall(publicIPPrefixesListAll, deriveStatus(nil), sinceStart.Seconds())
+			return *publicIPPrefix.ID, nil
+		}
+	}
+
+	if finalErr != nil {
+		c.metricsAPI.ObserveAPICall(publicIPPrefixesListAll, deriveStatus(finalErr), sinceStart.Seconds())
+		return "", finalErr
+	}
+
+	notFoundErr := fmt.Errorf("public IP prefix with tags %v not found", searchTags)
+	c.metricsAPI.ObserveAPICall(publicIPPrefixesListAll, deriveStatus(notFoundErr), sinceStart.Seconds())
+	return "", notFoundErr
 }
 
 // AssignPrivateIpAddressesVM assign a private IP to an interface attached to a standalone instance
