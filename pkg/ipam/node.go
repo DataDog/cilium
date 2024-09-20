@@ -488,7 +488,8 @@ func (n *Node) recalculate() {
 // allocationNeeded returns true if this node requires IPs to be allocated
 func (n *Node) allocationNeeded() (needed bool) {
 	n.mutex.RLock()
-	needed = !n.waitingForPoolMaintenance && n.resyncNeeded.IsZero() && n.stats.NeededIPs > 0
+	staticIPNeeded := len(n.getStaticIPTags()) > 0 && n.resource.Status.IPAM.AssignedStaticIP == ""
+	needed = !n.waitingForPoolMaintenance && n.resyncNeeded.IsZero() && (n.stats.NeededIPs > 0 || staticIPNeeded)
 	n.mutex.RUnlock()
 	return
 }
@@ -915,7 +916,7 @@ func (n *Node) maintainIPPool(ctx context.Context) (instanceMutated bool, err er
 		n.removeStaleReleaseIPs()
 	}
 
-	if len(n.getStaticIPTags()) >= 1 {
+	if len(n.getStaticIPTags()) > 0 {
 		if n.stats.AssignedStaticIP == "" {
 			ip, err := n.ops.AllocateStaticIP(ctx, n.getStaticIPTags())
 			if err != nil {

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/sirupsen/logrus"
 	"net"
 	"net/http"
 	"strings"
@@ -38,14 +39,15 @@ var (
 
 // Client represents an Azure API client
 type Client struct {
-	resourceGroup   string
-	interfaces      network.InterfacesClient
-	virtualnetworks network.VirtualNetworksClient
-	vmss            compute.VirtualMachineScaleSetVMsClient
-	vmscalesets     compute.VirtualMachineScaleSetsClient
-	limiter         *helpers.APILimiter
-	metricsAPI      MetricsAPI
-	usePrimary      bool
+	resourceGroup    string
+	interfaces       network.InterfacesClient
+	publicIpPrefixes network.PublicIPPrefixesClient
+	virtualnetworks  network.VirtualNetworksClient
+	vmss             compute.VirtualMachineScaleSetVMsClient
+	vmscalesets      compute.VirtualMachineScaleSetsClient
+	limiter          *helpers.APILimiter
+	metricsAPI       MetricsAPI
+	usePrimary       bool
 }
 
 // MetricsAPI represents the metrics maintained by the Azure API client
@@ -82,14 +84,15 @@ func NewClient(cloudName, subscriptionID, resourceGroup, userAssignedIdentityID 
 	}
 
 	c := &Client{
-		resourceGroup:   resourceGroup,
-		interfaces:      network.NewInterfacesClientWithBaseURI(azureEnv.ResourceManagerEndpoint, subscriptionID),
-		virtualnetworks: network.NewVirtualNetworksClientWithBaseURI(azureEnv.ResourceManagerEndpoint, subscriptionID),
-		vmss:            compute.NewVirtualMachineScaleSetVMsClientWithBaseURI(azureEnv.ResourceManagerEndpoint, subscriptionID),
-		vmscalesets:     compute.NewVirtualMachineScaleSetsClientWithBaseURI(azureEnv.ResourceManagerEndpoint, subscriptionID),
-		metricsAPI:      metrics,
-		limiter:         helpers.NewAPILimiter(metrics, rateLimit, burst),
-		usePrimary:      usePrimary,
+		resourceGroup:    resourceGroup,
+		interfaces:       network.NewInterfacesClientWithBaseURI(azureEnv.ResourceManagerEndpoint, subscriptionID),
+		publicIpPrefixes: network.NewPublicIPPrefixesClientWithBaseURI(azureEnv.ResourceManagerEndpoint, subscriptionID),
+		virtualnetworks:  network.NewVirtualNetworksClientWithBaseURI(azureEnv.ResourceManagerEndpoint, subscriptionID),
+		vmss:             compute.NewVirtualMachineScaleSetVMsClientWithBaseURI(azureEnv.ResourceManagerEndpoint, subscriptionID),
+		vmscalesets:      compute.NewVirtualMachineScaleSetsClientWithBaseURI(azureEnv.ResourceManagerEndpoint, subscriptionID),
+		metricsAPI:       metrics,
+		limiter:          helpers.NewAPILimiter(metrics, rateLimit, burst),
+		usePrimary:       usePrimary,
 	}
 
 	authorizer, err := constructAuthorizer(azureEnv, userAssignedIdentityID)
@@ -99,6 +102,8 @@ func NewClient(cloudName, subscriptionID, resourceGroup, userAssignedIdentityID 
 
 	c.interfaces.Authorizer = authorizer
 	c.interfaces.AddToUserAgent(userAgent)
+	c.publicIpPrefixes.Authorizer = authorizer
+	c.publicIpPrefixes.AddToUserAgent(userAgent)
 	c.virtualnetworks.Authorizer = authorizer
 	c.virtualnetworks.AddToUserAgent(userAgent)
 	c.vmss.Authorizer = authorizer
@@ -454,6 +459,151 @@ func (c *Client) AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, v
 		return fmt.Errorf("error while waiting for virtualmachinescalesets.Update() to complete: %w", err)
 	}
 	return nil
+}
+
+func (c *Client) AssignPublicIPAddressesVMSS(ctx context.Context, instanceID, vmssName string, publicIpTags ipamTypes.Tags) (string, error) {
+	var primaryNetIfConfig *compute.VirtualMachineScaleSetNetworkConfiguration
+
+	c.limiter.Limit(ctx, "VirtualMachineScaleSetVMs.Get")
+	sinceStart := spanstat.Start()
+	result, err := c.vmss.Get(ctx, c.resourceGroup, vmssName, instanceID, compute.InstanceViewTypesInstanceView)
+	c.metricsAPI.ObserveAPICall("VirtualMachineScaleSetVMs.Get", deriveStatus(err), sinceStart.Seconds())
+	if err != nil {
+		return "", fmt.Errorf("failed to get VM %s from VMSS %s: %w", instanceID, vmssName, err)
+	}
+
+	// Search for the primary network interface configuration
+	if result.NetworkProfileConfiguration != nil {
+		for _, networkInterfaceConfiguration := range *result.NetworkProfileConfiguration.NetworkInterfaceConfigurations {
+			if networkInterfaceConfiguration.Primary != nil && *networkInterfaceConfiguration.Primary {
+				primaryNetIfConfig = &networkInterfaceConfiguration
+				break
+			}
+		}
+	}
+
+	if primaryNetIfConfig == nil {
+		return "", fmt.Errorf("can't find primary interface for VM %s from VMSS %s", instanceID, vmssName)
+	}
+
+	// Find the primary IP configuration
+	var primaryIPConfig *compute.VirtualMachineScaleSetIPConfiguration
+	if primaryNetIfConfig.IPConfigurations != nil {
+		for _, ipConfig := range *primaryNetIfConfig.IPConfigurations {
+			if ipConfig.Primary != nil && *ipConfig.Primary {
+				primaryIPConfig = &ipConfig
+				break
+			}
+		}
+	}
+
+	if primaryIPConfig == nil {
+		return "", fmt.Errorf("can't find primary IP configuration for network configuration %s from VM %s from VMSS %s",
+			*primaryNetIfConfig.Name,
+			instanceID,
+			vmssName,
+		)
+	}
+
+	if primaryIPConfig.PublicIPAddressConfiguration != nil {
+		return "", fmt.Errorf("public IP address already assigned to primary IP configuration for network configuration %s from VM %s from VMSS %s",
+			*primaryNetIfConfig.Name,
+			instanceID,
+			vmssName,
+		)
+	}
+
+	// Find a public IP prefix with the given tags
+	publicIPPrefixID, err := c.getPublicIPPrefixIDByTags(ctx, publicIpTags)
+	if err != nil {
+		return "", err
+	}
+
+	// Create a new public IP configuration
+	props := compute.VirtualMachineScaleSetPublicIPAddressConfigurationProperties{
+		PublicIPPrefix: &compute.SubResource{
+			ID: to.StringPtr(publicIPPrefixID),
+		},
+	}
+	primaryIPConfig.PublicIPAddressConfiguration = &compute.VirtualMachineScaleSetPublicIPAddressConfiguration{
+		Name: to.StringPtr("cilium-managed-public-ip"),
+		VirtualMachineScaleSetPublicIPAddressConfigurationProperties: &props,
+	}
+
+	// Unset imageReference, because if this contains a reference to an image from the
+	// Azure Compute Gallery, including this reference in an update to the VMSS instance
+	// will cause a permissions error, because the reference includes an Azure-managed
+	// subscription ID.
+	// Removing the image reference indicates to the API that we don't want to change it.
+	// See https://github.com/Azure/AKS/issues/1819.
+	if result.StorageProfile != nil {
+		result.StorageProfile.ImageReference = nil
+	}
+
+	c.limiter.Limit(ctx, "VirtualMachineScaleSetVMs.Update")
+	sinceStart = spanstat.Start()
+	future, err := c.vmss.Update(ctx, c.resourceGroup, vmssName, instanceID, result)
+	defer c.metricsAPI.ObserveAPICall("VirtualMachineScaleSetVMs.Update", deriveStatus(err), sinceStart.Seconds())
+	if err != nil {
+		return "", fmt.Errorf("unable to update virtualmachinescaleset: %w", err)
+	}
+
+	err = future.WaitForCompletionRef(ctx, c.vmss.Client)
+	if err != nil {
+		return "", fmt.Errorf("error while waiting for virtualmachinescalesets.Update() to complete: %w", err)
+	}
+
+	// TODO return the public IP address
+	return publicIPPrefixID, nil
+}
+
+func (c *Client) getPublicIPPrefixIDByTags(ctx context.Context, searchTags ipamTypes.Tags) (string, error) {
+	log.WithFields(logrus.Fields{
+		"tags": searchTags,
+	}).Info("Searching for public IP prefix")
+	c.limiter.Limit(ctx, "PublicIPPrefixes.ListAll")
+	sinceStart := spanstat.Start()
+	result, err := c.publicIpPrefixes.ListAllComplete(ctx)
+	c.metricsAPI.ObserveAPICall("PublicIPPrefixes.ListAll", deriveStatus(err), sinceStart.Seconds())
+	if err != nil {
+		return "", err
+	}
+
+	for result.NotDone() {
+		if err != nil {
+			return "", err
+		}
+
+		publicIpPrefix := result.Value()
+		err = result.Next()
+
+		if publicIpPrefix.Tags == nil {
+			continue
+		}
+
+		// Verify that all tags match
+		for k, v := range searchTags {
+			if existing, ok := publicIpPrefix.Tags[k]; !ok || existing == nil || *existing != v {
+				continue
+			}
+		}
+
+		if publicIpPrefix.ID == nil {
+			log.WithFields(logrus.Fields{
+				"tags": searchTags,
+			}).Warn("Found public IP prefix but it's missing the ID")
+			continue
+		}
+
+		log.WithFields(logrus.Fields{
+			"tags": searchTags,
+			"id":   *publicIpPrefix.ID,
+		}).Info("Found public IP prefix")
+
+		return *publicIpPrefix.ID, nil
+	}
+
+	return "", fmt.Errorf("public IP prefix with tags %v not found", searchTags)
 }
 
 // AssignPrivateIpAddressesVM assign a private IP to an interface attached to a standalone instance
