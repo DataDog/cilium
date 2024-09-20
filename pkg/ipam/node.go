@@ -970,6 +970,7 @@ func (n *Node) updateLastResync(syncTime time.Time) {
 // MaintainIPPool attempts to allocate or release all required IPs to fulfill
 // the needed gap. If required, interfaces are created.
 func (n *Node) MaintainIPPool(ctx context.Context) error {
+	n.logger().Info("Anton-Test: MaintainIPPool")
 	// As long as the instances API is unstable, don't perform any
 	// operation that can mutate state.
 	if !n.manager.InstancesAPIIsReady() {
