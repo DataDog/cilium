@@ -915,7 +915,8 @@ func (n *Node) maintainIPPool(ctx context.Context) (instanceMutated bool, err er
 		n.removeStaleReleaseIPs()
 	}
 
-	if len(n.getStaticIPTags()) >= 1 {
+	log.Info("Anton-Test: maintainIPPool, static tags: ", n.getStaticIPTags())
+	if len(n.getStaticIPTags()) > 0 {
 		if n.stats.AssignedStaticIP == "" {
 			ip, err := n.ops.AllocateStaticIP(ctx, n.getStaticIPTags())
 			if err != nil {
