@@ -488,8 +488,10 @@ func (n *Node) recalculate() {
 // allocationNeeded returns true if this node requires IPs to be allocated
 func (n *Node) allocationNeeded() (needed bool) {
 	n.mutex.RLock()
-	needed = !n.waitingForPoolMaintenance && n.resyncNeeded.IsZero() && n.stats.NeededIPs > 0
+	staticIPNeeded := len(n.getStaticIPTags()) > 0 && n.resource.Status.IPAM.AssignedStaticIP == ""
+	needed = !n.waitingForPoolMaintenance && n.resyncNeeded.IsZero() && (n.stats.NeededIPs > 0 || staticIPNeeded)
 	n.mutex.RUnlock()
+	n.logger().Info("Anton-Test Allocation needed: ", needed, " Static IP needed: ", staticIPNeeded)
 	return
 }
 
