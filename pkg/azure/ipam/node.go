@@ -32,6 +32,8 @@ type Node struct {
 
 	// manager is the Azure node manager responsible for this node
 	manager *InstancesManager
+
+	vmss string
 }
 
 // UpdatedNode is called when an update to the CiliumNode is received.
@@ -131,8 +133,22 @@ func (n *Node) AllocateIPs(ctx context.Context, a *ipam.AllocationAction) error 
 }
 
 func (n *Node) AllocateStaticIP(ctx context.Context, staticIPTags ipamTypes.Tags) (string, error) {
-	// TODO
-	return "", nil
+	var i *types.AzureInterface
+	err := n.manager.instances.ForeachInterface(n.node.InstanceID(), func(instanceID, interfaceID string, interfaceObj ipamTypes.InterfaceRevision) error {
+		iface, ok := interfaceObj.Resource.(*types.AzureInterface)
+		if !ok {
+			return fmt.Errorf("invalid interface object")
+		}
+		i = iface
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	if i == nil {
+		return "", fmt.Errorf("no interfaces found for node %s", n.node.InstanceID())
+	}
+	return n.manager.api.AssignPublicIPAddressesVMSS(ctx, i.GetVMID(), i.GetVMScaleSetName(), staticIPTags)
 }
 
 // CreateInterface is called to create a new interface. This operation is
