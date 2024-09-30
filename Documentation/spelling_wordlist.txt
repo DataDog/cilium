@@ -829,6 +829,9 @@ optimizations
 orchestrator
 org
 originatingTLS
+os
+oseq
+otx
 pahole
 parsable
 parserfactory
@@ -983,6 +986,7 @@ selftest
 selftests
 sendmsg
 serverAddress
+serverinfo
 serviceAccount
 serviceAccountName
 serviceAccounts

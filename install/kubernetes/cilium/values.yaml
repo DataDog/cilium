@@ -143,7 +143,7 @@ rollOutCiliumPods: false
 image:
   override: ~
   repository: "quay.io/cilium/cilium"
-  tag: "v1.14.14"
+  tag: "v1.14.15"
   pullPolicy: "IfNotPresent"
   # cilium-digest
   digest: ""
@@ -1125,7 +1125,7 @@ hubble:
     image:
       override: ~
       repository: "quay.io/cilium/hubble-relay"
-      tag: "v1.14.14"
+      tag: "v1.14.15"
        # hubble-relay-digest
       digest: ""
       useDigest: false
@@ -1873,9 +1873,9 @@ envoy:
   image:
     override: ~
     repository: "quay.io/cilium/cilium-envoy"
-    tag: "v1.29.7-39a2a56bbd5b3a591f69dbca51d3e30ef97e0e51"
+    tag: "v1.29.9-1726784081-a90146d13b4cd7d168d573396ccf2b3db5a3b047"
     pullPolicy: "IfNotPresent"
-    digest: "sha256:bd5ff8c66716080028f414ec1cb4f7dc66f40d2fb5a009fff187f4a9b90b566b"
+    digest: "sha256:9762041c3760de226a8b00cc12f27dacc28b7691ea926748f9b5c18862db503f"
     useDigest: true
 
   # -- Additional containers added to the cilium Envoy DaemonSet.
@@ -2289,7 +2289,7 @@ operator:
   image:
     override: ~
     repository: "quay.io/cilium/operator"
-    tag: "v1.14.14"
+    tag: "v1.14.15"
     # operator-generic-digest
     genericDigest: ""
     # operator-azure-digest
@@ -2578,7 +2578,7 @@ preflight:
   image:
     override: ~
     repository: "quay.io/cilium/cilium"
-    tag: "v1.14.14"
+    tag: "v1.14.15"
     # cilium-digest
     digest: ""
     useDigest: false
@@ -2728,7 +2728,7 @@ clustermesh:
     image:
       override: ~
       repository: "quay.io/cilium/clustermesh-apiserver"
-      tag: "v1.14.14"
+      tag: "v1.14.15"
       # clustermesh-apiserver-digest
       digest: ""
       useDigest: false
@@ -2775,7 +2775,7 @@ clustermesh:
       image:
         override: ~
         repository: "quay.io/cilium/kvstoremesh"
-        tag: "v1.14.14"
+        tag: "v1.14.15"
         # kvstoremesh-digest
         digest: ""
         useDigest: false
