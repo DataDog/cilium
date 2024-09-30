@@ -526,6 +526,7 @@ openSUSE
 openapi
 openssl
 originatingTLS
+oseq
 pahole
 parsable
 parserfactory
@@ -612,6 +613,7 @@ secretName
 secretsNamespace
 selftest
 selftests
+serverinfo
 serviceAccount
 serviceMonitor
 setrlimit

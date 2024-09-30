@@ -146,7 +146,7 @@ rollOutCiliumPods: false
 image:
   override: ~
   repository: "quay.io/cilium/cilium"
-  tag: "v1.15.8"
+  tag: "v1.15.9"
   pullPolicy: "IfNotPresent"
   # cilium-digest
   digest: ""
@@ -1248,7 +1248,7 @@ hubble:
     image:
       override: ~
       repository: "quay.io/cilium/hubble-relay"
-      tag: "v1.15.8"
+      tag: "v1.15.9"
        # hubble-relay-digest
       digest: ""
       useDigest: false
@@ -2092,9 +2092,9 @@ envoy:
   image:
     override: ~
     repository: "quay.io/cilium/cilium-envoy"
-    tag: "v1.29.7-39a2a56bbd5b3a591f69dbca51d3e30ef97e0e51"
+    tag: "v1.29.9-1726784081-a90146d13b4cd7d168d573396ccf2b3db5a3b047"
     pullPolicy: "IfNotPresent"
-    digest: "sha256:bd5ff8c66716080028f414ec1cb4f7dc66f40d2fb5a009fff187f4a9b90b566b"
+    digest: "sha256:9762041c3760de226a8b00cc12f27dacc28b7691ea926748f9b5c18862db503f"
     useDigest: true
 
   # -- Additional containers added to the cilium Envoy DaemonSet.
@@ -2515,7 +2515,7 @@ operator:
   image:
     override: ~
     repository: "quay.io/cilium/operator"
-    tag: "v1.15.8"
+    tag: "v1.15.9"
     # operator-generic-digest
     genericDigest: ""
     # operator-azure-digest
@@ -2816,7 +2816,7 @@ preflight:
   image:
     override: ~
     repository: "quay.io/cilium/cilium"
-    tag: "v1.15.8"
+    tag: "v1.15.9"
     # cilium-digest
     digest: ""
     useDigest: false
@@ -2978,7 +2978,7 @@ clustermesh:
     image:
       override: ~
       repository: "quay.io/cilium/clustermesh-apiserver"
-      tag: "v1.15.8"
+      tag: "v1.15.9"
       # clustermesh-apiserver-digest
       digest: ""
       useDigest: false
@@ -3436,7 +3436,7 @@ authentication:
           override: ~
           repository: "docker.io/library/busybox"
           tag: "1.36.1"
-          digest: "sha256:9ae97d36d26566ff84e8893c64a6dc4fe8ca6d1144bf5b87b2b85a32def253c7"
+          digest: "sha256:c230832bd3b0be59a6c47ed64294f9ce71e91b327957920b6929a0caa8353140"
           useDigest: true
           pullPolicy: "IfNotPresent"
         # SPIRE agent configuration
