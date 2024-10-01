@@ -32,7 +32,7 @@ build-docker-image-operator:
       OPERATOR_VARIANT=operator
       BASE_IMAGE=registry.ddbuild.io/images/base/gbi-distroless:release
       GOLANG_IMAGE=registry.ddbuild.io/images/mirror/golang:1.22.7@sha256:192683db8982323952988c7b86c098ee7ecc6cbeb202bf7c113ff9be5358367c
-      ALPINE_IMAGE=registry.ddbuild.io/images/mirror/library/alpine:3.19.4:sha256:ae65dbf8749a7d4527648ccee1fa3deb6bfcae34cbc30fc67aa45c44dcaa90ee
+      ALPINE_IMAGE=registry.ddbuild.io/images/mirror/library/alpine:3.19.4@sha256:ae65dbf8749a7d4527648ccee1fa3deb6bfcae34cbc30fc67aa45c44dcaa90ee
       CILIUM_BUILDER_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-builder:5c4c5613984fd8652c1cab143708ecc5363427d5@sha256:62462376f61b1778cf9ca0b54bdbe38ce4bcf2b38ec610a74aa5d94a49c350da
     TARGET: release
 
