@@ -1,8 +1,8 @@
 campaigner_settings:
-  name: "Bump ${CI_PROJECT_NAME} image"
+  name: "Bump Cilium image"
   owner: "Compute"
   slack_channel: "${SLACK_CHANNEL}"
-  description: "Campaign to bump ${CI_PROJECT_NAME} image"
+  description: "Campaign to bump Cilium image"
   manual_refresh: false
   make_edits: true
   draft: false
@@ -14,9 +14,9 @@ github:
       branch: master
   pull_request:
     branch_name: "campaign/${BRANCH_NAME}"
-    title: Bump ${CI_PROJECT_NAME} image to the latest version
-    description: This pull request bumps the ${CI_PROJECT_NAME} image to its latest version.
-    default_commit_msg: "chore: bump ${CI_PROJECT_NAME} image to the latest version"
+    title: Bump Cilium ${CI_COMMIT_TAG} image to the latest version
+    description: This pull request bumps the Cilium ${CI_COMMIT_TAG} image to its latest version.
+    default_commit_msg: "chore: bump Cilium ${CI_COMMIT_TAG} image to the latest version"
 file_patterns:
   root: .
   regex:
@@ -24,3 +24,6 @@ file_patterns:
    - k8s/k8s-platform-cilium-control-plane/values.yaml
    - k8s/k8s-platform-cilium-pre-flight/values.yaml
 changes:
+  - op: "custom/search_and_replace"
+    key: !perl/regexp "\"${CI_COMMIT_TAG}[a-z0-9-]*\".*since.*"
+    value: "\"${IMAGE_TAG}\" # since ${CURRENT_DATE}"
