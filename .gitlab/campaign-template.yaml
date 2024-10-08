@@ -24,3 +24,6 @@ file_patterns:
    - k8s/k8s-platform-cilium-control-plane/values.yaml
    - k8s/k8s-platform-cilium-pre-flight/values.yaml
 changes:
+  - op: "custom/search_and_replace"
+    key: !perl/regexp "\"${CI_COMMIT_TAG}[a-z0-9-]*\".*since.*"
+    value: "\"${IMAGE_TAG}\" # since ${CURRENT_DATE}"

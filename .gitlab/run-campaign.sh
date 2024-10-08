@@ -8,15 +8,5 @@ git remote set-head origin $CI_COMMIT_REF_NAME
 
 export CURRENT_DATE=$(date +"%Y-%m-%d")
 envsubst < .gitlab/campaign-template.yaml > campaign.yaml
-
-# Generate search and replace rules for image tags
-# This will bump only existing image tags
-while IFS=' ' read -r GIT_TAG IMAGE_TAG; do
-  cat <<EOF >> campaign.yaml
-  - op: "custom/search_and_replace"
-    key: !perl/regexp "\"${GIT_TAG}[a-z0-9-]*\".*since.*"
-    value: "\"${IMAGE_TAG}\" # since ${CURRENT_DATE}"
-EOF
-done < image_tags.txt
-
+cat campaign.yaml
 campaigns start --env prod --config-file campaign.yaml

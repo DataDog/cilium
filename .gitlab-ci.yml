@@ -66,9 +66,6 @@ build-docker-image-cilium:
       CILIUM_ENVOY_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-envoy:v1.29.9-1726784081-a90146d13b4cd7d168d573396ccf2b3db5a3b047@sha256:9762041c3760de226a8b00cc12f27dacc28b7691ea926748f9b5c18862db503f
     TARGET: release
     NOSTRIP: 0
-  artifacts:
-    paths:
-      - image_tags.txt
 
 build-docker-image-hubble-relay:
   <<: *build-docker-image
