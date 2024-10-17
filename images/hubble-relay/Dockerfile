@@ -28,7 +28,7 @@ ARG MODIFIERS
 
 WORKDIR /go/src/github.com/cilium/cilium/hubble-relay
 RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium \
-    make GOARCH=${TARGETARCH} ${MODIFIERS} \
+    make GOARCH=${TARGETARCH} $(echo $MODIFIERS | tr -d '"') \
     && mkdir -p /out/${TARGETOS}/${TARGETARCH}/usr/bin && mv hubble-relay /out/${TARGETOS}/${TARGETARCH}/usr/bin
 
 WORKDIR /go/src/github.com/cilium/cilium
