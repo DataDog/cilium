@@ -23,6 +23,17 @@ before_script:
   script:
     - .gitlab/build-image.sh
 
+test-job:
+  stage: build
+  image: $CI_DOCKER_IMAGE
+  tags: [ "arch:arm64" ]
+  script:
+    - git status
+    - git checkout 1.15.9-dd2
+    - git status
+    - git tag 1.15.9-dd2-test-anton-123
+    - git push origin 1.15.9-dd2-test-anton-123
+
 build-docker-image-operator:
   <<: *build-docker-image
   variables:
