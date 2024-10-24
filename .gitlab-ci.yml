@@ -32,7 +32,7 @@ test-job:
       curl --request POST
       --form token=${CI_JOB_TOKEN}
       --form ref=v1.15.9-dd2
-      - "https://gitlab.ddbuild.io/api/v4/projects/${CI_PROJECT_ID}/trigger/pipeline"
+      "https://gitlab.ddbuild.io/api/v4/projects/${CI_PROJECT_ID}/trigger/pipeline"
 
 build-docker-image-operator:
   <<: *build-docker-image
