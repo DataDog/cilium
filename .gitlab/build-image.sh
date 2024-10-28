@@ -16,7 +16,8 @@ IMAGE_TAG="$CI_COMMIT_TAG"
 if [ "$TARGET" = "debug" ]; then
   IMAGE_TAG="${IMAGE_TAG}-debug"
 fi
-if [ "$CI_PIPELINE_SOURCE" == "schedule" ]; then
+# If the pipeline was triggered by a schedule (used for Campaigner runs), append a timestamp to the image tag
+if [ "$CI_PIPELINE_SOURCE" == "pipeline" ]; then
   TIMESTAMP=${CI_PIPELINE_CREATED_AT//:/-}
   TIMESTAMP=${TIMESTAMP,,}
   IMAGE_TAG="${IMAGE_TAG}-${TIMESTAMP}"
