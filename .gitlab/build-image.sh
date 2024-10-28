@@ -3,9 +3,6 @@ set -exuo pipefail
 
 TARGET="${TARGET:-}"
 
-# TODO remove this
-echo $CI_PIPELINE_SOURCE
-
 # Construct valid --build-args arguments from the DOCKER_BUILD_ARGS variable
 BUILD_ARGS=""
 IFS=$'\n'
@@ -20,7 +17,7 @@ if [ "$TARGET" = "debug" ]; then
   IMAGE_TAG="${IMAGE_TAG}-debug"
 fi
 # If the pipeline was triggered by a schedule (used for Campaigner runs), append a timestamp to the image tag
-if [ "$CI_PIPELINE_SOURCE" == "trigger" ]; then
+if [ "$CI_PIPELINE_SOURCE" == "pipeline" ]; then
   TIMESTAMP=${CI_PIPELINE_CREATED_AT//:/-}
   TIMESTAMP=${TIMESTAMP,,}
   IMAGE_TAG="${IMAGE_TAG}-${TIMESTAMP}"

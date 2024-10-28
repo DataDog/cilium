@@ -8,7 +8,8 @@ GIT_TAGS_TO_BUILD=$(git --no-pager tag --sort=-creatordate --merged HEAD --list 
 GIT_TAGS_TO_BUILD="1.15.10-dd4-anton-test"
 
 for TAG in $GIT_TAGS_TO_BUILD; do
-  curl --request POST \
+  curl --fail-with-body \
+       --request POST \
        --form token="${CI_JOB_TOKEN}" \
        --form ref="$TAG" \
        "https://gitlab.ddbuild.io/api/v4/projects/${CI_PROJECT_ID}/trigger/pipeline"
