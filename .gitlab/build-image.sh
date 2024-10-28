@@ -3,6 +3,7 @@ set -exuo pipefail
 
 TARGET="${TARGET:-}"
 
+# TODO remove this
 echo $CI_PIPELINE_SOURCE
 
 # Construct valid --build-args arguments from the DOCKER_BUILD_ARGS variable
