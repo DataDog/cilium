@@ -3,6 +3,8 @@ set -exuo pipefail
 
 TARGET="${TARGET:-}"
 
+echo $CI_PIPELINE_SOURCE
+
 # Construct valid --build-args arguments from the DOCKER_BUILD_ARGS variable
 BUILD_ARGS=""
 IFS=$'\n'
