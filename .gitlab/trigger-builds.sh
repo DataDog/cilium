@@ -2,7 +2,8 @@
 set -exuo pipefail
 
 # Find the 3 latest -dd tags on the current branch
-GIT_TAGS_TO_BUILD=$(git --no-pager tag --sort=-creatordate --merged HEAD --list \*-dd\* | head -n 3)
+# GIT_TAGS_TO_BUILD=$(git --no-pager tag --sort=-creatordate --merged HEAD --list \*-dd\* | head -n 3)
+GIT_TAGS_TO_BUILD="1.15.10-dd4-anton-test-3"
 
 # Trigger a CI pipeline for each tag
 for TAG in $GIT_TAGS_TO_BUILD; do
@@ -11,5 +12,5 @@ for TAG in $GIT_TAGS_TO_BUILD; do
        --form ref="$TAG" \
        "https://gitlab.ddbuild.io/api/v4/projects/${CI_PROJECT_ID}/trigger/pipeline"
   # Sleep for 20 minutes to prevent downstream Campaigner pipelines from running into merge conflicts because they update the same files
-  sleep 1200
+  # sleep 1200
 done
