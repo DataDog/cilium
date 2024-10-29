@@ -92,8 +92,6 @@ trigger-builds:
   stage: .pre
   image: $CI_DOCKER_IMAGE
   tags: ["arch:arm64"]
-  trigger:
-    strategy: depend
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
   script:
