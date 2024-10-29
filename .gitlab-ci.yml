@@ -100,6 +100,6 @@ trigger-builds:
 run-campaign:
   extends: .run-campaign
   rules:
-    - if: $CI_PIPELINE_SOURCE == "pipeline"
+    - if: $CI_PIPELINE_SOURCE == "schedule"
   script:
     - .gitlab/run-campaign.sh
