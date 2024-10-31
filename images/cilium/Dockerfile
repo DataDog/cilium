@@ -93,6 +93,7 @@ COPY --from=builder /tmp/install/${TARGETOS}/${TARGETARCH} /
 WORKDIR /home/cilium
 
 ENV INITSYSTEM="SYSTEMD"
+ENV TEST="TEST_1"
 CMD ["/usr/bin/cilium-dbg"]
 
 #
