@@ -34,7 +34,7 @@ docker buildx build --platform linux/amd64,linux/arm64 \
   --label CI_PIPELINE_ID="$CI_PIPELINE_ID" \
   --label CI_JOB_ID="$CI_JOB_ID" \
   --target "$TARGET" \
-  --push \
+  --output=type=local \
   --metadata-file "$METADATA_FILE" \
   "$DOCKER_CTX"
 
@@ -52,7 +52,7 @@ if [ "$IMAGE_NAME" == "cilium" ]; then
     --label CI_PIPELINE_ID="$CI_PIPELINE_ID" \
     --label CI_JOB_ID="$CI_JOB_ID" \
     --target debug \
-    --push \
+    --output=type=local \
     --metadata-file "$METADATA_FILE_DEBUG" \
     "$DOCKER_CTX"
   ddsign sign "$IMAGE_REF"-debug --docker-metadata-file "$METADATA_FILE_DEBUG"
