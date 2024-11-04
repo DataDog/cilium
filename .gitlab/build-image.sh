@@ -38,7 +38,7 @@ docker buildx build --platform linux/amd64,linux/arm64 \
   --metadata-file "$METADATA_FILE" \
   "$DOCKER_CTX"
 
-ddsign sign "$IMAGE_REF" --docker-metadata-file "$METADATA_FILE"
+# ddsign sign "$IMAGE_REF" --docker-metadata-file "$METADATA_FILE"
 
 # Always build the debug version of the Cilium image
 if [ "$IMAGE_NAME" == "cilium" ]; then
@@ -55,5 +55,5 @@ if [ "$IMAGE_NAME" == "cilium" ]; then
     --output="type=local,dest=." \
     --metadata-file "$METADATA_FILE_DEBUG" \
     "$DOCKER_CTX"
-  ddsign sign "$IMAGE_REF"-debug --docker-metadata-file "$METADATA_FILE_DEBUG"
+  # ddsign sign "$IMAGE_REF"-debug --docker-metadata-file "$METADATA_FILE_DEBUG"
 fi
