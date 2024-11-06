@@ -16,11 +16,6 @@ IMAGE_TAG="$CI_COMMIT_TAG"
 if [ "$TARGET" = "debug" ]; then
   IMAGE_TAG="${IMAGE_TAG}-debug"
 fi
-if [ "$CI_PIPELINE_SOURCE" == "schedule" ]; then
-  TIMESTAMP=${CI_PIPELINE_CREATED_AT//:/-}
-  TIMESTAMP=${TIMESTAMP,,}
-  IMAGE_TAG="${IMAGE_TAG}-${TIMESTAMP}"
-fi
 IMAGE_REF="registry.ddbuild.io/$IMAGE_NAME:$IMAGE_TAG"
 
 # Find the right Cilium Runtime image to use for the main Cilium image build
