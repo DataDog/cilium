@@ -100,6 +100,8 @@ func (rc *remoteCluster) Run(ctx context.Context, backend kvstore.BackendOperati
 		if capabilities.Cached {
 			suffix = rc.name
 		}
+		suffix = path.Join(suffix, "id")
+		//mgr.log.Warnf("HADRIEN: identityCache.IdentitiesPath is %s and suffix is %s", identityCache.IdentitiesPath, suffix)
 
 		rc.identities.watcher.Watch(ctx, backend, path.Join(adapter(identityCache.IdentitiesPath), suffix))
 	})
