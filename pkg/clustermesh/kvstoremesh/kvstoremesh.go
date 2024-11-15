@@ -6,6 +6,7 @@ package kvstoremesh
 import (
 	"cmp"
 	"context"
+	"path"
 	"slices"
 
 	"github.com/cilium/cilium/api/v1/models"
@@ -90,7 +91,7 @@ func (km *KVStoreMesh) newRemoteCluster(name string, status common.StatusFunc) c
 
 		nodes:        newReflector(km.backend, name, nodeStore.NodeStorePrefix, km.storeFactory),
 		services:     newReflector(km.backend, name, serviceStore.ServiceStorePrefix, km.storeFactory),
-		identities:   newReflector(km.backend, name, identityCache.IdentitiesPath, km.storeFactory),
+		identities:   newReflector(km.backend, name, path.Join(identityCache.IdentitiesPath, "id"), km.storeFactory),
 		ipcache:      newReflector(km.backend, name, ipcache.IPIdentitiesPath, km.storeFactory),
 		status:       status,
 		storeFactory: km.storeFactory,
