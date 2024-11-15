@@ -100,6 +100,7 @@ func (rc *remoteCluster) Run(ctx context.Context, backend kvstore.BackendOperati
 		if capabilities.Cached {
 			suffix = rc.name
 		}
+		path.Join(suffix, "id")
 
 		rc.identities.watcher.Watch(ctx, backend, path.Join(adapter(identityCache.IdentitiesPath), suffix))
 	})
