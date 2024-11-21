@@ -28,7 +28,7 @@ env:
 jobs:
   kubernetes-e2e:
     name: Installation and Conformance Test
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.GH_RUNNER_EXTRA_POWER_UBUNTU_LATEST || 'ubuntu-latest' }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -40,7 +40,7 @@ jobs:
 
     steps:
       - name: Checkout target branch to access local actions
-        uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ github.base_ref || github.ref }}
           persist-credentials: false
@@ -70,7 +70,7 @@ jobs:
           sudo cp ${TMP_DIR}/e2e.test /usr/local/bin/e2e.test
           sudo cp ${TMP_DIR}/kubectl /usr/local/bin/kubectl
           sudo cp ${TMP_DIR}/kind /usr/local/bin/kind
-          sudo chmod +x /usr/local/bin/*
+          sudo chmod +x /usr/local/bin/ginkgo /usr/local/bin/e2e.test /usr/local/bin/kubectl /usr/local/bin/kind
           sudo rm -rf ${TMP_DIR}
 
       - name: Create multi node cluster
@@ -145,7 +145,7 @@ jobs:
           ci-version: ${{ env.cilium_cli_ci_version }}
 
       - name: Checkout code
-        uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ steps.vars.outputs.sha }}
           persist-credentials: false
@@ -183,7 +183,6 @@ jobs:
           # KubeProxy|kube-proxy : kube-proxy specifics
           # LoadBalancer|GCE|ExternalIP : require a cloud provider, some of them are GCE specifics
           # Netpol|NetworkPolicy : network policies, demand significant resources and use to be slow, better to run in a different job
-          # Aggregator : Flaky, https://github.com/cilium/cilium/issues/24622.
           # same.port.number.but.different.protocols|HostPort|should.serve.endpoints.on.same.port.and.different.protocols : #9207
           # rejected : Kubernetes expect Services without endpoints associated to REJECT the connection to notify the client, Cilium silently drops the packet
           # externalTrafficPolicy : needs investigation
@@ -193,7 +192,7 @@ jobs:
           export E2E_REPORT_DIR=${PWD}/_artifacts
           /usr/local/bin/ginkgo --nodes=25                \
             --focus="\[Conformance\]|\[sig-network\]"     \
-            --skip="Feature|Federation|PerformanceDNS|DualStack|Disruptive|Serial|KubeProxy|kube-proxy|ExternalIP|LoadBalancer|GCE|Netpol|NetworkPolicy|Aggregator|rejected|externalTrafficPolicy|HostPort|same.port.number.but.different.protocols|should.serve.endpoints.on.same.port.and.different.protocols"   \
+            --skip="Feature|Federation|PerformanceDNS|DualStack|Disruptive|Serial|KubeProxy|kube-proxy|ExternalIP|LoadBalancer|GCE|Netpol|NetworkPolicy|rejected|externalTrafficPolicy|HostPort|same.port.number.but.different.protocols|should.serve.endpoints.on.same.port.and.different.protocols"   \
             /usr/local/bin/e2e.test                       \
             --                                            \
             --kubeconfig=${PWD}/_artifacts/kubeconfig.conf     \
@@ -213,7 +212,7 @@ jobs:
 
       - name: Upload artifacts
         if: ${{ !success() }}
-        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
         with:
           name: cilium-sysdumps
           path: cilium-sysdump-*.zip
@@ -221,7 +220,7 @@ jobs:
 
       - name: Upload cluster logs
         if: ${{ !success() }}
-        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
         with:
           name: kind-logs
           path: ./_artifacts/logs
@@ -229,7 +228,7 @@ jobs:
 
       - name: Upload Kubernetes e2e Junit Reports [junit]
         if: ${{ success() }}
-        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
         with:
           name: kubernetes-e2e-junit
           path: './_artifacts/*.xml'

@@ -79,7 +79,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -90,7 +90,7 @@ jobs:
 
   setup-and-test:
     needs: [wait-for-images]
-    runs-on: ${{ vars.GH_RUNNER_EXTRA_POWER }}
+    runs-on: ${{ vars.GH_RUNNER_EXTRA_POWER_UBUNTU_LATEST || 'ubuntu-latest' }}
     name: 'Setup & Test'
     env:
       job_name: 'Setup & Test'
@@ -124,6 +124,7 @@ jobs:
             kpr: 'false'
             tunnel: 'disabled'
             endpoint-routes: 'true'
+            kvstore: 'true'
 
           - name: '4'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
@@ -254,7 +255,7 @@ jobs:
             kube-proxy: 'iptables'
             kpr: 'true'
             devices: '{eth0,eth1}'
-            secondary-network: 'true'
+            secondary-network: 'false'
             tunnel: 'vxlan'
             lb-mode: 'snat'
             egress-gateway: 'true'
@@ -327,7 +328,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -434,10 +435,26 @@ jobs:
 
             mkdir -p cilium-junits
 
+      - name: Start Cilium KVStore
+        if: matrix.kvstore == 'true'
+        uses: cilium/little-vm-helper@97c89f004bd0ab4caeacfe92ebc956e13e362e6b # v0.0.19
+        with:
+          provision: 'false'
+          cmd: |
+            cd /host/
+            make kind-kvstore-start KVSTORE_POD_NAME=kvstore KVSTORE_POD_PORT=2378
+
+            IP=\$(kubectl --namespace kube-system get pod kvstore -o jsonpath='{.status.hostIP}')
+            echo " \
+              --set=etcd.enabled=true \
+              --set=identityAllocationMode=kvstore \
+              --set=etcd.endpoints[0]=http://\${IP}:2378 \
+            " | tr -s ' ' > etcd.config
+
       # Warning: since this is a privileged workflow, subsequent workflow job
       # steps must take care not to execute untrusted code.
       - name: Checkout pull request branch (NOT TRUSTED)
-        uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ steps.vars.outputs.sha }}
           persist-credentials: false
@@ -447,7 +464,7 @@ jobs:
 
       - name: Checkout ${{ steps.vars.outputs.downgrade_version }} branch to get the Helm chart
         if: ${{ matrix.skip-upgrade != 'true' }}
-        uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ steps.vars.outputs.downgrade_version }}
           persist-credentials: false
@@ -464,10 +481,12 @@ jobs:
 
             if ${{ matrix.skip-upgrade != 'true' }}; then
               CILIUM_CLI_MODE=helm ./cilium-cli install \
-              ${{ steps.cilium-stable-config.outputs.config }}
+              ${{ steps.cilium-stable-config.outputs.config }} \
+              \$(cat etcd.config)
             else
               CILIUM_CLI_MODE=helm ./cilium-cli install \
-              ${{ steps.cilium-newest-config.outputs.config }}
+              ${{ steps.cilium-newest-config.outputs.config }} \
+              \$(cat etcd.config)
             fi
 
             ./cilium-cli status --wait
@@ -496,7 +515,8 @@ jobs:
             cd /host/
 
             CILIUM_CLI_MODE=helm ./cilium-cli upgrade \
-              ${{ steps.cilium-newest-config.outputs.config }}
+              ${{ steps.cilium-newest-config.outputs.config }} \
+              \$(cat etcd.config)
 
             ./cilium-cli status --wait --wait-duration=10m
             kubectl get pods --all-namespaces -o wide
@@ -529,7 +549,7 @@ jobs:
               --sysdump-output-filename "cilium-sysdump-${{ matrix.name }}-<ts>" \
               --junit-file "cilium-junits/${{ env.job_name }} (${{ join(matrix.*, ', ') }}).xml" \
               --junit-property github_job_step="Run tests upgrade 2 (${{ join(matrix.*, ', ') }})" \
-              "${EXTRA[@]}"
+              "\${EXTRA[@]}"
 
             # --flush-ct interrupts the flows, so we need to set up again.
             ./cilium-cli connectivity test --include-conn-disrupt-test --conn-disrupt-test-setup \
@@ -544,7 +564,8 @@ jobs:
             cd /host/
 
             CILIUM_CLI_MODE=helm ./cilium-cli upgrade \
-              ${{ steps.cilium-stable-config.outputs.config }}
+              ${{ steps.cilium-stable-config.outputs.config }} \
+              \$(cat etcd.config)
 
             ./cilium-cli status --wait --wait-duration=10m
             kubectl get pods --all-namespaces -o wide
@@ -579,7 +600,7 @@ jobs:
               --sysdump-output-filename "cilium-sysdump-${{ matrix.name }}-<ts>" \
               --junit-file "cilium-junits/${{ env.job_name }} (${{ join(matrix.*, ', ') }}).xml" \
               --junit-property github_job_step="Run tests upgrade 3 (${{ join(matrix.*, ', ') }})" \
-              "${EXTRA[@]}"
+              "\${EXTRA[@]}"
 
       - name: Fetch artifacts
         if: ${{ !success() }}
@@ -596,16 +617,22 @@ jobs:
             # To debug https://github.com/cilium/cilium/issues/26062
             head -n -0 /proc/buddyinfo /proc/pagetypeinfo
 
+            if [ "${{ matrix.kvstore }}" == "true" ]; then
+              echo
+              echo "# Retrieving Cilium etcd logs"
+              kubectl -n kube-system logs kvstore
+            fi
+
       - name: Upload artifacts
         if: ${{ !success() }}
-        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
         with:
           name: cilium-sysdumps-${{ matrix.name }}
           path: cilium-sysdump-*.zip
 
       - name: Upload JUnits [junit]
         if: ${{ always() }}
-        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
         with:
           name: cilium-junits-${{ matrix.name }}
           path: cilium-junits/*.xml
@@ -624,7 +651,7 @@ jobs:
     steps:
       - name: Merge Sysdumps
         if: ${{ needs.setup-and-test.result == 'failure' }}
-        uses: actions/upload-artifact/merge@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        uses: actions/upload-artifact/merge@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
         with:
           name: cilium-sysdumps
           pattern: cilium-sysdumps-*
@@ -632,7 +659,7 @@ jobs:
           delete-merged: true
         continue-on-error: true
       - name: Merge JUnits
-        uses: actions/upload-artifact/merge@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        uses: actions/upload-artifact/merge@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
         with:
           name: cilium-junits
           pattern: cilium-junits-*

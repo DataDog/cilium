@@ -53,7 +53,7 @@ concurrency:
 
 env:
   # renovate: datasource=golang-version depName=go
-  go-version: 1.22.8
+  go-version: 1.22.9
 
 jobs:
   echo-inputs:
@@ -75,7 +75,7 @@ jobs:
           sha: ${{ inputs.SHA || github.sha }}
 
   setup-and-test:
-    runs-on: ${{ vars.GH_RUNNER_EXTRA_POWER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.GH_RUNNER_EXTRA_POWER_UBUNTU_LATEST || 'ubuntu-latest' }}
     name: Setup & Test
     strategy:
       fail-fast: false
@@ -104,7 +104,7 @@ jobs:
       # Warning: since this is a privileged workflow, subsequent workflow job
       # steps must take care not to execute untrusted code.
       - name: Checkout pull request branch (NOT TRUSTED)
-        uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ inputs.SHA || github.sha }}
           persist-credentials: false
@@ -152,7 +152,7 @@ jobs:
 
       - name: Upload artifacts
         if: ${{ !success() }}
-        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
         with:
           name: datapath-verifier_${{ matrix.kernel }}
           path: datapath-verifier

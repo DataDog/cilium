@@ -14,6 +14,7 @@ include Makefile.defs
 
 SUBDIRS_CILIUM_CONTAINER := cilium-dbg daemon cilium-health bugtool tools/mount tools/sysctlfix plugins/cilium-cni
 SUBDIR_OPERATOR_CONTAINER := operator
+SUBDIR_RELAY_CONTAINER := hubble-relay
 
 ifdef LIBNETWORK_PLUGIN
 SUBDIRS_CILIUM_CONTAINER += plugins/cilium-docker
@@ -23,7 +24,7 @@ endif
 -include Makefile.override
 
 # List of subdirectories used for global "make build", "make clean", etc
-SUBDIRS := $(SUBDIRS_CILIUM_CONTAINER) $(SUBDIR_OPERATOR_CONTAINER) plugins tools hubble-relay bpf
+SUBDIRS := $(SUBDIRS_CILIUM_CONTAINER) $(SUBDIR_OPERATOR_CONTAINER) plugins tools $(SUBDIR_RELAY_CONTAINER) bpf
 
 # Filter out any directories where the parent directory is also present, to avoid
 # building or cleaning a subdirectory twice.
@@ -73,6 +74,9 @@ build-container-operator-azure: ## Builds components required for a cilium-opera
 
 build-container-operator-alibabacloud: ## Builds components required for a cilium-operator alibabacloud variant container.
 	$(MAKE) $(SUBMAKEOPTS) -C $(SUBDIR_OPERATOR_CONTAINER) cilium-operator-alibabacloud
+
+build-container-hubble-relay:
+	$(MAKE) $(SUBMAKEOPTS) -C $(SUBDIR_RELAY_CONTAINER) all
 
 $(SUBDIRS): force ## Execute default make target(make all) for the provided subdirectory.
 	@ $(MAKE) $(SUBMAKEOPTS) -C $@ all
@@ -210,6 +214,10 @@ install-container-binary-operator-azure: ## Install binaries for all components 
 install-container-binary-operator-alibabacloud: ## Install binaries for all components required for cilium-operator alibabacloud variant container.
 	$(QUIET)$(INSTALL) -m 0755 -d $(DESTDIR)$(BINDIR)
 	$(MAKE) $(SUBMAKEOPTS) -C $(SUBDIR_OPERATOR_CONTAINER) install-alibabacloud
+
+install-container-binary-hubble-relay:
+	$(QUIET)$(INSTALL) -m 0755 -d $(DESTDIR)$(BINDIR)
+	$(MAKE) $(SUBMAKEOPTS) -C $(SUBDIR_RELAY_CONTAINER) install-binary
 
 # Workaround for not having git in the build environment
 # Touch the file only if needed
@@ -754,6 +762,32 @@ kind-egressgw-install-cilium: kind-ready ## Install a local Cilium version into 
 		--nodes-without-cilium \
 		--version= \
 		>/dev/null 2>&1 &
+
+KVSTORE_POD_NAME ?= "kvstore"
+KVSTORE_POD_PORT ?= "2378"
+
+.PHONY: kind-kvstore-install-cilium
+kind-kvstore-install-cilium: kind-ready kind-kvstore-start ## Install a local Cilium version into the cluster, configured in kvstore mode.
+	$(MAKE) kind-install-cilium KIND_VALUES_FILES="\
+		$(KIND_VALUES_FILES) \
+		--set etcd.enabled=true \
+		--set etcd.endpoints[0]=http://$(shell kubectl --namespace kube-system get pod $(KVSTORE_POD_NAME) -o jsonpath='{.status.hostIP}'):$(KVSTORE_POD_PORT) \
+		--set identityAllocationMode=kvstore \
+	"
+
+.PHONY: kind-kvstore-start
+kind-kvstore-start: ## Start an etcd pod serving as Cilium's kvstore
+	kubectl --namespace kube-system get pod $(KVSTORE_POD_NAME) >/dev/null 2>/dev/null || \
+		kubectl --namespace kube-system run $(KVSTORE_POD_NAME) --image $(ETCD_IMAGE) \
+			--overrides='{ "apiVersion": "v1", "spec": { "hostNetwork": true, "nodeSelector": {"node-role.kubernetes.io/control-plane": ""},  "tolerations": [{ "operator": "Exists" }] }}' \
+			-- etcd --listen-client-urls=http://0.0.0.0:$(KVSTORE_POD_PORT) --advertise-client-urls=http://0.0.0.0:$(KVSTORE_POD_PORT)
+
+	kubectl --namespace kube-system wait --for=condition=Ready pod/$(KVSTORE_POD_NAME)
+
+.PHONY: kind-kvstore-stop
+kind-kvstore-stop: ## Stop the etcd pod serving as Cilium's kvstore
+	kubectl --namespace kube-system delete pod $(KVSTORE_POD_NAME) --ignore-not-found
+	kubectl --namespace kube-system wait --for=delete pod/$(KVSTORE_POD_NAME)
 
 .PHONY: kind-uninstall-cilium
 kind-uninstall-cilium: ## Uninstall Cilium from the cluster.
