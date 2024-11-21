@@ -58,7 +58,7 @@ jobs:
   echo-inputs:
     if: ${{ github.event_name == 'workflow_dispatch' }}
     name: Echo Workflow Dispatch Inputs
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Echo Workflow Dispatch Inputs
         run: |
@@ -79,7 +79,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -96,13 +96,9 @@ jobs:
       job_name: 'Setup & Test'
     strategy:
       fail-fast: false
-      max-parallel: 16
+      max-parallel: 19
       matrix:
         include:
-          # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-          # ! NOTE: keep conformance-e2e.yaml config in sync !
-          # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
           - name: '1'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
             kernel: '4.19-20240710.064909'
@@ -159,6 +155,7 @@ jobs:
             kernel: '6.1-20240710.064909'
             kube-proxy: 'none'
             kpr: 'true'
+            devices: '{eth0,eth1}'
             tunnel: 'vxlan'
             lb-mode: 'snat'
             egress-gateway: 'true'
@@ -243,6 +240,14 @@ jobs:
             egress-gateway: 'true'
             ingress-controller: 'true'
 
+          - name: '13'
+            # renovate: datasource=docker depName=quay.io/lvh-images/kind
+            kernel: '4.19-20240710.064909'
+            kube-proxy: 'iptables'
+            kpr: 'false'
+            tunnel: 'vxlan'
+            misc: 'policyCIDRMatchMode=nodes'
+
           - name: '14'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
             kernel: '5.4-20240710.064909'
@@ -254,6 +259,17 @@ jobs:
             lb-mode: 'snat'
             egress-gateway: 'true'
             lb-acceleration: 'testing-only'
+
+          - name: '15'
+            # renovate: datasource=docker depName=quay.io/lvh-images/kind
+            kernel: '6.6-20240710.064909'
+            kube-proxy: 'none'
+            kpr: 'true'
+            devices: '{eth0,eth1}'
+            secondary-network: 'true'
+            tunnel: 'disabled'
+            ingress-controller: 'true'
+            misc: 'bpf.tproxy=true'
 
           - name: '16'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
@@ -268,10 +284,50 @@ jobs:
             encryption-node: 'false'
             host-fw: 'true'
 
+          - name: '17'
+            # renovate: datasource=docker depName=quay.io/lvh-images/kind
+            kernel: '4.19-20240710.064909'
+            kube-proxy: 'iptables'
+            kpr: 'false'
+            tunnel: 'vxlan'
+            host-fw: 'true'
+            skip-upgrade: 'true'
+
+          - name: '18'
+            # renovate: datasource=docker depName=quay.io/lvh-images/kind
+            kernel: '5.4-20240710.064909'
+            kube-proxy: 'iptables'
+            kpr: 'false'
+            tunnel: 'disabled'
+            host-fw: 'true'
+            skip-upgrade: 'true'
+
+          - name: '19'
+            # renovate: datasource=docker depName=quay.io/lvh-images/kind
+            kernel: '5.15-20240710.064909'
+            kube-proxy: 'iptables'
+            kpr: 'true'
+            devices: '{eth0,eth1}'
+            secondary-network: 'true'
+            tunnel: 'disabled'
+            lb-mode: 'dsr'
+            endpoint-routes: 'true'
+            egress-gateway: 'true'
+            host-fw: 'true'
+            skip-upgrade: 'true'
+
+          # Example of a feature that is being introduced, and we want to test
+          # it without performing an upgrade, we use skip-upgrade: 'true'
+          # - name: '17'
+          #   # renovate: datasource=docker depName=quay.io/lvh-images/kind
+          #   kernel: 'bpf-20240711.013133'
+          #   misc: 'bpf.datapathMode=netkit-l2,bpf.masquerade=true'
+          #   skip-upgrade: 'true'
+
     timeout-minutes: 60
     steps:
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -296,6 +352,7 @@ jobs:
           echo downgrade_version=${CILIUM_DOWNGRADE_VERSION} >> $GITHUB_OUTPUT
 
       - name: Derive stable Cilium installation config
+        if: ${{ matrix.skip-upgrade != 'true' }}
         id: cilium-stable-config
         uses: ./.github/actions/cilium-config
         with:
@@ -336,7 +393,7 @@ jobs:
           misc: 'bpfClockProbe=false,cni.uninstall=false'
 
       - name: Install Cilium CLI
-        uses: cilium/cilium-cli@fff38e882846c03f1720dad476e459323275ab9c # v0.16.17
+        uses: cilium/cilium-cli@6977c4a640ad45da3a95eb12054497f2bdd22c48 # v0.16.19
         with:
           repository: ${{ env.CILIUM_CLI_RELEASE_REPO }}
           release-version: ${{ env.CILIUM_CLI_VERSION }}
@@ -347,6 +404,9 @@ jobs:
       - name: Provision LVH VMs
         uses: cilium/little-vm-helper@97c89f004bd0ab4caeacfe92ebc956e13e362e6b # v0.0.19
         with:
+          images-folder-parent: "/tmp"
+          # renovate: datasource=github-tags depName=cilium/little-vm-helper
+          lvh-version: "v0.0.19"
           test-name: ipsec-upgrade
           image-version: ${{ matrix.kernel }}
           host-mount: ./
@@ -377,7 +437,7 @@ jobs:
       # Warning: since this is a privileged workflow, subsequent workflow job
       # steps must take care not to execute untrusted code.
       - name: Checkout pull request branch (NOT TRUSTED)
-        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
         with:
           ref: ${{ steps.vars.outputs.sha }}
           persist-credentials: false
@@ -386,7 +446,8 @@ jobs:
             install/kubernetes/cilium
 
       - name: Checkout ${{ steps.vars.outputs.downgrade_version }} branch to get the Helm chart
-        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        if: ${{ matrix.skip-upgrade != 'true' }}
+        uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
         with:
           ref: ${{ steps.vars.outputs.downgrade_version }}
           persist-credentials: false
@@ -394,15 +455,20 @@ jobs:
           sparse-checkout: |
             install/kubernetes/cilium
 
-      - name: Install Cilium ${{ env.cilium_stable_version }}
+      - name: Install Cilium ${{ matrix.skip-upgrade == 'true' && 'from v1.15' || steps.vars.outputs.downgrade_version }}
         uses: cilium/little-vm-helper@97c89f004bd0ab4caeacfe92ebc956e13e362e6b # v0.0.19
         with:
           provision: 'false'
           cmd: |
             cd /host/
 
-            CILIUM_CLI_MODE=helm ./cilium-cli install \
+            if ${{ matrix.skip-upgrade != 'true' }}; then
+              CILIUM_CLI_MODE=helm ./cilium-cli install \
               ${{ steps.cilium-stable-config.outputs.config }}
+            else
+              CILIUM_CLI_MODE=helm ./cilium-cli install \
+              ${{ steps.cilium-newest-config.outputs.config }}
+            fi
 
             ./cilium-cli status --wait
             kubectl get pods --all-namespaces -o wide
@@ -422,6 +488,7 @@ jobs:
               --conn-disrupt-dispatch-interval 0ms
 
       - name: Upgrade Cilium
+        if: ${{ matrix.skip-upgrade != 'true' }}
         uses: cilium/little-vm-helper@97c89f004bd0ab4caeacfe92ebc956e13e362e6b # v0.0.19
         with:
           provision: 'false'
@@ -431,11 +498,11 @@ jobs:
             CILIUM_CLI_MODE=helm ./cilium-cli upgrade \
               ${{ steps.cilium-newest-config.outputs.config }}
 
-            ./cilium-cli status --wait
+            ./cilium-cli status --wait --wait-duration=10m
             kubectl get pods --all-namespaces -o wide
             kubectl -n kube-system exec daemonset/cilium -- cilium status
 
-      - name: Test Cilium after upgrade
+      - name: Test Cilium ${{ matrix.skip-upgrade != 'true' && 'after upgrade' }}
         uses: cilium/little-vm-helper@97c89f004bd0ab4caeacfe92ebc956e13e362e6b # v0.0.19
         with:
           provision: 'false'
@@ -468,7 +535,8 @@ jobs:
             ./cilium-cli connectivity test --include-conn-disrupt-test --conn-disrupt-test-setup \
               --conn-disrupt-dispatch-interval 0ms
 
-      - name: Downgrade Cilium ${{ env.cilium_stable_version }}
+      - name: Downgrade Cilium ${{ steps.vars.outputs.downgrade_version }}
+        if: ${{ matrix.skip-upgrade != 'true' }}
         uses: cilium/little-vm-helper@97c89f004bd0ab4caeacfe92ebc956e13e362e6b # v0.0.19
         with:
           provision: 'false'
@@ -478,11 +546,12 @@ jobs:
             CILIUM_CLI_MODE=helm ./cilium-cli upgrade \
               ${{ steps.cilium-stable-config.outputs.config }}
 
-            ./cilium-cli status --wait
+            ./cilium-cli status --wait --wait-duration=10m
             kubectl get pods --all-namespaces -o wide
             kubectl -n kube-system exec daemonset/cilium -- cilium status
 
-      - name: Test Cilium after downgrade to ${{ env.cilium_stable_version }}
+      - name: Test Cilium after downgrade to ${{ steps.vars.outputs.downgrade_version }}
+        if: ${{ matrix.skip-upgrade != 'true' }}
         uses: cilium/little-vm-helper@97c89f004bd0ab4caeacfe92ebc956e13e362e6b # v0.0.19
         with:
           provision: 'false'
