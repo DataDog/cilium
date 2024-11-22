@@ -146,7 +146,7 @@ rollOutCiliumPods: false
 image:
   override: ~
   repository: "quay.io/cilium/cilium"
-  tag: "v1.15.9"
+  tag: "v1.15.10"
   pullPolicy: "IfNotPresent"
   # cilium-digest
   digest: ""
@@ -989,8 +989,8 @@ certgen:
   image:
     override: ~
     repository: "quay.io/cilium/certgen"
-    tag: "v0.1.14"
-    digest: "sha256:40cdac65aa6ee86c16ce107f8726c4b55ce6654d07bbdf490db6bd492587bf54"
+    tag: "v0.1.15"
+    digest: "sha256:a82265cd78234505802772fb6256bcfa8231b718d2652ad815eb479fc3cc8028"
     useDigest: true
     pullPolicy: "IfNotPresent"
   # -- Seconds after which the completed job pod will be deleted
@@ -1248,7 +1248,7 @@ hubble:
     image:
       override: ~
       repository: "quay.io/cilium/hubble-relay"
-      tag: "v1.15.9"
+      tag: "v1.15.10"
        # hubble-relay-digest
       digest: ""
       useDigest: false
@@ -2092,9 +2092,9 @@ envoy:
   image:
     override: ~
     repository: "quay.io/cilium/cilium-envoy"
-    tag: "v1.29.9-1726784081-a90146d13b4cd7d168d573396ccf2b3db5a3b047"
+    tag: "v1.29.9-1728346947-0d05e48bfbb8c4737ec40d5781d970a550ed2bbd"
     pullPolicy: "IfNotPresent"
-    digest: "sha256:9762041c3760de226a8b00cc12f27dacc28b7691ea926748f9b5c18862db503f"
+    digest: "sha256:42614a44e508f70d03a04470df5f61e3cffd22462471a0be0544cf116f2c50ba"
     useDigest: true
 
   # -- Additional containers added to the cilium Envoy DaemonSet.
@@ -2515,7 +2515,7 @@ operator:
   image:
     override: ~
     repository: "quay.io/cilium/operator"
-    tag: "v1.15.9"
+    tag: "v1.15.10"
     # operator-generic-digest
     genericDigest: ""
     # operator-azure-digest
@@ -2816,7 +2816,7 @@ preflight:
   image:
     override: ~
     repository: "quay.io/cilium/cilium"
-    tag: "v1.15.9"
+    tag: "v1.15.10"
     # cilium-digest
     digest: ""
     useDigest: false
@@ -2978,7 +2978,7 @@ clustermesh:
     image:
       override: ~
       repository: "quay.io/cilium/clustermesh-apiserver"
-      tag: "v1.15.9"
+      tag: "v1.15.10"
       # clustermesh-apiserver-digest
       digest: ""
       useDigest: false
