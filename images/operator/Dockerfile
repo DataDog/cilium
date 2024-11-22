@@ -2,14 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ARG BASE_IMAGE=scratch
-ARG GOLANG_IMAGE=docker.io/library/golang:1.22.8@sha256:628529a29f130a8ab336b994be99d134ce98cd23b8f2052d8995678681e97ca2
-ARG ALPINE_IMAGE=docker.io/library/alpine:3.19.4@sha256:ae65dbf8749a7d4527648ccee1fa3deb6bfcae34cbc30fc67aa45c44dcaa90ee
-ARG CILIUM_BUILDER_IMAGE=quay.io/cilium/cilium-builder:3e68d31e23206c930daca976bc4a6e84ba7996ca@sha256:4ce5269119aac2c840c6db90812378774b22db3bd529fa23e0b9ddb90dde79a1
+ARG GOLANG_IMAGE=docker.io/library/golang:1.22.9@sha256:4cfe4a9a7ff5817f93e70bcc016ea269401290ec9bd9509b4f0a2dd553640944
+ARG ALPINE_IMAGE=docker.io/library/alpine:3.19.4@sha256:7a85bf5dc56c949be827f84f9185161265c58f589bb8b2a6b6bb6d3076c1be21
+ARG CILIUM_BUILDER_IMAGE=quay.io/cilium/cilium-builder:f9348d1897fae60676482e94d47307897b92ef45@sha256:18c38d0d4466541ca85da8b0262edec5207276c3a71b8032d6c8a1e1e42a3b4d
 
 # BUILDPLATFORM is an automatic platform ARG enabled by Docker BuildKit.
 # Represents the plataform where the build is happening, do not mix with
 # TARGETARCH
-FROM --platform=${BUILDPLATFORM} ${GOLANG_IMAGE} AS builder
+FROM --platform=${BUILDPLATFORM} ${CILIUM_BUILDER_IMAGE} AS builder
 
 # TARGETOS is an automatic platform ARG enabled by Docker BuildKit.
 ARG TARGETOS

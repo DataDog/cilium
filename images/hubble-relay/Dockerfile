@@ -11,8 +11,8 @@
 # The key may be found at the following address:
 # https://raw.githubusercontent.com/GoogleContainerTools/distroless/main/cosign.pub
 ARG BASE_IMAGE=gcr.io/distroless/static-debian11:nonroot@sha256:63ebe035fbdd056ed682e6a87b286d07d3f05f12cb46f26b2b44fc10fc4a59ed
-ARG GOLANG_IMAGE=docker.io/library/golang:1.22.8@sha256:628529a29f130a8ab336b994be99d134ce98cd23b8f2052d8995678681e97ca2
-ARG CILIUM_BUILDER_IMAGE=quay.io/cilium/cilium-builder:3e68d31e23206c930daca976bc4a6e84ba7996ca@sha256:4ce5269119aac2c840c6db90812378774b22db3bd529fa23e0b9ddb90dde79a1
+ARG GOLANG_IMAGE=docker.io/library/golang:1.22.9@sha256:4cfe4a9a7ff5817f93e70bcc016ea269401290ec9bd9509b4f0a2dd553640944
+ARG CILIUM_BUILDER_IMAGE=quay.io/cilium/cilium-builder:f9348d1897fae60676482e94d47307897b92ef45@sha256:18c38d0d4466541ca85da8b0262edec5207276c3a71b8032d6c8a1e1e42a3b4d
 
 # BUILDPLATFORM is an automatic platform ARG enabled by Docker BuildKit.
 # Represents the plataform where the build is happening, do not mix with
@@ -26,10 +26,10 @@ ARG TARGETARCH
 # MODIFIERS are extra arguments to be passed to make at build time.
 ARG MODIFIERS
 
-WORKDIR /go/src/github.com/cilium/cilium/hubble-relay
+WORKDIR /go/src/github.com/cilium/cilium
 RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium \
     make GOARCH=${TARGETARCH} ${MODIFIERS} \
-    && mkdir -p /out/${TARGETOS}/${TARGETARCH}/usr/bin && mv hubble-relay /out/${TARGETOS}/${TARGETARCH}/usr/bin
+    DESTDIR=/out/${TARGETOS}/${TARGETARCH} build-container-hubble-relay install-container-binary-hubble-relay
 
 WORKDIR /go/src/github.com/cilium/cilium
 # licenses-all is a "script" that executes "go run" so its ARCH should be set

@@ -79,7 +79,7 @@ func (f *FakeDatapath) WriteEndpointConfig(io.Writer, datapath.EndpointConfigura
 	return nil
 }
 
-func (f *FakeDatapath) InstallProxyRules(context.Context, uint16, bool, bool, string) error {
+func (f *FakeDatapath) InstallProxyRules(context.Context, uint16, bool, string) error {
 	return nil
 }
 
@@ -91,8 +91,8 @@ func (f *FakeDatapath) InstallRules(ctx context.Context, ifName string, quiet, i
 	return nil
 }
 
-func (m *FakeDatapath) GetProxyPort(name string) uint16 {
-	return 0
+func (m *FakeDatapath) GetProxyPorts() map[string]uint16 {
+	return nil
 }
 
 func (m *FakeDatapath) InstallNoTrackRules(IP string, port uint16, ipv6 bool) error {

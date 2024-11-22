@@ -4,6 +4,7 @@
 package proxy
 
 import (
+	"github.com/cilium/cilium/pkg/controller"
 	datapath "github.com/cilium/cilium/pkg/datapath/types"
 	"github.com/cilium/cilium/pkg/envoy"
 	"github.com/cilium/cilium/pkg/hive/cell"
@@ -11,6 +12,8 @@ import (
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/proxy/logger"
 	"github.com/cilium/cilium/pkg/proxy/logger/endpoint"
+	"github.com/cilium/cilium/pkg/time"
+	"github.com/cilium/cilium/pkg/trigger"
 )
 
 // Cell provides the L7 Proxy which provides support for L7 network policies.
@@ -20,7 +23,13 @@ var Cell = cell.Module(
 	"l7-proxy",
 	"L7 Proxy provides support for L7 network policies",
 
-	cell.Provide(func() ProxyConfig { return DefaultProxyConfig }),
+	cell.Provide(func() ProxyConfig {
+		ret := DefaultProxyConfig
+		if option.Config.RestoredProxyPortsAgeLimit != 0 {
+			ret.RestoredProxyPortsAgeLimit = option.Config.RestoredProxyPortsAgeLimit
+		}
+		return ret
+	}),
 
 	cell.Provide(newProxy),
 	cell.Provide(newEnvoyProxyIntegration),
@@ -29,8 +38,9 @@ var Cell = cell.Module(
 )
 
 type ProxyConfig struct {
-	MinPort, MaxPort uint16
-	DNSProxyPort     uint16
+	MinPort, MaxPort           uint16
+	DNSProxyPort               uint16
+	RestoredProxyPortsAgeLimit uint
 }
 
 var DefaultProxyConfig = ProxyConfig{
@@ -38,12 +48,14 @@ var DefaultProxyConfig = ProxyConfig{
 	MaxPort: 20000,
 	// The default value for the DNS proxy port is set to 0 to allocate a random
 	// port.
-	DNSProxyPort: 0,
+	DNSProxyPort:               0,
+	RestoredProxyPortsAgeLimit: 15,
 }
 
 type proxyParams struct {
 	cell.In
 
+	Lifecycle             cell.Lifecycle
 	Datapath              datapath.Datapath
 	EndpointInfoRegistry  logger.EndpointInfoRegistry
 	MonitorAgent          monitoragent.Agent
@@ -63,7 +75,44 @@ func newProxy(params proxyParams, cfg ProxyConfig) *Proxy {
 
 	configureProxyLogger(params.EndpointInfoRegistry, params.MonitorAgent, option.Config.AgentLabels)
 
-	return createProxy(cfg.MinPort, cfg.MaxPort, cfg.DNSProxyPort, params.Datapath, params.EnvoyProxyIntegration, params.DNSProxyIntegration, params.XdsServer)
+	p := createProxy(cfg.MinPort, cfg.MaxPort, cfg.DNSProxyPort, params.Datapath, params.EnvoyProxyIntegration, params.DNSProxyIntegration, params.XdsServer)
+
+	triggerDone := make(chan struct{})
+
+	controllerManager := controller.NewManager()
+	controllerGroup := controller.NewGroup("proxy-ports-allocator")
+	controllerName := "proxy-ports-checkpoint"
+
+	params.Lifecycle.Append(cell.Hook{
+		OnStart: func(cell.HookContext) (err error) {
+			// Restore all proxy ports before we create the trigger to overwrite the
+			// file below
+			p.RestoreProxyPorts(cfg.RestoredProxyPortsAgeLimit)
+
+			p.proxyPortsTrigger, err = trigger.NewTrigger(trigger.Parameters{
+				MinInterval: 10 * time.Second,
+				TriggerFunc: func(reasons []string) {
+					controllerManager.UpdateController(controllerName, controller.ControllerParams{
+						Group:    controllerGroup,
+						DoFunc:   p.storeProxyPorts,
+						StopFunc: p.storeProxyPorts, // perform one last checkpoint when the controller is removed
+					})
+				},
+				ShutdownFunc: func() {
+					controllerManager.RemoveControllerAndWait(controllerName) // waits for StopFunc
+					close(triggerDone)
+				},
+			})
+			return err
+		},
+		OnStop: func(cell.HookContext) error {
+			p.proxyPortsTrigger.Shutdown()
+			<-triggerDone
+			return nil
+		},
+	})
+
+	return p
 }
 
 type envoyProxyIntegrationParams struct {

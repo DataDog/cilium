@@ -79,7 +79,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -91,7 +91,7 @@ jobs:
   setup-and-test:
     needs: [wait-for-images]
     name: 'Setup & Test'
-    runs-on: ${{ vars.GH_RUNNER_EXTRA_POWER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.GH_RUNNER_EXTRA_POWER_UBUNTU_LATEST || 'ubuntu-latest' }}
     env:
       job_name: 'Setup & Test'
     strategy:
@@ -140,6 +140,7 @@ jobs:
             key-two: 'gcm(aes)'
             key-type-one: ''
             key-type-two: '+'
+            kvstore: 'true'
 
           - name: '4'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
@@ -154,6 +155,7 @@ jobs:
             key-two: 'gcm(aes)'
             key-type-one: ''
             key-type-two: ''
+            kvstore: 'true'
 
           - name: '5'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
@@ -187,7 +189,7 @@ jobs:
     timeout-minutes: 75
     steps:
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -227,6 +229,8 @@ jobs:
           egress-gateway: ${{ matrix.egress-gateway }}
           host-fw: ${{ matrix.host-fw }}
           ingress-controller: ${{ matrix.ingress-controller }}
+          # Mutual auth doesn't currently work in kvstore mode.
+          mutual-auth: ${{ matrix.kvstore != 'true' }}
           misc: ${{ matrix.misc }}
 
       - name: Install Cilium CLI
@@ -256,10 +260,23 @@ jobs:
           kind-params: "${{ steps.kind-params.outputs.params }}"
           kind-image: ${{ env.KIND_K8S_IMAGE }}
 
+      - name: Start Cilium KVStore
+        id: kvstore
+        if: matrix.kvstore == 'true'
+        run: |
+          make kind-kvstore-start KVSTORE_POD_NAME=kvstore KVSTORE_POD_PORT=2378
+
+          IP=$(kubectl --namespace kube-system get pod kvstore -o jsonpath='{.status.hostIP}')
+          echo "config= \
+            --set=etcd.enabled=true \
+            --set=identityAllocationMode=kvstore \
+            --set=etcd.endpoints[0]=http://${IP}:2378 \
+          " >> $GITHUB_OUTPUT
+
       # Warning: since this is a privileged workflow, subsequent workflow job
       # steps must take care not to execute untrusted code.
       - name: Checkout pull request branch (NOT TRUSTED)
-        uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ steps.vars.outputs.sha }}
           persist-credentials: false
@@ -283,9 +300,12 @@ jobs:
             --from-literal=keys="3${{ matrix.key-type-one }} ${key}"
 
           export CILIUM_CLI_MODE=helm
-          ./cilium-cli install ${{ steps.cilium-config.outputs.config }}
-          kubectl -n cilium-spire wait --for=condition=Ready pod -l app=spire-server --timeout=300s
-          kubectl -n cilium-spire wait --for=condition=Ready pod -l app=spire-agent --timeout=300s
+          ./cilium-cli install ${{ steps.cilium-config.outputs.config }} ${{ steps.kvstore.outputs.config }}
+
+          if [[ "${{ matrix.kvstore }}" != "true" ]]; then
+            kubectl -n cilium-spire wait --for=condition=Ready pod -l app=spire-server --timeout=300s
+            kubectl -n cilium-spire wait --for=condition=Ready pod -l app=spire-agent --timeout=300s
+          fi
 
           ./cilium-cli status --wait
           kubectl get pods --all-namespaces -o wide
@@ -382,16 +402,22 @@ jobs:
           mkdir -p cilium-sysdumps
           ./cilium-cli sysdump --output-filename cilium-sysdump-${{ matrix.name }}-final
 
+          if [ "${{ matrix.kvstore }}" == "true" ]; then
+            echo
+            echo "# Retrieving Cilium etcd logs"
+            kubectl -n kube-system logs kvstore
+          fi
+
       - name: Upload artifacts
         if: ${{ !success() }}
-        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
         with:
           name: cilium-sysdumps-${{ matrix.name }}
           path: cilium-sysdump-*.zip
 
       - name: Upload JUnits [junit]
         if: ${{ always() }}
-        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
         with:
           name: cilium-junits-${{ matrix.name }}
           path: cilium-junits/*.xml
@@ -410,7 +436,7 @@ jobs:
     steps:
       - name: Merge Sysdumps
         if: ${{ needs.setup-and-test.result == 'failure' }}
-        uses: actions/upload-artifact/merge@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        uses: actions/upload-artifact/merge@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
         with:
           name: cilium-sysdumps
           pattern: cilium-sysdumps-*
@@ -418,7 +444,7 @@ jobs:
           delete-merged: true
         continue-on-error: true
       - name: Merge JUnits
-        uses: actions/upload-artifact/merge@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        uses: actions/upload-artifact/merge@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
         with:
           name: cilium-junits
           pattern: cilium-junits-*
