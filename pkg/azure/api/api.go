@@ -431,6 +431,13 @@ func (c *Client) AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, v
 	ipConfigurations = append(*netIfConfig.IPConfigurations, ipConfigurations...)
 	netIfConfig.IPConfigurations = &ipConfigurations
 
+	var ipcSubnets string
+	for _, ipc := range ipConfigurations {
+		if ipc.Subnet != nil {
+			ipcSubnets = " || " + *ipc.Subnet.ID
+		}
+	}
+
 	// Unset imageReference, because if this contains a reference to an image from the
 	// Azure Compute Gallery, including this reference in an update to the VMSS instance
 	// will cause a permissions error, because the reference includes an Azure-managed
@@ -446,7 +453,8 @@ func (c *Client) AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, v
 	future, err := c.vmss.Update(ctx, c.resourceGroup, vmssName, instanceID, result)
 	defer c.metricsAPI.ObserveAPICall("VirtualMachineScaleSetVMs.Update", deriveStatus(err), sinceStart.Seconds())
 	if err != nil {
-		return fmt.Errorf("unable to update virtualmachinescaleset: %w", err)
+		fmt.Printf("maybe faulty ipconfigs : %s %v\n", ipcSubnets, ipConfigurations)
+		return fmt.Errorf("unable to update virtualmachinescaleset: %s %v %w", ipcSubnets, ipConfigurations, err)
 	}
 
 	err = future.WaitForCompletionRef(ctx, c.vmss.Client)
