@@ -337,6 +337,11 @@ func parseSubnet(subnet *network.Subnet) (s *ipamTypes.Subnet) {
 		s.CIDR = c
 		if subnet.IPConfigurations != nil {
 			s.AvailableAddresses = c.AvailableIPs() - len(*subnet.IPConfigurations)
+			if s.AvailableAddresses == 0 {
+				fmt.Printf("Subnet %s has no available addrs | total avail  %d |  %v\n", s.ID, c.AvailableIPs(), *subnet.IPConfigurations)
+			}
+		} else {
+			fmt.Printf("Subnet %s has no IPConfigurations\n", s.ID)
 		}
 	}
 
