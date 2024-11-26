@@ -312,7 +312,13 @@ func (m SubnetMap) FirstSubnetWithAvailableAddresses(preferredPoolIDs []PoolID) 
 			fmt.Printf("exhausted subnet %s %s %s %d %v\n", s.Name, s.VirtualNetworkID, s.ID, s.AvailableAddresses, preferredPoolIDs)
 		}
 	}
-
+	// Hack : Always return first subnet from the preferred list to work around azure describe VPC bug
+	for _, p := range preferredPoolIDs {
+		if s := m[string(p)]; s != nil {
+			fmt.Printf("falling back to preferred subnet %s", s.ID)
+			return p, s.CIDR.AvailableIPs()
+		}
+	}
 	for poolID, s := range m {
 		if s.AvailableAddresses > 0 {
 			fmt.Printf("not exhausted subnet %s %s %s %d %v\n", s.Name, s.VirtualNetworkID, s.ID, s.AvailableAddresses, preferredPoolIDs)
