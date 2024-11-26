@@ -309,11 +309,13 @@ func (m SubnetMap) FirstSubnetWithAvailableAddresses(preferredPoolIDs []PoolID) 
 			if s.AvailableAddresses > 0 {
 				return p, s.AvailableAddresses
 			}
+			fmt.Printf("exhausted subnet %s %s %s %d %v\n", s.Name, s.VirtualNetworkID, s.ID, s.AvailableAddresses, preferredPoolIDs)
 		}
 	}
 
 	for poolID, s := range m {
 		if s.AvailableAddresses > 0 {
+			fmt.Printf("not exhausted subnet %s %s %s %d %v\n", s.Name, s.VirtualNetworkID, s.ID, s.AvailableAddresses, preferredPoolIDs)
 			return PoolID(poolID), s.AvailableAddresses
 		}
 	}
