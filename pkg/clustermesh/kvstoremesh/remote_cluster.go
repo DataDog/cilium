@@ -166,9 +166,13 @@ func (o *syncer) OnSync(ctx context.Context) {
 }
 
 func newReflector(local kvstore.BackendOperations, cluster, prefix string, factory store.Factory) reflector {
+	var syncStorePrefix = prefix
+	if prefix == identityCache.IdentitiesPath {
+		syncStorePrefix = path.Join(prefix, cluster, "id")
+	}
 	prefix = kvstore.StateToCachePrefix(prefix)
 	syncer := syncer{
-		SyncStore: factory.NewSyncStore(cluster, local, path.Join(prefix, cluster),
+		SyncStore: factory.NewSyncStore(cluster, local, syncStorePrefix,
 			store.WSSWithSyncedKeyOverride(prefix)),
 	}
 
