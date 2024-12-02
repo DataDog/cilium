@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"strings"
 	"sync"
 
 	"github.com/cilium/cilium/api/v1/models"
@@ -167,8 +168,12 @@ func (o *syncer) OnSync(ctx context.Context) {
 
 func newReflector(local kvstore.BackendOperations, cluster, prefix string, factory store.Factory) reflector {
 	prefix = kvstore.StateToCachePrefix(prefix)
+	var syncStorePrefix = path.Join(prefix, cluster)
+	if strings.Contains(prefix, "identities") {
+		syncStorePrefix = path.Join(syncStorePrefix, "id")
+	}
 	syncer := syncer{
-		SyncStore: factory.NewSyncStore(cluster, local, path.Join(prefix, cluster),
+		SyncStore: factory.NewSyncStore(cluster, local, syncStorePrefix,
 			store.WSSWithSyncedKeyOverride(prefix)),
 	}
 
