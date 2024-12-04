@@ -67,10 +67,10 @@ RUN set -xe && \
     find . -type f \
       -executable \
       -exec sh -c \
-        'filename=$(basename ${0}) && \
+        'filename=$(basename ${0} && \
          objcopy --only-keep-debug ${0} ${0}.debug && \
          if ! echo "$MODIFIERS" | grep "NOSTRIP=1" ; then objcopy --strip-all ${0} && (cd $(dirname ${0}) && objcopy --add-gnu-debuglink=${filename}.debug ${filename}) ; fi && \
-         mv -v ${0}.debug ${D}/${filename}.debug' \
+         mv -v ${0}.debug ${D}/${0}.debug' \
       {} \;
 
 COPY images/cilium/init-container.sh \
@@ -129,7 +129,7 @@ COPY --from=builder /go/bin/dlv /usr/bin/dlv
 COPY --from=builder /out/${TARGETOS}/${TARGETARCH}/bin/debug-wrapper /usr/bin/cilium-agent
 
 # Copy in the debug symbols in case the binaries were stripped
-COPY --from=builder /tmp/debug/${TARGETOS}/${TARGETARCH} /usr/lib/debug
+COPY --from=builder /tmp/debug/${TARGETOS}/${TARGETARCH}/ /usr/lib/debug/
 
 # Ensure dlv finds the debug symbols. Due to CGO_ENABLED=0, we have no GNU build-id, so Delve's default search path
 # is insufficient.
