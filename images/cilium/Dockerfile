@@ -69,7 +69,6 @@ RUN set -xe && \
         'filename=$(basename ${0}) && \
          objcopy --only-keep-debug ${0} ${0}.debug && \
          if ! echo "$MODIFIERS" | grep "NOSTRIP=1" ; then objcopy --strip-all ${0} && (cd $(dirname ${0}) && objcopy --add-gnu-debuglink=${filename}.debug ${filename}) ; fi && \
-         echo DEBUG --${0}.debug-- --${D}/${0}.debug-- && \
          mkdir -p $(dirname ${D}/${0}) && \
          mv -v ${0}.debug ${D}/${0}.debug' \
       {} \;
