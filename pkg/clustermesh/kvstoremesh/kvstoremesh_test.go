@@ -106,10 +106,10 @@ func TestRemoteClusterRun(t *testing.T) {
 				},
 			},
 			kvs: map[string]string{
-				"cilium/state/nodes/v1/foo/bar":    "qux1",
-				"cilium/state/services/v1/foo/bar": "qux2",
-				"cilium/state/identities/v1/bar":   "qux3",
-				"cilium/state/ip/v1/default/bar":   "qux4",
+				"cilium/state/nodes/v1/foo/bar":     "qux1",
+				"cilium/state/services/v1/foo/bar":  "qux2",
+				"cilium/state/identities/v1/id/bar": "qux3",
+				"cilium/state/ip/v1/default/bar":    "qux4",
 			},
 		},
 		{
@@ -126,10 +126,10 @@ func TestRemoteClusterRun(t *testing.T) {
 				},
 			},
 			kvs: map[string]string{
-				"cilium/state/nodes/v1/foo/bar":    "qux1",
-				"cilium/state/services/v1/foo/bar": "qux2",
-				"cilium/state/identities/v1/bar":   "qux3",
-				"cilium/state/ip/v1/default/bar":   "qux4",
+				"cilium/state/nodes/v1/foo/bar":     "qux1",
+				"cilium/state/services/v1/foo/bar":  "qux2",
+				"cilium/state/identities/v1/id/bar": "qux3",
+				"cilium/state/ip/v1/default/bar":    "qux4",
 			},
 		},
 		{
@@ -148,10 +148,10 @@ func TestRemoteClusterRun(t *testing.T) {
 				},
 			},
 			kvs: map[string]string{
-				"cilium/cache/nodes/v1/foo/bar":      "qux1",
-				"cilium/cache/services/v1/foo/bar":   "qux2",
-				"cilium/cache/identities/v1/foo/bar": "qux3",
-				"cilium/cache/ip/v1/foo/bar":         "qux4",
+				"cilium/cache/nodes/v1/foo/bar":         "qux1",
+				"cilium/cache/services/v1/foo/bar":      "qux2",
+				"cilium/cache/identities/v1/foo/id/bar": "qux3",
+				"cilium/cache/ip/v1/foo/bar":            "qux4",
 			},
 		},
 		{
@@ -171,10 +171,10 @@ func TestRemoteClusterRun(t *testing.T) {
 				},
 			},
 			kvs: map[string]string{
-				"cilium/cache/nodes/v1/foo/bar":      "qux1",
-				"cilium/cache/services/v1/foo/bar":   "qux2",
-				"cilium/cache/identities/v1/foo/bar": "qux3",
-				"cilium/cache/ip/v1/foo/bar":         "qux4",
+				"cilium/cache/nodes/v1/foo/bar":         "qux1",
+				"cilium/cache/services/v1/foo/bar":      "qux2",
+				"cilium/cache/identities/v1/foo/id/bar": "qux3",
+				"cilium/cache/ip/v1/foo/bar":            "qux4",
 			},
 		},
 	}
@@ -220,10 +220,10 @@ func TestRemoteClusterRun(t *testing.T) {
 
 			// Assert that the keys have been properly reflected
 			for key, value := range map[string]string{
-				"cilium/cache/nodes/v1/foo/bar":      "qux1",
-				"cilium/cache/services/v1/foo/bar":   "qux2",
-				"cilium/cache/identities/v1/foo/bar": "qux3",
-				"cilium/cache/ip/v1/foo/bar":         "qux4",
+				"cilium/cache/nodes/v1/foo/bar":         "qux1",
+				"cilium/cache/services/v1/foo/bar":      "qux2",
+				"cilium/cache/identities/v1/foo/id/bar": "qux3",
+				"cilium/cache/ip/v1/foo/bar":            "qux4",
 			} {
 				require.EventuallyWithTf(t, func(c *assert.CollectT) {
 					v, err := kvstore.Client().Get(ctx, key)
@@ -271,16 +271,16 @@ func TestRemoteClusterStatus(t *testing.T) {
 		BackendOperations: kvstore.Client(),
 		name:              "foo",
 		kvs: map[string]string{
-			"cilium/state/nodes/v1/foo/bar":    "qux0",
-			"cilium/state/nodes/v1/foo/baz":    "qux1",
-			"cilium/state/services/v1/foo/bar": "qux2",
-			"cilium/state/services/v1/foo/baz": "qux3",
-			"cilium/state/services/v1/foo/qux": "qux4",
-			"cilium/state/identities/v1/bar":   "qux5",
-			"cilium/state/ip/v1/default/fred":  "qux6",
-			"cilium/state/ip/v1/default/bar":   "qux7",
-			"cilium/state/ip/v1/default/baz":   "qux8",
-			"cilium/state/ip/v1/default/qux":   "qux9",
+			"cilium/state/nodes/v1/foo/bar":     "qux0",
+			"cilium/state/nodes/v1/foo/baz":     "qux1",
+			"cilium/state/services/v1/foo/bar":  "qux2",
+			"cilium/state/services/v1/foo/baz":  "qux3",
+			"cilium/state/services/v1/foo/qux":  "qux4",
+			"cilium/state/identities/v1/id/bar": "qux5",
+			"cilium/state/ip/v1/default/fred":   "qux6",
+			"cilium/state/ip/v1/default/bar":    "qux7",
+			"cilium/state/ip/v1/default/baz":    "qux8",
+			"cilium/state/ip/v1/default/qux":    "qux9",
 		},
 	}
 	st := store.NewFactory(store.MetricsProvider())
