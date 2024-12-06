@@ -27,6 +27,9 @@ RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium/images/r
 
 FROM ${UBUNTU_IMAGE} AS rootfs
 
+# Datadog modification: to be able to run APT we need to be root, Cilium also need to run as root
+USER root
+
 # Change the number to force the generation of a new git-tree SHA. Useful when
 # we want to re-run 'apt-get upgrade' for stale images.
 ENV FORCE_BUILD=3
@@ -60,6 +63,5 @@ COPY --from=bpftool-dist /test /test
 RUN /test/bin/cst -C /test/llvm
 RUN /test/bin/cst -C /test/bpftool
 
-FROM scratch
-LABEL maintainer="maintainer@cilium.io"
-COPY --from=rootfs / /
+# Datadog modification: do not squash the layers to not lose GBI labels
+FROM rootfs
