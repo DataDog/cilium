@@ -371,6 +371,7 @@ func (l *Loader) reloadHostDatapath(ctx context.Context, ep datapath.Endpoint, o
 	defer finalize()
 
 	// Replace programs on physical devices.
+	ep.Logger(Subsystem).Info("Anton-Test Attaching BPF programs to physical devices: ", strings.Join(option.Config.GetDevices(), ", "))
 	for _, device := range option.Config.GetDevices() {
 		iface, err := netlink.LinkByName(device)
 		if err != nil {
