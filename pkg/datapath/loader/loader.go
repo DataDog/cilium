@@ -378,6 +378,7 @@ func (l *loader) reloadHostDatapath(ep datapath.Endpoint, spec *ebpf.CollectionS
 	}
 
 	// Replace programs on physical devices, ignoring devices that don't exist.
+	log.Info("Anton-Test Attaching BPF programs to physical devices: ", strings.Join(devices, ", "))
 	for _, device := range devices {
 		iface, err := safenetlink.LinkByName(device)
 		if err != nil {
