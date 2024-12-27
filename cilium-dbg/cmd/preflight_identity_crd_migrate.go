@@ -6,7 +6,6 @@ package cmd
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"path"
 	"time"
 
@@ -64,7 +63,7 @@ func migrateIdentityCmd() *cobra.Command {
 	hive.RegisterFlags(cmd.Flags())
 
 	cmd.Run = func(cmd *cobra.Command, args []string) {
-		if err := hive.Run(slog.Default()); err != nil {
+		if err := hive.Run(logger); err != nil {
 			log.Fatal(err)
 		}
 	}

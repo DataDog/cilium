@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/cilium/cilium/pkg/option"
 	"io"
+	"log/slog"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -24,6 +25,7 @@ var (
 	cfgFile string
 	client  *clientPkg.Client
 	log     = logging.DefaultLogger.WithField(logfields.LogSubsys, "cilium-dbg")
+	logger  = logging.DefaultSlogLogger.With(slog.String(logfields.LogSubsys, "cilium-dbg"))
 	verbose = false
 )
 
@@ -78,7 +80,7 @@ func initConfig() {
 	}
 
 	if err := logging.SetupLogging(option.Config.LogDriver, option.Config.LogOpt, "kvstoremesh", vp.GetBool("debug")); err != nil {
-		log.Fatal(err)
+		Fatalf("Error while setting up logging: %s\n", err)
 	}
 
 	if cl, err := clientPkg.NewClient(vp.GetString("host")); err != nil {

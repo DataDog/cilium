@@ -5,7 +5,6 @@ package cmd
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
 	"strings"
 
@@ -39,7 +38,7 @@ var buildConfigCmd = &cobra.Command{
 	Short: "Resolve all of the configuration sources that apply to this node",
 	Run: func(cmd *cobra.Command, args []string) {
 		log.Info("Running")
-		if err := buildConfigHive.Run(slog.Default()); err != nil {
+		if err := buildConfigHive.Run(logger); err != nil {
 			Fatalf("Build config failed: %v\n", err)
 		}
 	},
