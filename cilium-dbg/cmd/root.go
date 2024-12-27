@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/cilium/cilium/pkg/option"
 	"io"
-	"log/slog"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -25,7 +24,6 @@ var (
 	cfgFile string
 	client  *clientPkg.Client
 	log     = logging.DefaultLogger.WithField(logfields.LogSubsys, "cilium-dbg")
-	logger  = logging.DefaultSlogLogger.With(slog.String(logfields.LogSubsys, "cilium-dbg"))
 	verbose = false
 )
 

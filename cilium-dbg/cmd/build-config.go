@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/cilium/cilium/pkg/logging"
 	"os"
 	"strings"
 
@@ -38,7 +39,7 @@ var buildConfigCmd = &cobra.Command{
 	Short: "Resolve all of the configuration sources that apply to this node",
 	Run: func(cmd *cobra.Command, args []string) {
 		log.Info("Running")
-		if err := buildConfigHive.Run(logger); err != nil {
+		if err := buildConfigHive.Run(logging.DefaultSlogLogger); err != nil {
 			Fatalf("Build config failed: %v\n", err)
 		}
 	},
