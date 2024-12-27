@@ -19,7 +19,6 @@ import (
 	v2_validation "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2/validator"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/k8s/client/clientset/versioned/scheme"
-	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/option"
 )
 
@@ -45,10 +44,6 @@ has an exit code 1 is returned.`,
 	hive.RegisterFlags(cmd.Flags())
 
 	cmd.Run = func(cmd *cobra.Command, args []string) {
-		// The internal packages log things. Make sure they follow the setup of of
-		// the CLI tool.
-		logging.DefaultLogger.SetFormatter(log.Formatter)
-
 		if err := hive.Run(slog.Default()); err != nil {
 			log.Fatal(err)
 		}
