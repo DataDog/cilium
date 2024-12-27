@@ -14,6 +14,8 @@ import (
 
 	clientPkg "github.com/cilium/cilium/pkg/client"
 	"github.com/cilium/cilium/pkg/components"
+	"github.com/cilium/cilium/pkg/logging"
+	"github.com/cilium/cilium/pkg/logging/logfields"
 )
 
 var (
@@ -21,7 +23,7 @@ var (
 
 	cfgFile string
 	client  *clientPkg.Client
-	log     = logrus.New()
+	log     = logging.DefaultLogger.WithField(logfields.LogSubsys, "cilium-dbg")
 	verbose = false
 )
 
