@@ -5,10 +5,10 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/cilium/cilium/pkg/option"
 	"io"
 	"os"
 
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -52,6 +52,8 @@ func init() {
 	flags := RootCmd.PersistentFlags()
 	flags.StringVar(&cfgFile, "config", "", "Config file (default is $HOME/.cilium.yaml)")
 	flags.BoolP("debug", "D", false, "Enable debug messages")
+	flags.StringSlice(option.LogDriver, []string{}, "Logging endpoints to use (example: syslog)")
+	flags.Var(option.NewNamedMapOptions(option.LogOpt, &option.Config.LogOpt, nil), option.LogOpt, "Log driver options (example: format=json)")
 	flags.StringP("host", "H", "", "URI to server-side API")
 	vp.BindPFlags(flags)
 	RootCmd.AddCommand(newCmdCompletion(os.Stdout))
@@ -75,10 +77,8 @@ func initConfig() {
 		fmt.Println("Using config file:", vp.ConfigFileUsed())
 	}
 
-	if vp.GetBool("debug") {
-		log.Level = logrus.DebugLevel
-	} else {
-		log.Level = logrus.InfoLevel
+	if err := logging.SetupLogging(option.Config.LogDriver, option.Config.LogOpt, "kvstoremesh", vp.GetBool("debug")); err != nil {
+		log.Fatal(err)
 	}
 
 	if cl, err := clientPkg.NewClient(vp.GetString("host")); err != nil {
