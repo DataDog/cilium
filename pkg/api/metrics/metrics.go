@@ -9,7 +9,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/cilium/cilium/operator/metrics"
+	"github.com/cilium/cilium/pkg/logging"
+	"github.com/cilium/cilium/pkg/logging/logfields"
 )
+
+var log = logging.DefaultLogger.WithField(logfields.LogSubsys, "HADRIEN")
 
 // PrometheusMetrics is an implementation of Prometheus metrics for external
 // API usage
@@ -29,6 +33,8 @@ func NewPrometheusMetrics(namespace, subsystem string, registry metrics.Register
 		Subsystem: subsystem,
 		Name:      "api_duration_seconds",
 		Help:      "Duration of interactions with API",
+		Buckets: []float64{0.005, 0.025, 0.05, 0.1, 0.2, 0.4, 0.6, 0.8, 1.0, 1.25, 1.5, 2, 3,
+			4, 5, 6, 8, 10, 15, 20, 30, 45, 60},
 	}, []string{"operation", "response_code"})
 
 	m.RateLimit = prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -36,6 +42,8 @@ func NewPrometheusMetrics(namespace, subsystem string, registry metrics.Register
 		Subsystem: subsystem,
 		Name:      "api_rate_limit_duration_seconds",
 		Help:      "Duration of client-side rate limiter blocking",
+		Buckets: []float64{0.005, 0.025, 0.05, 0.1, 0.2, 0.4, 0.6, 0.8, 1.0, 1.25, 1.5, 2, 3,
+			4, 5, 6, 8, 10, 15, 20, 30, 45, 60},
 	}, []string{"operation"})
 
 	registry.MustRegister(m.APIDuration)
@@ -47,6 +55,7 @@ func NewPrometheusMetrics(namespace, subsystem string, registry metrics.Register
 // ObserveAPICall must be called on every API call made with the operation
 // performed, the status code received and the duration of the call
 func (p *PrometheusMetrics) ObserveAPICall(operation, status string, duration float64) {
+	log.WithField("operation", operation).WithField("duration", duration).Warnf("HADRIEN: ObserveAPICall called for %s in %vs", operation, duration)
 	p.APIDuration.WithLabelValues(operation, status).Observe(duration)
 }
 
