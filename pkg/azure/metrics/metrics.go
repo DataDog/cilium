@@ -159,6 +159,9 @@ func NewMetricsExtractor(logger *logrus.Entry, tenantID string, subscriptionID s
 }
 
 func (m *MetricsExtractor) extractMetrics(response *http.Response) error {
+	if response == nil || response.Request == nil || response.Request.URL == nil {
+		return nil
+	}
 	logger := m.logger.WithFields(logrus.Fields{"url": response.Request.URL.String(), "status": response.Status, "method": response.Request.Method})
 	metricResults, err := m.getRequestLimitMetrics(response)
 	if err != nil {
