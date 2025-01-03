@@ -559,6 +559,7 @@ func (c *Client) AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, v
 	poller, err := c.virtualMachineScaleSetVMs.BeginUpdate(ctx, c.resourceGroup, vmssName, instanceID, result.VirtualMachineScaleSetVM, nil)
 
 	defer func() {
+		log.Warnf("HADRIEN: just ran %s in %v", virtualMachineScaleSetVMsUpdate, sinceStart.Seconds())
 		c.metricsAPI.ObserveAPICall(virtualMachineScaleSetVMsUpdate, deriveStatus(err), sinceStart.Seconds())
 	}()
 	if err != nil {
