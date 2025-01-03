@@ -144,6 +144,9 @@ type MetricsExtractor struct {
 	resourceType   string
 }
 
+// Ensure that MetricsExtractor implements the policy.Policy interface
+var _ policy.Policy = &MetricsExtractor{}
+
 func NewMetricsExtractor(logger *logrus.Entry, tenantID string, subscriptionID string, resourceType string, registry operatorMetrics.RegisterGatherer) *MetricsExtractor {
 	registry.MustRegister(
 		metricAzureRateLimitRemaining,
@@ -159,6 +162,9 @@ func NewMetricsExtractor(logger *logrus.Entry, tenantID string, subscriptionID s
 }
 
 func (m *MetricsExtractor) extractMetrics(response *http.Response) error {
+	if response == nil || response.Request == nil || response.Request.URL == nil {
+		return nil
+	}
 	logger := m.logger.WithFields(logrus.Fields{"url": response.Request.URL.String(), "status": response.Status, "method": response.Request.Method})
 	metricResults, err := m.getRequestLimitMetrics(response)
 	if err != nil {
@@ -270,14 +276,13 @@ func (m *MetricsExtractor) getRequestLimitResourceMetrics(response *http.Respons
 	return ret, nil
 }
 
-type RatelimitMetricsPipeline struct {
-	Extractor MetricsExtractor
-}
-
-func (p *RatelimitMetricsPipeline) Do(req *policy.Request) (*http.Response, error) {
+// Do applies the policy to the specified Request.  When implementing a Policy, mutate the
+// request before calling req.Next() to move on to the next policy, and respond to the result
+// before returning to the caller.
+func (m *MetricsExtractor) Do(req *policy.Request) (*http.Response, error) {
 	resp, err := req.Next()
-	if extractErr := p.Extractor.extractMetrics(resp); extractErr != nil {
-		p.Extractor.logger.WithError(extractErr).Infof("Failed to extract metric")
+	if extractErr := m.extractMetrics(resp); extractErr != nil {
+		m.logger.WithError(extractErr).Info("Failed to extract metric")
 	}
 	return resp, err
 }

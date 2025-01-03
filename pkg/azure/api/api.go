@@ -90,16 +90,14 @@ func newClientOptions(cloudName, subscriptionID string, registry operatorMetrics
 	//TODO: change that
 	//TODO: get tenant ID like we get subscription ID (user input) and if empty, then don't setup azure rate limit metrics
 	// in case of error just log the error as a warning and continue
-	tenantID := "cc0b82f3-7c2e-400b-aec3-40a3d720505b"
+	//tenantID := "cc0b82f3-7c2e-400b-aec3-40a3d720505b"
+	tenantID := ""
+
 	metricsExtractor := azureMetrics.NewMetricsExtractor(log, tenantID, subscriptionID, "Microsoft.Compute", registry)
 
 	clientOptions := &azcore.ClientOptions{
-		Transport: &httpClient{},
-		PerRetryPolicies: []policy.Policy{
-			&azureMetrics.RatelimitMetricsPipeline{
-				Extractor: *metricsExtractor,
-			},
-		},
+		Transport:        &httpClient{},
+		PerRetryPolicies: []policy.Policy{metricsExtractor},
 	}
 
 	// See possible values here:
@@ -555,18 +553,24 @@ func (c *Client) AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, v
 	c.limiter.Limit(ctx, virtualMachineScaleSetVMsUpdate)
 	sinceStart = spanstat.Start()
 
+	log.Warnf("HADRIEN: 1 about to run virtualMachineScaleSetVMs.BeginUpdate")
 	poller, err := c.virtualMachineScaleSetVMs.BeginUpdate(ctx, c.resourceGroup, vmssName, instanceID, result.VirtualMachineScaleSetVM, nil)
+	log.Warnf("HADRIEN: 2 got poller from virtualMachineScaleSetVMs.BeginUpdate")
 
 	defer func() {
+		log.Warnf("HADRIEN: just ran %s in %v", virtualMachineScaleSetVMsUpdate, sinceStart.Seconds())
 		c.metricsAPI.ObserveAPICall(virtualMachineScaleSetVMsUpdate, deriveStatus(err), sinceStart.Seconds())
 	}()
+	log.Warnf("HADRIEN: 3 defered metricsAPI.ObserveAPICall")
 	if err != nil {
 		return fmt.Errorf("unable to update virtualMachineScaleSetVMs: %w", err)
 	}
 
+	log.Warnf("HADRIEN: 4 about to run poller.PollUntilDone")
 	if _, err := poller.PollUntilDone(ctx, nil); err != nil {
 		return fmt.Errorf("error while waiting for virtualMachineScaleSetVMs Update to complete: %w", err)
 	}
+	log.Warnf("HADRIEN: 5 finished running poller.PollUntilDone")
 
 	return nil
 }
