@@ -169,6 +169,9 @@ const (
 	// AzureSubscriptionID is the subscription ID to use when accessing the Azure API
 	AzureSubscriptionID = "azure-subscription-id"
 
+	// AzureTenantID is the tenant ID to use when accessing the Azure API
+	AzureTenantID = "azure-tenant-id"
+
 	// AzureResourceGroup is the resource group of the nodes used for the cluster
 	AzureResourceGroup = "azure-resource-group"
 
