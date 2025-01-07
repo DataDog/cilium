@@ -22,6 +22,8 @@ ARG MODIFIERS
 
 WORKDIR /go/src/github.com/cilium/cilium
 
+RUN go install github.com/DataDog/orchestrion@latest
+
 RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium \
     --mount=type=cache,target=/root/.cache \
     --mount=type=cache,target=/go/pkg \
