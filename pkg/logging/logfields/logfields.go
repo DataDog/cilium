@@ -798,4 +798,6 @@ const (
 
 	// Target identifies a target value
 	Target = "target"
+
+	InstanceType = "instanceType"
 )
