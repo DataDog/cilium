@@ -116,6 +116,7 @@ func newK8sPodWatcher(params k8sPodWatcherParams) *K8sPodWatcher {
 
 		controllersStarted: make(chan struct{}),
 		podStoreSet:        make(chan struct{}),
+		attempt:            make(map[string]int),
 	}
 }
 
@@ -152,6 +153,8 @@ type K8sPodWatcher struct {
 	// controllersStarted is a channel that is closed when all watchers that do not depend on
 	// local node configuration have been started
 	controllersStarted chan struct{}
+
+	attempt map[string]int
 }
 
 // createAllPodsController is used in the rare configurations where CiliumEndpointCRD is disabled.
@@ -1081,6 +1084,15 @@ func (k *K8sPodWatcher) GetCachedPod(namespace, name string) (*slim_corev1.Pod, 
 	if err != nil {
 		return nil, err
 	}
+
+	if namespace == "anton-test" {
+		if k.attempt[name] < 2 {
+			exists = false
+			k.attempt[name]++
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+
 	if !exists {
 		return nil, k8sErrors.NewNotFound(schema.GroupResource{
 			Group:    "core",
