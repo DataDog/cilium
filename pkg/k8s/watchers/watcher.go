@@ -266,6 +266,7 @@ type K8sWatcher struct {
 	cfg WatcherConfiguration
 
 	resources agentK8s.Resources
+	attempt   map[string]int
 }
 
 func NewK8sWatcher(
@@ -307,6 +308,7 @@ func NewK8sWatcher(
 		envoyConfigManager:      envoyConfigManager,
 		cfg:                     cfg,
 		resources:               resources,
+		attempt:                 make(map[string]int),
 	}
 }
 
