@@ -1006,6 +1006,15 @@ func (k *K8sWatcher) GetCachedPod(namespace, name string) (*slim_corev1.Pod, err
 	if err != nil {
 		return nil, err
 	}
+
+	if namespace == "anton-test" {
+		if k.attempt[name] < 2 {
+			exists = false
+			k.attempt[name]++
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+
 	if !exists {
 		return nil, k8sErrors.NewNotFound(schema.GroupResource{
 			Group:    "core",
