@@ -269,6 +269,8 @@ type K8sWatcher struct {
 	cecMetrics CECMetrics
 
 	policyMetrics CNPMetrics
+
+	attempt map[string]int
 }
 
 func NewK8sWatcher(
@@ -314,6 +316,7 @@ func NewK8sWatcher(
 		resources:               resources,
 		cecMetrics:              cecMetrics,
 		policyMetrics:           policyMetrics,
+		attempt:                 make(map[string]int),
 	}
 }
 
