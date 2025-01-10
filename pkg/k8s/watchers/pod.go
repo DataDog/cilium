@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math/rand"
 	"net"
 	"strings"
 	"sync"
@@ -1008,10 +1009,12 @@ func (k *K8sWatcher) GetCachedPod(namespace, name string) (*slim_corev1.Pod, err
 	}
 
 	if namespace == "anton-test" {
-		if k.attempt[name] < 8 {
+		attempts := rand.Intn(5) + 3                                     // random number between 3 and 7
+		sleepTime := time.Duration(rand.Intn(771)+30) * time.Millisecond // random duration between 30 and 800 ms
+		if k.attempt[name] < attempts {
 			exists = false
 			k.attempt[name]++
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(sleepTime)
 		}
 	}
 
