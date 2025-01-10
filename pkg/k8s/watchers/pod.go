@@ -1008,7 +1008,7 @@ func (k *K8sWatcher) GetCachedPod(namespace, name string) (*slim_corev1.Pod, err
 	}
 
 	if namespace == "anton-test" {
-		if k.attempt[name] < 2 {
+		if k.attempt[name] < 8 {
 			exists = false
 			k.attempt[name]++
 			time.Sleep(500 * time.Millisecond)
