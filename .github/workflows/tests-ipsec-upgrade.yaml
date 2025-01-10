@@ -235,7 +235,6 @@ jobs:
           encryption-overlay: ${{ matrix.encryption-overlay }}
           egress-gateway: ${{ matrix.egress-gateway }}
           host-fw: ${{ matrix.host-fw }}
-          ingress-controller: ${{ matrix.ingress-controller }}
           mutual-auth: false
           misc: 'bpfClockProbe=false,cni.uninstall=false'
 
@@ -257,13 +256,12 @@ jobs:
           encryption-overlay: ${{ matrix.encryption-overlay }}
           egress-gateway: ${{ matrix.egress-gateway }}
           host-fw: ${{ matrix.host-fw }}
-          ingress-controller: ${{ matrix.ingress-controller }}
           mutual-auth: false
           misc: 'bpfClockProbe=false,cni.uninstall=false'
 
       - name: Install Cilium CLI
         if: ${{ steps.vars.outputs.downgrade_version != '' }}
-        uses: cilium/cilium-cli@6977c4a640ad45da3a95eb12054497f2bdd22c48 # v0.16.19
+        uses: cilium/cilium-cli@c52e8c38e6d6235bd8e6e961199a984275547d6f # v0.16.22
         with:
           repository: ${{ env.CILIUM_CLI_RELEASE_REPO }}
           release-version: ${{ env.CILIUM_CLI_VERSION }}
@@ -340,7 +338,7 @@ jobs:
             ${{ steps.cilium-stable-config.outputs.config }} \
             ${{ steps.kvstore.outputs.config }}
 
-          ./cilium-cli status --wait
+          ./cilium-cli status --wait --wait-duration=10m
           kubectl get pods --all-namespaces -o wide
           kubectl -n kube-system exec daemonset/cilium -c cilium-agent -- cilium-dbg status
 
@@ -353,11 +351,11 @@ jobs:
         if: ${{ steps.vars.outputs.downgrade_version != '' }}
         shell: bash
         run: |
-          ./cilium-cli upgrade \
+          ./cilium-cli upgrade --reset-then-reuse-values=false \
             ${{ steps.cilium-newest-config.outputs.config }} \
             ${{ steps.kvstore.outputs.config }}
 
-          ./cilium-cli status --wait
+          ./cilium-cli status --wait --wait-duration=10m
           kubectl get pods --all-namespaces -o wide
           kubectl -n kube-system exec daemonset/cilium -c cilium-agent -- cilium-dbg status
 
@@ -376,11 +374,11 @@ jobs:
         if: ${{ steps.vars.outputs.downgrade_version != '' }}
         shell: bash
         run: |
-          ./cilium-cli upgrade \
+          ./cilium-cli upgrade --reset-then-reuse-values=false \
             ${{ steps.cilium-stable-config.outputs.config }} \
             ${{ steps.kvstore.outputs.config }}
 
-          ./cilium-cli status --wait
+          ./cilium-cli status --wait --wait-duration=10m
           kubectl get pods --all-namespaces -o wide
           kubectl -n kube-system exec daemonset/cilium -c cilium-agent -- cilium-dbg status
 

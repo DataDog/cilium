@@ -55,7 +55,7 @@ concurrency:
 
 env:
   # renovate: datasource=golang-version depName=go
-  go-version: 1.22.9
+  go-version: 1.22.10
 
 jobs:
   echo-inputs:
@@ -87,7 +87,7 @@ jobs:
           - kernel: '5.4-20241107.001101'
             ci-kernel: '54'
           # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: 'rhel8.6-20241031.113911'
+          - kernel: 'rhel8.6-20241107.001101'
             ci-kernel: '54'
           # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
           - kernel: '5.10-20241107.001101'

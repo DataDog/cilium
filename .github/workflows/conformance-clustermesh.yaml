@@ -67,7 +67,7 @@ env:
   contextName2: kind-cluster2-${{ github.run_id }}
 
   # renovate: datasource=github-releases depName=cert-manager/cert-manager
-  CERT_MANAGER_VERSION: v1.16.1
+  CERT_MANAGER_VERSION: v1.16.2
 
 jobs:
   echo-inputs:
@@ -140,12 +140,11 @@ jobs:
             maxConnectedClusters: '511'
             ciliumEndpointSlice: 'disabled'
 
-          # IPsec encryption cannot be used with BPF NodePort.
           - name: '3'
             tunnel: 'disabled'
             ipfamily: 'dual'
             encryption: 'ipsec'
-            kube-proxy: 'iptables'
+            kube-proxy: 'none'
             mode: 'kvstoremesh'
             tls-auto-method: certmanager
             cm-auth-mode-1: 'cluster'
@@ -167,7 +166,6 @@ jobs:
             maxConnectedClusters: '255'
             ciliumEndpointSlice: 'disabled'
 
-          # IPsec encryption cannot be used with BPF NodePort.
           - name: '5'
             tunnel: 'disabled'
             ipfamily: 'dual'
@@ -202,7 +200,6 @@ jobs:
             maxConnectedClusters: '511'
             ciliumEndpointSlice: 'disabled'
 
-          # IPsec encryption cannot be used with BPF NodePort.
           - name: '8'
             tunnel: 'vxlan'
             ipfamily: 'dual'
@@ -280,6 +277,7 @@ jobs:
             --helm-set=clustermesh.apiserver.tls.auto.certManagerIssuerRef.kind=Issuer \
             --helm-set=clustermesh.apiserver.tls.auto.certManagerIssuerRef.name=cilium \
             --helm-set=ciliumEndpointSlice.enabled=${{ matrix.ciliumEndpointSlice == 'enabled'}} \
+            --helm-set=extraConfig.clustermesh-sync-timeout=5m \
             "
 
           CILIUM_INSTALL_TUNNEL="--helm-set=tunnelProtocol=${{ matrix.tunnel }}"
@@ -326,11 +324,6 @@ jobs:
           CILIUM_INSTALL_INGRESS=""
           if [ "${{ matrix.kube-proxy }}" == "none" ]; then
             CILIUM_INSTALL_INGRESS="--helm-set=ingressController.enabled=true"
-            # Once https://github.com/cilium/cilium/issues/31653 is fixed, we can remove tunnel check
-            # Use the legacy host routing in case of tunnel disabled
-            if [ "${{ matrix.tunnel }}" == "disabled" ]; then
-              CILIUM_INSTALL_INGRESS+=" --helm-set=bpf.hostLegacyRouting=true"
-            fi
           fi
 
           CONNECTIVITY_TEST_DEFAULTS="--hubble=false \
@@ -359,7 +352,7 @@ jobs:
           echo kind_svc_cidr_2=${KIND_SVC_CIDR_2} >> $GITHUB_OUTPUT
 
       - name: Install Cilium CLI
-        uses: cilium/cilium-cli@6977c4a640ad45da3a95eb12054497f2bdd22c48 # v0.16.19
+        uses: cilium/cilium-cli@c52e8c38e6d6235bd8e6e961199a984275547d6f # v0.16.22
         with:
           repository: ${{ env.CILIUM_CLI_RELEASE_REPO }}
           release-version: ${{ env.CILIUM_CLI_VERSION }}
@@ -380,7 +373,7 @@ jobs:
             envsubst < ./.github/kind-config.yaml.tmpl > ./.github/kind-config-cluster2.yaml
 
       - name: Create Kind cluster 1
-        uses: helm/kind-action@0025e74a8c7512023d06dc019c617aa3cf561fde # v1.10.0
+        uses: helm/kind-action@9fdad0686e6f19fcd572f62516f5e0436f562ee7 # v1.10.0
         with:
           cluster_name: ${{ env.clusterName1 }}
           version: ${{ env.KIND_VERSION }}
@@ -390,7 +383,7 @@ jobs:
           wait: 0 # The control-plane never becomes ready, since no CNI is present
 
       - name: Create Kind cluster 2
-        uses: helm/kind-action@0025e74a8c7512023d06dc019c617aa3cf561fde # v1.10.0
+        uses: helm/kind-action@9fdad0686e6f19fcd572f62516f5e0436f562ee7 # v1.10.0
         with:
           cluster_name: ${{ env.clusterName2 }}
           version: ${{ env.KIND_VERSION }}
@@ -571,12 +564,6 @@ jobs:
           cilium --context ${{ env.contextName2 }} status --wait
           cilium --context ${{ env.contextName1 }} clustermesh status --wait
           cilium --context ${{ env.contextName2 }} clustermesh status --wait
-
-      - name: Port forward Relay
-        run: |
-          cilium --context ${{ env.contextName1 }} hubble port-forward &
-          sleep 10s
-          [[ $(pgrep -f "cilium.*hubble.*port-forward|kubectl.*port-forward.*hubble-relay" | wc -l) == 2 ]]
 
       - name: Make JUnit report directory
         run: |

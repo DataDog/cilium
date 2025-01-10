@@ -22,7 +22,7 @@ hubble:
 	$(MAKE) -C $(SUBDIRS_HUBBLE_CLI) hubble-bin
 
 hubble-bin:
-	GOOS=$(GOOS) GOARCH=$(GOARCH) $(GO_BUILD) $(if $(GO_TAGS),-tags $(GO_TAGS)) -ldflags "-w -s -X 'github.com/cilium/cilium/hubble/pkg.GitBranch=${GIT_BRANCH}' -X 'github.com/cilium/cilium/hubble/pkg.GitHash=$(GIT_HASH)' -X 'github.com/cilium/cilium/hubble/pkg.Version=${VERSION}'" -o $(TARGET) $(SUBDIRS_HUBBLE_CLI)
+	GOOS=$(GOOS) GOARCH=$(GOARCH) $(GO_BUILD) $(if $(GO_TAGS),-tags $(GO_TAGS)) -ldflags "-w -s -X 'github.com/cilium/cilium/hubble/pkg.GitBranch=${GIT_BRANCH}' -X 'github.com/cilium/cilium/hubble/pkg.GitHash=$(GIT_HASH)' -X 'github.com/cilium/cilium/hubble/pkg.Version=v${VERSION}'" -o $(TARGET) $(SUBDIRS_HUBBLE_CLI)
 
 release:
 	cd ../ && \
@@ -39,10 +39,10 @@ local-release: clean
 				ARCHS='amd64 arm64'; \
 				;; \
 			linux) \
-				ARCHS='386 amd64 arm arm64'; \
+				ARCHS='amd64 arm64'; \
 				;; \
 			windows) \
-				ARCHS='386 amd64 arm64'; \
+				ARCHS='amd64 arm64'; \
 				EXT=".exe"; \
 				;; \
 		esac; \

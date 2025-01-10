@@ -144,7 +144,7 @@ subsystems which integrate with eBPF. Therefore, host systems are required to
 run a recent Linux kernel to run a Cilium agent. More recent kernels may
 provide additional eBPF functionality that Cilium will automatically detect and
 use on agent start. For this version of Cilium, it is recommended to use kernel
-4.19.57 or later (or equivalent such as 4.18 on RHEL8). For a list of features
+5.4 or later (or equivalent such as 4.18 on RHEL8). For a list of features
 that require newer kernels, see :ref:`advanced_features`.
 
 In order for the eBPF feature to be enabled properly, the following kernel
@@ -346,10 +346,7 @@ For IPsec enabled Cilium deployments, you need to ensure that the firewall
 allows ESP traffic through. For example, AWS Security Groups doesn't allow ESP
 traffic by default.
 
-If you are using WireGuard, you must allow UDP port 51871. Furthermore, if you
-have disabled node-to-node encryption and configured an overlay network mode
-(such as VXLAN or Geneve) in addition to WireGuard, then the overlay ports must
-also be allowed.
+If you are using WireGuard, you must allow UDP port 51871.
 
 If you are using VXLAN overlay network mode, Cilium uses Linux's default VXLAN
 port 8472 over UDP, unless Linux has been configured otherwise. In this case,

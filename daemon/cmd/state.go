@@ -33,15 +33,17 @@ import (
 
 var syncLBMapsControllerGroup = controller.NewGroup("sync-lb-maps-with-k8s-services")
 
-func (d *Daemon) WaitForEndpointRestore(ctx context.Context) {
+func (d *Daemon) WaitForEndpointRestore(ctx context.Context) error {
 	if !option.Config.RestoreState {
-		return
+		return nil
 	}
 
 	select {
 	case <-ctx.Done():
+		return ctx.Err()
 	case <-d.endpointRestoreComplete:
 	}
+	return nil
 }
 
 type endpointRestoreState struct {
@@ -268,8 +270,6 @@ func (d *Daemon) restoreOldEndpoints(state *endpointRestoreState) {
 }
 
 func (d *Daemon) regenerateRestoredEndpoints(state *endpointRestoreState, endpointsRegenerator *endpoint.Regenerator) {
-	d.endpointRestoreComplete = make(chan struct{})
-
 	log.WithField("numRestored", len(state.restored)).Info("Regenerating restored endpoints")
 
 	// Before regenerating, check whether the CT map has properties that
@@ -477,6 +477,9 @@ func (d *Daemon) initRestore(restoredEndpoints *endpointRestoreState, endpointsR
 								swg := lock.NewStoppableWaitGroup()
 								for _, svc := range stale {
 									d.k8sSvcCache.EnsureService(svc, swg)
+									if option.Config.EnableLocalRedirectPolicy {
+										d.lrpManager.EnsureService(svc)
+									}
 								}
 
 								swg.Stop()
