@@ -8,7 +8,9 @@ import (
 	"fmt"
 
 	"github.com/sirupsen/logrus"
+	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 
+	azureAPI "github.com/cilium/cilium/pkg/azure/api"
 	"github.com/cilium/cilium/pkg/azure/types"
 	"github.com/cilium/cilium/pkg/defaults"
 	"github.com/cilium/cilium/pkg/ipam"
@@ -62,6 +64,9 @@ func (n *Node) PrepareIPRelease(excessIPs int, scopedLog *logrus.Entry) *ipam.Re
 
 // ReleaseIPs performs the IP release operation
 func (n *Node) ReleaseIPs(ctx context.Context, r *ipam.ReleaseAction) error {
+	var err error
+	span, ctx := azureAPI.StartSpan(ctx)
+	defer func() { span.Finish(tracer.WithError(err)) }()
 	return fmt.Errorf("not implemented")
 }
 
@@ -118,6 +123,9 @@ func (n *Node) PrepareIPAllocation(scopedLog *logrus.Entry) (a *ipam.AllocationA
 
 // AllocateIPs performs the Azure IP allocation operation
 func (n *Node) AllocateIPs(ctx context.Context, a *ipam.AllocationAction) error {
+	var err error
+	span, ctx := azureAPI.StartSpan(ctx)
+	defer func() { span.Finish(tracer.WithError(err)) }()
 	iface, ok := a.Interface.Resource.(*types.AzureInterface)
 	if !ok {
 		return fmt.Errorf("invalid interface object")
@@ -131,6 +139,9 @@ func (n *Node) AllocateIPs(ctx context.Context, a *ipam.AllocationAction) error 
 }
 
 func (n *Node) AllocateStaticIP(ctx context.Context, staticIPTags ipamTypes.Tags) (string, error) {
+	var err error
+	span, ctx := azureAPI.StartSpan(ctx)
+	defer func() { span.Finish(tracer.WithError(err)) }()
 	// TODO, see https://github.com/cilium/cilium/issues/34094
 	return "", fmt.Errorf("not implemented")
 }
@@ -138,6 +149,9 @@ func (n *Node) AllocateStaticIP(ctx context.Context, staticIPTags ipamTypes.Tags
 // CreateInterface is called to create a new interface. This operation is
 // currently not supported on Azure.
 func (n *Node) CreateInterface(ctx context.Context, allocation *ipam.AllocationAction, scopedLog *logrus.Entry) (int, string, error) {
+	var err error
+	span, ctx := azureAPI.StartSpan(ctx)
+	defer func() { span.Finish(tracer.WithError(err)) }()
 	return 0, "", fmt.Errorf("not implemented")
 }
 
@@ -147,6 +161,8 @@ func (n *Node) ResyncInterfacesAndIPs(ctx context.Context, scopedLog *logrus.Ent
 	available ipamTypes.AllocationMap,
 	stats stats.InterfaceStats,
 	err error) {
+	span, ctx := azureAPI.StartSpan(ctx)
+	defer func() { span.Finish(tracer.WithError(err)) }()
 
 	// Azure virtual machines always have an upper limit of 256 addresses.
 	// Both VMs and NICs can have a maximum of 256 addresses, so as long as
