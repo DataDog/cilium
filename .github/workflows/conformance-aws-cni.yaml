@@ -56,9 +56,9 @@ env:
   cilium_cli_ci_version:
   CILIUM_CLI_MODE: helm
   # renovate: datasource=github-releases depName=eksctl-io/eksctl
-  eksctl_version: v0.194.0
+  eksctl_version: v0.197.0
   # renovate: datasource=github-releases depName=kubernetes/kubernetes
-  kubectl_version: v1.31.2
+  kubectl_version: v1.31.3
 
 jobs:
   echo-inputs:
@@ -208,7 +208,7 @@ jobs:
           echo owner=${OWNER} >> $GITHUB_OUTPUT
 
       - name: Install Cilium CLI
-        uses: cilium/cilium-cli@6977c4a640ad45da3a95eb12054497f2bdd22c48 # v0.16.19
+        uses: cilium/cilium-cli@c52e8c38e6d6235bd8e6e961199a984275547d6f # v0.16.22
         with:
           repository: ${{ env.CILIUM_CLI_RELEASE_REPO }}
           release-version: ${{ env.CILIUM_CLI_VERSION }}
@@ -282,12 +282,6 @@ jobs:
               exit 1
             fi
           done
-
-      - name: Port forward Relay
-        run: |
-          cilium hubble port-forward&
-          sleep 10s
-          [[ $(pgrep -f "cilium.*hubble.*port-forward|kubectl.*port-forward.*hubble-relay" | wc -l) == 2 ]]
 
       - name: Make JUnit report directory
         run: |

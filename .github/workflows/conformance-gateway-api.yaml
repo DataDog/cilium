@@ -126,7 +126,7 @@ jobs:
         uses: ./.github/actions/set-env-variables
 
       - name: Install Cilium CLI
-        uses: cilium/cilium-cli@6977c4a640ad45da3a95eb12054497f2bdd22c48 # v0.16.19
+        uses: cilium/cilium-cli@c52e8c38e6d6235bd8e6e961199a984275547d6f # v0.16.22
         with:
           repository: ${{ env.CILIUM_CLI_RELEASE_REPO }}
           release-version: ${{ env.CILIUM_CLI_VERSION }}
@@ -185,7 +185,7 @@ jobs:
         uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # v5.1.0
         with:
           # renovate: datasource=golang-version depName=go
-          go-version: 1.22.9
+          go-version: 1.22.10
 
       - name: Install Gateway API CRDs
         run: |
@@ -273,6 +273,7 @@ jobs:
               --contact https://github.com/cilium/community/blob/main/roles/Maintainers.md \
               --report-output report.yaml \
               -test.run "TestExperimentalConformance" \
+              -test.timeout=29m \
               -test.skip "${{ steps.vars.outputs.skipped_tests }}"
           else
             GATEWAY_API_CONFORMANCE_TESTS=1 go test \
@@ -282,6 +283,7 @@ jobs:
               --all-features \
               --exempt-features "${{ steps.vars.outputs.exempt-features }}" \
               -test.run "TestConformance" \
+              -test.timeout=29m \
               -test.skip "${{ steps.vars.outputs.skipped_tests }}"
           fi
 
