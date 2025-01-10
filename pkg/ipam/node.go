@@ -15,6 +15,7 @@ import (
 	operatorK8s "github.com/cilium/cilium/operator/k8s"
 	operatorOption "github.com/cilium/cilium/operator/option"
 	"github.com/cilium/cilium/operator/watchers"
+	azureAPI "github.com/cilium/cilium/pkg/azure/api"
 	"github.com/cilium/cilium/pkg/defaults"
 	"github.com/cilium/cilium/pkg/ipam/metrics"
 	ipamOption "github.com/cilium/cilium/pkg/ipam/option"
@@ -27,6 +28,7 @@ import (
 	"github.com/cilium/cilium/pkg/math"
 	"github.com/cilium/cilium/pkg/time"
 	"github.com/cilium/cilium/pkg/trigger"
+	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
 const (
@@ -410,6 +412,9 @@ func (n *Node) InstanceID() (id string) {
 }
 
 func (n *Node) instanceAPISync(ctx context.Context, instanceID string) (time.Time, bool) {
+	var err error
+	span, ctx := azureAPI.StartSpan(ctx)
+	defer func() { span.Finish(tracer.WithError(err)) }()
 	syncTime := n.manager.instancesAPI.InstanceSync(ctx, instanceID)
 	success := !syncTime.IsZero()
 	return syncTime, success
@@ -550,6 +555,8 @@ func (n *Node) ResourceCopy() *v2.CiliumNode {
 // of secondary IPs are assigned to the interface up to the maximum number of
 // addresses as allowed by the instance.
 func (n *Node) createInterface(ctx context.Context, a *AllocationAction) (created bool, err error) {
+	span, ctx := azureAPI.StartSpan(ctx)
+	defer func() { span.Finish(tracer.WithError(err)) }()
 	if a.EmptyInterfaceSlots == 0 {
 		// This is not a failure scenario, warn once per hour but do
 		// not track as interface allocation failure. There is a
@@ -802,6 +809,8 @@ func (n *Node) deleteLocalReleaseStatus(ip string) {
 //
 // Handshake would be aborted if there are new allocations and the node doesn't have IPs in excess anymore.
 func (n *Node) handleIPRelease(ctx context.Context, a *maintenanceAction) (instanceMutated bool, err error) {
+	span, ctx := azureAPI.StartSpan(ctx)
+	defer func() { span.Finish(tracer.WithError(err)) }()
 	scopedLog := n.logger()
 	var ipsToMark []string
 	var ipsToRelease []string
@@ -907,6 +916,8 @@ func (n *Node) handleIPRelease(ctx context.Context, a *maintenanceAction) (insta
 // handleIPAllocation allocates the necessary IPs needed to resolve deficit on the node.
 // If existing interfaces don't have enough capacity, new interface would be created.
 func (n *Node) handleIPAllocation(ctx context.Context, a *maintenanceAction) (instanceMutated bool, err error) {
+	span, ctx := azureAPI.StartSpan(ctx)
+	defer func() { span.Finish(tracer.WithError(err)) }()
 	scopedLog := n.logger()
 	if a.allocation == nil {
 		scopedLog.Debug("No allocation action required")
@@ -939,6 +950,8 @@ func (n *Node) handleIPAllocation(ctx context.Context, a *maintenanceAction) (in
 // returns instanceMutated which tracks if state changed with the cloud provider and is used
 // to determine if IPAM pool maintainer trigger func needs to be invoked.
 func (n *Node) maintainIPPool(ctx context.Context) (instanceMutated bool, err error) {
+	span, ctx := azureAPI.StartSpan(ctx)
+	defer func() { span.Finish(tracer.WithError(err)) }()
 	if n.manager.releaseExcessIPs {
 		n.removeStaleReleaseIPs()
 	}
@@ -997,6 +1010,9 @@ func (n *Node) updateLastResync(syncTime time.Time) {
 // MaintainIPPool attempts to allocate or release all required IPs to fulfill
 // the needed gap. If required, interfaces are created.
 func (n *Node) MaintainIPPool(ctx context.Context) error {
+	var err error
+	span, ctx := azureAPI.StartSpan(ctx)
+	defer func() { span.Finish(tracer.WithError(err)) }()
 	// As long as the instances API is unstable, don't perform any
 	// operation that can mutate state.
 	if !n.manager.InstancesAPIIsReady() {

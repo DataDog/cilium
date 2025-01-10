@@ -7,7 +7,9 @@ import (
 	"context"
 
 	"github.com/sirupsen/logrus"
+	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 
+	azureAPI "github.com/cilium/cilium/pkg/azure/api"
 	"github.com/cilium/cilium/pkg/ipam"
 	ipamTypes "github.com/cilium/cilium/pkg/ipam/types"
 	v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
@@ -70,6 +72,9 @@ func (m *InstancesManager) GetPoolQuota() (quota ipamTypes.PoolQuotaMap) {
 // cache in the instanceManager. It returns the time when the resync has
 // started or time.Time{} if it did not complete.
 func (m *InstancesManager) Resync(ctx context.Context) time.Time {
+	var err error
+	span, ctx := azureAPI.StartSpan(ctx)
+	defer func() { span.Finish(tracer.WithError(err)) }()
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	resyncStart := time.Now()
@@ -100,6 +105,9 @@ func (m *InstancesManager) Resync(ctx context.Context) time.Time {
 }
 
 func (m *InstancesManager) InstanceSync(ctx context.Context, instanceID string) time.Time {
+	var err error
+	span, ctx := azureAPI.StartSpan(ctx)
+	defer func() { span.Finish(tracer.WithError(err)) }()
 	// Resync for a separate instance is not implemented yet, fallback to full resync.
 	return m.Resync(ctx)
 }
