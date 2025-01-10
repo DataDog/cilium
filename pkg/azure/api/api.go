@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/http"
 	"strings"
 	"time"
 
@@ -21,6 +20,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork"
 	"k8s.io/apimachinery/pkg/util/rand"
+    "gopkg.in/DataDog/dd-trace-go.v1/contrib/net/http"
+
 
 	operatorMetrics "github.com/cilium/cilium/operator/metrics"
 	"github.com/cilium/cilium/pkg/api/helpers"
