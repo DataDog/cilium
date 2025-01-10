@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"runtime"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork"
+	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 	"k8s.io/apimachinery/pkg/util/rand"
 
 	operatorMetrics "github.com/cilium/cilium/operator/metrics"
@@ -173,6 +175,10 @@ func deriveStatus(err error) string {
 
 // listAllNetworkInterfaces lists all Azure Interfaces in the client's resource group
 func (c *Client) listAllNetworkInterfaces(ctx context.Context) ([]armnetwork.Interface, error) {
+	var err error
+	span, ctx := StartSpan(ctx)
+	defer func() { span.Finish(tracer.WithError(err)) }()
+
 	networkInterfaces, err := c.listVirtualMachineScaleSetsNetworkInterfaces(ctx)
 	if err != nil {
 		return nil, err
@@ -190,6 +196,9 @@ func (c *Client) listAllNetworkInterfaces(ctx context.Context) ([]armnetwork.Int
 func (c *Client) vmNetworkInterfaces(ctx context.Context) ([]armnetwork.Interface, error) {
 	var networkInterfaces []armnetwork.Interface
 	var err error
+
+	span, ctx := StartSpan(ctx)
+	defer func() { span.Finish(tracer.WithError(err)) }()
 
 	c.limiter.Limit(ctx, interfacesList)
 	sinceStart := spanstat.Start()
@@ -221,6 +230,9 @@ func (c *Client) listVirtualMachineScaleSetsNetworkInterfaces(ctx context.Contex
 	var networkInterfaces []armnetwork.Interface
 	var err error
 
+	span, ctx := StartSpan(ctx)
+	defer func() { span.Finish(tracer.WithError(err)) }()
+
 	virtualMachineScaleSets, err := c.listVirtualMachineScaleSets(ctx)
 	if err != nil {
 		return nil, err
@@ -242,6 +254,9 @@ func (c *Client) listVirtualMachineScaleSetsNetworkInterfaces(ctx context.Contex
 func (c *Client) listVirtualMachineScaleSets(ctx context.Context) ([]armcompute.VirtualMachineScaleSet, error) {
 	var virtualMachineScaleSets []armcompute.VirtualMachineScaleSet
 	var err error
+
+	span, ctx := StartSpan(ctx)
+	defer func() { span.Finish(tracer.WithError(err)) }()
 
 	c.limiter.Limit(ctx, virtualMachineScaleSetsList)
 	sinceStart := spanstat.Start()
@@ -272,6 +287,9 @@ func (c *Client) listVirtualMachineScaleSets(ctx context.Context) ([]armcompute.
 func (c *Client) listVirtualMachineScaleSetNetworkInterfaces(ctx context.Context, virtualMachineScaleSetName string) ([]armnetwork.Interface, error) {
 	var networkInterfaces []armnetwork.Interface
 	var err error
+
+	span, ctx := StartSpan(ctx)
+	defer func() { span.Finish(tracer.WithError(err)) }()
 
 	c.limiter.Limit(ctx, interfacesListVirtualMachineScaleSetNetworkInterfaces)
 	sinceStart := spanstat.Start()
@@ -376,6 +394,10 @@ func deriveGatewayIP(subnetIP net.IP) string {
 // GetInstances returns the list of all instances including all attached
 // interfaces as instanceMap
 func (c *Client) GetInstances(ctx context.Context, subnets ipamTypes.SubnetMap) (*ipamTypes.InstanceMap, error) {
+	var err error
+	span, ctx := StartSpan(ctx)
+	defer func() { span.Finish(tracer.WithError(err)) }()
+
 	instances := ipamTypes.NewInstanceMap()
 
 	networkInterfaces, err := c.listAllNetworkInterfaces(ctx)
@@ -396,6 +418,9 @@ func (c *Client) GetInstances(ctx context.Context, subnets ipamTypes.SubnetMap) 
 func (c *Client) listAllVPCs(ctx context.Context) ([]armnetwork.VirtualNetwork, error) {
 	var vpcs []armnetwork.VirtualNetwork
 	var err error
+
+	span, ctx := StartSpan(ctx)
+	defer func() { span.Finish(tracer.WithError(err)) }()
 
 	c.limiter.Limit(ctx, virtualNetworksListAll)
 	sinceStart := spanstat.Start()
@@ -442,6 +467,10 @@ func parseSubnet(subnet *armnetwork.Subnet) (s *ipamTypes.Subnet) {
 
 // GetVpcsAndSubnets retrieves and returns all Vpcs
 func (c *Client) GetVpcsAndSubnets(ctx context.Context) (ipamTypes.VirtualNetworkMap, ipamTypes.SubnetMap, error) {
+	var err error
+	span, ctx := StartSpan(ctx)
+	defer func() { span.Finish(tracer.WithError(err)) }()
+
 	vpcs := ipamTypes.VirtualNetworkMap{}
 	subnets := ipamTypes.SubnetMap{}
 
@@ -480,6 +509,9 @@ func generateIpConfigName() string {
 // AssignPrivateIpAddressesVMSS assign a private IP to an interface attached to a VMSS instance
 func (c *Client) AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, subnetID, interfaceName string, addresses int) error {
 	var netIfConfig *armcompute.VirtualMachineScaleSetNetworkConfiguration
+	var err error
+	span, ctx := StartSpan(ctx)
+	defer func() { span.Finish(tracer.WithError(err)) }()
 
 	vmssGetOptions := &armcompute.VirtualMachineScaleSetVMsClientGetOptions{
 		Expand: to.Ptr(armcompute.InstanceViewTypesInstanceView),
@@ -571,6 +603,10 @@ func (c *Client) AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, v
 
 // AssignPrivateIpAddressesVM assign a private IP to an interface attached to a standalone instance
 func (c *Client) AssignPrivateIpAddressesVM(ctx context.Context, subnetID, interfaceName string, addresses int) error {
+	var err error
+	span, ctx := StartSpan(ctx)
+	defer func() { span.Finish(tracer.WithError(err)) }()
+
 	c.limiter.Limit(ctx, interfacesGet)
 	sinceStart := spanstat.Start()
 
@@ -623,4 +659,18 @@ func (c *Client) AssignPrivateIpAddressesVM(ctx context.Context, subnetID, inter
 	}
 
 	return nil
+}
+
+// StartSpan starts a span with tags
+func StartSpan(ctx context.Context) (tracer.Span, context.Context) {
+	// We inspect the callstack to get the name of the calling function
+	programCounters := make([]uintptr, 1)
+	runtime.Callers(2, programCounters)
+	function := runtime.FuncForPC(programCounters[0])
+	return tracer.StartSpanFromContext(
+		ctx,
+		"cilium.azure.api",
+		tracer.ResourceName(strings.Split(function.Name(), ".")[3]),
+		tracer.ServiceName("cilium-operator"),
+	)
 }
