@@ -153,6 +153,7 @@ require (
 	github.com/DataDog/go-runtime-metrics-internal v0.0.0-20241106155157-194426bbbd59 // indirect
 	github.com/DataDog/go-sqllexer v0.0.14 // indirect
 	github.com/DataDog/go-tuf v1.1.0-0.5.2 // indirect
+	github.com/DataDog/gostackparse v0.7.0 // indirect
 	github.com/DataDog/opentelemetry-mapping-go/pkg/otlp/attributes v0.20.0 // indirect
 	github.com/DataDog/sketches-go v1.4.5 // indirect
 	github.com/Masterminds/semver/v3 v3.2.1 // indirect
@@ -209,6 +210,7 @@ require (
 	github.com/google/gnostic-models v0.6.8 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/licenseclassifier/v2 v2.0.0 // indirect
+	github.com/google/pprof v0.0.0-20240424215950-a892ee059fd6 // indirect
 	github.com/gorilla/websocket v1.5.1 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
@@ -266,6 +268,7 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/power-devops/perfstat v0.0.0-20220216144756-c35f1ee13d7c // indirect
 	github.com/prometheus/common v0.54.0 // indirect
+	github.com/richardartoul/molecule v1.0.1-0.20240531184615-7ca0df43c0b3 // indirect
 	github.com/rogpeppe/go-internal v1.12.0 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
 	github.com/sagikazarmark/locafero v0.4.0 // indirect
@@ -275,6 +278,7 @@ require (
 	github.com/shirou/gopsutil/v3 v3.24.4 // indirect
 	github.com/shoenig/go-m1cpu v0.1.6 // indirect
 	github.com/sourcegraph/conc v0.3.0 // indirect
+	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/stoewer/go-strcase v1.3.0 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect

@@ -130,6 +130,9 @@ github.com/DataDog/go-tuf/pkg/keys
 github.com/DataDog/go-tuf/pkg/targets
 github.com/DataDog/go-tuf/util
 github.com/DataDog/go-tuf/verify
+# github.com/DataDog/gostackparse v0.7.0
+## explicit; go 1.16
+github.com/DataDog/gostackparse
 # github.com/DataDog/opentelemetry-mapping-go/pkg/otlp/attributes v0.20.0
 ## explicit; go 1.20
 github.com/DataDog/opentelemetry-mapping-go/pkg/otlp/attributes
@@ -937,6 +940,9 @@ github.com/google/gops/signal
 ## explicit; go 1.16
 github.com/google/licenseclassifier/v2
 github.com/google/licenseclassifier/v2/assets
+# github.com/google/pprof v0.0.0-20240424215950-a892ee059fd6
+## explicit; go 1.19
+github.com/google/pprof/profile
 # github.com/google/renameio/v2 v2.0.0
 ## explicit; go 1.13
 github.com/google/renameio/v2
@@ -1262,6 +1268,11 @@ github.com/prometheus/common/model
 github.com/prometheus/procfs
 github.com/prometheus/procfs/internal/fs
 github.com/prometheus/procfs/internal/util
+# github.com/richardartoul/molecule v1.0.1-0.20240531184615-7ca0df43c0b3
+## explicit; go 1.13
+github.com/richardartoul/molecule
+github.com/richardartoul/molecule/src/codec
+github.com/richardartoul/molecule/src/protowire
 # github.com/rogpeppe/go-internal v1.12.0
 ## explicit; go 1.20
 github.com/rogpeppe/go-internal/fmtsort
@@ -1311,6 +1322,9 @@ github.com/sourcegraph/conc
 github.com/sourcegraph/conc/internal/multierror
 github.com/sourcegraph/conc/iter
 github.com/sourcegraph/conc/panics
+# github.com/spaolacci/murmur3 v1.1.0
+## explicit
+github.com/spaolacci/murmur3
 # github.com/spf13/afero v1.11.0
 ## explicit; go 1.19
 github.com/spf13/afero
@@ -1849,9 +1863,6 @@ google.golang.org/protobuf/types/known/wrapperspb
 # gopkg.in/DataDog/dd-trace-go.v1 v1.70.3
 ## explicit; go 1.22.0
 gopkg.in/DataDog/dd-trace-go.v1/appsec/events
-gopkg.in/DataDog/dd-trace-go.v1/contrib/internal/httptrace
-gopkg.in/DataDog/dd-trace-go.v1/contrib/internal/options
-gopkg.in/DataDog/dd-trace-go.v1/contrib/net/http
 gopkg.in/DataDog/dd-trace-go.v1/datastreams/options
 gopkg.in/DataDog/dd-trace-go.v1/ddtrace
 gopkg.in/DataDog/dd-trace-go.v1/ddtrace/ext
@@ -1904,6 +1915,11 @@ gopkg.in/DataDog/dd-trace-go.v1/internal/stacktrace
 gopkg.in/DataDog/dd-trace-go.v1/internal/telemetry
 gopkg.in/DataDog/dd-trace-go.v1/internal/traceprof
 gopkg.in/DataDog/dd-trace-go.v1/internal/version
+gopkg.in/DataDog/dd-trace-go.v1/profiler
+gopkg.in/DataDog/dd-trace-go.v1/profiler/internal/fastdelta
+gopkg.in/DataDog/dd-trace-go.v1/profiler/internal/immutable
+gopkg.in/DataDog/dd-trace-go.v1/profiler/internal/pproflite
+gopkg.in/DataDog/dd-trace-go.v1/profiler/internal/pprofutils
 # gopkg.in/inf.v0 v0.9.1
 ## explicit
 gopkg.in/inf.v0
