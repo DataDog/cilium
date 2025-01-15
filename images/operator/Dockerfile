@@ -52,7 +52,7 @@ RUN set -xe && \
       {} \;
 
 # Check debug symbols are present
-RUN for f in $(find /tmp/debug -type f -name '*.debug') ; do readelf -S ${f} | grep -q \\.symtab || \
+RUN set -x ; for f in $(find /tmp/debug -type f -name '*.debug') ; do readelf -S ${f} | grep -q \\.symtab || \
     (echo Debug symbols are missing in ${f} - possibly due to incorrect build parameters && false); done
 
 # BUILDPLATFORM is an automatic platform ARG enabled by Docker BuildKit.
