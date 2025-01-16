@@ -121,4 +121,4 @@ COPY --from=builder /tmp/debug/${TARGETOS}/${TARGETARCH}/ /usr/lib/debug/
 
 # Ensure dlv finds the debug symbols. Due to CGO_ENABLED=0, we have no GNU build-id, so Delve's default search path
 # is insufficient.
-ADD dlv-config.yml /root/.config/dlv/config.yml
+ADD images/operator/dlv-config.yml /root/.config/dlv/config.yml
