@@ -1692,6 +1692,7 @@ func (e *Endpoint) metadataResolver(ctx context.Context,
 		e.Logger(resolveLabels).Debug("Namespace and Pod are not set")
 		return false, nil
 	}
+	e.getLogger().Info("Anton-Test: calling metadataResolver")
 
 	// copy the base labels into this local variable
 	// so that we don't override 'baseLabels'.
@@ -1762,7 +1763,9 @@ func (e *Endpoint) metadataResolver(ctx context.Context,
 	if len(baseLabels) != 0 {
 		source = labels.LabelSourceAny
 	}
+	e.getLogger().Info("Anton-Test: metadataResolver: calling UpdateLabels with source: ", source, " and controllerBaseLabels: ", controllerBaseLabels, " and k8sMetadata.InfoLabels: ", k8sMetadata.InfoLabels, " and blocking: ", blocking)
 	regenTriggered = e.UpdateLabels(ctx, source, controllerBaseLabels, k8sMetadata.InfoLabels, blocking)
+	e.getLogger().Info("Anton-Test: metadataResolver: finished UpdateLabels with regenTriggered: ", regenTriggered)
 
 	return regenTriggered, nil
 }
@@ -1819,7 +1822,9 @@ func (e *Endpoint) RunMetadataResolver(restoredEndpoint, blocking bool, baseLabe
 			RunInterval: 0,
 			Group:       resolveLabelsControllerGroup,
 			DoFunc: func(ctx context.Context) error {
+				e.getLogger().Info("Anton-Test: RunMetadataResolver: calling metadataResolver (blocking: ", blocking, ")")
 				regenTriggered, err := e.metadataResolver(ctx, restoredEndpoint, blocking, baseLabels, bwm, resolveMetadata)
+				e.getLogger().Info("Anton-Test: RunMetadataResolver: finished metadataResolver with regenTriggered: ", regenTriggered, " and err: ", err)
 
 				// Check if the caller is still blocked.
 				// It might already have been unblocked in a previous run, where resolving metadata
@@ -1984,6 +1989,7 @@ func (e *Endpoint) InitWithNodeLabels(ctx context.Context, nodeLabels map[string
 //
 // Returns 'true' if endpoint regeneration was triggered.
 func (e *Endpoint) UpdateLabels(ctx context.Context, sourceFilter string, identityLabels, infoLabels labels.Labels, blocking bool) (regenTriggered bool) {
+	e.getLogger().Info("Anton-Test: UpdateLabels with sourceFilter=" + sourceFilter + " identityLabels=" + identityLabels.String() + " infoLabels=" + infoLabels.String() + " blocking=" + strconv.FormatBool(blocking))
 	log.WithFields(logrus.Fields{
 		logfields.ContainerID:    e.GetShortContainerID(),
 		logfields.EndpointID:     e.StringID(),
@@ -1999,7 +2005,9 @@ func (e *Endpoint) UpdateLabels(ctx context.Context, sourceFilter string, identi
 
 	e.replaceInformationLabels(sourceFilter, infoLabels)
 	// replace identity labels and update the identity if labels have changed
+	e.getLogger().Info("Anton-Test: UpdateLabels: calling replaceIdentityLabels with identityLabels=" + identityLabels.String())
 	rev := e.replaceIdentityLabels(sourceFilter, identityLabels)
+	e.getLogger().Info("Anton-Test: UpdateLabels: finished replaceIdentityLabels with identityLabels=" + identityLabels.String() + " rev=" + strconv.Itoa(rev))
 
 	// If the endpoint is in an 'init' state we need to remove this label
 	// regardless of the "sourceFilter". Otherwise, we face risk of leaving the
@@ -2022,8 +2030,12 @@ func (e *Endpoint) UpdateLabels(ctx context.Context, sourceFilter string, identi
 
 	e.unlock()
 	if rev != 0 {
-		return e.runIdentityResolver(ctx, rev, blocking)
+		e.getLogger().Info("Anton-Test: UpdateLabels: calling runIdentityResolver with rev=" + strconv.Itoa(rev) + " blocking=" + strconv.FormatBool(blocking))
+		rTriggered := e.runIdentityResolver(ctx, rev, blocking)
+		e.getLogger().Info("Anton-Test: UpdateLabels: finished runIdentityResolver with rev=" + strconv.Itoa(rev) + " blocking=" + strconv.FormatBool(blocking) + " rTriggered=" + strconv.FormatBool(rTriggered))
+		return rTriggered
 	}
+	e.getLogger().Info("Anton-Test: UpdateLabels: finished without calling runIdentityResolver, returning regenTriggered=false")
 
 	return false
 }
@@ -2060,6 +2072,7 @@ func (e *Endpoint) identityResolutionIsObsolete(myChangeRev int) bool {
 //
 // Must be called with e.mutex NOT held.
 func (e *Endpoint) runIdentityResolver(ctx context.Context, myChangeRev int, blocking bool) (regenTriggered bool) {
+	e.getLogger().Info("Anton-Test running runIdentityResolver (blocking=" + strconv.FormatBool(blocking) + ")")
 	err := e.rlockAlive()
 	if err != nil {
 		// If a labels update and an endpoint delete API request arrive
@@ -2079,6 +2092,7 @@ func (e *Endpoint) runIdentityResolver(ctx context.Context, myChangeRev int, blo
 	if blocking || identity.IdentityAllocationIsLocal(newLabels) {
 		scopedLog.Info("Resolving identity labels (blocking)")
 		regenTriggered, err = e.identityLabelsChanged(ctx, myChangeRev)
+		e.getLogger().Info("Anton-Test runIdentityResolver: finished identityLabelsChanged with regenTriggered=" + strconv.FormatBool(regenTriggered))
 		if err != nil {
 			if errors.Is(err, ErrNotAlive) {
 				scopedLog.Debug("not changing endpoint identity because endpoint is in process of being removed")
