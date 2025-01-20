@@ -1014,7 +1014,6 @@ func (k *K8sWatcher) GetCachedPod(namespace, name string) (*slim_corev1.Pod, err
 		if k.attempt[name] < attempts {
 			exists = false
 			k.attempt[name]++
-			log.WithField("name", name).Info("Anton-Test GetCachedPod: Sleeping " + sleepTime.String() + "ms for pod " + name)
 			time.Sleep(sleepTime)
 		}
 	}
