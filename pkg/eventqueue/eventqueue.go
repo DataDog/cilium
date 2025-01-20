@@ -98,6 +98,7 @@ func NewEventQueueBuffered(name string, numBufferedEvents int) *EventQueue {
 // if the Event has been previously enqueued, if the Event is nil, or the queue
 // itself is not initialized properly.
 func (q *EventQueue) Enqueue(ev *Event) (<-chan interface{}, error) {
+	q.getLogger().Info("Anton-Test: Enqueueing event " + reflect.TypeOf(ev.Metadata).String())
 	if q.notSafeToAccess() || ev == nil {
 		return nil, fmt.Errorf("unable to Enqueue event")
 	}
