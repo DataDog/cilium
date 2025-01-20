@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math/rand"
 	"net"
 	"strings"
 	"sync"
@@ -1006,19 +1007,17 @@ func (k *K8sWatcher) GetCachedPod(namespace, name string) (*slim_corev1.Pod, err
 	if err != nil {
 		return nil, err
 	}
-	log.Info("Sleeping for 3 seconds for pod " + name)
-	time.Sleep(3 * time.Second)
-	log.Info("Finished sleeping for pod " + name)
-	/*
-		if namespace == "anton-test" {
-			attempts := rand.Intn(5) + 3                                     // random number between 3 and 7
-			sleepTime := time.Duration(rand.Intn(771)+30) * time.Millisecond // random duration between 30 and 800 ms
-			if k.attempt[name] < attempts {
-				exists = false
-				k.attempt[name]++
-				time.Sleep(sleepTime)
-			}
-		}*/
+
+	if namespace == "anton-test" {
+		attempts := rand.Intn(5) + 3                                     // random number between 3 and 7
+		sleepTime := time.Duration(rand.Intn(771)+30) * time.Millisecond // random duration between 30 and 800 ms
+		if k.attempt[name] < attempts {
+			exists = false
+			k.attempt[name]++
+			log.WithField("name", name).Info("Anton-Test GetCachedPod: Sleeping " + sleepTime.String() + "ms for pod " + name)
+			time.Sleep(sleepTime)
+		}
+	}
 
 	if !exists {
 		return nil, k8sErrors.NewNotFound(schema.GroupResource{

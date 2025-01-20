@@ -177,11 +177,13 @@ func getEndpointIDHandler(d *Daemon, params GetEndpointIDParams) middleware.Resp
 // The returned pod is deepcopied which means the its fields can be written
 // into.
 func (d *Daemon) fetchK8sMetadataForEndpoint(nsName, podName string) (*slim_corev1.Pod, *endpoint.K8sMetadata, error) {
+	log.Info("Anton-Test: fetchK8sMetadataForEndpoint: calling endpointMetadataFetcher.Fetch() for nsName=" + nsName + ", podName=" + podName)
 	ns, p, err := d.endpointMetadataFetcher.Fetch(nsName, podName)
 	if err != nil {
 		return nil, nil, err
 	}
 
+	log.Info("Anton-Test: fetchK8sMetadataForEndpoint: calling k8s.GetPodMetadata() for nsName=" + nsName + ", podName=" + podName)
 	containerPorts, lbls, annotations, err := k8s.GetPodMetadata(ns, p)
 	if err != nil {
 		return nil, nil, err
@@ -452,7 +454,9 @@ func (d *Daemon) createEndpoint(ctx context.Context, owner regeneration.Owner, e
 	identityLbls := maps.Clone(apiLabels)
 
 	if ep.K8sNamespaceAndPodNameIsSet() && d.clientset.IsEnabled() {
+		ep.Logger("anton-test").Info("Anton-Test: createEndpoint: Calling handleOutdatedPodInformer for pod " + ep.K8sPodName)
 		pod, k8sMetadata, err := d.handleOutdatedPodInformer(ctx, ep)
+		ep.Logger("anton-test").WithError(err).Info("Anton-Test: createEndpoint: finished handleOutdatedPodInformer for pod " + ep.K8sPodName)
 		if errors.Is(err, podStoreOutdatedErr) {
 			log.WithFields(logrus.Fields{
 				logfields.K8sPodName: ep.K8sNamespace + "/" + ep.K8sPodName,
@@ -482,6 +486,7 @@ func (d *Daemon) createEndpoint(ctx context.Context, owner regeneration.Owner, e
 		if err != nil {
 			ep.Logger("api").WithError(err).Warning("Unable to fetch kubernetes labels")
 		} else {
+			ep.Logger("anton-test").Info("Anton-Test: createEndpoint: handleOutdatedPodInformer finished for pod " + ep.K8sPodName + ", retrieved labels " + logfields.Repr(k8sMetadata.IdentityLabels))
 			ep.SetPod(pod)
 			ep.SetK8sMetadata(k8sMetadata.ContainerPorts)
 			identityLbls.MergeLabels(k8sMetadata.IdentityLabels)
@@ -512,6 +517,7 @@ func (d *Daemon) createEndpoint(ctx context.Context, owner regeneration.Owner, e
 		identityLbls = labels.Labels{
 			labels.IDNameInit: labels.NewLabel(labels.IDNameInit, "", labels.LabelSourceReserved),
 		}
+		ep.Logger("anton-test").Info("Anton-Test: createEndpoint: assigned init identity for pod " + ep.K8sPodName)
 	}
 
 	// Static pods (mirror pods) might be configured before the apiserver
@@ -522,6 +528,7 @@ func (d *Daemon) createEndpoint(ctx context.Context, owner regeneration.Owner, e
 		// If there are labels, but no pod namespace, then it's
 		// likely that there are no k8s labels at all. Resolve.
 		if _, k8sLabelsConfigured := identityLbls[k8sConst.PodNamespaceLabel]; !k8sLabelsConfigured {
+			ep.Logger("anton-test").Info("Anton-Test: createEndpoint: calling RunMetadataResolver for pod " + ep.K8sPodName + " because no k8s labels are configured (2: non-blocking)")
 			ep.RunMetadataResolver(false, false, apiLabels, d.bwManager, d.fetchK8sMetadataForEndpoint)
 		}
 	}
@@ -543,9 +550,13 @@ func (d *Daemon) createEndpoint(ctx context.Context, owner regeneration.Owner, e
 		// in the endpoint manager. Thus, we will fetch the labels again
 		// and update the endpoint with these labels.
 		// Wait for the regeneration to be triggered before continuing.
+		ep.Logger("anton-test").Info("Anton-Test: createEndpoint: calling RunMetadataResolver (3: blocking)")
 		regenTriggered = ep.RunMetadataResolver(false, true, apiLabels, d.bwManager, d.fetchK8sMetadataForEndpoint)
+		ep.Logger("anton-test").Info("Anton-Test: createEndpoint: finished RunMetadataResolver (3: blocking), regenTriggered=" + fmt.Sprint(regenTriggered))
 	} else {
+		ep.Logger("anton-test").Info("Anton-Test: createEndpoint: calling UpdateLabels (blocking)")
 		regenTriggered = ep.UpdateLabels(ctx, labels.LabelSourceAny, identityLbls, infoLabels, true)
+		ep.Logger("anton-test").Info("Anton-Test: createEndpoint: finished UpdateLabels (blocking), regenTriggered=" + fmt.Sprint(regenTriggered))
 	}
 
 	select {
@@ -555,24 +566,30 @@ func (d *Daemon) createEndpoint(ctx context.Context, owner regeneration.Owner, e
 	}
 
 	if !regenTriggered {
+		ep.Logger("anton-test").Info("Anton-Test: createEndpoint: calling SetRegenerateStateIfAlive")
 		regenMetadata := &regeneration.ExternalRegenerationMetadata{
 			Reason:            "Initial build on endpoint creation",
 			ParentContext:     ctx,
 			RegenerationLevel: regeneration.RegenerateWithDatapathRewrite,
 		}
 		build, err := ep.SetRegenerateStateIfAlive(regenMetadata)
+		ep.Logger("anton-test").Info("Anton-Test: createEndpoint: finished SetRegenerateStateIfAlive, build=" + fmt.Sprint(build))
 		if err != nil {
 			return d.errorDuringCreation(ep, err)
 		}
 		if build {
+			ep.Logger("anton-test").Info("Anton-Test: createEndpoint: calling Regenerate")
 			ep.Regenerate(regenMetadata)
 		}
 	}
 
 	if epTemplate.SyncBuildEndpoint {
+		ep.Logger("anton-test").Info("Anton-Test: createEndpoint: calling WaitForFirstRegeneration")
 		if err := ep.WaitForFirstRegeneration(ctx); err != nil {
+			ep.Logger("anton-test").WithError(err).Warning("Anton-Test: createEndpoint: Failed to wait for first regeneration")
 			return d.errorDuringCreation(ep, err)
 		}
+		ep.Logger("anton-test").Info("Anton-Test: createEndpoint: finished WaitForFirstRegeneration")
 	}
 
 	// The endpoint has been successfully created, stop the expiration
@@ -608,8 +625,17 @@ func (d *Daemon) handleOutdatedPodInformer(
 	// Average attempt is every 100ms.
 	err = resiliency.Retry(ctx, 2*time.Second, 20, func(_ context.Context, _ int) (bool, error) {
 		var err2 error
+		log.WithFields(logrus.Fields{
+			logfields.K8sPodName: ep.K8sNamespace + "/" + ep.K8sPodName,
+		}).Info("Anton-Test: handleOutdatedPodInformer: calling fetchK8sMetadataForEndpoint for pod " + ep.K8sPodName)
 		pod, k8sMetadata, err2 = d.fetchK8sMetadataForEndpoint(ep.K8sNamespace, ep.K8sPodName)
+		log.WithFields(logrus.Fields{
+			logfields.K8sPodName: ep.K8sNamespace + "/" + ep.K8sPodName,
+		}).Info("Anton-Test: handleOutdatedPodInformer: finished fetchK8sMetadataForEndpoint for pod " + ep.K8sPodName + " with error " + fmt.Sprint(err2))
 		if ep.K8sUID == "" {
+			log.WithFields(logrus.Fields{
+				logfields.K8sPodName: ep.K8sNamespace + "/" + ep.K8sPodName,
+			}).Info("Anton-Test: handleOutdatedPodInformer: K8sUID is empty for pod " + ep.K8sPodName)
 			// If the CNI did not set the UID, then don't retry and just exit
 			// out of the loop to proceed as normal.
 			return true, nil
@@ -882,6 +908,7 @@ func (d *Daemon) EndpointDeleted(ep *endpoint.Endpoint, conf endpoint.DeleteConf
 //
 // It is called after Daemon calls into d.endpointManager.AddEndpoint().
 func (d *Daemon) EndpointCreated(ep *endpoint.Endpoint) {
+	log.Info("Anton-Test: EndpointCreated")
 	d.SendNotification(monitorAPI.EndpointCreateMessage(ep))
 }
 
