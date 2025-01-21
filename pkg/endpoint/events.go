@@ -50,6 +50,7 @@ func (ev *EndpointRegenerationEvent) Handle(res chan interface{}) {
 		if !errors.Is(err, context.Canceled) {
 			e.getLogger().WithError(err).Warning("unable to queue endpoint build")
 		}
+		e.getLogger().WithError(err).Info("Anton-Test: not queuing endpoint build because of error")
 	} else if doneFunc != nil {
 		e.getLogger().Debug("Dequeued endpoint from build queue")
 
