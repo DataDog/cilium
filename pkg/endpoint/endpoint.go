@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"net/netip"
 	"os"
 	"runtime"
@@ -1815,16 +1816,18 @@ func (e *Endpoint) RunMetadataResolver(restoredEndpoint, blocking bool, baseLabe
 		callerBlocked = true
 	}
 	controllerName := resolveLabels + "-" + e.GetK8sNamespaceAndPodName()
+	execution := rand.String(5)
 
+	e.getLogger().Info("Anton-Test: RunMetadataResolver: updating controller for pod "+e.K8sPodName+" (blocking: ", blocking, "), execution=", execution)
 	e.controllers.UpdateController(controllerName,
 		controller.ControllerParams{
 			// Do not run this controller again after returning.
 			RunInterval: 0,
 			Group:       resolveLabelsControllerGroup,
 			DoFunc: func(ctx context.Context) error {
-				e.getLogger().Info("Anton-Test: RunMetadataResolver: calling metadataResolver for pod "+e.K8sPodName+" (blocking: ", blocking, ")")
+				e.getLogger().Info("Anton-Test: RunMetadataResolver: calling metadataResolver for pod "+e.K8sPodName+" (blocking: ", blocking, "), execution=", execution)
 				regenTriggered, err := e.metadataResolver(ctx, restoredEndpoint, blocking, baseLabels, bwm, resolveMetadata)
-				e.getLogger().Info("Anton-Test: RunMetadataResolver: finished metadataResolver for pod "+e.K8sPodName+" with regenTriggered: ", regenTriggered, " and err: ", err)
+				e.getLogger().Info("Anton-Test: RunMetadataResolver: finished metadataResolver for pod "+e.K8sPodName+" with regenTriggered: ", regenTriggered, " and err: ", err, ", execution=", execution)
 
 				// Check if the caller is still blocked.
 				// It might already have been unblocked in a previous run, where resolving metadata
@@ -1836,7 +1839,7 @@ func (e *Endpoint) RunMetadataResolver(restoredEndpoint, blocking bool, baseLabe
 						// First regeneration will close the channel and unblock the caller.
 						// This might be the case even if resolving metadata resulted in an error.
 						close(regenTriggeredCh)
-						e.getLogger().Info("Anton-Test: RunMetadataResolver: unblocking caller for pod " + e.K8sPodName)
+						e.getLogger().Info("Anton-Test: RunMetadataResolver: unblocking caller for pod "+e.K8sPodName, ", execution=", execution)
 						callerBlocked = false
 					}
 				}
@@ -1853,7 +1856,7 @@ func (e *Endpoint) RunMetadataResolver(restoredEndpoint, blocking bool, baseLabe
 	if blocking {
 		select {
 		case regenTriggered, ok := <-regenTriggeredCh:
-			e.getLogger().Info("Anton-Test: RunMetadataResolver: blocking call finished for pod " + e.K8sPodName + " Result: " + strconv.FormatBool(regenTriggered))
+			e.getLogger().Info("Anton-Test: RunMetadataResolver: blocking call finished for pod "+e.K8sPodName+" Result: "+strconv.FormatBool(regenTriggered), ", execution=", execution)
 			return regenTriggered && ok
 		case <-e.aliveCtx.Done():
 			return false

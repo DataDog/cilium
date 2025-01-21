@@ -666,6 +666,7 @@ func (e *Endpoint) RegenerateIfAlive(regenMetadata *regeneration.ExternalRegener
 // Should only be called with e.state at StateWaitingToRegenerate,
 // StateWaitingForIdentity, or StateRestoring
 func (e *Endpoint) Regenerate(regenMetadata *regeneration.ExternalRegenerationMetadata) <-chan bool {
+	e.getLogger().Info("Anton-Test: Regenerate with regenMetadata " + regenMetadata.Reason)
 	hr := e.GetReporter("datapath-regenerate")
 	done := make(chan bool, 1)
 
@@ -693,10 +694,12 @@ func (e *Endpoint) Regenerate(regenMetadata *regeneration.ExternalRegenerationMe
 	resChan, err := e.eventQueue.Enqueue(epEvent)
 	if err != nil {
 		e.getLogger().WithError(err).Error("Enqueue of EndpointRegenerationEvent failed")
+		e.getLogger().WithError(err).Info("Anton-Test: Regenerate: event enqueue failed " + regenMetadata.Reason)
 		done <- false
 		close(done)
 		return done
 	}
+	e.getLogger().Info("Anton-Test: Regenerate: event enqueued " + regenMetadata.Reason)
 
 	go func() {
 
@@ -717,8 +720,10 @@ func (e *Endpoint) Regenerate(regenMetadata *regeneration.ExternalRegenerationMe
 
 			if regenError != nil && !errors.Is(regenError, context.Canceled) {
 				e.getLogger().WithError(regenError).Error("endpoint regeneration failed")
+				e.getLogger().WithError(regenError).Info("Anton-Test: Regenerate with regenMetadata " + regenMetadata.Reason + " failed")
 				hr.Degraded("Endpoint regeneration failed", regenError)
 			} else {
+				e.getLogger().Info("Anton-Test: Regenerate with regenMetadata " + regenMetadata.Reason + " was successful")
 				hr.OK("Endpoint regeneration successful")
 			}
 		} else {
@@ -731,6 +736,7 @@ func (e *Endpoint) Regenerate(regenMetadata *regeneration.ExternalRegenerationMe
 		// If a build is canceled, that means that the Endpoint is being deleted
 		// not that the build failed.
 		if !buildSuccess && !canceled {
+			e.getLogger().Info("Anton-Test: Regenerate failed for regenMetadata "+regenMetadata.Reason, ", retrying")
 			select {
 			case e.regenFailedChan <- struct{}{}:
 			default:
@@ -775,14 +781,16 @@ func (e *Endpoint) startRegenerationFailureHandler() {
 				// of the failure, simply that something failed.
 				RegenerationLevel: regeneration.RegenerateWithDatapathRewrite,
 			}
+			e.getLogger().Info("Anton-Test: startRegenerationFailureHandler: calling SetRegenerateStateIfAlive with regenMetadata " + regenMetadata.Reason)
 			regen, _ := e.SetRegenerateStateIfAlive(regenMetadata)
+			e.getLogger().Info("Anton-Test: startRegenerationFailureHandler: finished SetRegenerateStateIfAlive with regenMetadata " + regenMetadata.Reason + " and regen is " + strconv.FormatBool(regen))
 			if !regen {
 				// We don't need to regenerate because the endpoint is d
 				// disconnecting / is disconnected, or another regeneration has
 				// already been enqueued. Exit gracefully.
 				return nil
 			}
-
+			e.getLogger().Info("Anton-Test: startRegenerationFailureHandler: calling Regenerate with regenMetadata " + regenMetadata.Reason)
 			if success := <-e.Regenerate(regenMetadata); success {
 				return nil
 			}
