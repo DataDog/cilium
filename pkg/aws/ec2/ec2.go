@@ -41,6 +41,7 @@ const (
 )
 
 var log = logging.DefaultLogger.WithField(logfields.LogSubsys, "ec2")
+var logHADRIEN = logging.DefaultLogger.WithField(logfields.LogSubsys, "HADRIEN")
 
 // Client represents an EC2 API client
 type Client struct {
@@ -706,8 +707,24 @@ func (c *Client) AssignPrivateIpAddresses(ctx context.Context, eniID string, add
 
 	c.limiter.Limit(ctx, "AssignPrivateIpAddresses")
 	sinceStart := spanstat.Start()
-	_, err := c.ec2Client.AssignPrivateIpAddresses(ctx, input)
+	out, err := c.ec2Client.AssignPrivateIpAddresses(ctx, input)
+	var IPsPrettyPrint string
+	var assignedAdresses []string
+	for _, ip := range out.AssignedPrivateIpAddresses {
+		IPsPrettyPrint += *ip.PrivateIpAddress + ", "
+		assignedAdresses = append(assignedAdresses, *ip.PrivateIpAddress)
+	}
+	logHADRIEN.WithField("AssignPrivateIpAddressesResponse", out).Warnf("AssignPrivateIpAddresses assigned %d IPs: %s", len(out.AssignedPrivateIpAddresses), IPsPrettyPrint)
 	c.metricsAPI.ObserveAPICall("AssignPrivateIpAddresses", deriveStatus(err), sinceStart.Seconds())
+	_ = AssignedIPs(assignedAdresses)
+	// try to reassign the same IP to insect the error
+	input2 := &ec2.AssignPrivateIpAddressesInput{
+		NetworkInterfaceId: aws.String(eniID),
+		PrivateIpAddresses: assignedAdresses,
+	}
+	_, err2 := c.ec2Client.AssignPrivateIpAddresses(ctx, input2)
+	logHADRIEN.Warnf("Duplicate AssignPrivateIpAddresses got err %#v", err2)
+
 	return err
 }
 
@@ -722,6 +739,8 @@ func (c *Client) UnassignPrivateIpAddresses(ctx context.Context, eniID string, a
 	sinceStart := spanstat.Start()
 	_, err := c.ec2Client.UnassignPrivateIpAddresses(ctx, input)
 	c.metricsAPI.ObserveAPICall("UnassignPrivateIpAddresses", deriveStatus(err), sinceStart.Seconds())
+	logHADRIEN.Infof("UnassignPrivateIpAddresses unassigned %d IPs: %v", len(addresses), addresses)
+	_ = UnassignedIPs(addresses)
 	return err
 }
 
@@ -733,7 +752,12 @@ func (c *Client) AssignENIPrefixes(ctx context.Context, eniID string, prefixes i
 
 	c.limiter.Limit(ctx, "AssignPrivateIpAddresses")
 	sinceStart := spanstat.Start()
-	_, err := c.ec2Client.AssignPrivateIpAddresses(ctx, input)
+	out, err := c.ec2Client.AssignPrivateIpAddresses(ctx, input)
+	var PrefixesPrettyPrint string
+	for _, prefix := range out.AssignedIpv4Prefixes {
+		PrefixesPrettyPrint += *prefix.Ipv4Prefix + ", "
+	}
+	logHADRIEN.WithField("AssignPrivateIpAddressesResponse", out).Warnf("AssignENIPrefixes assigned %d prefixes: %s", len(out.AssignedIpv4Prefixes), PrefixesPrettyPrint)
 	c.metricsAPI.ObserveAPICall("AssignPrivateIpAddresses", deriveStatus(err), sinceStart.Seconds())
 	return err
 }
