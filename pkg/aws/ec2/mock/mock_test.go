@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/netip"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -21,10 +22,10 @@ func TestMock(t *testing.T) {
 	api := NewAPI([]*ipamTypes.Subnet{{ID: "s-1", AvailableAddresses: 100}}, []*ipamTypes.VirtualNetwork{{ID: "v-1"}}, []*types.SecurityGroup{{ID: "sg-1"}})
 	require.NotNil(t, api)
 
-	eniID1, _, err := api.CreateNetworkInterface(context.TODO(), 8, "s-1", "desc", []string{"sg1", "sg2"}, false)
+	eniID1, _, err := api.CreateNetworkInterface(context.TODO(), 8, "s-1", "cidr", "desc", []string{"sg1", "sg2"}, false)
 	require.NoError(t, err)
 
-	eniID2, _, err := api.CreateNetworkInterface(context.TODO(), 8, "s-1", "desc", []string{"sg1", "sg2"}, false)
+	eniID2, _, err := api.CreateNetworkInterface(context.TODO(), 8, "s-1", "cidr", "desc", []string{"sg1", "sg2"}, false)
 	require.NoError(t, err)
 
 	_, err = api.AttachNetworkInterface(context.TODO(), 0, "i-1", eniID1)
@@ -42,23 +43,23 @@ func TestMock(t *testing.T) {
 	require.True(t, ok)
 
 	// Attached ENIs cannot be deleted
-	err = api.DeleteNetworkInterface(context.TODO(), eniID1)
+	err = api.DeleteNetworkInterface(context.TODO(), eniID1, nil)
 	require.Error(t, err)
 
 	// Detach and delete ENI
 	err = api.DetachNetworkInterface(context.TODO(), "i-1", eniID1)
 	require.NoError(t, err)
-	err = api.DeleteNetworkInterface(context.TODO(), eniID1)
+	err = api.DeleteNetworkInterface(context.TODO(), eniID1, nil)
 	require.NoError(t, err)
 
 	// ENIs cannot be deleted twice
-	err = api.DeleteNetworkInterface(context.TODO(), eniID1)
+	err = api.DeleteNetworkInterface(context.TODO(), eniID1, nil)
 	require.Error(t, err)
 
 	// Detach and delete ENI
 	err = api.DetachNetworkInterface(context.TODO(), "i-1", eniID2)
 	require.NoError(t, err)
-	err = api.DeleteNetworkInterface(context.TODO(), eniID2)
+	err = api.DeleteNetworkInterface(context.TODO(), eniID2, nil)
 	require.NoError(t, err)
 
 	_, ok = api.enis["i-1"][eniID1]
@@ -90,7 +91,7 @@ func TestSetMockError(t *testing.T) {
 	mockError := errors.New("error")
 
 	api.SetMockError(CreateNetworkInterface, mockError)
-	_, _, err := api.CreateNetworkInterface(context.TODO(), 8, "s-1", "desc", []string{"sg1", "sg2"}, false)
+	_, _, err := api.CreateNetworkInterface(context.TODO(), 8, "s-1", "cidr", "desc", []string{"sg1", "sg2"}, false)
 	require.Equal(t, mockError, err)
 
 	api.SetMockError(AttachNetworkInterface, mockError)
@@ -98,11 +99,11 @@ func TestSetMockError(t *testing.T) {
 	require.Equal(t, mockError, err)
 
 	api.SetMockError(DeleteNetworkInterface, mockError)
-	err = api.DeleteNetworkInterface(context.TODO(), "e-1")
+	err = api.DeleteNetworkInterface(context.TODO(), "e-1", nil)
 	require.Equal(t, mockError, err)
 
 	api.SetMockError(AssignPrivateIpAddresses, mockError)
-	err = api.AssignPrivateIpAddresses(context.TODO(), "e-1", 10)
+	err = api.AssignPrivateIpAddresses(context.TODO(), "e-1", 10, netip.MustParsePrefix("10.0.0.0/16"))
 	require.Equal(t, mockError, err)
 
 	api.SetMockError(UnassignPrivateIpAddresses, mockError)
@@ -119,7 +120,7 @@ func TestSetLimiter(t *testing.T) {
 	require.NotNil(t, api)
 
 	api.SetLimiter(10.0, 2)
-	_, _, err := api.CreateNetworkInterface(context.TODO(), 8, "s-1", "desc", []string{"sg1", "sg2"}, false)
+	_, _, err := api.CreateNetworkInterface(context.TODO(), 8, "s-1", "cidr", "desc", []string{"sg1", "sg2"}, false)
 	require.NoError(t, err)
 }
 
