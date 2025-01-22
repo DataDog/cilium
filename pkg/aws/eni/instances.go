@@ -7,6 +7,7 @@ package eni
 
 import (
 	"context"
+	"net/netip"
 
 	ec2_types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/sirupsen/logrus"
@@ -29,16 +30,16 @@ type EC2API interface {
 	GetSubnets(ctx context.Context) (ipamTypes.SubnetMap, error)
 	GetVpcs(ctx context.Context) (ipamTypes.VirtualNetworkMap, error)
 	GetSecurityGroups(ctx context.Context) (types.SecurityGroupMap, error)
-	GetDetachedNetworkInterfaces(ctx context.Context, tags ipamTypes.Tags, maxResults int32) ([]string, error)
-	CreateNetworkInterface(ctx context.Context, toAllocate int32, subnetID, desc string, groups []string, allocatePrefixes bool) (string, *eniTypes.ENI, error)
+	GetDetachedNetworkInterfaces(ctx context.Context, tags ipamTypes.Tags, maxResults int32) ([]ec2_types.NetworkInterface, error)
+	CreateNetworkInterface(ctx context.Context, toAllocate int32, subnetID, subnetCIDR, desc string, groups []string, allocatePrefixes bool) (string, *eniTypes.ENI, error)
 	AttachNetworkInterface(ctx context.Context, index int32, instanceID, eniID string) (string, error)
-	DeleteNetworkInterface(ctx context.Context, eniID string) error
+	DeleteNetworkInterface(ctx context.Context, eniID string, addresses []string) error
 	ModifyNetworkInterface(ctx context.Context, eniID, attachmentID string, deleteOnTermination bool) error
-	AssignPrivateIpAddresses(ctx context.Context, eniID string, addresses int32) error
+	AssignPrivateIpAddresses(ctx context.Context, eniID string, addressesCount int32, subnet netip.Prefix) error
 	UnassignPrivateIpAddresses(ctx context.Context, eniID string, addresses []string) error
 	AssignENIPrefixes(ctx context.Context, eniID string, prefixes int32) error
 	UnassignENIPrefixes(ctx context.Context, eniID string, prefixes []string) error
-	GetInstanceTypes(context.Context) ([]ec2_types.InstanceTypeInfo, error)
+	GetInstanceTypes(ctx context.Context) ([]ec2_types.InstanceTypeInfo, error)
 	AssociateEIP(ctx context.Context, instanceID string, eipTags ipamTypes.Tags) (string, error)
 }
 
