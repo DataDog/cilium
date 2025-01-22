@@ -51,7 +51,7 @@ if [ "$IMAGE_NAME" == "cilium" ]; then
     --label target=staging \
     --label CI_PIPELINE_ID="$CI_PIPELINE_ID" \
     --label CI_JOB_ID="$CI_JOB_ID" \
-    --target staging \
+    --target debug \
     --push \
     --metadata-file "$METADATA_FILE_DEBUG" \
     "$DOCKER_CTX"
