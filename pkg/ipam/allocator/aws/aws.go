@@ -92,9 +92,12 @@ func (a *AllocatorAWS) Init(ctx context.Context) error {
 		eniCreationTags = ec2shim.MergeTags(eniCreationTags, a.eniGCTags)
 	}
 
-	a.client = ec2shim.NewClient(ec2.NewFromConfig(cfg), aMetrics, operatorOption.Config.IPAMAPIQPSLimit,
+	a.client, err = ec2shim.NewClient(ctx, ec2.NewFromConfig(cfg), aMetrics, operatorOption.Config.IPAMAPIQPSLimit,
 		operatorOption.Config.IPAMAPIBurst, subnetsFilters, instancesFilters, eniCreationTags,
 		operatorOption.Config.AWSUsePrimaryAddress)
+	if err != nil {
+		return err
+	}
 
 	if err := limits.UpdateFromUserDefinedMappings(operatorOption.Config.AWSInstanceLimitMapping); err != nil {
 		return fmt.Errorf("failed to parse aws-instance-limit-mapping: %w", err)
