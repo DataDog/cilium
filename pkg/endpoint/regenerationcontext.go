@@ -32,10 +32,10 @@ type regenerationContext struct {
 
 	parentContext context.Context
 
-	cancelFunc context.CancelFunc
+	cancelFunc context.CancelCauseFunc
 }
 
-func ParseExternalRegenerationMetadata(ctx context.Context, c context.CancelFunc, e *regeneration.ExternalRegenerationMetadata) *regenerationContext {
+func ParseExternalRegenerationMetadata(ctx context.Context, c context.CancelCauseFunc, e *regeneration.ExternalRegenerationMetadata) *regenerationContext {
 	if e.RegenerationLevel == regeneration.Invalid {
 		log.WithField(logfields.Reason, e.Reason).Errorf("Uninitialized regeneration level")
 	}

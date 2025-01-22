@@ -672,13 +672,17 @@ func (e *Endpoint) Regenerate(regenMetadata *regeneration.ExternalRegenerationMe
 
 	var (
 		ctx   context.Context
-		cFunc context.CancelFunc
+		cFunc context.CancelCauseFunc
 	)
 
 	if regenMetadata.ParentContext != nil {
-		ctx, cFunc = context.WithCancel(regenMetadata.ParentContext)
+		ctx, cFunc = context.WithCancelCause(regenMetadata.ParentContext)
+		e.getLogger().Info("Anton-Test: Regenerate: parent context is not nil (regenMetadata "+regenMetadata.Reason+"). "+
+			"The context address is "+fmt.Sprintf("%p", ctx), " and the parent context address is "+fmt.Sprintf("%p", regenMetadata.ParentContext))
 	} else {
-		ctx, cFunc = context.WithCancel(e.aliveCtx)
+		ctx, cFunc = context.WithCancelCause(e.aliveCtx)
+		e.getLogger().Info("Anton-Test: Regenerate: parent context is nil (regenMetadata "+regenMetadata.Reason+"). "+
+			"The context address is "+fmt.Sprintf("%p", ctx), " and the alive context address is "+fmt.Sprintf("%p", e.aliveCtx))
 	}
 
 	regenContext := ParseExternalRegenerationMetadata(ctx, cFunc, regenMetadata)
@@ -704,7 +708,7 @@ func (e *Endpoint) Regenerate(regenMetadata *regeneration.ExternalRegenerationMe
 	go func() {
 
 		// Free up resources with context.
-		defer cFunc()
+		defer cFunc(errors.New("policy.go: Regenerate()"))
 
 		var (
 			buildSuccess bool
@@ -724,6 +728,7 @@ func (e *Endpoint) Regenerate(regenMetadata *regeneration.ExternalRegenerationMe
 				hr.Degraded("Endpoint regeneration failed", regenError)
 			} else {
 				e.getLogger().WithError(regenError).Info("Anton-Test: Regenerate with regenMetadata " + regenMetadata.Reason + " was successful")
+				e.getLogger().Info("Context ctx error: " + ctx.Err().Error())
 				hr.OK("Endpoint regeneration successful")
 			}
 		} else {

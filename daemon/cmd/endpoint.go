@@ -1162,11 +1162,13 @@ func (d *Daemon) QueueEndpointBuild(ctx context.Context, epID uint64) (func(), e
 	err := d.buildEndpointSem.Acquire(ctx, 1)
 
 	if err != nil {
+		log.WithError(err).Info("Anton-Test: QueueEndpointBuild: Acquire failed")
 		return nil, err // Acquire failed
 	}
 
 	// Acquire succeeded, but the context was canceled after?
 	if ctx.Err() != nil {
+		log.WithError(ctx.Err()).Info("Anton-Test: QueueEndpointBuild: Acquire failed because of context error")
 		d.buildEndpointSem.Release(1)
 		return nil, ctx.Err()
 	}
