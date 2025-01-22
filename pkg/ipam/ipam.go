@@ -146,6 +146,7 @@ func (ipam *IPAM) getIPOwner(ip string, pool Pool) string {
 
 // registerIPOwner registers a new owner for an IP in a particular pool.
 func (ipam *IPAM) registerIPOwner(ip net.IP, owner string, pool Pool) {
+	log.WithField("ownerMap", ipam.owner).Infof("HADRIEN registerIPOwner IP: %v, owner: %v, pool: %v", ip, owner, pool)
 	if _, ok := ipam.owner[pool]; !ok {
 		ipam.owner[pool] = make(map[string]string)
 	}
@@ -163,6 +164,7 @@ func (ipam *IPAM) releaseIPOwner(ip net.IP, pool Pool) string {
 			delete(ipam.owner, pool)
 		}
 	}
+	log.WithField("ownerMap", ipam.owner).Infof("HADRIEN registerIPOwner IP: %v, owner: %v, pool: %v", ip, owner, pool)
 	return owner
 }
 
