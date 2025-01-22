@@ -41,6 +41,7 @@ const (
 )
 
 var log = logging.DefaultLogger.WithField(logfields.LogSubsys, "ec2")
+var logHADRIEN = logging.DefaultLogger.WithField(logfields.LogSubsys, "HADRIEN")
 
 // Client represents an EC2 API client
 type Client struct {
@@ -706,7 +707,8 @@ func (c *Client) AssignPrivateIpAddresses(ctx context.Context, eniID string, add
 
 	c.limiter.Limit(ctx, "AssignPrivateIpAddresses")
 	sinceStart := spanstat.Start()
-	_, err := c.ec2Client.AssignPrivateIpAddresses(ctx, input)
+	out, err := c.ec2Client.AssignPrivateIpAddresses(ctx, input)
+	logHADRIEN.WithField("AssignPrivateIpAddressesResponse", out).Warnf("AssignPrivateIpAddresses assigned IPs: %v", out.AssignedPrivateIpAddresses)
 	c.metricsAPI.ObserveAPICall("AssignPrivateIpAddresses", deriveStatus(err), sinceStart.Seconds())
 	return err
 }
@@ -733,7 +735,8 @@ func (c *Client) AssignENIPrefixes(ctx context.Context, eniID string, prefixes i
 
 	c.limiter.Limit(ctx, "AssignPrivateIpAddresses")
 	sinceStart := spanstat.Start()
-	_, err := c.ec2Client.AssignPrivateIpAddresses(ctx, input)
+	out, err := c.ec2Client.AssignPrivateIpAddresses(ctx, input)
+	logHADRIEN.WithField("AssignPrivateIpAddressesResponse", out).Warnf("AssignENIPrefixes assigned prefixes: %v", out.AssignedIpv4Prefixes)
 	c.metricsAPI.ObserveAPICall("AssignPrivateIpAddresses", deriveStatus(err), sinceStart.Seconds())
 	return err
 }
