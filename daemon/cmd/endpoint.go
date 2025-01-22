@@ -680,6 +680,7 @@ func putEndpointIDHandler(d *Daemon, params PutEndpointIDParams) (resp middlewar
 	}
 
 	ep.Logger(daemonSubsys).Info("Successful endpoint creation")
+	ep.Logger(daemonSubsys).Info(fmt.Sprintf("Anton-Test: context address: %p", params.HTTPRequest.Context()))
 
 	return NewPutEndpointIDCreated()
 }

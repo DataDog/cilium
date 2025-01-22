@@ -2551,6 +2551,7 @@ func (e *Endpoint) setDown() error {
 // * otherwise, waits for the endpoint to complete its first full regeneration.
 func (e *Endpoint) WaitForFirstRegeneration(ctx context.Context) error {
 	e.getLogger().Info("Waiting for endpoint to be generated")
+	e.getLogger().Info("Anton-Test: WaitForFirstRegeneration ctx address: ", &ctx)
 
 	// Default timeout for PUT /endpoint/{id} is 60 seconds, so put timeout
 	// in this function a bit below that timeout. If the timeout for clients
@@ -2562,6 +2563,7 @@ func (e *Endpoint) WaitForFirstRegeneration(ctx context.Context) error {
 	// Check the endpoint's state and labels periodically.
 	ticker := time.NewTicker(1 * time.Second)
 	defer func() {
+		e.getLogger().Info("Anton-Test: WaitForFirstRegeneration cancelling context: ", &ctx)
 		cancel()
 		ticker.Stop()
 	}()

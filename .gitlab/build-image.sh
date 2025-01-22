@@ -48,10 +48,10 @@ if [ "$IMAGE_NAME" == "cilium" ]; then
     --file "$DOCKERFILE_PATH" \
     $BUILD_ARGS \
     --label CILIUM_VERSION="$(cat VERSION)" \
-    --label target=debug \
+    --label target=staging \
     --label CI_PIPELINE_ID="$CI_PIPELINE_ID" \
     --label CI_JOB_ID="$CI_JOB_ID" \
-    --target debug \
+    --target staging \
     --push \
     --metadata-file "$METADATA_FILE_DEBUG" \
     "$DOCKER_CTX"
