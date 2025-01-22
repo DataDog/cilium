@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2_types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/smithy-go"
 
 	"github.com/cilium/cilium/pkg/api/helpers"
 	"github.com/cilium/cilium/pkg/aws/endpoints"
@@ -41,6 +42,7 @@ const (
 )
 
 var log = logging.DefaultLogger.WithField(logfields.LogSubsys, "ec2")
+var logHADRIEN = logging.DefaultLogger.WithField(logfields.LogSubsys, "HADRIEN")
 
 // Client represents an EC2 API client
 type Client struct {
@@ -698,16 +700,68 @@ func (c *Client) ModifyNetworkInterface(ctx context.Context, eniID, attachmentID
 
 // AssignPrivateIpAddresses assigns the specified number of secondary IP
 // addresses
-func (c *Client) AssignPrivateIpAddresses(ctx context.Context, eniID string, addresses int32) error {
+func (c *Client) AssignPrivateIpAddresses(ctx context.Context, eniID string, addresses int32, subnet string) error {
+	c.limiter.Limit(ctx, "AssignPrivateIpAddresses")
+	sinceStart := spanstat.Start()
+
+	// Try smart Assign
+	if addresses == 1 {
+		addr, ok := FindIP()
+		if ok {
+			input := &ec2.AssignPrivateIpAddressesInput{
+				NetworkInterfaceId: aws.String(eniID),
+				PrivateIpAddresses: []string{addr},
+			}
+			_, err := c.ec2Client.AssignPrivateIpAddresses(ctx, input)
+			if err == nil {
+				logHADRIEN.Warnf("Smart AssignPrivateIpAddresses assigned IP %s for ENI %s", addr, eniID)
+				smolErr := AssignedIP(addr, subnet)
+				if smolErr != nil {
+					logHADRIEN.Errorf("AssignedIP returned %v", smolErr)
+				}
+				return nil
+			}
+			// Failed to assign that IP, let's mark it as used to prevent trying again to assign it
+			smolErr := AssignedIP(addr, subnet)
+			if smolErr != nil {
+				logHADRIEN.Errorf("AssignedIP returned %v", smolErr)
+			}
+			var apiErr smithy.APIError
+			if errors.As(err, &apiErr) {
+				logHADRIEN.Errorf("Smart AssignPrivateIpAddresses failed to assign IP %s for ENI %s:\n%s\n%s\n%v", addr, eniID, apiErr.ErrorCode(), apiErr.ErrorMessage(), apiErr.ErrorFault())
+
+			} else {
+				logHADRIEN.Errorf("Smart AssignPrivateIpAddresses failed to assign IP %s for ENI %s: %T: %#v %v", addr, eniID, err, err, err)
+			}
+		}
+	}
 	input := &ec2.AssignPrivateIpAddressesInput{
 		NetworkInterfaceId:             aws.String(eniID),
 		SecondaryPrivateIpAddressCount: aws.Int32(addresses),
 	}
-
-	c.limiter.Limit(ctx, "AssignPrivateIpAddresses")
-	sinceStart := spanstat.Start()
-	_, err := c.ec2Client.AssignPrivateIpAddresses(ctx, input)
+	out, err := c.ec2Client.AssignPrivateIpAddresses(ctx, input)
+	var IPsPrettyPrint string
+	var assignedAdresses []string
+	if out != nil {
+		for _, ip := range out.AssignedPrivateIpAddresses {
+			IPsPrettyPrint += *ip.PrivateIpAddress + ", "
+			assignedAdresses = append(assignedAdresses, *ip.PrivateIpAddress)
+		}
+		logHADRIEN.WithField("AssignPrivateIpAddressesResponse", out).Warnf("AssignPrivateIpAddresses assigned %d IPs for ENI %s: %s", len(out.AssignedPrivateIpAddresses), eniID, IPsPrettyPrint)
+	}
 	c.metricsAPI.ObserveAPICall("AssignPrivateIpAddresses", deriveStatus(err), sinceStart.Seconds())
+	smolErr := AssignedIPs(assignedAdresses, subnet)
+	if smolErr != nil {
+		logHADRIEN.Errorf("AssignedIPs returned %v", smolErr)
+	}
+	// try to reassign the same IP to insect the error
+	// input2 := &ec2.AssignPrivateIpAddressesInput{
+	// 	NetworkInterfaceId: aws.String(eniID),
+	// 	PrivateIpAddresses: assignedAdresses,
+	// }
+	// out2, err2 := c.ec2Client.AssignPrivateIpAddresses(ctx, input2)
+	// logHADRIEN.Warnf("Duplicate AssignPrivateIpAddresses got out %#v and err %#v", out2, err2)
+
 	return err
 }
 
@@ -722,6 +776,11 @@ func (c *Client) UnassignPrivateIpAddresses(ctx context.Context, eniID string, a
 	sinceStart := spanstat.Start()
 	_, err := c.ec2Client.UnassignPrivateIpAddresses(ctx, input)
 	c.metricsAPI.ObserveAPICall("UnassignPrivateIpAddresses", deriveStatus(err), sinceStart.Seconds())
+	logHADRIEN.Infof("UnassignPrivateIpAddresses unassigned %d IPs for ENI %s: %v", len(addresses), eniID, addresses)
+	smolErr := UnassignedIPs(addresses)
+	if smolErr != nil {
+		logHADRIEN.Errorf("UnassignedIPs returned %v", smolErr)
+	}
 	return err
 }
 
@@ -733,7 +792,14 @@ func (c *Client) AssignENIPrefixes(ctx context.Context, eniID string, prefixes i
 
 	c.limiter.Limit(ctx, "AssignPrivateIpAddresses")
 	sinceStart := spanstat.Start()
-	_, err := c.ec2Client.AssignPrivateIpAddresses(ctx, input)
+	out, err := c.ec2Client.AssignPrivateIpAddresses(ctx, input)
+	var PrefixesPrettyPrint string
+	if out != nil {
+		for _, prefix := range out.AssignedIpv4Prefixes {
+			PrefixesPrettyPrint += *prefix.Ipv4Prefix + ", "
+		}
+		logHADRIEN.WithField("AssignPrivateIpAddressesResponse", out).Warnf("AssignENIPrefixes assigned %d prefixes: %s", len(out.AssignedIpv4Prefixes), PrefixesPrettyPrint)
+	}
 	c.metricsAPI.ObserveAPICall("AssignPrivateIpAddresses", deriveStatus(err), sinceStart.Seconds())
 	return err
 }
