@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"sort"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/smithy-go"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/exp/maps"
 
 	operatorOption "github.com/cilium/cilium/operator/option"
 	"github.com/cilium/cilium/pkg/aws/ec2"
@@ -276,7 +278,13 @@ func (n *Node) AllocateIPs(ctx context.Context, a *ipam.AllocationAction) error 
 	// Check if the interface to allocate on is prefix delegated
 	n.mutex.RLock()
 	isPrefixDelegated := n.node.Ops().IsPrefixDelegated()
+	enis := n.enis
 	n.mutex.RUnlock()
+
+	var subnetCIDR netip.Prefix
+	if len(maps.Keys(enis)) > 0 {
+		subnetCIDR, err := netip.ParsePrefix(enis[maps.Keys(enis)[0]].Subnet.CIDR)
+	}
 
 	if isPrefixDelegated {
 		numPrefixes := ip.PrefixCeil(a.IPv4.AvailableForAllocation, option.ENIPDBlockSizeIPv4)
@@ -290,7 +298,7 @@ func (n *Node) AllocateIPs(ctx context.Context, a *ipam.AllocationAction) error 
 			logfields.Node: n.k8sObj.Name,
 		}).Warning("Subnet might be out of prefixes, Cilium will not allocate prefixes on this node anymore")
 	}
-	return n.manager.api.AssignPrivateIpAddresses(ctx, a.InterfaceID, int32(a.IPv4.AvailableForAllocation))
+	return n.manager.api.AssignPrivateIpAddresses(ctx, a.InterfaceID, int32(a.IPv4.AvailableForAllocation), subnetCIDR)
 }
 
 func (n *Node) AllocateStaticIP(ctx context.Context, staticIPTags ipamTypes.Tags) (string, error) {
