@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 
 	ec2_types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/smithy-go"
@@ -188,7 +189,7 @@ func (e *API) rateLimit() {
 // CreateNetworkInterface mocks the interface creation. As with the upstream
 // EC2 API, the number of IP addresses in toAllocate are the number of
 // secondary IPs, a primary IP is always allocated.
-func (e *API) CreateNetworkInterface(ctx context.Context, toAllocate int32, subnetID, desc string, groups []string, allocatePrefixes bool) (string, *eniTypes.ENI, error) {
+func (e *API) CreateNetworkInterface(ctx context.Context, toAllocate int32, subnetID, subnetCIDR, desc string, groups []string, allocatePrefixes bool) (string, *eniTypes.ENI, error) {
 	e.rateLimit()
 	e.delaySim.Delay(CreateNetworkInterface)
 
@@ -344,7 +345,7 @@ func (e *API) GetDetachedNetworkInterfaces(ctx context.Context, tags ipamTypes.T
 	return result, nil
 }
 
-func (e *API) AssignPrivateIpAddresses(ctx context.Context, eniID string, addresses int32) error {
+func (e *API) AssignPrivateIpAddresses(ctx context.Context, eniID string, addressesCount int32, subnet netip.Prefix) error {
 	e.rateLimit()
 	e.delaySim.Delay(AssignPrivateIpAddresses)
 
@@ -362,18 +363,18 @@ func (e *API) AssignPrivateIpAddresses(ctx context.Context, eniID string, addres
 				return fmt.Errorf("subnet %s not found", eni.Subnet.ID)
 			}
 
-			if int(addresses) > subnet.AvailableAddresses {
+			if int(addressesCount) > subnet.AvailableAddresses {
 				return fmt.Errorf("subnet %s has not enough addresses available", eni.Subnet.ID)
 			}
 
-			for i := int32(0); i < addresses; i++ {
+			for i := int32(0); i < addressesCount; i++ {
 				ip, err := e.allocator.AllocateNext()
 				if err != nil {
 					panic("Unable to allocate IP from allocator")
 				}
 				eni.Addresses = append(eni.Addresses, ip.String())
 			}
-			subnet.AvailableAddresses -= int(addresses)
+			subnet.AvailableAddresses -= int(addressesCount)
 			return nil
 		}
 	}
