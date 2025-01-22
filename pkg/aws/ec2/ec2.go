@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
@@ -16,6 +17,7 @@ import (
 	ec2_types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 
 	"github.com/cilium/cilium/pkg/api/helpers"
+	"github.com/cilium/cilium/pkg/aws/denseip"
 	"github.com/cilium/cilium/pkg/aws/endpoints"
 	eniTypes "github.com/cilium/cilium/pkg/aws/eni/types"
 	"github.com/cilium/cilium/pkg/aws/types"
@@ -41,6 +43,7 @@ const (
 )
 
 var log = logging.DefaultLogger.WithField(logfields.LogSubsys, "ec2")
+var logHADRIEN = logging.DefaultLogger.WithField(logfields.LogSubsys, "HADRIEN")
 
 // Client represents an EC2 API client
 type Client struct {
@@ -604,7 +607,7 @@ func (c *Client) GetSubnets(ctx context.Context) (ipamTypes.SubnetMap, error) {
 }
 
 // CreateNetworkInterface creates an ENI with the given parameters
-func (c *Client) CreateNetworkInterface(ctx context.Context, toAllocate int32, subnetID, desc string, groups []string, allocatePrefixes bool) (string, *eniTypes.ENI, error) {
+func (c *Client) CreateNetworkInterface(ctx context.Context, toAllocate int32, subnetID, subnetCIDR, desc string, groups []string, allocatePrefixes bool) (string, *eniTypes.ENI, error) {
 
 	input := &ec2.CreateNetworkInterfaceInput{
 		Description: aws.String(desc),
@@ -630,6 +633,16 @@ func (c *Client) CreateNetworkInterface(ctx context.Context, toAllocate int32, s
 	c.metricsAPI.ObserveAPICall("CreateNetworkInterface", deriveStatus(err), sinceStart.Seconds())
 	if err != nil {
 		return "", nil, err
+	}
+
+	if output.NetworkInterface.PrivateIpAddresses != nil {
+		subnetPrefix, parseErr := netip.ParsePrefix(subnetCIDR)
+		if parseErr != nil {
+			return "", nil, err //TODO shouldn't fail on this err
+		}
+		for _, addr := range output.NetworkInterface.PrivateIpAddresses {
+			denseip.AssignedIP(*addr.PrivateIpAddress, subnetPrefix) //TODO this returns an err, handle it
+		}
 	}
 
 	_, eni, err := parseENI(output.NetworkInterface, nil, nil, c.usePrimary)
@@ -698,16 +711,61 @@ func (c *Client) ModifyNetworkInterface(ctx context.Context, eniID, attachmentID
 
 // AssignPrivateIpAddresses assigns the specified number of secondary IP
 // addresses
-func (c *Client) AssignPrivateIpAddresses(ctx context.Context, eniID string, addresses int32) error {
-	input := &ec2.AssignPrivateIpAddressesInput{
-		NetworkInterfaceId:             aws.String(eniID),
-		SecondaryPrivateIpAddressCount: aws.Int32(addresses),
-	}
-
+func (c *Client) AssignPrivateIpAddresses(ctx context.Context, eniID string, addressesCount int32, subnet netip.Prefix) error {
 	c.limiter.Limit(ctx, "AssignPrivateIpAddresses")
 	sinceStart := spanstat.Start()
-	_, err := c.ec2Client.AssignPrivateIpAddresses(ctx, input)
+
+	// Try smart Assign
+	addresses, ok := denseip.FindIPs(subnet, addressesCount)
+	if ok {
+		input := &ec2.AssignPrivateIpAddressesInput{
+			NetworkInterfaceId: aws.String(eniID),
+			PrivateIpAddresses: addresses,
+		}
+		_, err := c.ec2Client.AssignPrivateIpAddresses(ctx, input)
+		if err == nil {
+			logHADRIEN.Warnf("Smart AssignPrivateIpAddresses assigned IPs %v for ENI %s in subnet %s", addresses, eniID, subnet)
+			smolErr := denseip.AssignedIPs(addresses, subnet)
+			if smolErr != nil {
+				logHADRIEN.Errorf("AssignedIPs returned %v", smolErr)
+			}
+			return nil
+		}
+		if alreadyUsesAddrs := denseip.ParseAlreadyAssignedError(err); alreadyUsesAddrs != nil {
+			smolErr := denseip.AssignedIPs(alreadyUsesAddrs, subnet)
+			if smolErr != nil {
+				logHADRIEN.Errorf("AssignedIP returned %v", smolErr)
+			}
+		} else {
+			// We don't know what happened, out of caution, we mark all IPs as used
+			logHADRIEN.Errorf("ERR Smart AssignPrivateIpAddresses failed to assign IPs %v for ENI %s in subnet %s: %v", addresses, eniID, subnet, err)
+			smolErr := denseip.AssignedIPs(addresses, subnet)
+			if smolErr != nil {
+				logHADRIEN.Errorf("AssignedIP returned %v", smolErr)
+			}
+		}
+	}
+	// regular random IP assignment
+	input := &ec2.AssignPrivateIpAddressesInput{
+		NetworkInterfaceId:             aws.String(eniID),
+		SecondaryPrivateIpAddressCount: aws.Int32(addressesCount),
+	}
+	out, err := c.ec2Client.AssignPrivateIpAddresses(ctx, input)
+	var IPsPrettyPrint string
+	var assignedAdresses []string
+	if out != nil {
+		for _, ip := range out.AssignedPrivateIpAddresses {
+			IPsPrettyPrint += *ip.PrivateIpAddress + ", "
+			assignedAdresses = append(assignedAdresses, *ip.PrivateIpAddress)
+		}
+		logHADRIEN.WithField("AssignPrivateIpAddressesResponse", out).Warnf("AssignPrivateIpAddresses assigned %d IPs for ENI %s: %s", len(out.AssignedPrivateIpAddresses), eniID, IPsPrettyPrint)
+	}
 	c.metricsAPI.ObserveAPICall("AssignPrivateIpAddresses", deriveStatus(err), sinceStart.Seconds())
+	smolErr := denseip.AssignedIPs(assignedAdresses, subnet)
+	if smolErr != nil {
+		logHADRIEN.Errorf("AssignedIPs returned %v", smolErr)
+	}
+
 	return err
 }
 
@@ -722,6 +780,11 @@ func (c *Client) UnassignPrivateIpAddresses(ctx context.Context, eniID string, a
 	sinceStart := spanstat.Start()
 	_, err := c.ec2Client.UnassignPrivateIpAddresses(ctx, input)
 	c.metricsAPI.ObserveAPICall("UnassignPrivateIpAddresses", deriveStatus(err), sinceStart.Seconds())
+	logHADRIEN.Infof("UnassignPrivateIpAddresses unassigned %d IPs for ENI %s: %v", len(addresses), eniID, addresses)
+	smolErr := denseip.UnassignedIPs(addresses)
+	if smolErr != nil {
+		logHADRIEN.Errorf("UnassignedIPs returned %v", smolErr)
+	}
 	return err
 }
 
@@ -733,7 +796,14 @@ func (c *Client) AssignENIPrefixes(ctx context.Context, eniID string, prefixes i
 
 	c.limiter.Limit(ctx, "AssignPrivateIpAddresses")
 	sinceStart := spanstat.Start()
-	_, err := c.ec2Client.AssignPrivateIpAddresses(ctx, input)
+	out, err := c.ec2Client.AssignPrivateIpAddresses(ctx, input)
+	var PrefixesPrettyPrint string
+	if out != nil {
+		for _, prefix := range out.AssignedIpv4Prefixes {
+			PrefixesPrettyPrint += *prefix.Ipv4Prefix + ", "
+		}
+		logHADRIEN.WithField("AssignPrivateIpAddressesResponse", out).Warnf("AssignENIPrefixes assigned %d prefixes: %s", len(out.AssignedIpv4Prefixes), PrefixesPrettyPrint)
+	}
 	c.metricsAPI.ObserveAPICall("AssignPrivateIpAddresses", deriveStatus(err), sinceStart.Seconds())
 	return err
 }
