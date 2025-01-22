@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
@@ -14,8 +15,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2_types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/smithy-go"
 
 	"github.com/cilium/cilium/pkg/api/helpers"
+	"github.com/cilium/cilium/pkg/aws/denseip"
 	"github.com/cilium/cilium/pkg/aws/endpoints"
 	eniTypes "github.com/cilium/cilium/pkg/aws/eni/types"
 	"github.com/cilium/cilium/pkg/aws/types"
@@ -41,6 +44,7 @@ const (
 )
 
 var log = logging.DefaultLogger.WithField(logfields.LogSubsys, "ec2")
+var logHADRIEN = logging.DefaultLogger.WithField(logfields.LogSubsys, "HADRIEN")
 
 // Client represents an EC2 API client
 type Client struct {
@@ -51,12 +55,19 @@ type Client struct {
 	instancesFilters    []ec2_types.Filter
 	eniTagSpecification ec2_types.TagSpecification
 	usePrimary          bool
+	addressesManager    AddressesManager
 }
 
 // MetricsAPI represents the metrics maintained by the AWS API client
 type MetricsAPI interface {
 	helpers.MetricsAPI
 	ObserveAPICall(call, status string, duration float64)
+}
+
+type AddressesManager interface {
+	FindIPs(subnet netip.Prefix, addressesCount int32) (addresses []string, found bool)
+	RegisterIPsUsed(ips []string, subnet netip.Prefix)
+	RegisterIPsUnused(ips []string)
 }
 
 // NewClient returns a new EC2 client
@@ -74,6 +85,7 @@ func NewClient(ec2Client *ec2.Client, metrics MetricsAPI, rateLimit float64, bur
 		instancesFilters:    instancesFilters,
 		eniTagSpecification: eniTagSpecification,
 		usePrimary:          usePrimary,
+		addressesManager:    denseip.New(),
 	}
 }
 
@@ -185,8 +197,8 @@ func DetectEKSClusterName(ctx context.Context, cfg aws.Config) (string, error) {
 	return aws.ToString(tags.Tags[0].Value), nil
 }
 
-func (c *Client) GetDetachedNetworkInterfaces(ctx context.Context, tags ipamTypes.Tags, maxResults int32) ([]string, error) {
-	result := make([]string, 0, int(maxResults))
+func (c *Client) GetDetachedNetworkInterfaces(ctx context.Context, tags ipamTypes.Tags, maxResults int32) ([]ec2_types.NetworkInterface, error) {
+	result := make([]ec2_types.NetworkInterface, 0, int(maxResults))
 	input := &ec2.DescribeNetworkInterfacesInput{
 		Filters:    append(NewTagsFilter(tags), c.subnetsFilters...),
 		MaxResults: aws.Int32(maxResults),
@@ -206,12 +218,7 @@ func (c *Client) GetDetachedNetworkInterfaces(ctx context.Context, tags ipamType
 		if err != nil {
 			return nil, err
 		}
-		for _, eni := range output.NetworkInterfaces {
-			result = append(result, aws.ToString(eni.NetworkInterfaceId))
-		}
-		if len(result) >= int(maxResults) {
-			break
-		}
+		result = append(result, output.NetworkInterfaces...)
 	}
 	return result, nil
 }
@@ -604,7 +611,11 @@ func (c *Client) GetSubnets(ctx context.Context) (ipamTypes.SubnetMap, error) {
 }
 
 // CreateNetworkInterface creates an ENI with the given parameters
-func (c *Client) CreateNetworkInterface(ctx context.Context, toAllocate int32, subnetID, desc string, groups []string, allocatePrefixes bool) (string, *eniTypes.ENI, error) {
+func (c *Client) CreateNetworkInterface(ctx context.Context, toAllocate int32, subnetID, subnetCIDR, desc string, groups []string, allocatePrefixes bool) (string, *eniTypes.ENI, error) {
+	subnetPrefix, err := netip.ParsePrefix(subnetCIDR)
+	if err != nil {
+		return "", nil, err
+	}
 
 	input := &ec2.CreateNetworkInterfaceInput{
 		Description: aws.String(desc),
@@ -615,7 +626,18 @@ func (c *Client) CreateNetworkInterface(ctx context.Context, toAllocate int32, s
 		input.Ipv4PrefixCount = aws.Int32(int32(ipPkg.PrefixCeil(int(toAllocate), option.ENIPDBlockSizeIPv4)))
 		log.Debugf("Creating interface with %v prefixes", input.Ipv4PrefixCount)
 	} else {
-		input.SecondaryPrivateIpAddressCount = aws.Int32(toAllocate)
+		// Find one more address for the primary
+		if addresses, found := c.addressesManager.FindIPs(subnetPrefix, toAllocate+1); found {
+			for i, addr := range addresses {
+				// Use the first found address as primary
+				input.PrivateIpAddresses = append(input.PrivateIpAddresses, ec2_types.PrivateIpAddressSpecification{
+					Primary:          aws.Bool(i == 0),
+					PrivateIpAddress: aws.String(addr),
+				})
+			}
+		} else {
+			input.SecondaryPrivateIpAddressCount = aws.Int32(toAllocate)
+		}
 	}
 
 	if len(c.eniTagSpecification.Tags) > 0 {
@@ -628,8 +650,43 @@ func (c *Client) CreateNetworkInterface(ctx context.Context, toAllocate int32, s
 	sinceStart := spanstat.Start()
 	output, err := c.ec2Client.CreateNetworkInterface(ctx, input)
 	c.metricsAPI.ObserveAPICall("CreateNetworkInterface", deriveStatus(err), sinceStart.Seconds())
+	if err == nil {
+		log.Warnf("HADRIEN successfully created ENI with found IPs")
+	}
 	if err != nil {
-		return "", nil, err
+		//TODO better refactor this to avoid the code duplication
+
+		ips := denseip.ParseAlreadyAssignedError(err)
+		logHADRIEN.WithError(err).Errorf("HADRIEN failed to create ENI with found IPs %v, falling back to random IPs", ips)
+		c.addressesManager.RegisterIPsUsed(ips, subnetPrefix)
+
+		input2 := &ec2.CreateNetworkInterfaceInput{}
+
+		input2.Description = input.Description
+		input2.SubnetId = input.SubnetId
+		input2.Groups = input.Groups
+		input2.TagSpecifications = input.TagSpecifications
+		input2.SecondaryPrivateIpAddressCount = aws.Int32(toAllocate)
+
+		input.PrivateIpAddresses = nil
+		input.SecondaryPrivateIpAddressCount = aws.Int32(toAllocate)
+		c.limiter.Limit(ctx, "CreateNetworkInterface")
+		sinceStart := spanstat.Start()
+		output, err = c.ec2Client.CreateNetworkInterface(ctx, input2)
+		c.metricsAPI.ObserveAPICall("CreateNetworkInterface", deriveStatus(err), sinceStart.Seconds())
+
+		if err != nil {
+			return "", nil, err
+		}
+	}
+
+	if output.NetworkInterface.PrivateIpAddresses != nil {
+		assignedAddresses := []string{}
+		for _, addr := range output.NetworkInterface.PrivateIpAddresses {
+			assignedAddresses = append(assignedAddresses, *addr.PrivateIpAddress)
+		}
+		logHADRIEN.Infof("Created ENI %s with %d IPs in subnet %s: %v", *output.NetworkInterface.NetworkInterfaceId, len(output.NetworkInterface.PrivateIpAddresses), subnetPrefix, assignedAddresses)
+		c.addressesManager.RegisterIPsUsed(assignedAddresses, subnetPrefix)
 	}
 
 	_, eni, err := parseENI(output.NetworkInterface, nil, nil, c.usePrimary)
@@ -646,7 +703,7 @@ func (c *Client) CreateNetworkInterface(ctx context.Context, toAllocate int32, s
 }
 
 // DeleteNetworkInterface deletes an ENI with the specified ID
-func (c *Client) DeleteNetworkInterface(ctx context.Context, eniID string) error {
+func (c *Client) DeleteNetworkInterface(ctx context.Context, eniID string, addresses []string) error {
 	input := &ec2.DeleteNetworkInterfaceInput{
 		NetworkInterfaceId: aws.String(eniID),
 	}
@@ -655,6 +712,7 @@ func (c *Client) DeleteNetworkInterface(ctx context.Context, eniID string) error
 	sinceStart := spanstat.Start()
 	_, err := c.ec2Client.DeleteNetworkInterface(ctx, input)
 	c.metricsAPI.ObserveAPICall("DeleteNetworkInterface", deriveStatus(err), sinceStart.Seconds())
+	c.addressesManager.RegisterIPsUnused(addresses)
 	return err
 }
 
@@ -698,16 +756,49 @@ func (c *Client) ModifyNetworkInterface(ctx context.Context, eniID, attachmentID
 
 // AssignPrivateIpAddresses assigns the specified number of secondary IP
 // addresses
-func (c *Client) AssignPrivateIpAddresses(ctx context.Context, eniID string, addresses int32) error {
-	input := &ec2.AssignPrivateIpAddressesInput{
-		NetworkInterfaceId:             aws.String(eniID),
-		SecondaryPrivateIpAddressCount: aws.Int32(addresses),
-	}
-
+func (c *Client) AssignPrivateIpAddresses(ctx context.Context, eniID string, addressesCount int32, subnet netip.Prefix) error {
 	c.limiter.Limit(ctx, "AssignPrivateIpAddresses")
 	sinceStart := spanstat.Start()
-	_, err := c.ec2Client.AssignPrivateIpAddresses(ctx, input)
+
+	// Try smart Assign
+	addresses, ok := c.addressesManager.FindIPs(subnet, addressesCount)
+	if ok {
+		input := &ec2.AssignPrivateIpAddressesInput{
+			NetworkInterfaceId: aws.String(eniID),
+			PrivateIpAddresses: addresses,
+		}
+		_, err := c.ec2Client.AssignPrivateIpAddresses(ctx, input)
+		if err == nil {
+			logHADRIEN.Warnf("Smart AssignPrivateIpAddresses assigned IPs %v for ENI %s in subnet %s", addresses, eniID, subnet)
+			c.addressesManager.RegisterIPsUsed(addresses, subnet)
+			return nil
+		}
+		if alreadyUsesAddrs := denseip.ParseAlreadyAssignedError(err); alreadyUsesAddrs != nil {
+			c.addressesManager.RegisterIPsUsed(alreadyUsesAddrs, subnet)
+		} else {
+			// We don't know what happened, out of caution, we mark all IPs as used
+			logHADRIEN.Errorf("ERR Smart AssignPrivateIpAddresses failed to assign IPs %v for ENI %s in subnet %s: %v", addresses, eniID, subnet, err)
+			c.addressesManager.RegisterIPsUsed(addresses, subnet)
+		}
+	}
+	// regular random IP assignment
+	input := &ec2.AssignPrivateIpAddressesInput{
+		NetworkInterfaceId:             aws.String(eniID),
+		SecondaryPrivateIpAddressCount: aws.Int32(addressesCount),
+	}
+	out, err := c.ec2Client.AssignPrivateIpAddresses(ctx, input)
+	var IPsPrettyPrint string
+	var assignedAdresses []string
+	if out != nil {
+		for _, ip := range out.AssignedPrivateIpAddresses {
+			IPsPrettyPrint += *ip.PrivateIpAddress + ", "
+			assignedAdresses = append(assignedAdresses, *ip.PrivateIpAddress)
+		}
+		logHADRIEN.WithField("AssignPrivateIpAddressesResponse", out).Warnf("AssignPrivateIpAddresses assigned %d IPs for ENI %s: %s", len(out.AssignedPrivateIpAddresses), eniID, IPsPrettyPrint)
+	}
 	c.metricsAPI.ObserveAPICall("AssignPrivateIpAddresses", deriveStatus(err), sinceStart.Seconds())
+	c.addressesManager.RegisterIPsUsed(assignedAdresses, subnet)
+
 	return err
 }
 
@@ -722,6 +813,8 @@ func (c *Client) UnassignPrivateIpAddresses(ctx context.Context, eniID string, a
 	sinceStart := spanstat.Start()
 	_, err := c.ec2Client.UnassignPrivateIpAddresses(ctx, input)
 	c.metricsAPI.ObserveAPICall("UnassignPrivateIpAddresses", deriveStatus(err), sinceStart.Seconds())
+	logHADRIEN.Infof("UnassignPrivateIpAddresses unassigned %d IPs for ENI %s: %v", len(addresses), eniID, addresses)
+	c.addressesManager.RegisterIPsUnused(addresses)
 	return err
 }
 
@@ -733,7 +826,14 @@ func (c *Client) AssignENIPrefixes(ctx context.Context, eniID string, prefixes i
 
 	c.limiter.Limit(ctx, "AssignPrivateIpAddresses")
 	sinceStart := spanstat.Start()
-	_, err := c.ec2Client.AssignPrivateIpAddresses(ctx, input)
+	out, err := c.ec2Client.AssignPrivateIpAddresses(ctx, input)
+	var PrefixesPrettyPrint string
+	if out != nil {
+		for _, prefix := range out.AssignedIpv4Prefixes {
+			PrefixesPrettyPrint += *prefix.Ipv4Prefix + ", "
+		}
+		logHADRIEN.WithField("AssignPrivateIpAddressesResponse", out).Warnf("AssignENIPrefixes assigned %d prefixes: %s", len(out.AssignedIpv4Prefixes), PrefixesPrettyPrint)
+	}
 	c.metricsAPI.ObserveAPICall("AssignPrivateIpAddresses", deriveStatus(err), sinceStart.Seconds())
 	return err
 }
@@ -752,7 +852,7 @@ func (c *Client) UnassignENIPrefixes(ctx context.Context, eniID string, prefixes
 }
 
 // AssociateEIP tries to find an Elastic IP Address with the given tags and associates it with the given instance
-func (c *Client) AssociateEIP(ctx context.Context, instanceID string, eipTags ipamTypes.Tags) (string, error) {
+func (c *Client) AssociateEIP(ctx context.Context, eniID string, eipTags ipamTypes.Tags) (string, error) {
 	if len(eipTags) == 0 {
 		return "", fmt.Errorf("no EIP tags were provided")
 	}
@@ -783,7 +883,8 @@ func (c *Client) AssociateEIP(ctx context.Context, instanceID string, eipTags ip
 			associateAddressInput := &ec2.AssociateAddressInput{
 				AllocationId:       address.AllocationId,
 				AllowReassociation: aws.Bool(false),
-				InstanceId:         aws.String(instanceID),
+				//InstanceId:         aws.String(instanceID),
+				NetworkInterfaceId: aws.String(eniID),
 			}
 			c.limiter.Limit(ctx, "AssociateAddress")
 			sinceStart = spanstat.Start()
@@ -792,7 +893,7 @@ func (c *Client) AssociateEIP(ctx context.Context, instanceID string, eipTags ip
 			if err != nil {
 				return "", err
 			}
-			log.Infof("Associated EIP %s with instance %s (association ID: %s)", *address.PublicIp, instanceID, *association.AssociationId)
+			log.Infof("Associated EIP %s with interface %s (association ID: %s)", *address.PublicIp, eniID, *association.AssociationId)
 			return *address.PublicIp, nil
 		}
 	}
