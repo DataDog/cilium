@@ -448,6 +448,7 @@ func (d *Daemon) createEndpoint(ctx context.Context, owner regeneration.Owner, e
 
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
+	ep.Logger("anton-test").Info("Anton-Test: createEndpoint: created context with address " + fmt.Sprintf("%p", ctx))
 	d.endpointCreations.NewCreateRequest(ep, cancel)
 	defer d.endpointCreations.EndCreateRequest(ep)
 
@@ -680,7 +681,7 @@ func putEndpointIDHandler(d *Daemon, params PutEndpointIDParams) (resp middlewar
 	}
 
 	ep.Logger(daemonSubsys).Info("Successful endpoint creation")
-	ep.Logger(daemonSubsys).Info(fmt.Sprintf("Anton-Test: context address: %p", params.HTTPRequest.Context()))
+	ep.Logger(daemonSubsys).Info(fmt.Sprintf("Anton-Test: putEndpointIDHandler: context address: %p", params.HTTPRequest.Context()))
 
 	return NewPutEndpointIDCreated()
 }

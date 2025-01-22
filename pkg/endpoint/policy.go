@@ -728,7 +728,7 @@ func (e *Endpoint) Regenerate(regenMetadata *regeneration.ExternalRegenerationMe
 				hr.Degraded("Endpoint regeneration failed", regenError)
 			} else {
 				e.getLogger().WithError(regenError).Info("Anton-Test: Regenerate with regenMetadata " + regenMetadata.Reason + " was successful")
-				e.getLogger().Info("Context ctx error: ", ctx.Err())
+				e.getLogger().Info("Context ctx error: ", ctx.Err(), "context address: "+fmt.Sprintf("%p", ctx))
 				hr.OK("Endpoint regeneration successful")
 			}
 		} else {
