@@ -48,7 +48,7 @@ if [[ $IMAGE_NAME == "cilium" || $IMAGE_NAME == "cilium-operator" ]]; then
     --file "$DOCKERFILE_PATH" \
     $BUILD_ARGS \
     --label CILIUM_VERSION="$(cat VERSION)" \
-    --label target=debug \
+    --label target=staging \
     --label CI_PIPELINE_ID="$CI_PIPELINE_ID" \
     --label CI_JOB_ID="$CI_JOB_ID" \
     --target debug \
