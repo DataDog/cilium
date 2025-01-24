@@ -261,7 +261,7 @@ jobs:
 
       - name: Install Cilium CLI
         if: ${{ steps.vars.outputs.downgrade_version != '' }}
-        uses: cilium/cilium-cli@c52e8c38e6d6235bd8e6e961199a984275547d6f # v0.16.22
+        uses: cilium/cilium-cli@f313219850d324b516748ff7b00a6f9fa30d34ae # v0.16.23
         with:
           repository: ${{ env.CILIUM_CLI_RELEASE_REPO }}
           release-version: ${{ env.CILIUM_CLI_VERSION }}
@@ -370,6 +370,14 @@ jobs:
         if: ${{ steps.vars.outputs.downgrade_version != '' }}
         uses: ./.github/actions/conn-disrupt-test-setup
 
+      - name: Features tested before downgrade
+        if: ${{ steps.vars.outputs.downgrade_version != '' }}
+        uses: ./.github/actions/feature-status
+        with:
+          title: "Summary of all features tested before downgrade"
+          json-filename: "${{ env.job_name }} (${{ join(matrix.*, ', ') }}) - before downgrade"
+          cilium-cli: './cilium-cli'
+
       - name: Downgrade Cilium to ${{ steps.vars.outputs.downgrade_version }} (${{ join(matrix.*, ', ') }})
         if: ${{ steps.vars.outputs.downgrade_version != '' }}
         shell: bash
@@ -389,6 +397,14 @@ jobs:
           job-name: cilium-downgrade-${{ matrix.name }}
           full-test: 'true'
 
+      - name: Features tested after downgrade
+        if: ${{ steps.vars.outputs.downgrade_version != '' }}
+        uses: ./.github/actions/feature-status
+        with:
+          title: "Summary of all features tested after downgrade"
+          json-filename: "${{ env.job_name }} (${{ join(matrix.*, ', ') }}) - after downgrade"
+          cilium-cli: './cilium-cli'
+
       - name: Fetch artifacts
         if: ${{ steps.vars.outputs.downgrade_version != '' && !success() }}
         shell: bash
@@ -406,17 +422,24 @@ jobs:
 
       - name: Upload artifacts
         if: ${{ steps.vars.outputs.downgrade_version != '' && !success() }}
-        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
         with:
           name: cilium-sysdumps-${{ matrix.name }}-${{ matrix.mode }}
           path: cilium-sysdump-*.zip
 
       - name: Upload JUnits [junit]
         if: ${{ steps.vars.outputs.downgrade_version != '' && always() }}
-        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
         with:
           name: cilium-junits-${{ matrix.name }}-${{ matrix.mode }}
           path: cilium-junits/*.xml
+
+      - name: Upload features tested
+        if: ${{ steps.vars.outputs.downgrade_version != '' && always() }}
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: features-tested-${{ matrix.name }}-${{ matrix.mode }}
+          path: ${{ env.job_name }}*.json
 
       - name: Publish Test Results As GitHub Summary
         if: ${{ steps.vars.outputs.downgrade_version != '' && always() }}
@@ -432,7 +455,7 @@ jobs:
     steps:
       - name: Merge Sysdumps
         if: ${{ needs.setup-and-test.result == 'failure' }}
-        uses: actions/upload-artifact/merge@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        uses: actions/upload-artifact/merge@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
         with:
           name: cilium-sysdumps
           pattern: cilium-sysdumps-*
@@ -440,10 +463,17 @@ jobs:
           delete-merged: true
         continue-on-error: true
       - name: Merge JUnits
-        uses: actions/upload-artifact/merge@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        uses: actions/upload-artifact/merge@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
         with:
           name: cilium-junits
           pattern: cilium-junits-*
+          retention-days: 5
+          delete-merged: true
+      - name: Merge Features tested
+        uses: actions/upload-artifact/merge@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: features-tested
+          pattern: features-tested-*
           retention-days: 5
           delete-merged: true
 

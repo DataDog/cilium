@@ -545,8 +545,8 @@ toCIDR
   the respective destination endpoints.
 
 toCIDRSet
-  List of destination prefixes/CIDRs that are allowed to talk to all endpoints
-  selected by the ``endpointSelector``, along with an optional list of
+  List of destination prefixes/CIDRs that endpoints selected by
+  ``endpointSelector`` are allowed to talk to, along with an optional list of
   prefixes/CIDRs per source prefix/CIDR that are subnets of the destination
   prefix/CIDR to which communication is not allowed.
 
@@ -1221,10 +1221,9 @@ allowed but connections to the returned IPs are not, as there is no L3
 
 Obtaining DNS Data for use by ``toFQDNs``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-IPs are obtained via intercepting DNS requests with a proxy or DNS polling, and
-matching names are inserted irrespective of how the data is obtained. These IPs
-can be selected with ``toFQDN`` rules. DNS responses are cached within Cilium
-agent respecting TTL.
+IPs are obtained via intercepting DNS requests with a proxy. These IPs can be
+selected with ``toFQDN`` rules. DNS responses are cached within Cilium agent
+respecting TTL.
 
 .. _DNS Proxy:
 

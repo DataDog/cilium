@@ -11,6 +11,7 @@ import (
 	ipcacheTypes "github.com/cilium/cilium/pkg/ipcache/types"
 	"github.com/cilium/cilium/pkg/k8s/resource"
 	"github.com/cilium/cilium/pkg/k8s/types"
+	k8sUtils "github.com/cilium/cilium/pkg/k8s/utils"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/metrics"
 	"github.com/cilium/cilium/pkg/policy"
@@ -51,6 +52,16 @@ func (p *policyWatcher) onUpsert(
 
 	if cnp.RequiresDerivative() {
 		return nil
+	}
+
+	// check that CIDRGroupRef is not used in combination with ExceptCIDRs in a CIDRRule
+	if err := validateCIDRRules(cnp); err != nil {
+		p.log.WithFields(logrus.Fields{
+			logfields.CiliumNetworkPolicyName: cnp.ObjectMeta.Name,
+			logfields.K8sAPIVersion:           cnp.TypeMeta.APIVersion,
+			logfields.K8sNamespace:            cnp.ObjectMeta.Namespace,
+		}).WithError(err).Warn("Error validating CiliumNetworkPolicy CIDR rules")
+		return err
 	}
 
 	// check if this cnp was referencing or is now referencing at least one non-empty
@@ -147,6 +158,12 @@ func (p *policyWatcher) upsertCiliumNetworkPolicyV2(cnp *types.SlimCNP, initialR
 	})
 
 	scopedLog.Debug("Adding CiliumNetworkPolicy")
+	namespace := k8sUtils.ExtractNamespace(&cnp.ObjectMeta)
+	if namespace == "" {
+		p.metricsManager.AddCCNP(cnp.CiliumNetworkPolicy)
+	} else {
+		p.metricsManager.AddCNP(cnp.CiliumNetworkPolicy)
+	}
 
 	rules, policyImportErr := cnp.Parse()
 	if policyImportErr == nil {
@@ -175,6 +192,12 @@ func (p *policyWatcher) deleteCiliumNetworkPolicyV2(cnp *types.SlimCNP, resource
 	})
 
 	scopedLog.Debug("Deleting CiliumNetworkPolicy")
+	namespace := k8sUtils.ExtractNamespace(&cnp.ObjectMeta)
+	if namespace == "" {
+		p.metricsManager.DelCCNP(cnp.CiliumNetworkPolicy)
+	} else {
+		p.metricsManager.DelCNP(cnp.CiliumNetworkPolicy)
+	}
 
 	_, err := p.policyManager.PolicyDelete(nil, &policy.DeleteOptions{
 		Source:           source.CustomResource,

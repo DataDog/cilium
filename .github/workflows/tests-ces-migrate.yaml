@@ -58,6 +58,8 @@ jobs:
     runs-on: ubuntu-24.04
     name: Installation and Migration Test
     timeout-minutes: 70
+    env:
+      job_name: "Installation and Migration Test"
     steps:
       - name: Collect Workflow Telemetry
         uses: catchpoint/workflow-telemetry-action@94c3c3d9567a0205de6da68a76c428ce4e769af1 # v2.0.0
@@ -88,7 +90,7 @@ jobs:
           fi
 
       - name: Create kind cluster
-        uses: helm/kind-action@9fdad0686e6f19fcd572f62516f5e0436f562ee7 # v1.10.0
+        uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
         with:
           version: ${{ env.KIND_VERSION }}
           node_image: ${{ env.KIND_K8S_IMAGE }}
@@ -116,7 +118,7 @@ jobs:
           misc: 'bpfClockProbe=false,cni.uninstall=false'
 
       - name: Install Cilium CLI
-        uses: cilium/cilium-cli@c52e8c38e6d6235bd8e6e961199a984275547d6f # v0.16.22
+        uses: cilium/cilium-cli@f313219850d324b516748ff7b00a6f9fa30d34ae # v0.16.23
         with:
           repository: ${{ env.CILIUM_CLI_RELEASE_REPO }}
           release-version: ${{ env.CILIUM_CLI_VERSION }}
@@ -167,6 +169,13 @@ jobs:
           job-name: ces-enable
           full-test: 'true'
 
+      - name: Features tested
+        uses: ./.github/actions/feature-status
+        with:
+          title: "Summary of all features tested"
+          json-filename: "${{ env.job_name }}"
+          cilium-cli: './cilium-cli'
+
       - name: Fetch artifacts
         if: ${{ failure() && steps.install-cilium.outcome != 'skipped' }}
         # The following is needed to prevent hubble from receiving an empty
@@ -181,7 +190,7 @@ jobs:
           ./cilium-cli sysdump --output-filename cilium-sysdumps-out
 
       - name: Upload cilium-sysdumps
-        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
         if: ${{ failure() }}
         with:
           name: cilium-sysdumps-out.zip
@@ -189,10 +198,17 @@ jobs:
 
       - name: Upload JUnits [junit]
         if: ${{ always() }}
-        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
         with:
           name: cilium-junits
           path: cilium-junits/*.xml
+
+      - name: Upload features tested
+        if: ${{ always() }}
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: features-tested
+          path: ${{ env.job_name }}*.json
 
       - name: Publish Test Results As GitHub Summary
         if: ${{ always() }}

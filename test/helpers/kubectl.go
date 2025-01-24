@@ -114,8 +114,10 @@ var (
 		"etcd.leaseTTL":          "30s",
 		"ipv4.enabled":           "true",
 		"ipv6.enabled":           "true",
-		// "extraEnv[0].name":              "KUBE_CACHE_MUTATION_DETECTOR",
-		// "extraEnv[0].value":             "true",
+		"extraEnv[0].name":       "KUBE_CACHE_MUTATION_DETECTOR",
+		"extraEnv[0].value":      "'true'",
+		"extraEnv[1].name":       "CILIUM_FEATURE_METRICS_WITH_DEFAULTS",
+		"extraEnv[1].value":      "'true'",
 
 		// We need CNP node status to know when a policy is being enforced
 		"ipv4NativeRoutingCIDR": IPv4NativeRoutingCIDR,
@@ -2735,7 +2737,14 @@ func (kub *Kubectl) RunHelm(action, repo, helmName, version, namespace string, o
 	optionsString := ""
 
 	for k, v := range options {
-		optionsString += fmt.Sprintf(" --set %s=%s ", k, v)
+		switch {
+		case v == "true" || v == "false":
+			optionsString += fmt.Sprintf(" --set %s=%s ", k, v)
+		case v == "'true'" || v == "'false'":
+			optionsString += fmt.Sprintf(" --set-string %s=%s ", k, v)
+		default:
+			optionsString += fmt.Sprintf(" --set %s=%s ", k, v)
+		}
 	}
 
 	return kub.ExecMiddle(fmt.Sprintf("helm %s %s %s "+
@@ -4281,7 +4290,14 @@ func (kub *Kubectl) HelmTemplate(chartDir, namespace, filename string, options m
 	optionsString := ""
 
 	for k, v := range options {
-		optionsString += fmt.Sprintf(" --set %s=%s ", k, v)
+		switch {
+		case v == "true" || v == "false":
+			optionsString += fmt.Sprintf(" --set %s=%s ", k, v)
+		case v == "'true'" || v == "'false'":
+			optionsString += fmt.Sprintf(" --set-string %s=%s ", k, v)
+		default:
+			optionsString += fmt.Sprintf(" --set %s=%s ", k, v)
+		}
 	}
 
 	return kub.ExecMiddle("helm template --validate " +
@@ -4827,4 +4843,27 @@ func (kub *Kubectl) AddVXLAN(nodeName, remote, dev, addr string, vxlanId int) *C
 func (kub *Kubectl) DelVXLAN(nodeName string, vxlanId int) *CmdRes {
 	cmd := fmt.Sprintf("ip link del dev vxlan%d", vxlanId)
 	return kub.ExecInHostNetNS(context.TODO(), nodeName, cmd)
+}
+
+func (kub *Kubectl) CollectFeatures() {
+	ctx, cancel := context.WithTimeout(context.Background(), MidCommandTimeout)
+	defer cancel()
+
+	testPath, err := CreateReportDirectory()
+	if err != nil {
+		log.WithError(err).Errorf("cannot create test result path '%s'", testPath)
+		return
+	}
+
+	// We need to get into the root directory because the CLI doesn't yet
+	// support absolute path. Once https://github.com/cilium/cilium-cli/pull/1552
+	// is installed in test VM images, we can remove this.
+	res := kub.ExecContext(ctx, fmt.Sprintf("cilium-cli features status -o markdown --output-file='%s/feature-status-%s.md'", testPath, ginkgoext.GetTestName()))
+	if !res.WasSuccessful() {
+		log.WithError(res.GetError()).Errorf("failed to collect feature status")
+	}
+	res = kub.ExecContext(ctx, fmt.Sprintf("cilium-cli features status -o json --output-file='%s/feature-status-%s.json'", testPath, ginkgoext.GetTestName()))
+	if !res.WasSuccessful() {
+		log.WithError(res.GetError()).Errorf("failed to collect feature status")
+	}
 }

@@ -97,9 +97,11 @@ type Manager struct {
 	policyEndpoints map[podID]sets.Set[policyID]
 
 	noNetnsCookieSupport bool
+
+	metricsManager LRPMetrics
 }
 
-func NewRedirectPolicyManager(svc svcManager, svcCache *k8s.ServiceCache, lpr agentK8s.LocalPodResource, epM endpointManager) *Manager {
+func NewRedirectPolicyManager(svc svcManager, svcCache *k8s.ServiceCache, lpr agentK8s.LocalPodResource, epM endpointManager, metricsManager LRPMetrics) *Manager {
 	return &Manager{
 		svcManager:            svc,
 		svcCache:              svcCache,
@@ -110,6 +112,7 @@ func NewRedirectPolicyManager(svc svcManager, svcCache *k8s.ServiceCache, lpr ag
 		policyPods:            make(map[podID][]policyID),
 		policyConfigs:         make(map[policyID]*LRPConfig),
 		policyEndpoints:       make(map[podID]sets.Set[policyID]),
+		metricsManager:        metricsManager,
 	}
 }
 
@@ -556,6 +559,7 @@ func (rpm *Manager) getAndUpsertPolicySvcConfig(config *LRPConfig) error {
 // storePolicyConfig stores various state for the given policy config.
 func (rpm *Manager) storePolicyConfig(config LRPConfig) {
 	rpm.policyConfigs[config.id] = &config
+	rpm.metricsManager.AddLRPConfig(&config)
 
 	switch config.lrpType {
 	case lrpConfigTypeAddr:
@@ -569,6 +573,7 @@ func (rpm *Manager) storePolicyConfig(config LRPConfig) {
 
 // deletePolicyConfig cleans up stored state for the given policy config.
 func (rpm *Manager) deletePolicyConfig(config *LRPConfig) {
+	rpm.metricsManager.DelLRPConfig(config)
 	switch config.lrpType {
 	case lrpConfigTypeAddr:
 		for _, feM := range config.frontendMappings {
@@ -902,9 +907,6 @@ func (rpm *Manager) processConfig(config *LRPConfig, pods ...*podMetadata) {
 // If a pod has multiple IPs, then there will be multiple backend entries created
 // for the pod with common <port, protocol>.
 func (rpm *Manager) processConfigWithSinglePort(config *LRPConfig, pods ...*podMetadata) {
-	var bes4 []backend
-	var bes6 []backend
-
 	// Generate and map pod backends to the policy frontend. The policy config
 	// is already sanitized, and has matching backend and frontend port protocol.
 	// We currently don't check which backends are updated before upserting a
@@ -913,6 +915,10 @@ func (rpm *Manager) processConfigWithSinglePort(config *LRPConfig, pods ...*podM
 	bePort := config.backendPorts[0]
 	feM := config.frontendMappings[0]
 	for _, pod := range pods {
+		var (
+			bes4 []backend
+			bes6 []backend
+		)
 		for _, ip := range pod.ips {
 			beIP := net.ParseIP(ip)
 			if beIP == nil {
@@ -956,10 +962,9 @@ func (rpm *Manager) processConfigWithNamedPorts(config *LRPConfig, pods ...*podM
 	// are scaled up.
 	upsertFes := make([]*feMapping, 0, len(config.frontendMappings))
 	for _, feM := range config.frontendMappings {
+		shouldUpsert := false
 		namedPort := feM.fePort
 		var (
-			bes4   []backend
-			bes6   []backend
 			bePort *bePortInfo
 			ok     bool
 		)
@@ -971,6 +976,10 @@ func (rpm *Manager) processConfigWithNamedPorts(config *LRPConfig, pods ...*podM
 			continue
 		}
 		for _, pod := range pods {
+			var (
+				bes4 []backend
+				bes6 []backend
+			)
 			if _, ok = pod.namedPorts[namedPort]; ok {
 				// Generate pod backends.
 				for _, ip := range pod.ips {
@@ -1001,11 +1010,13 @@ func (rpm *Manager) processConfigWithNamedPorts(config *LRPConfig, pods ...*podM
 			}
 			if len(bes4) > 0 {
 				rpm.updateFrontendMapping(config, feM, pod.id, bes4)
+				shouldUpsert = true
 			} else if len(bes6) > 0 {
 				rpm.updateFrontendMapping(config, feM, pod.id, bes6)
+				shouldUpsert = true
 			}
 		}
-		if len(bes4) > 0 || len(bes6) > 0 {
+		if shouldUpsert {
 			upsertFes = append(upsertFes, feM)
 		}
 	}

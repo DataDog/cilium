@@ -55,7 +55,7 @@ concurrency:
 
 env:
   # renovate: datasource=golang-version depName=go
-  go-version: 1.22.10
+  go-version: 1.22.11
 
 jobs:
   echo-inputs:
@@ -84,25 +84,25 @@ jobs:
       matrix:
         include:
           # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: '5.4-20241107.001101'
+          - kernel: '5.4-20241218.004849'
             ci-kernel: '54'
           # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: 'rhel8.6-20241107.001101'
+          - kernel: 'rhel8.6-20241218.004849'
             ci-kernel: '54'
           # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: '5.10-20241107.001101'
+          - kernel: '5.10-20241218.004849'
             ci-kernel: '510'
           # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: '5.15-20241107.001101'
+          - kernel: '5.15-20241218.004849'
             ci-kernel: '510'
           # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: '6.1-20241107.001101'
+          - kernel: '6.1-20241218.004849'
             ci-kernel: '61'
           # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: '6.6-20241107.001101'
+          - kernel: '6.6-20241218.004849'
             ci-kernel: '61'
           # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: '6.6-20241107.001101'
+          - kernel: '6.6-20241218.004849'
             ci-kernel: 'netnext'
     timeout-minutes: 60
     steps:
@@ -170,7 +170,7 @@ jobs:
 
       - name: Upload artifacts
         if: ${{ !success() }}
-        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
         with:
           name: datapath-verifier_${{ matrix.kernel }}
           path: datapath-verifier
