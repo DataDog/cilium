@@ -26,7 +26,7 @@ func (ds *PolicyTestSuite) TestComputePolicyDenyEnforcementAndRules(c *C) {
 
 	SetPolicyEnabled(option.DefaultEnforcement)
 
-	repo := NewPolicyRepository(nil, nil, nil, nil)
+	repo := NewPolicyRepository(nil, nil, nil, nil, api.NewPolicyMetricsNoop())
 	repo.selectorCache = testSelectorCache
 
 	fooSelectLabel := labels.ParseSelectLabel("foo")
@@ -252,7 +252,7 @@ func (ds *PolicyTestSuite) TestComputePolicyDenyEnforcementAndRules(c *C) {
 }
 
 func (ds *PolicyTestSuite) TestGetRulesMatching(c *C) {
-	repo := NewPolicyRepository(nil, nil, nil, nil)
+	repo := NewPolicyRepository(nil, nil, nil, nil, api.NewPolicyMetricsNoop())
 	repo.selectorCache = testSelectorCache
 
 	fooToBar := &SearchContext{
@@ -320,7 +320,7 @@ func (ds *PolicyTestSuite) TestGetRulesMatching(c *C) {
 }
 
 func (ds *PolicyTestSuite) TestDeniesIngress(c *C) {
-	repo := NewPolicyRepository(nil, nil, nil, nil)
+	repo := NewPolicyRepository(nil, nil, nil, nil, api.NewPolicyMetricsNoop())
 	repo.selectorCache = testSelectorCache
 
 	fooToBar := &SearchContext{
@@ -419,7 +419,7 @@ func (ds *PolicyTestSuite) TestDeniesIngress(c *C) {
 }
 
 func (ds *PolicyTestSuite) TestDeniesEgress(c *C) {
-	repo := NewPolicyRepository(nil, nil, nil, nil)
+	repo := NewPolicyRepository(nil, nil, nil, nil, api.NewPolicyMetricsNoop())
 	repo.selectorCache = testSelectorCache
 
 	fooToBar := &SearchContext{
@@ -527,7 +527,7 @@ func (ds *PolicyTestSuite) TestDeniesEgress(c *C) {
 }
 
 func (ds *PolicyTestSuite) TestWildcardL3RulesIngressDeny(c *C) {
-	repo := NewPolicyRepository(nil, nil, nil, nil)
+	repo := NewPolicyRepository(nil, nil, nil, nil, api.NewPolicyMetricsNoop())
 	repo.selectorCache = testSelectorCache
 
 	labelsL3 := labels.LabelArray{labels.ParseLabel("L3")}
@@ -574,7 +574,7 @@ func (ds *PolicyTestSuite) TestWildcardL3RulesIngressDeny(c *C) {
 }
 
 func (ds *PolicyTestSuite) TestWildcardL4RulesIngressDeny(c *C) {
-	repo := NewPolicyRepository(nil, nil, nil, nil)
+	repo := NewPolicyRepository(nil, nil, nil, nil, api.NewPolicyMetricsNoop())
 	repo.selectorCache = testSelectorCache
 
 	selFoo := api.NewESFromLabels(labels.ParseSelectLabel("id=foo"))
@@ -662,7 +662,7 @@ func (ds *PolicyTestSuite) TestWildcardL4RulesIngressDeny(c *C) {
 }
 
 func (ds *PolicyTestSuite) TestL3DependentL4IngressDenyFromRequires(c *C) {
-	repo := NewPolicyRepository(nil, nil, nil, nil)
+	repo := NewPolicyRepository(nil, nil, nil, nil, api.NewPolicyMetricsNoop())
 	repo.selectorCache = testSelectorCache
 
 	selFoo := api.NewESFromLabels(labels.ParseSelectLabel("id=foo"))
@@ -731,7 +731,7 @@ func (ds *PolicyTestSuite) TestL3DependentL4IngressDenyFromRequires(c *C) {
 }
 
 func (ds *PolicyTestSuite) TestL3DependentL4EgressDenyFromRequires(c *C) {
-	repo := NewPolicyRepository(nil, nil, nil, nil)
+	repo := NewPolicyRepository(nil, nil, nil, nil, api.NewPolicyMetricsNoop())
 	repo.selectorCache = testSelectorCache
 
 	selFoo := api.NewESFromLabels(labels.ParseSelectLabel("id=foo"))
@@ -822,7 +822,7 @@ func (ds *PolicyTestSuite) TestL3DependentL4EgressDenyFromRequires(c *C) {
 }
 
 func (ds *PolicyTestSuite) TestWildcardL3RulesEgressDeny(c *C) {
-	repo := NewPolicyRepository(nil, nil, nil, nil)
+	repo := NewPolicyRepository(nil, nil, nil, nil, api.NewPolicyMetricsNoop())
 	repo.selectorCache = testSelectorCache
 
 	selFoo := api.NewESFromLabels(labels.ParseSelectLabel("id=foo"))
@@ -946,7 +946,7 @@ func (ds *PolicyTestSuite) TestWildcardL3RulesEgressDeny(c *C) {
 }
 
 func (ds *PolicyTestSuite) TestWildcardL4RulesEgressDeny(c *C) {
-	repo := NewPolicyRepository(nil, nil, nil, nil)
+	repo := NewPolicyRepository(nil, nil, nil, nil, api.NewPolicyMetricsNoop())
 	repo.selectorCache = testSelectorCache
 
 	selFoo := api.NewESFromLabels(labels.ParseSelectLabel("id=foo"))
@@ -1040,7 +1040,7 @@ func (ds *PolicyTestSuite) TestWildcardL4RulesEgressDeny(c *C) {
 }
 
 func (ds *PolicyTestSuite) TestWildcardCIDRRulesEgressDeny(c *C) {
-	repo := NewPolicyRepository(nil, nil, nil, nil)
+	repo := NewPolicyRepository(nil, nil, nil, nil, api.NewPolicyMetricsNoop())
 	repo.selectorCache = testSelectorCache
 
 	labelsL3 := labels.LabelArray{labels.ParseLabel("L3")}
@@ -1138,7 +1138,7 @@ func (ds *PolicyTestSuite) TestWildcardCIDRRulesEgressDeny(c *C) {
 }
 
 func (ds *PolicyTestSuite) TestWildcardL3RulesIngressDenyFromEntities(c *C) {
-	repo := NewPolicyRepository(nil, nil, nil, nil)
+	repo := NewPolicyRepository(nil, nil, nil, nil, api.NewPolicyMetricsNoop())
 	repo.selectorCache = testSelectorCache
 
 	selFoo := api.NewESFromLabels(labels.ParseSelectLabel("id=foo"))
@@ -1205,7 +1205,7 @@ func (ds *PolicyTestSuite) TestWildcardL3RulesIngressDenyFromEntities(c *C) {
 }
 
 func (ds *PolicyTestSuite) TestWildcardL3RulesEgressDenyToEntities(c *C) {
-	repo := NewPolicyRepository(nil, nil, nil, nil)
+	repo := NewPolicyRepository(nil, nil, nil, nil, api.NewPolicyMetricsNoop())
 	repo.selectorCache = testSelectorCache
 
 	selFoo := api.NewESFromLabels(labels.ParseSelectLabel("id=foo"))
@@ -1274,7 +1274,7 @@ func (ds *PolicyTestSuite) TestWildcardL3RulesEgressDenyToEntities(c *C) {
 }
 
 func (ds *PolicyTestSuite) TestMinikubeGettingStartedDeny(c *C) {
-	repo := NewPolicyRepository(nil, nil, nil, nil)
+	repo := NewPolicyRepository(nil, nil, nil, nil, api.NewPolicyMetricsNoop())
 	repo.selectorCache = testSelectorCache
 
 	app2Selector := labels.ParseSelectLabelArray("id=app2")
@@ -1405,7 +1405,7 @@ func buildDenyRule(from, to, port string) api.Rule {
 }
 
 func (ds *PolicyTestSuite) TestPolicyDenyTrace(c *C) {
-	repo := NewPolicyRepository(nil, nil, nil, nil)
+	repo := NewPolicyRepository(nil, nil, nil, nil, api.NewPolicyMetricsNoop())
 	repo.selectorCache = testSelectorCache
 
 	// Add rules to allow foo=>bar

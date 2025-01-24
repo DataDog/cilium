@@ -82,22 +82,22 @@ jobs:
       matrix:
         include:
           # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: '4.19-20240710.064909'
+          - kernel: '4.19-20241218.004849'
             ci-kernel: '419'
           # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: '5.4-20240710.064909'
+          - kernel: '5.4-20241218.004849'
             ci-kernel: '54'
           # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: '5.10-20240710.064909'
+          - kernel: '5.10-20241218.004849'
             ci-kernel: '510'
           # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: '5.15-20240710.064909'
+          - kernel: '5.15-20241218.004849'
             ci-kernel: '510'
           # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: '6.1-20240710.064909'
+          - kernel: '6.1-20241218.004849'
             ci-kernel: '61'
           # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: '6.6-20240710.064909'
+          - kernel: '6.6-20241218.004849'
             ci-kernel: 'netnext'
     timeout-minutes: 60
     steps:
@@ -126,10 +126,18 @@ jobs:
 
             git config --global --add safe.directory /host
             uname -a
+
             # The LVH image might ship with an arbitrary Go toolchain version,
             # install the same Go toolchain version as current HEAD.
             CGO_ENABLED=0 GOPROXY=direct GOSUMDB= go install golang.org/dl/go${{ env.go-version }}@latest
             go${{ env.go-version }} download
+
+            # The LVH image ships with LLVM taken from a release Cilium version.
+            # Replace it with the one extracted from the cilium-builder image.
+            /bootstrap/deb-docker.sh # Install docker first.
+            /host/contrib/scripts/extract-llvm.sh /tmp/llvm
+            mv /tmp/llvm/usr/local/bin/{clang,llc} /bin/
+            rm -r /tmp/llvm
 
       - name: Run verifier tests
         uses: cilium/little-vm-helper@97c89f004bd0ab4caeacfe92ebc956e13e362e6b # v0.0.19
@@ -152,7 +160,7 @@ jobs:
 
       - name: Upload artifacts
         if: ${{ !success() }}
-        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
         with:
           name: datapath-verifier_${{ matrix.kernel }}
           path: datapath-verifier

@@ -470,7 +470,7 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params *daemonParams
 
 	d.endpointManager = params.EndpointManager
 
-	d.redirectPolicyManager = redirectpolicy.NewRedirectPolicyManager(d.svc, params.Resources.LocalPods)
+	d.redirectPolicyManager = redirectpolicy.NewRedirectPolicyManager(d.svc, params.Resources.LocalPods, params.LRPMetrics)
 	if option.Config.BGPAnnounceLBIP || option.Config.BGPAnnouncePodCIDR {
 		log.WithField("url", "https://github.com/cilium/cilium/issues/22246").
 			Warn("You are using the legacy BGP feature, which will only receive security updates and bugfixes. " +
@@ -505,6 +505,8 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params *daemonParams
 		params.Resources,
 		params.ServiceCache,
 		d.bwManager,
+		params.CECMetrics,
+		params.CNPMetrics,
 	)
 	nd.RegisterK8sGetters(d.k8sWatcher)
 

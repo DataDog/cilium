@@ -5,7 +5,6 @@ package watchers
 
 import (
 	"context"
-	"errors"
 	"sync/atomic"
 
 	"github.com/sirupsen/logrus"
@@ -120,8 +119,10 @@ func (k *K8sWatcher) ciliumNetworkPoliciesInit(ctx context.Context, cs client.Cl
 				var err error
 				switch event.Kind {
 				case resource.Upsert:
+					k.policyMetrics.AddCNP(slimCNP.CiliumNetworkPolicy)
 					err = k.onUpsert(slimCNP, cnpCache, event.Key, cidrGroupCache, cs, k8sAPIGroupCiliumNetworkPolicyV2, resources.MetricCNP, cidrGroupPolicies, resourceID)
 				case resource.Delete:
+					k.policyMetrics.DelCNP(slimCNP.CiliumNetworkPolicy)
 					err = k.onDelete(slimCNP, cnpCache, event.Key, k8sAPIGroupCiliumNetworkPolicyV2, resources.MetricCNP, cidrGroupPolicies, resourceID)
 				}
 				reportCNPChangeMetrics(err)
@@ -155,8 +156,10 @@ func (k *K8sWatcher) ciliumNetworkPoliciesInit(ctx context.Context, cs client.Cl
 				var err error
 				switch event.Kind {
 				case resource.Upsert:
+					k.policyMetrics.AddCCNP(slimCNP.CiliumNetworkPolicy)
 					err = k.onUpsert(slimCNP, cnpCache, event.Key, cidrGroupCache, cs, k8sAPIGroupCiliumClusterwideNetworkPolicyV2, resources.MetricCCNP, cidrGroupPolicies, resourceID)
 				case resource.Delete:
+					k.policyMetrics.DelCCNP(slimCNP.CiliumNetworkPolicy)
 					err = k.onDelete(slimCNP, cnpCache, event.Key, k8sAPIGroupCiliumClusterwideNetworkPolicyV2, resources.MetricCCNP, cidrGroupPolicies, resourceID)
 				}
 				reportCNPChangeMetrics(err)
@@ -225,6 +228,13 @@ func (k *K8sWatcher) onUpsert(
 
 	if cnp.RequiresDerivative() {
 		return nil
+	}
+
+	// check that CIDRGroupRef is not used in combination with ExceptCIDRs in a CIDRRule
+	if err := validateCIDRRules(cnp); err != nil {
+		log.WithError(err).WithField(logfields.Object, logfields.Repr(cnp)).
+			Warn("Error validating CiliumNetworkPolicy CIDR rules")
+		return err
 	}
 
 	// check if this cnp was referencing or is now referencing at least one non-empty
@@ -351,25 +361,7 @@ func (k *K8sWatcher) deleteCiliumNetworkPolicyV2(cnp *types.SlimCNP, resourceID 
 func (k *K8sWatcher) updateCiliumNetworkPolicyV2(ciliumNPClient clientset.Interface,
 	oldRuleCpy, newRuleCpy *types.SlimCNP, initialRecvTime time.Time, resourceID ipcacheTypes.ResourceID) error {
 
-	_, err := oldRuleCpy.Parse()
-	if err != nil {
-		ns := oldRuleCpy.GetNamespace() // Disambiguates CNP & CCNP
-
-		// We want to ignore parsing errors for empty policies, otherwise the
-		// update to the new policy will be skipped.
-		switch {
-		case ns != "" && !errors.Is(err, cilium_v2.ErrEmptyCNP):
-			log.WithError(err).WithField(logfields.Object, logfields.Repr(oldRuleCpy)).
-				Warn("Error parsing old CiliumNetworkPolicy rule")
-			return err
-		case ns == "" && !errors.Is(err, cilium_v2.ErrEmptyCCNP):
-			log.WithError(err).WithField(logfields.Object, logfields.Repr(oldRuleCpy)).
-				Warn("Error parsing old CiliumClusterwideNetworkPolicy rule")
-			return err
-		}
-	}
-
-	_, err = newRuleCpy.Parse()
+	_, err := newRuleCpy.Parse()
 	if err != nil {
 		log.WithError(err).WithField(logfields.Object, logfields.Repr(newRuleCpy)).
 			Warn("Error parsing new CiliumNetworkPolicy rule")
@@ -402,4 +394,30 @@ func reportCNPChangeMetrics(err error) {
 	} else {
 		metrics.PolicyChangeTotal.WithLabelValues(metrics.LabelValueOutcomeSuccess).Inc()
 	}
+}
+
+type CNPMetrics interface {
+	AddCNP(cec *cilium_v2.CiliumNetworkPolicy)
+	DelCNP(cec *cilium_v2.CiliumNetworkPolicy)
+	AddCCNP(spec *cilium_v2.CiliumNetworkPolicy)
+	DelCCNP(spec *cilium_v2.CiliumNetworkPolicy)
+}
+
+type cnpMetricsNoop struct {
+}
+
+func (c cnpMetricsNoop) AddCNP(cec *cilium_v2.CiliumNetworkPolicy) {
+}
+
+func (c cnpMetricsNoop) DelCNP(cec *cilium_v2.CiliumNetworkPolicy) {
+}
+
+func (c cnpMetricsNoop) AddCCNP(spec *cilium_v2.CiliumNetworkPolicy) {
+}
+
+func (c cnpMetricsNoop) DelCCNP(spec *cilium_v2.CiliumNetworkPolicy) {
+}
+
+func NewCNPMetricsNoop() CNPMetrics {
+	return &cnpMetricsNoop{}
 }

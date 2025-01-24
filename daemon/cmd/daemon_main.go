@@ -62,6 +62,7 @@ import (
 	"github.com/cilium/cilium/pkg/ipmasq"
 	"github.com/cilium/cilium/pkg/k8s"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
+	"github.com/cilium/cilium/pkg/k8s/watchers"
 	"github.com/cilium/cilium/pkg/k8s/watchers/resources"
 	"github.com/cilium/cilium/pkg/kvstore"
 	"github.com/cilium/cilium/pkg/kvstore/store"
@@ -91,6 +92,7 @@ import (
 	"github.com/cilium/cilium/pkg/promise"
 	"github.com/cilium/cilium/pkg/proxy"
 	"github.com/cilium/cilium/pkg/rate"
+	"github.com/cilium/cilium/pkg/redirectpolicy"
 	"github.com/cilium/cilium/pkg/service"
 	"github.com/cilium/cilium/pkg/statedb"
 	"github.com/cilium/cilium/pkg/sysctl"
@@ -1700,10 +1702,14 @@ type daemonParams struct {
 	BandwidthManager    datapath.BandwidthManager
 	IPsecKeyCustodian   datapath.IPsecKeyCustodian
 	MTU                 mtu.MTU
+	LRPMetrics          redirectpolicy.LRPMetrics
+	CECMetrics          watchers.CECMetrics
+	CNPMetrics          watchers.CNPMetrics
 }
 
-func newDaemonPromise(params daemonParams) promise.Promise[*Daemon] {
+func newDaemonPromise(params daemonParams) (promise.Promise[*Daemon], promise.Promise[*option.DaemonConfig]) {
 	daemonResolver, daemonPromise := promise.New[*Daemon]()
+	cfgResolver, cfgPromise := promise.New[*option.DaemonConfig]()
 
 	// daemonCtx is the daemon-wide context cancelled when stopping.
 	daemonCtx, cancelDaemonCtx := context.WithCancel(context.Background())
@@ -1730,7 +1736,7 @@ func newDaemonPromise(params daemonParams) promise.Promise[*Daemon] {
 				startDaemon(daemon, restoredEndpoints, cleaner, params)
 			}
 			daemonResolver.Resolve(daemon)
-
+			cfgResolver.Resolve(option.Config)
 			return nil
 		},
 		OnStop: func(cell.HookContext) error {
@@ -1743,7 +1749,7 @@ func newDaemonPromise(params daemonParams) promise.Promise[*Daemon] {
 			return nil
 		},
 	})
-	return daemonPromise
+	return daemonPromise, cfgPromise
 }
 
 // startDaemon starts the old unmodular part of the cilium-agent.

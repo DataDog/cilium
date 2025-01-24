@@ -207,7 +207,7 @@ jobs:
           echo "connectivity_test_defaults=${CONNECTIVITY_TEST_DEFAULTS}" >> $GITHUB_OUTPUT
 
       - name: Install Cilium CLI
-        uses: cilium/cilium-cli@c52e8c38e6d6235bd8e6e961199a984275547d6f # v0.16.22
+        uses: cilium/cilium-cli@f313219850d324b516748ff7b00a6f9fa30d34ae # v0.16.23
         with:
           repository: ${{ env.CILIUM_CLI_RELEASE_REPO }}
           release-version: ${{ env.CILIUM_CLI_VERSION }}
@@ -228,7 +228,7 @@ jobs:
             envsubst < ./.github/kind-config.yaml.tmpl > ./.github/kind-config-cluster2.yaml
 
       - name: Create Kind cluster 1
-        uses: helm/kind-action@0025e74a8c7512023d06dc019c617aa3cf561fde # v1.10.0
+        uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
         with:
           cluster_name: ${{ env.clusterName1 }}
           version: ${{ env.KIND_VERSION }}
@@ -238,7 +238,7 @@ jobs:
           wait: 0 # The control-plane never becomes ready, since no CNI is present
 
       - name: Create Kind cluster 2
-        uses: helm/kind-action@0025e74a8c7512023d06dc019c617aa3cf561fde # v1.10.0
+        uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
         with:
           cluster_name: ${{ env.clusterName2 }}
           version: ${{ env.KIND_VERSION }}
@@ -447,6 +447,20 @@ jobs:
             --include-conn-disrupt-test --conn-disrupt-test-setup \
             --conn-disrupt-dispatch-interval 0ms
 
+      - name: Features tested on cluster 1
+        uses: ./.github/actions/feature-status
+        with:
+          cilium-cli: "cilium --context ${{ env.contextName1 }}"
+          title: "Summary of all features tested on cluster 1"
+          json-filename: "${{ env.job_name }} (${{ join(matrix.*, ', ') }}) - cluster 1"
+
+      - name: Features tested on cluster 2
+        uses: ./.github/actions/feature-status
+        with:
+          cilium-cli: "cilium --context ${{ env.contextName2 }}"
+          title: "Summary of all features tested on cluster 2"
+          json-filename: "${{ env.job_name }} (${{ join(matrix.*, ', ') }}) - cluster 2"
+
 
       - name: Upgrade Cilium in cluster1 and enable kvstoremesh
         env:
@@ -504,6 +518,20 @@ jobs:
             --multi-cluster=${{ env.contextName2 }} --hubble=false \
             --include-conn-disrupt-test --conn-disrupt-test-setup \
             --conn-disrupt-dispatch-interval 0ms
+
+      - name: Features tested on cluster 1 - post upgrade
+        uses: ./.github/actions/feature-status
+        with:
+          cilium-cli: "cilium --context ${{ env.contextName1 }}"
+          title: "Summary of all features tested on cluster 1 - post upgrade"
+          json-filename: "${{ env.job_name }} (${{ join(matrix.*, ', ') }}) - cluster 1 - post upgrade"
+
+      - name: Features tested on cluster 2 - post upgrade
+        uses: ./.github/actions/feature-status
+        with:
+          cilium-cli: "cilium --context ${{ env.contextName2 }}"
+          title: "Summary of all features tested on cluster 2 - post upgrade"
+          json-filename: "${{ env.job_name }} (${{ join(matrix.*, ', ') }}) - cluster 2 - post upgrade"
 
 
       # Perform an additional "stress" test, scaling the clustermesh-apiservers in both clusters
@@ -570,6 +598,20 @@ jobs:
             --include-conn-disrupt-test --conn-disrupt-test-setup \
             --conn-disrupt-dispatch-interval 0ms
 
+      - name: Features tested on cluster 1 - stress-test
+        uses: ./.github/actions/feature-status
+        with:
+          cilium-cli: "cilium --context ${{ env.contextName1 }}"
+          title: "Summary of all features tested on cluster 1 - stress-test"
+          json-filename: "${{ env.job_name }} (${{ join(matrix.*, ', ') }}) - cluster 1 - stress-test"
+
+      - name: Features tested on cluster 2 - stress-test
+        uses: ./.github/actions/feature-status
+        with:
+          cilium-cli: "cilium --context ${{ env.contextName2 }}"
+          title: "Summary of all features tested on cluster 2 - stress-test"
+          json-filename: "${{ env.job_name }} (${{ join(matrix.*, ', ') }}) - cluster 2 - stress-test"
+
 
       - name: Downgrade Cilium in cluster1 and disable kvstoremesh
         env:
@@ -619,6 +661,20 @@ jobs:
             --junit-file "cilium-junits/${{ env.job_name }} - post downgrade (${{ join(matrix.*, ', ') }}).xml" \
             --junit-property github_job_step="Run tests post-downgrade (${{ join(matrix.*, ', ') }})"
 
+      - name: Features tested on cluster 1 - post-downgrade
+        uses: ./.github/actions/feature-status
+        with:
+          cilium-cli: "cilium --context ${{ env.contextName1 }}"
+          title: "Summary of all features tested on cluster 1 - post-downgrade"
+          json-filename: "${{ env.job_name }} (${{ join(matrix.*, ', ') }}) - cluster 1 - post-downgrade"
+
+      - name: Features tested on cluster 2 - post-downgrade
+        uses: ./.github/actions/feature-status
+        with:
+          cilium-cli: "cilium --context ${{ env.contextName2 }}"
+          title: "Summary of all features tested on cluster 2 - post-downgrade"
+          json-filename: "${{ env.job_name }} (${{ join(matrix.*, ', ') }}) - cluster 2 - post-downgrade"
+
 
       - name: Post-test information gathering
         if: ${{ !success() && steps.install-cilium-cluster1.outcome != 'skipped' }}
@@ -647,17 +703,24 @@ jobs:
 
       - name: Upload artifacts
         if: ${{ !success() }}
-        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
         with:
           name: cilium-sysdumps-${{ matrix.name }}
           path: cilium-sysdump-*.zip
 
       - name: Upload JUnits [junit]
         if: ${{ always() }}
-        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
         with:
           name: cilium-junits-${{ matrix.name }}
           path: cilium-junits/*.xml
+
+      - name: Upload features tested
+        if: ${{ always() }}
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: features-tested-${{ matrix.name }}
+          path: ${{ env.job_name }}*.json
 
       - name: Publish Test Results As GitHub Summary
         if: ${{ always() }}
@@ -673,7 +736,7 @@ jobs:
     steps:
       - name: Merge Sysdumps
         if: ${{ needs.upgrade-and-downgrade.result == 'failure' }}
-        uses: actions/upload-artifact/merge@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        uses: actions/upload-artifact/merge@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
         with:
           name: cilium-sysdumps
           pattern: cilium-sysdumps-*
@@ -681,10 +744,17 @@ jobs:
           delete-merged: true
         continue-on-error: true
       - name: Merge JUnits
-        uses: actions/upload-artifact/merge@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        uses: actions/upload-artifact/merge@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
         with:
           name: cilium-junits
           pattern: cilium-junits-*
+          retention-days: 5
+          delete-merged: true
+      - name: Merge Features tested
+        uses: actions/upload-artifact/merge@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: features-tested
+          pattern: features-tested-*
           retention-days: 5
           delete-merged: true
 
