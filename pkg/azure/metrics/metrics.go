@@ -214,7 +214,7 @@ func (m *MetricsExtractor) getRequestLimitMetrics(response *http.Response) ([]me
 			var resourceTypeTagValue string
 			requiredTags, ok := rateLimitDescriptionToRequiredTags[description]
 			if !ok {
-				return nil, fmt.Errorf("description not found in description to required tags map, description: %s", description)
+				return nil, fmt.Errorf("description not found in description to required tags map, description: %s, tags map: %v", description, rateLimitDescriptionToRequiredTags)
 			}
 			if _, ok := requiredTags[rateLimitRemainingDescriptionTag]; ok {
 				descriptionTagValue = description
