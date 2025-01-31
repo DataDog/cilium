@@ -30,7 +30,7 @@ func NewPrometheusMetrics(namespace, subsystem string, registry metrics.Register
 		Name:      "api_duration_seconds",
 		Help:      "Duration of interactions with API",
 		Buckets: []float64{0.005, 0.025, 0.05, 0.1, 0.2, 0.4, 0.6, 0.8, 1.0, 1.25, 1.5, 2, 3,
-			4, 5, 6, 8, 10, 15, 20, 30, 45, 60},
+			4, 5, 6, 8, 10, 15, 20, 30, 45, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 390, 420, 450, 480, 510, 540, 570, 600},
 	}, []string{"operation", "response_code"})
 
 	m.RateLimit = prometheus.NewHistogramVec(prometheus.HistogramOpts{
