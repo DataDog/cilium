@@ -45,7 +45,6 @@ var (
 	rateLimitRemainingPolicyTag      = "policy"
 
 	// See docs https://docs.microsoft.com/en-us/azure/azure-resource-manager/management/request-limits-and-throttling#remaining-requests
-	// TODO: Missing subscription-deletes
 	rateLimitDescriptionToRequiredTags = map[string]map[string]struct{}{
 		// Subscription scoped reads remaining. This value is returned on read operations.
 		"subscription-reads": {
@@ -59,6 +58,32 @@ var (
 			rateLimitRemainingTenantIDTag:       {},
 			rateLimitRemainingSubscriptionIDTag: {},
 		},
+		// Subscription scoped writes remaining. This value is returned on delete operations.
+		"subscription-deletes": {
+			rateLimitRemainingDescriptionTag:    {},
+			rateLimitRemainingTenantIDTag:       {},
+			rateLimitRemainingSubscriptionIDTag: {},
+		},
+		// global limits should be 15x the individual limits
+		// Subscription scoped reads remaining. This value is returned on read operations.
+		"subscription-global-reads": {
+			rateLimitRemainingDescriptionTag:    {},
+			rateLimitRemainingTenantIDTag:       {},
+			rateLimitRemainingSubscriptionIDTag: {},
+		},
+		// Subscription scoped writes remaining. This value is returned on write operations.
+		"subscription-global-writes": {
+			rateLimitRemainingDescriptionTag:    {},
+			rateLimitRemainingTenantIDTag:       {},
+			rateLimitRemainingSubscriptionIDTag: {},
+		},
+		// Subscription scoped writes remaining. This value is returned on delete operations.
+		"subscription-global-deletes": {
+			rateLimitRemainingDescriptionTag:    {},
+			rateLimitRemainingTenantIDTag:       {},
+			rateLimitRemainingSubscriptionIDTag: {},
+		},
+
 		// Tenant scoped reads remaining
 		"tenant-reads": {
 			rateLimitRemainingDescriptionTag: {},
