@@ -21,7 +21,9 @@ import (
 	"github.com/Azure/go-autorest/autorest/to"
 	"k8s.io/apimachinery/pkg/util/rand"
 
+	"github.com/cilium/cilium/operator/metrics"
 	"github.com/cilium/cilium/pkg/api/helpers"
+	azuremetrics "github.com/cilium/cilium/pkg/azure/metrics"
 	"github.com/cilium/cilium/pkg/azure/types"
 	"github.com/cilium/cilium/pkg/cidr"
 	ipamTypes "github.com/cilium/cilium/pkg/ipam/types"
@@ -75,7 +77,7 @@ func constructAuthorizer(env azure.Environment, userAssignedIdentityID string) (
 }
 
 // NewClient returns a new Azure client
-func NewClient(cloudName, subscriptionID, resourceGroup, userAssignedIdentityID string, metrics MetricsAPI, rateLimit float64, burst int, usePrimary bool) (*Client, error) {
+func NewClient(cloudName, subscriptionID, resourceGroup, userAssignedIdentityID string, metrics MetricsAPI, rateLimit float64, burst int, usePrimary bool, registry metrics.RegisterGatherer) (*Client, error) {
 	azureEnv, err := azure.EnvironmentFromName(cloudName)
 	if err != nil {
 		return nil, err
@@ -92,6 +94,8 @@ func NewClient(cloudName, subscriptionID, resourceGroup, userAssignedIdentityID 
 		usePrimary:      usePrimary,
 	}
 
+	azureMetrics := azuremetrics.NewMetricsExtractor(log, "TODO", subscriptionID, "Microsoft.Compute", registry)
+
 	authorizer, err := constructAuthorizer(azureEnv, userAssignedIdentityID)
 	if err != nil {
 		return nil, err
@@ -99,12 +103,16 @@ func NewClient(cloudName, subscriptionID, resourceGroup, userAssignedIdentityID 
 
 	c.interfaces.Authorizer = authorizer
 	c.interfaces.AddToUserAgent(userAgent)
+	c.interfaces.ResponseInspector = azureMetrics.GetRespondDecorator()
 	c.virtualnetworks.Authorizer = authorizer
 	c.virtualnetworks.AddToUserAgent(userAgent)
+	c.virtualnetworks.ResponseInspector = azureMetrics.GetRespondDecorator()
 	c.vmss.Authorizer = authorizer
 	c.vmss.AddToUserAgent(userAgent)
+	c.vmss.ResponseInspector = azureMetrics.GetRespondDecorator()
 	c.vmscalesets.Authorizer = authorizer
 	c.vmscalesets.AddToUserAgent(userAgent)
+	c.vmscalesets.ResponseInspector = azureMetrics.GetRespondDecorator()
 
 	return c, nil
 }
