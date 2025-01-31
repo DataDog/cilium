@@ -17,6 +17,7 @@ import (
 
 // AzureAPI is the API surface used of the Azure API
 type AzureAPI interface {
+	GetInstance(ctx context.Context, vnets ipamTypes.VirtualNetworkMap, subnets ipamTypes.SubnetMap, instanceID string) (*ipamTypes.Instance, error)
 	GetInstances(ctx context.Context, subnets ipamTypes.SubnetMap) (*ipamTypes.InstanceMap, error)
 	GetVpcsAndSubnets(ctx context.Context) (ipamTypes.VirtualNetworkMap, ipamTypes.SubnetMap, error)
 	AssignPrivateIpAddressesVM(ctx context.Context, subnetID, interfaceName string, addresses int) error
@@ -100,6 +101,22 @@ func (m *InstancesManager) Resync(ctx context.Context, instanceID string) time.T
 	} else {
 		//TODO: Implement resync for an individual instance
 		// Steal similar logic from the AWS ENI mode here: https://github.com/DataDog/cilium/blob/fc18988b9ef1d70c85eb102db79ae8b8dad237d4/pkg/aws/eni/instances.go#L228-L243
+		instance, err := m.api.GetInstance(ctx, vnets, subnets, instanceID)
+		if err != nil {
+			log.WithError(err).Warning("Unable to synchronize EC2 interface list")
+			return time.Time{}
+		}
+
+		log.WithFields(logrus.Fields{
+			"instance":          instanceID,
+			"numVPCs":           len(vpcs),
+			"numSubnets":        len(subnets),
+			"numSecurityGroups": len(securityGroups),
+		}).Info("Synchronized ENI information for the corresponding instance")
+
+		m.mutex.Lock()
+		defer m.mutex.Unlock()
+		m.instances.UpdateInstance(instanceID, instance)
 
 	}
 	return resyncStart

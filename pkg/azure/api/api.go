@@ -40,7 +40,8 @@ const (
 	virtualMachineScaleSetVMsUpdate = "VirtualMachineScaleSetVMs.Update"
 	virtualNetworksListAll          = "VirtualNetworks.ListAll"
 
-	interfacesListVirtualMachineScaleSetNetworkInterfaces = "Interfaces.ListVirtualMachineScaleSetNetworkInterfaces"
+	interfacesListVirtualMachineScaleSetNetworkInterfaces   = "Interfaces.ListVirtualMachineScaleSetNetworkInterfaces"
+	interfacesListVirtualMachineScaleSetVMNetworkInterfaces = "Interfaces.ListVirtualMachineScaleSetVMNetworkInterfaces"
 )
 
 var log = logging.DefaultLogger.WithField(logfields.LogSubsys, "azure-api")
@@ -210,6 +211,43 @@ func (c *Client) vmNetworkInterfaces(ctx context.Context) ([]armnetwork.Interfac
 	return networkInterfaces, nil
 }
 
+// listVirtualMachineScaleSetsVMNetworkInterfaces lists all interfaces for a given VM in Scale Sets in the client's resource group
+func (c *Client) listVirtualMachineScaleSetsVMNetworkInterfaces(ctx context.Context, virtualMachineScaleSetName string, virtualMachineIndex string) ([]armnetwork.Interface, error) {
+	var networkInterfaces []armnetwork.Interface
+	var err error
+
+	c.limiter.Limit(ctx, interfacesListVirtualMachineScaleSetVMNetworkInterfaces)
+	sinceStart := spanstat.Start()
+
+	pager := c.interfaces.NewListVirtualMachineScaleSetVMNetworkInterfacesPager(c.resourceGroup, virtualMachineScaleSetName, virtualMachineIndex, nil)
+
+	defer func() {
+		c.metricsAPI.ObserveAPICall(interfacesListVirtualMachineScaleSetVMNetworkInterfaces, deriveStatus(err), sinceStart.Seconds())
+	}()
+
+	for pager.More() {
+		nextResult, err := pager.NextPage(ctx)
+
+		if err != nil {
+			// For scale set created by AKS node group (otherwise it will return an empty list) without any instances API will return not found. Then it can be skipped.
+			var respErr *azcore.ResponseError
+			if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
+				continue
+			}
+			return nil, err
+		}
+
+		for _, intf := range nextResult.Value {
+			if intf.Name == nil {
+				continue
+			}
+			networkInterfaces = append(networkInterfaces, *intf)
+		}
+	}
+
+	return networkInterfaces, nil
+}
+
 // listVirtualMachineScaleSetsNetworkInterfaces lists all interfaces from VMs in Scale Sets in the client's resource group
 func (c *Client) listVirtualMachineScaleSetsNetworkInterfaces(ctx context.Context) ([]armnetwork.Interface, error) {
 	var networkInterfaces []armnetwork.Interface
@@ -365,6 +403,34 @@ func parseInterface(iface *armnetwork.Interface, subnets ipamTypes.SubnetMap, us
 func deriveGatewayIP(subnetIP net.IP) string {
 	addr := subnetIP.To4()
 	return net.IPv4(addr[0], addr[1], addr[2], addr[3]+1).String()
+}
+
+// GetInstance returns the instance including its NICs by the given instanceID
+func (c *Client) GetInstance(ctx context.Context, vpcs ipamTypes.VirtualNetworkMap, subnets ipamTypes.SubnetMap, instanceID string) (*ipamTypes.Instance, error) {
+	instance := ipamTypes.Instance{}
+	instance.Interfaces = map[string]ipamTypes.InterfaceRevision{}
+
+	var networkInterfaces []ec2_types.NetworkInterface
+	var err error
+
+	networkInterfaces, err = c.describeNetworkInterfacesByInstance(ctx, instanceID)
+	c.interfaces.NewListVirtualMachineScaleSetVMNetworkInterfacesPager()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, iface := range networkInterfaces {
+		ifId := *iface.NetworkInterfaceId
+		_, eni, err := parseENI(&iface, vpcs, subnets, c.usePrimary)
+		if err != nil {
+			return nil, err
+		}
+
+		instance.Interfaces[ifId] = ipamTypes.InterfaceRevision{
+			Resource: eni,
+		}
+	}
+	return &instance, nil
 }
 
 // GetInstances returns the list of all instances including all attached
