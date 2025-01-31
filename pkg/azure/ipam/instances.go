@@ -69,7 +69,7 @@ func (m *InstancesManager) GetPoolQuota() (quota ipamTypes.PoolQuotaMap) {
 // Resync fetches the list of EC2 instances and subnets and updates the local
 // cache in the instanceManager. It returns the time when the resync has
 // started or time.Time{} if it did not complete.
-func (m *InstancesManager) Resync(ctx context.Context) time.Time {
+func (m *InstancesManager) Resync(ctx context.Context, instanceID string) time.Time {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	resyncStart := time.Now()
@@ -80,28 +80,34 @@ func (m *InstancesManager) Resync(ctx context.Context) time.Time {
 		return time.Time{}
 	}
 
-	instances, err := m.api.GetInstances(ctx, subnets)
-	if err != nil {
-		log.WithError(err).Warning("Unable to synchronize Azure instances list")
-		return time.Time{}
+	if instanceID == "" {
+		instances, err := m.api.GetInstances(ctx, subnets)
+		if err != nil {
+			log.WithError(err).Warning("Unable to synchronize Azure instances list")
+			return time.Time{}
+		}
+
+		log.WithFields(logrus.Fields{
+			"numInstances":       instances.NumInstances(),
+			"numVirtualNetworks": len(vnets),
+			"numSubnets":         len(subnets),
+		}).Info("Synchronized Azure IPAM information")
+
+		m.instances = instances
+		m.vnets = vnets
+		m.subnets = subnets
+
+	} else {
+		//TODO: Implement resync for an individual instance
+		// Steal similar logic from the AWS ENI mode here: https://github.com/DataDog/cilium/blob/fc18988b9ef1d70c85eb102db79ae8b8dad237d4/pkg/aws/eni/instances.go#L228-L243
+
 	}
-
-	log.WithFields(logrus.Fields{
-		"numInstances":       instances.NumInstances(),
-		"numVirtualNetworks": len(vnets),
-		"numSubnets":         len(subnets),
-	}).Info("Synchronized Azure IPAM information")
-
-	m.instances = instances
-	m.vnets = vnets
-	m.subnets = subnets
-
 	return resyncStart
 }
 
 func (m *InstancesManager) InstanceSync(ctx context.Context, instanceID string) time.Time {
 	// Resync for a separate instance is not implemented yet, fallback to full resync.
-	return m.Resync(ctx)
+	return m.Resync(ctx, instanceID)
 }
 
 // DeleteInstance delete instance from m.instances
