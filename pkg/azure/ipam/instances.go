@@ -17,6 +17,7 @@ import (
 
 // AzureAPI is the API surface used of the Azure API
 type AzureAPI interface {
+	GetInstance(ctx context.Context, vnets ipamTypes.VirtualNetworkMap, subnets ipamTypes.SubnetMap, instanceID string) (*ipamTypes.Instance, error)
 	GetInstances(ctx context.Context, subnets ipamTypes.SubnetMap) (*ipamTypes.InstanceMap, error)
 	GetVpcsAndSubnets(ctx context.Context) (ipamTypes.VirtualNetworkMap, ipamTypes.SubnetMap, error)
 	AssignPrivateIpAddressesVM(ctx context.Context, subnetID, interfaceName string, addresses int) error
@@ -26,11 +27,12 @@ type AzureAPI interface {
 // InstancesManager maintains the list of instances. It must be kept up to date
 // by calling resync() regularly.
 type InstancesManager struct {
-	mutex     lock.RWMutex
-	instances *ipamTypes.InstanceMap
-	vnets     ipamTypes.VirtualNetworkMap
-	subnets   ipamTypes.SubnetMap
-	api       AzureAPI
+	mutex      lock.RWMutex
+	resyncLock lock.RWMutex
+	instances  *ipamTypes.InstanceMap
+	vnets      ipamTypes.VirtualNetworkMap
+	subnets    ipamTypes.SubnetMap
+	api        AzureAPI
 }
 
 // NewInstancesManager returns a new instances manager
@@ -66,12 +68,18 @@ func (m *InstancesManager) GetPoolQuota() (quota ipamTypes.PoolQuotaMap) {
 	return pool
 }
 
-// Resync fetches the list of EC2 instances and subnets and updates the local
+// Resync fetches the list of VPC, subnets, and VMSS VMs and updates the local
 // cache in the instanceManager. It returns the time when the resync has
 // started or time.Time{} if it did not complete.
 func (m *InstancesManager) Resync(ctx context.Context) time.Time {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
+	// Full API resync should block the instance incremental resync from all nodes.
+	m.resyncLock.Lock()
+	defer m.resyncLock.Unlock()
+	// An empty instanceID indicates the full resync.
+	return m.resync(ctx, "")
+}
+
+func (m *InstancesManager) resync(ctx context.Context, instanceID string) time.Time {
 	resyncStart := time.Now()
 
 	vnets, subnets, err := m.api.GetVpcsAndSubnets(ctx)
@@ -80,28 +88,52 @@ func (m *InstancesManager) Resync(ctx context.Context) time.Time {
 		return time.Time{}
 	}
 
-	instances, err := m.api.GetInstances(ctx, subnets)
-	if err != nil {
-		log.WithError(err).Warning("Unable to synchronize Azure instances list")
-		return time.Time{}
+	if instanceID == "" {
+		instances, err := m.api.GetInstances(ctx, subnets)
+		if err != nil {
+			log.WithError(err).Warning("Unable to synchronize Azure instances list")
+			return time.Time{}
+		}
+
+		log.WithFields(logrus.Fields{
+			"numInstances":       instances.NumInstances(),
+			"numVirtualNetworks": len(vnets),
+			"numSubnets":         len(subnets),
+		}).Info("Synchronized Azure IPAM information")
+
+		m.mutex.Lock()
+		defer m.mutex.Unlock()
+		m.instances = instances
+		m.vnets = vnets
+		m.subnets = subnets
+	} else {
+		instance, err := m.api.GetInstance(ctx, vnets, subnets, instanceID)
+		if err != nil {
+			log.WithError(err).Warning("Unable to synchronize Azure IPAM interface list")
+			return time.Time{}
+		}
+		log.WithFields(logrus.Fields{
+			"instance":           instanceID,
+			"numVirtualNetworks": len(vnets),
+			"numSubnets":         len(subnets),
+		}).Info("Synchronized Azure IPAM information for the corresponding instance")
+
+		m.mutex.Lock()
+		defer m.mutex.Unlock()
+		m.instances.UpdateInstance(instanceID, instance)
+		m.vnets = vnets
+		m.subnets = subnets
 	}
-
-	log.WithFields(logrus.Fields{
-		"numInstances":       instances.NumInstances(),
-		"numVirtualNetworks": len(vnets),
-		"numSubnets":         len(subnets),
-	}).Info("Synchronized Azure IPAM information")
-
-	m.instances = instances
-	m.vnets = vnets
-	m.subnets = subnets
 
 	return resyncStart
 }
 
 func (m *InstancesManager) InstanceSync(ctx context.Context, instanceID string) time.Time {
-	// Resync for a separate instance is not implemented yet, fallback to full resync.
-	return m.Resync(ctx)
+	// Instance incremental resync from different nodes should be executed in parallel,
+	// but must block the full API resync.
+	m.resyncLock.RLock()
+	defer m.resyncLock.RUnlock()
+	return m.resync(ctx, instanceID)
 }
 
 // DeleteInstance delete instance from m.instances
