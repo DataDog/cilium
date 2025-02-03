@@ -106,17 +106,18 @@ require (
 	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba
 	golang.org/x/crypto v0.32.0
 	golang.org/x/exp v0.0.0-20240613232115-7f521ea00fb8
-	golang.org/x/mod v0.18.0
+	golang.org/x/mod v0.20.0
 	golang.org/x/net v0.34.0
 	golang.org/x/sync v0.10.0
 	golang.org/x/sys v0.29.0
-	golang.org/x/time v0.5.0
-	golang.org/x/tools v0.22.0
+	golang.org/x/time v0.6.0
+	golang.org/x/tools v0.24.0
 	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20230429144221-925a1e7659e6
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241206012308-a4fef0638583
 	google.golang.org/grpc v1.68.1
 	google.golang.org/protobuf v1.35.2
+	gopkg.in/DataDog/dd-trace-go.v1 v1.71.0
 	gopkg.in/ini.v1 v1.67.0
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.30.2
@@ -140,6 +141,20 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.10.0 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 // indirect
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.3.2 // indirect
+	github.com/DataDog/appsec-internal-go v1.9.0 // indirect
+	github.com/DataDog/datadog-agent/pkg/obfuscate v0.58.0 // indirect
+	github.com/DataDog/datadog-agent/pkg/proto v0.58.0 // indirect
+	github.com/DataDog/datadog-agent/pkg/remoteconfig/state v0.58.0 // indirect
+	github.com/DataDog/datadog-agent/pkg/trace v0.58.0 // indirect
+	github.com/DataDog/datadog-agent/pkg/util/log v0.58.0 // indirect
+	github.com/DataDog/datadog-agent/pkg/util/scrubber v0.58.0 // indirect
+	github.com/DataDog/datadog-go/v5 v5.5.0 // indirect
+	github.com/DataDog/go-libddwaf/v3 v3.5.1 // indirect
+	github.com/DataDog/go-runtime-metrics-internal v0.0.4-0.20241206090539-a14610dc22b6 // indirect
+	github.com/DataDog/go-sqllexer v0.0.14 // indirect
+	github.com/DataDog/go-tuf v1.1.0-0.5.2 // indirect
+	github.com/DataDog/opentelemetry-mapping-go/pkg/otlp/attributes v0.20.0 // indirect
+	github.com/DataDog/sketches-go v1.4.5 // indirect
 	github.com/Masterminds/semver/v3 v3.2.1 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/alecthomas/participle/v2 v2.1.0 // indirect
@@ -158,6 +173,7 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/census-instrumentation/opencensus-proto v0.4.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/cihub/seelog v0.0.0-20170130134532-f561c5e57575 // indirect
 	github.com/cilium/endpointslice v0.29.4-0.20240409195643-982ad68ab7ba // indirect
 	github.com/cncf/xds/go v0.0.0-20240905190251-b4127c9b8d78 // indirect
 	github.com/containerd/containerd v1.7.14 // indirect
@@ -168,8 +184,11 @@ require (
 	github.com/distribution/reference v0.5.0 // indirect
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
+	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/eapache/channels v1.1.0 // indirect
 	github.com/eapache/queue v1.1.0 // indirect
+	github.com/eapache/queue/v2 v2.0.0-20230407133247-75960ed334e4 // indirect
+	github.com/ebitengine/purego v0.6.0-alpha.5 // indirect
 	github.com/emicklei/go-restful/v3 v3.12.0 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.1.0 // indirect
 	github.com/evanphx/json-patch/v5 v5.9.0 // indirect
@@ -179,6 +198,7 @@ require (
 	github.com/go-kit/log v0.2.1 // indirect
 	github.com/go-logfmt/logfmt v0.5.1 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/go-openapi/analysis v0.23.0 // indirect
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect
 	github.com/go-openapi/jsonreference v0.21.0 // indirect
@@ -196,9 +216,10 @@ require (
 	github.com/hashicorp/go-msgpack v1.1.5 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/go-rootcerts v1.0.2 // indirect
+	github.com/hashicorp/go-secure-stdlib/parseutil v0.1.7 // indirect
+	github.com/hashicorp/go-secure-stdlib/strutil v0.1.2 // indirect
 	github.com/hashicorp/go-sockaddr v1.0.5 // indirect
-	github.com/hashicorp/go-version v1.6.0 // indirect
-	github.com/hashicorp/golang-lru v0.5.4 // indirect
+	github.com/hashicorp/golang-lru v1.0.2 // indirect
 	github.com/hashicorp/hcl v1.0.1-vault-5 // indirect
 	github.com/hashicorp/serf v0.10.1 // indirect
 	github.com/imdario/mergo v0.3.16 // indirect
@@ -210,6 +231,7 @@ require (
 	github.com/k-sone/critbitgo v1.4.0 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
+	github.com/lufia/plan9stats v0.0.0-20220913051719-115f729f3c8c // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
@@ -222,7 +244,7 @@ require (
 	github.com/miekg/dns v1.1.58 // indirect
 	github.com/mikioh/ipaddr v0.0.0-20190404000644-d465c8ab6721 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
-	github.com/mitchellh/mapstructure v1.5.0 // indirect
+	github.com/mitchellh/mapstructure v1.5.1-0.20231216201459-8508981c8b6c // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/spdystream v0.2.0 // indirect
 	github.com/moby/term v0.5.0 // indirect
@@ -236,24 +258,40 @@ require (
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.0-rc2.0.20221005185240-3a7f492d3f1b // indirect
 	github.com/opentracing/opentracing-go v1.2.1-0.20220228012449-10b1cf09e00b // indirect
+	github.com/outcaste-io/ristretto v0.2.3 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.2 // indirect
 	github.com/petermattis/goid v0.0.0-20240813172612-4fcff4a6cae7 // indirect
+	github.com/philhofer/fwd v1.1.3-0.20240612014219-fbbf4953d986 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/prometheus/common v0.48.0 // indirect
+	github.com/power-devops/perfstat v0.0.0-20220216144756-c35f1ee13d7c // indirect
+	github.com/prometheus/common v0.54.0 // indirect
 	github.com/rogpeppe/go-internal v1.12.0 // indirect
+	github.com/ryanuber/go-glob v1.0.0 // indirect
 	github.com/sagikazarmark/locafero v0.4.0 // indirect
 	github.com/sagikazarmark/slog-shim v0.1.0 // indirect
+	github.com/secure-systems-lab/go-securesystemslib v0.7.0 // indirect
 	github.com/sergi/go-diff v1.2.0 // indirect
+	github.com/shirou/gopsutil/v3 v3.24.4 // indirect
+	github.com/shoenig/go-m1cpu v0.1.6 // indirect
 	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/stoewer/go-strcase v1.3.0 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
-	github.com/tidwall/pretty v1.2.0 // indirect
+	github.com/tidwall/pretty v1.2.1 // indirect
+	github.com/tinylib/msgp v1.2.1 // indirect
+	github.com/tklauser/go-sysconf v0.3.12 // indirect
+	github.com/tklauser/numcpus v0.6.1 // indirect
+	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	github.com/zeebo/errs v1.3.0 // indirect
 	gitlab.com/golang-commonmark/puny v0.0.0-20191124015043-9f83538fa04f // indirect
 	go.mongodb.org/mongo-driver v1.14.0 // indirect
 	go.opencensus.io v0.24.0 // indirect
+	go.opentelemetry.io/collector/component v0.104.0 // indirect
+	go.opentelemetry.io/collector/config/configtelemetry v0.104.0 // indirect
+	go.opentelemetry.io/collector/pdata v1.11.0 // indirect
+	go.opentelemetry.io/collector/pdata/pprofile v0.104.0 // indirect
+	go.opentelemetry.io/collector/semconv v0.104.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.49.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.22.0 // indirect
 	go.opentelemetry.io/otel/metric v1.27.0 // indirect
@@ -264,6 +302,7 @@ require (
 	golang.org/x/oauth2 v0.23.0 // indirect
 	golang.org/x/term v0.28.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
+	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.4.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20241206012308-a4fef0638583 // indirect
