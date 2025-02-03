@@ -403,6 +403,41 @@ func (c *Client) GetInstances(ctx context.Context, subnets ipamTypes.SubnetMap) 
 	return instances, nil
 }
 
+// GetInstance returns the interfaces of a given instance
+func (c *Client) GetInstance(ctx context.Context, subnets ipamTypes.SubnetMap, instanceID string) (*ipamTypes.Instance, error) {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
+	instance := ipamTypes.Instance{}
+	instance.Interfaces = map[string]ipamTypes.InterfaceRevision{}
+
+	parts := strings.Split(instanceID, "_")
+	virtualMachineScaleSetName := parts[0]
+	virtualmachineIndex := parts[1]
+
+	var armnetworkInterfaces []*armnetwork.Interface
+
+	pager := c.interfaces.NewListVirtualMachineScaleSetVMNetworkInterfacesPager(c.resourceGroup, virtualMachineScaleSetName, virtualmachineIndex, nil)
+	for pager.More() {
+		nextResult, err := pager.NextPage(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, armnetworkInterface := range nextResult.Value {
+			armnetworkInterfaces = append(armnetworkInterfaces, armnetworkInterface)
+		}
+	}
+
+	for _, armnetworkInterface := range armnetworkInterfaces {
+		if id, azureInterface := parseInterface(armnetworkInterface, subnets, c.usePrimary); id != "" {
+			instance.Interfaces[id] = ipamTypes.InterfaceRevision{Resource: azureInterface}
+		}
+	}
+
+	return &instance, nil
+}
+
 // listAllVPCs lists all VPCs
 func (c *Client) listAllVPCs(ctx context.Context) ([]armnetwork.VirtualNetwork, error) {
 	var vpcs []armnetwork.VirtualNetwork

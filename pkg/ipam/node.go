@@ -1040,7 +1040,7 @@ func (n *Node) MaintainIPPool(ctx context.Context) error {
 		n.requireResync()
 	}
 	n.poolMaintenanceComplete()
-	n.recalculate()
+	n.recalculate() //TODO pass down context
 	if instanceMutated || err != nil {
 		n.instanceSync.Trigger()
 	}
