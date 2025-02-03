@@ -23,6 +23,7 @@ type Operation int
 
 const (
 	AllOperations Operation = iota
+	GetInstance
 	GetInstances
 	GetVpcsAndSubnets
 	AssignPrivateIpAddressesVMSS
@@ -37,6 +38,7 @@ type subnet struct {
 type API struct {
 	mutex     lock.RWMutex
 	subnets   map[string]*subnet
+	instance  *ipamTypes.Instance
 	instances *ipamTypes.InstanceMap
 	vnets     map[string]*ipamTypes.VirtualNetwork
 	errors    map[Operation]error
@@ -123,6 +125,20 @@ func (a *API) rateLimit() {
 	if delay := r.Delay(); delay != time.Duration(0) && delay != rate.InfDuration {
 		time.Sleep(delay)
 	}
+}
+
+func (a *API) GetInstance(ctx context.Context, subnets ipamTypes.SubnetMap, instanceID string) (*ipamTypes.Instance, error) {
+	a.rateLimit()
+	a.delaySim.Delay(GetInstance)
+
+	a.mutex.RLock()
+	defer a.mutex.RUnlock()
+
+	if err, ok := a.errors[GetInstance]; ok {
+		return nil, err
+	}
+
+	return a.instance.DeepCopy(), nil
 }
 
 func (a *API) GetInstances(ctx context.Context, subnets ipamTypes.SubnetMap) (*ipamTypes.InstanceMap, error) {
