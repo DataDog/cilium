@@ -444,7 +444,7 @@ func (n *Node) UpdatedResource(resource *v2.CiliumNode) bool {
 
 	n.ops.UpdatedNode(resource)
 
-	n.recalculate()
+	n.recalculate(context.Background())
 	allocationNeeded := n.allocationNeeded()
 	if allocationNeeded {
 		n.requirePoolMaintenance()
@@ -461,20 +461,24 @@ func (n *Node) resourceAttached() (attached bool) {
 	return
 }
 
-func (n *Node) recalculate() {
+func (n *Node) recalculate(ctx context.Context) {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
 	// Skip any recalculation if the CiliumNode resource does not exist yet
 	if !n.resourceAttached() {
 		return
 	}
 	scopedLog := n.logger()
 
-	a, stats, err := n.ops.ResyncInterfacesAndIPs(context.TODO(), scopedLog)
+	a, stats, err := n.ops.ResyncInterfacesAndIPs(ctx, scopedLog)
 
 	n.mutex.Lock()
 	defer n.mutex.Unlock()
 
 	if err != nil {
-		scopedLog.Warning("Instance not found! Please delete corresponding ciliumnode if instance has already been deleted.")
+		scopedLog.WithError(err).Warning("Instance not found! Please delete corresponding ciliumnode if instance has already been deleted.")
 		// Avoid any further action
 		n.stats.IPv4.NeededIPs = 0
 		n.stats.IPv4.ExcessIPs = 0
@@ -1040,7 +1044,7 @@ func (n *Node) MaintainIPPool(ctx context.Context) error {
 		n.requireResync()
 	}
 	n.poolMaintenanceComplete()
-	n.recalculate()
+	n.recalculate(ctx)
 	if instanceMutated || err != nil {
 		n.instanceSync.Trigger()
 	}
