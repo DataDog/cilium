@@ -122,7 +122,7 @@ type AllocationImplementation interface {
 	// Resync is called periodically to give the IPAM implementation a
 	// chance to resync its own state with external APIs or systems. It is
 	// also called when the IPAM layer detects that state got out of sync.
-	Resync(ctx context.Context) time.Time
+	Resync(ctx context.Context, instanceID string) time.Time
 
 	// InstanceSync is called to sync the state of the specified instance with
 	// external APIs or systems.
@@ -216,7 +216,7 @@ func (n *NodeManager) instancesAPIResync(ctx context.Context) (time.Time, bool) 
 	span, ctx := tracing.StartSpan(ctx)
 	defer func() { span.Finish(tracing.WithError(err)) }()
 
-	syncTime := n.instancesAPI.Resync(ctx)
+	syncTime := n.instancesAPI.Resync(ctx, "")
 	success := !syncTime.IsZero()
 	n.SetInstancesAPIReadiness(success)
 	return syncTime, success
