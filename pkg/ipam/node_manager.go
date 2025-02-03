@@ -485,7 +485,7 @@ func (n *NodeManager) resyncNode(ctx context.Context, node *Node, stats *resyncS
 	defer func() { span.Finish(tracing.WithError(err)) }()
 
 	node.updateLastResync(syncTime)
-	node.recalculate()
+	node.recalculate(ctx)
 	allocationNeeded := node.allocationNeeded()
 	releaseNeeded := node.releaseNeeded()
 	if allocationNeeded || releaseNeeded {
