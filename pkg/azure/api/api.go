@@ -280,6 +280,43 @@ func deriveGatewayIP(subnetIP net.IP) string {
 	return net.IPv4(addr[0], addr[1], addr[2], addr[3]+1).String()
 }
 
+// GetInstance returns the instance including all attached interfaces
+func (c *Client) GetInstance(ctx context.Context, vpcs ipamTypes.VirtualNetworkMap, subnets ipamTypes.SubnetMap, instanceID string) (*ipamTypes.Instance, error) {
+	instance := ipamTypes.Instance{}
+	instance.Interfaces = map[string]ipamTypes.InterfaceRevision{}
+	parts := strings.Split(instanceID, "_")
+	virtualMachineScaleSetName := parts[0]
+	virtualmachineIndex := parts[1]
+	var armnetworkInterfaces []network.Interface
+	c.limiter.Limit(ctx, "Interfaces.ListVirtualMachineScaleSetVMNetworkInterfacesComplete")
+	sinceStart := spanstat.Start()
+	result, err := c.interfaces.ListVirtualMachineScaleSetVMNetworkInterfacesComplete(ctx, c.resourceGroup, virtualMachineScaleSetName, virtualmachineIndex)
+	c.metricsAPI.ObserveAPICall("Interfaces.ListVirtualMachineScaleSetVMNetworkInterfacesComplete", deriveStatus(err), sinceStart.Seconds())
+
+	for result.NotDone() {
+		if err != nil {
+			return nil, err
+		}
+
+		armnetworkInterface := result.Value()
+		err = result.Next()
+
+		if armnetworkInterface.Name == nil {
+			continue
+		}
+		armnetworkInterfaces = append(armnetworkInterfaces, result.Value())
+
+	}
+
+	for _, armnetworkInterface := range armnetworkInterfaces {
+		if id, azureInterface := parseInterface(&armnetworkInterface, subnets, c.usePrimary); id != "" {
+			instance.Interfaces[id] = ipamTypes.InterfaceRevision{Resource: azureInterface}
+		}
+	}
+	return &instance, nil
+
+}
+
 // GetInstances returns the list of all instances including all attached
 // interfaces as instanceMap
 func (c *Client) GetInstances(ctx context.Context, subnets ipamTypes.SubnetMap) (*ipamTypes.InstanceMap, error) {
