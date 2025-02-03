@@ -216,7 +216,7 @@ func (n *NodeManager) instancesAPIResync(ctx context.Context) (time.Time, bool) 
 	span, ctx := tracing.StartSpan(ctx)
 	defer func() { span.Finish(tracing.WithError(err)) }()
 
-	syncTime := n.instancesAPI.Resync(ctx)
+	syncTime := n.instancesAPI.Resync(ctx, "")
 	success := !syncTime.IsZero()
 	n.SetInstancesAPIReadiness(success)
 	return syncTime, success
