@@ -2,8 +2,11 @@ stages:
   - trigger
   - build
 
+default:
+  tags: ["arch:amd64"]
+  image: registry.ddbuild.io/images/docker:24.0.4-gbi-focal
+
 variables:
-  CI_DOCKER_IMAGE: registry.ddbuild.io/images/docker:24.0.4-gbi-focal
   DOCKER_CTX: "."
   DOCKER_BUILD_ARGS: ""
 
@@ -11,10 +14,8 @@ variables:
 before_script:
   - git repack -a -d && rm -f .git/objects/info/alternates
 
-.build-docker-image: &build-docker-image
+.build-docker-image:
   stage: build
-  image: $CI_DOCKER_IMAGE
-  tags: ["arch:arm64"]
   rules:
     # Run the pipeline for all pushed tags + triggered pipelines
     - if: $CI_COMMIT_TAG
@@ -22,11 +23,10 @@ before_script:
   id_tokens:
     DDSIGN_ID_TOKEN:
       aud: image-integrity
-  script:
-    - .gitlab/build-image.sh
+  script: .gitlab/build-image.sh
 
-build-docker-image-operator:
-  <<: *build-docker-image
+cilium-operator:
+  extends: .build-docker-image
   variables:
     IMAGE_NAME: cilium-operator
     DOCKERFILE_PATH: images/operator/Dockerfile
@@ -38,8 +38,47 @@ build-docker-image-operator:
       CILIUM_BUILDER_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-builder:2bc05d278f1cee9ae39bb7631ed7fbfcca4a7b08@sha256:d11406ddfaeab85d3fc1f10836768ea60b716b456b9266f3ed8070f1bd96ffc7
     TARGET: release
 
-build-docker-image-runtime:
-  <<: *build-docker-image
+cilium-operator-generic:
+  extends: .build-docker-image
+  variables:
+    IMAGE_NAME: cilium-operator-generic
+    DOCKERFILE_PATH: images/operator/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      OPERATOR_VARIANT=operator-generic
+      BASE_IMAGE=registry.ddbuild.io/images/base/gbi-distroless:release
+      GOLANG_IMAGE=registry.ddbuild.io/images/mirror/library/golang:1.22.11@sha256:d5b17d684180648e16ea974bea677498945e8b619f7b26325958d8d99e97f9ea
+      ALPINE_IMAGE=registry.ddbuild.io/images/mirror/library/alpine:3.20.1@sha256:b89d9c93e9ed3597455c90a0b88a8bbb5cb7188438f70953fede212a0c4394e0
+      CILIUM_BUILDER_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-builder:2bc05d278f1cee9ae39bb7631ed7fbfcca4a7b08@sha256:d11406ddfaeab85d3fc1f10836768ea60b716b456b9266f3ed8070f1bd96ffc7
+    TARGET: release
+
+cilium-operator-aws:
+  extends: .build-docker-image
+  variables:
+    IMAGE_NAME: cilium-operator-aws
+    DOCKERFILE_PATH: images/operator/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      OPERATOR_VARIANT=operator-aws
+      BASE_IMAGE=registry.ddbuild.io/images/base/gbi-distroless:release
+      GOLANG_IMAGE=registry.ddbuild.io/images/mirror/library/golang:1.22.11@sha256:d5b17d684180648e16ea974bea677498945e8b619f7b26325958d8d99e97f9ea
+      ALPINE_IMAGE=registry.ddbuild.io/images/mirror/library/alpine:3.20.1@sha256:b89d9c93e9ed3597455c90a0b88a8bbb5cb7188438f70953fede212a0c4394e0
+      CILIUM_BUILDER_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-builder:2bc05d278f1cee9ae39bb7631ed7fbfcca4a7b08@sha256:d11406ddfaeab85d3fc1f10836768ea60b716b456b9266f3ed8070f1bd96ffc7
+    TARGET: release
+
+cilium-operator-azure:
+  extends: .build-docker-image
+  variables:
+    IMAGE_NAME: cilium-operator-azure
+    DOCKERFILE_PATH: images/operator/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      OPERATOR_VARIANT=operator-azure
+      BASE_IMAGE=registry.ddbuild.io/images/base/gbi-distroless:release
+      GOLANG_IMAGE=registry.ddbuild.io/images/mirror/library/golang:1.22.11@sha256:d5b17d684180648e16ea974bea677498945e8b619f7b26325958d8d99e97f9ea
+      ALPINE_IMAGE=registry.ddbuild.io/images/mirror/library/alpine:3.20.1@sha256:b89d9c93e9ed3597455c90a0b88a8bbb5cb7188438f70953fede212a0c4394e0
+      CILIUM_BUILDER_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-builder:2bc05d278f1cee9ae39bb7631ed7fbfcca4a7b08@sha256:d11406ddfaeab85d3fc1f10836768ea60b716b456b9266f3ed8070f1bd96ffc7
+    TARGET: release
+
+cilium-runtime:
+  extends: .build-docker-image
   variables:
     IMAGE_NAME: cilium-runtime
     DOCKERFILE_PATH: images/runtime/Dockerfile
@@ -55,8 +94,8 @@ build-docker-image-runtime:
 # Caveats:
 # * The build image is single-arch amd64 and we're doing cross-compilation, so the dlv copy is only valid on amd64. In
 #   other words, the arm64 image does not work.
-build-docker-image-cilium:
-  <<: *build-docker-image
+cilium:
+  extends: .build-docker-image
   needs:
     # The cilium image depends on the runtime image
     - build-docker-image-runtime
@@ -69,8 +108,8 @@ build-docker-image-cilium:
     TARGET: release
     NOSTRIP: 0
 
-build-docker-image-hubble-relay:
-  <<: *build-docker-image
+hubble-relay:
+  extends: .build-docker-image
   variables:
     IMAGE_NAME: hubble-relay
     DOCKERFILE_PATH: images/hubble-relay/Dockerfile
@@ -80,8 +119,10 @@ build-docker-image-hubble-relay:
       CILIUM_BUILDER_IMAGE=registry.ddbuild.io/images/mirror/cilium/cilium-builder:2bc05d278f1cee9ae39bb7631ed7fbfcca4a7b08@sha256:d11406ddfaeab85d3fc1f10836768ea60b716b456b9266f3ed8070f1bd96ffc7
     TARGET: release
 
-build-docker-image-clustermesh-apiserver:
-  <<: *build-docker-image
+# This job is a duplicate of the clustermesh-apiserver one
+# We keep it until we replaced all image references from kvstoremesh to clustermesh-apiserver
+kvstoremesh:
+  extends: .build-docker-image
   variables:
     IMAGE_NAME: kvstoremesh
     DOCKERFILE_PATH: images/clustermesh-apiserver/Dockerfile
@@ -90,11 +131,19 @@ build-docker-image-clustermesh-apiserver:
       GOLANG_IMAGE=registry.ddbuild.io/images/mirror/library/golang:1.22.11@sha256:d5b17d684180648e16ea974bea677498945e8b619f7b26325958d8d99e97f9ea
     TARGET: release
 
+clustermesh-apiserver:
+  extends: .build-docker-image
+  variables:
+    IMAGE_NAME: clustermesh-apiserver
+    DOCKERFILE_PATH: images/clustermesh-apiserver/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      BASE_IMAGE=registry.ddbuild.io/images/base/gbi-distroless:release
+      GOLANG_IMAGE=registry.ddbuild.io/images/mirror/library/golang:1.22.11@sha256:d5b17d684180648e16ea974bea677498945e8b619f7b26325958d8d99e97f9ea
+    TARGET: release
+
+
 trigger-builds:
   stage: trigger
-  image: $CI_DOCKER_IMAGE
-  tags: ["arch:arm64"]
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
-  script:
-    - .gitlab/trigger-builds.sh
+  script: .gitlab/trigger-builds.sh
