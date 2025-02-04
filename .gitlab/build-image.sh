@@ -16,10 +16,10 @@ IMAGE_TAG="$CI_COMMIT_TAG"
 if [ "$TARGET" = "debug" ]; then
   IMAGE_TAG="${IMAGE_TAG}-debug"
 fi
-IMAGE_REF="registry.ddbuild.io/$IMAGE_NAME:$IMAGE_TAG"
+IMAGE_REF="registry.ddbuild.io/$CI_JOB_NAME:$IMAGE_TAG"
 
 # Find the right Cilium Runtime image to use for the main Cilium image build
-if [ "$IMAGE_NAME" == "cilium" ]; then
+if [ "$CI_JOB_NAME" == "cilium" ]; then
   CILIUM_RUNTIME_IMAGE="registry.ddbuild.io/cilium-runtime:$IMAGE_TAG"
   BUILD_ARGS+=" --build-arg CILIUM_RUNTIME_IMAGE=$CILIUM_RUNTIME_IMAGE"
 fi
