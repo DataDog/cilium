@@ -646,10 +646,10 @@ func (m *manager) NodeUpdated(n nodeTypes.Node) {
 		logfields.ClusterName: n.Cluster,
 		logfields.NodeName:    n.Name,
 		logfields.SPI:         n.EncryptionKey,
+		logfields.Identity:    n.NodeIdentity,
 	}).Info("Node updated")
-	if log.Logger.IsLevelEnabled(logrus.DebugLevel) {
-		log.WithField(logfields.Node, n.LogRepr()).Debugf("Received node update event from %s", n.Source)
-	}
+
+	log.WithField(logfields.Node, n.LogRepr()).Debugf("Received node update event from %s", n.Source)
 
 	nodeIdentifier := n.Identity()
 	dpUpdate := true
