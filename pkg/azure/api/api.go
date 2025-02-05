@@ -276,6 +276,12 @@ func (c *Client) listVirtualMachineScaleSets(ctx context.Context) ([]armcompute.
 
 // listVirtualMachineScaleSetNetworkInterfaces lists all network interfaces for a given virtual machines scale set
 func (c *Client) listVirtualMachineScaleSetNetworkInterfaces(ctx context.Context, virtualMachineScaleSetName string) ([]armnetwork.Interface, error) {
+    // Test solving deadlock issue
+    ctx, cancel := context.WithTimeout(ctx, 1 * time.Minute)
+    defer func() {
+        log.Errorf("HADRIEN Cancelled context to prevent deadlock")
+        cancel()
+    }
 	var networkInterfaces []armnetwork.Interface
 	var err error
 	span, ctx := tracing.StartSpan(ctx)
