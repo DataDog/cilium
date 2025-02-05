@@ -276,6 +276,10 @@ func (c *Client) listVirtualMachineScaleSets(ctx context.Context) ([]armcompute.
 
 // listVirtualMachineScaleSetNetworkInterfaces lists all network interfaces for a given virtual machines scale set
 func (c *Client) listVirtualMachineScaleSetNetworkInterfaces(ctx context.Context, virtualMachineScaleSetName string) ([]armnetwork.Interface, error) {
+	// Test solving deadlock issue
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+
 	var networkInterfaces []armnetwork.Interface
 	var err error
 	span, ctx := tracing.StartSpan(ctx)
@@ -297,6 +301,7 @@ func (c *Client) listVirtualMachineScaleSetNetworkInterfaces(ctx context.Context
 			// For scale set created by AKS node group (otherwise it will return an empty list) without any instances API will return not found. Then it can be skipped.
 			var respErr *azcore.ResponseError
 			if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
+				log.WithError(err).WithField("scaleSet", virtualMachineScaleSetName).Errorf("HADRIEN am I stuck in a loop?")
 				continue
 			}
 			return nil, err
