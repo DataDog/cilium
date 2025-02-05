@@ -99,7 +99,7 @@ func (m *InstancesManager) resyncInstance(ctx context.Context, instanceID string
 
 	instance, err := m.api.GetInstance(ctx, subnets, instanceID)
 	if err != nil {
-		log.WithError(err).Warning("Unable to synchronize Azure instance interface list")
+		log.WithError(err).WithField("instance", instanceID).Warning("Unable to synchronize Azure instance interface list")
 		return time.Time{}
 	}
 
@@ -160,6 +160,8 @@ func (m *InstancesManager) InstanceSync(ctx context.Context, instanceID string) 
 
 	// Instance incremental resync from different nodes should be executed in parallel,
 	// but must block the full API resync.
+	// Note: those instances sync are currently not parallel as they all use the same lock
+	// see https://github.com/cilium/cilium/pull/37430/files#r1943063100
 	m.resyncLock.RLock()
 	defer m.resyncLock.RUnlock()
 	return m.resyncInstance(ctx, instanceID)
