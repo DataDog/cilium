@@ -99,7 +99,7 @@ func (m *InstancesManager) resyncInstance(ctx context.Context, instanceID string
 
 	instance, err := m.api.GetInstance(ctx, subnets, instanceID)
 	if err != nil {
-		log.WithError(err).Warning("Unable to synchronize Azure instance interface list")
+		log.WithError(err).WithField("instance", instanceID).Warning("Unable to synchronize Azure instance interface list")
 		return time.Time{}
 	}
 

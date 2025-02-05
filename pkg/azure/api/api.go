@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
@@ -424,15 +423,13 @@ func (c *Client) GetInstances(ctx context.Context, subnets ipamTypes.SubnetMap) 
 	}
 
 	for _, iface := range networkInterfaces {
-		if id, azureInterface := parseInterface(&iface, subnets, c.usePrimary); id != "" {
-			instances.Update(id, ipamTypes.InterfaceRevision{Resource: azureInterface})
+		if instanceID, azureInterface := parseInterface(&iface, subnets, c.usePrimary); instanceID != "" {
+			instances.Update(instanceID, ipamTypes.InterfaceRevision{Resource: azureInterface})
 		}
 	}
 
 	return instances, nil
 }
-
-var vmssRe = regexp.MustCompile(`[Vv]irtual[Mm]achine[Ss]cale[Ss]ets\/(.*)\/[Vv]irtual[Mm]achines\/(.*)`)
 
 // GetInstance returns the interfaces of a given instance
 func (c *Client) GetInstance(ctx context.Context, subnets ipamTypes.SubnetMap, instanceID string) (*ipamTypes.Instance, error) {
@@ -443,22 +440,23 @@ func (c *Client) GetInstance(ctx context.Context, subnets ipamTypes.SubnetMap, i
 	instance := ipamTypes.Instance{}
 	instance.Interfaces = map[string]ipamTypes.InterfaceRevision{}
 
-	parts := vmssRe.FindStringSubmatch(instanceID)
-	if len(parts) != 3 {
-		return nil, fmt.Errorf("instance ID %q does not match expected format", instanceID)
+	resourceID, err := arm.ParseResourceID(instanceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse instance ID %q", instanceID)
 	}
-	virtualMachineScaleSetName := parts[1]
-	virtualmachineIndex := parts[2]
+	if strings.ToLower(resourceID.ResourceType.Type) != "virtualmachinescalesets/virtualmachines" {
+		return nil, fmt.Errorf("instance %q is not a virtual machine scale set instance", instanceID)
+	}
 
-	networkInterfaces, err := c.listVirtualMachineScaleSetVMNetworkInterfaces(ctx, virtualMachineScaleSetName, virtualmachineIndex)
+	networkInterfaces, err := c.listVirtualMachineScaleSetVMNetworkInterfaces(ctx, resourceID.Parent.Name, resourceID.Name)
 	if err != nil {
 		return nil, err
 	}
 
 	for _, networkInterface := range networkInterfaces {
-		if id, azureInterface := parseInterface(networkInterface, subnets, c.usePrimary); id != "" {
-			instance.Interfaces[id] = ipamTypes.InterfaceRevision{Resource: azureInterface}
-		}
+		_, azureInterface := parseInterface(networkInterface, subnets, c.usePrimary)
+		instance.Interfaces[azureInterface.ID] = ipamTypes.InterfaceRevision{Resource: azureInterface}
+
 	}
 
 	return &instance, nil
