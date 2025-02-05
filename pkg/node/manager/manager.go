@@ -647,9 +647,8 @@ func (m *manager) NodeUpdated(n nodeTypes.Node) {
 		logfields.NodeName:    n.Name,
 		logfields.SPI:         n.EncryptionKey,
 	}).Info("Node updated")
-	if log.Logger.IsLevelEnabled(logrus.DebugLevel) {
-		log.WithField(logfields.Node, n.LogRepr()).Debugf("Received node update event from %s", n.Source)
-	}
+
+	log.WithField(logfields.Node, n.LogRepr()).Infof("Received node update event from %s", n.Source)
 
 	nodeIdentifier := n.Identity()
 	dpUpdate := true
@@ -720,7 +719,20 @@ func (m *manager) NodeUpdated(n nodeTypes.Node) {
 			ipcacheTypes.TunnelPeer{Addr: tunnelIP},
 			ipcacheTypes.EncryptKey(key))
 		if nodeIdentityOverride {
+			log.WithFields(logrus.Fields{
+				logfields.NodeName: n.Name,
+				logfields.Prefix:   prefix,
+				logfields.Labels:   nodeLabels,
+				"Source":           n.Source,
+			}).Info("Updating node identity")
 			m.ipcache.OverrideIdentity(prefix, nodeLabels, n.Source, resource)
+		} else {
+			log.WithFields(logrus.Fields{
+				logfields.NodeName: n.Name,
+				logfields.Prefix:   prefix,
+				logfields.Labels:   nodeLabels,
+				"Source":           n.Source,
+			}).Info("Not updating node identity")
 		}
 		nodeIPsAdded = append(nodeIPsAdded, prefix)
 	}
