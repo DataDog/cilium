@@ -28,6 +28,7 @@ import (
 	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/spanstat"
+	"github.com/cilium/cilium/pkg/tracing"
 	"github.com/cilium/cilium/pkg/version"
 )
 
@@ -120,6 +121,10 @@ func deriveStatus(err error) string {
 
 // describeNetworkInterfaces lists all Azure Interfaces in the client's resource group
 func (c *Client) describeNetworkInterfaces(ctx context.Context) ([]network.Interface, error) {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
 	networkInterfaces, err := c.vmssNetworkInterfaces(ctx)
 	if err != nil {
 		return nil, err
@@ -135,6 +140,10 @@ func (c *Client) describeNetworkInterfaces(ctx context.Context) ([]network.Inter
 
 // vmNetworkInterfaces list all interfaces of non-VMSS instances in the client's resource group
 func (c *Client) vmNetworkInterfaces(ctx context.Context) ([]network.Interface, error) {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
 	var networkInterfaces []network.Interface
 
 	c.limiter.Limit(ctx, "Interfaces.ListComplete")
@@ -164,6 +173,10 @@ func (c *Client) vmNetworkInterfaces(ctx context.Context) ([]network.Interface, 
 
 // vmssNetworkInterfaces list all interfaces from VMS in Scale Sets in the client's resource group
 func (c *Client) vmssNetworkInterfaces(ctx context.Context) ([]network.Interface, error) {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
 	var networkInterfaces []network.Interface
 
 	c.limiter.Limit(ctx, "VirtualMachineScaleSets.ListAll")
@@ -283,6 +296,10 @@ func deriveGatewayIP(subnetIP net.IP) string {
 // GetInstances returns the list of all instances including all attached
 // interfaces as instanceMap
 func (c *Client) GetInstances(ctx context.Context, subnets ipamTypes.SubnetMap) (*ipamTypes.InstanceMap, error) {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
 	instances := ipamTypes.NewInstanceMap()
 
 	networkInterfaces, err := c.describeNetworkInterfaces(ctx)
@@ -301,6 +318,10 @@ func (c *Client) GetInstances(ctx context.Context, subnets ipamTypes.SubnetMap) 
 
 // describeVpcs lists all VPCs
 func (c *Client) describeVpcs(ctx context.Context) ([]network.VirtualNetwork, error) {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
 	c.limiter.Limit(ctx, "VirtualNetworks.List")
 
 	sinceStart := spanstat.Start()
@@ -352,6 +373,10 @@ func parseSubnet(subnet *network.Subnet) (s *ipamTypes.Subnet) {
 
 // GetVpcsAndSubnets retrieves and returns all Vpcs
 func (c *Client) GetVpcsAndSubnets(ctx context.Context) (ipamTypes.VirtualNetworkMap, ipamTypes.SubnetMap, error) {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
 	vpcs := ipamTypes.VirtualNetworkMap{}
 	subnets := ipamTypes.SubnetMap{}
 
@@ -389,6 +414,10 @@ func generateIpConfigName() string {
 
 // AssignPrivateIpAddressesVMSS assign a private IP to an interface attached to a VMSS instance
 func (c *Client) AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, subnetID, interfaceName string, addresses int) error {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
 	var netIfConfig *compute.VirtualMachineScaleSetNetworkConfiguration
 
 	c.limiter.Limit(ctx, "VirtualMachineScaleSetVMs.Get")
@@ -465,6 +494,10 @@ func (c *Client) AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, v
 
 // AssignPrivateIpAddressesVM assign a private IP to an interface attached to a standalone instance
 func (c *Client) AssignPrivateIpAddressesVM(ctx context.Context, subnetID, interfaceName string, addresses int) error {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
 	c.limiter.Limit(ctx, "Interfaces.Get")
 	sinceStart := spanstat.Start()
 	iface, err := c.interfaces.Get(ctx, c.resourceGroup, interfaceName, "")
