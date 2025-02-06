@@ -21,6 +21,7 @@ import (
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/time"
+	"github.com/cilium/cilium/pkg/tracing"
 	"github.com/cilium/cilium/pkg/trigger"
 )
 
@@ -211,6 +212,10 @@ func NewNodeManager(instancesAPI AllocationImplementation, k8sAPI CiliumNodeGett
 }
 
 func (n *NodeManager) instancesAPIResync(ctx context.Context) (time.Time, bool) {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
 	syncTime := n.instancesAPI.Resync(ctx)
 	success := !syncTime.IsZero()
 	n.SetInstancesAPIReadiness(success)
@@ -220,6 +225,10 @@ func (n *NodeManager) instancesAPIResync(ctx context.Context) (time.Time, bool) 
 // Start kicks of the NodeManager by performing the initial state
 // synchronization and starting the background sync goroutine
 func (n *NodeManager) Start(ctx context.Context) error {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
 	// Trigger the initial resync in a blocking manner
 	if _, ok := n.instancesAPIResync(ctx); !ok {
 		return fmt.Errorf("Initial synchronization with instances API failed")
@@ -471,6 +480,10 @@ type ipResyncStats struct {
 }
 
 func (n *NodeManager) resyncNode(ctx context.Context, node *Node, stats *resyncStats, syncTime time.Time) {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
 	node.updateLastResync(syncTime)
 	node.recalculate()
 	allocationNeeded := node.allocationNeeded()
@@ -520,6 +533,10 @@ func (n *NodeManager) resyncNode(ctx context.Context, node *Node, stats *resyncS
 // watermarks. Any updates to the node resource are synchronized to the
 // Kubernetes apiserver.
 func (n *NodeManager) Resync(ctx context.Context, syncTime time.Time) {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
 	n.mutex.Lock()
 	defer n.mutex.Unlock()
 	n.metricsAPI.IncResyncCount()

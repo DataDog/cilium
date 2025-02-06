@@ -13,6 +13,7 @@ import (
 	v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/time"
+	"github.com/cilium/cilium/pkg/tracing"
 )
 
 // AzureAPI is the API surface used of the Azure API
@@ -70,6 +71,10 @@ func (m *InstancesManager) GetPoolQuota() (quota ipamTypes.PoolQuotaMap) {
 // cache in the instanceManager. It returns the time when the resync has
 // started or time.Time{} if it did not complete.
 func (m *InstancesManager) Resync(ctx context.Context) time.Time {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	resyncStart := time.Now()
@@ -100,6 +105,10 @@ func (m *InstancesManager) Resync(ctx context.Context) time.Time {
 }
 
 func (m *InstancesManager) InstanceSync(ctx context.Context, instanceID string) time.Time {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
 	// Resync for a separate instance is not implemented yet, fallback to full resync.
 	return m.Resync(ctx)
 }
