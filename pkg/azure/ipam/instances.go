@@ -13,6 +13,7 @@ import (
 	v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/time"
+	"github.com/cilium/cilium/pkg/tracing"
 )
 
 // AzureAPI is the API surface used of the Azure API
@@ -72,6 +73,10 @@ func (m *InstancesManager) GetPoolQuota() (quota ipamTypes.PoolQuotaMap) {
 // cache in the instanceManager. It returns the time when the resync has
 // started or time.Time{} if it did not complete.
 func (m *InstancesManager) Resync(ctx context.Context) time.Time {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
 	// Full API resync should block the instance incremental resync from all nodes.
 	m.resyncLock.Lock()
 	defer m.resyncLock.Unlock()
@@ -81,6 +86,10 @@ func (m *InstancesManager) Resync(ctx context.Context) time.Time {
 
 // resyncInstance only resyncs a given instance
 func (m *InstancesManager) resyncInstance(ctx context.Context, instanceID string) time.Time {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
 	resyncStart := time.Now()
 
 	vnets, subnets, err := m.api.GetVpcsAndSubnets(ctx)
@@ -112,6 +121,10 @@ func (m *InstancesManager) resyncInstance(ctx context.Context, instanceID string
 
 // resyncInstances performs a full sync of all instances
 func (m *InstancesManager) resyncInstances(ctx context.Context) time.Time {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
 	resyncStart := time.Now()
 
 	vnets, subnets, err := m.api.GetVpcsAndSubnets(ctx)
@@ -139,6 +152,10 @@ func (m *InstancesManager) resyncInstances(ctx context.Context) time.Time {
 }
 
 func (m *InstancesManager) InstanceSync(ctx context.Context, instanceID string) time.Time {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
 	// Instance incremental resync from different nodes should be executed in parallel,
 	// but must block the full API resync.
 	m.resyncLock.RLock()
