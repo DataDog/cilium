@@ -233,6 +233,11 @@ func (c *Client) listVirtualMachineScaleSetsNetworkInterfaces(ctx context.Contex
 	for _, virtualMachineScaleSet := range virtualMachineScaleSets {
 		virtualMachineScaleSetNetworkInterfaces, err := c.listVirtualMachineScaleSetNetworkInterfaces(ctx, *virtualMachineScaleSet.Name)
 		if err != nil {
+			// For scale set created by AKS node group (otherwise it will return an empty list) without any instances API will return not found. Then it can be skipped.
+			var respErr *azcore.ResponseError
+			if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
+				continue
+			}
 			return nil, err
 		}
 
@@ -294,11 +299,6 @@ func (c *Client) listVirtualMachineScaleSetNetworkInterfaces(ctx context.Context
 		nextResult, err := pager.NextPage(ctx)
 
 		if err != nil {
-			// For scale set created by AKS node group (otherwise it will return an empty list) without any instances API will return not found. Then it can be skipped.
-			var respErr *azcore.ResponseError
-			if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
-				continue
-			}
 			return nil, err
 		}
 
