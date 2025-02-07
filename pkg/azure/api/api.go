@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 	"github.com/Azure/azure-sdk-for-go/services/compute/mgmt/2021-08-01/compute"
 	"github.com/Azure/azure-sdk-for-go/services/network/mgmt/2021-08-01/network"
 	"github.com/Azure/go-autorest/autorest"
@@ -281,16 +282,22 @@ func deriveGatewayIP(subnetIP net.IP) string {
 }
 
 // GetInstance returns the instance including all attached interfaces
-func (c *Client) GetInstance(ctx context.Context, vpcs ipamTypes.VirtualNetworkMap, subnets ipamTypes.SubnetMap, instanceID string) (*ipamTypes.Instance, error) {
+func (c *Client) GetInstance(ctx context.Context, subnets ipamTypes.SubnetMap, instanceID string) (*ipamTypes.Instance, error) {
 	instance := ipamTypes.Instance{}
 	instance.Interfaces = map[string]ipamTypes.InterfaceRevision{}
-	parts := strings.Split(instanceID, "_")
-	virtualMachineScaleSetName := parts[0]
-	virtualmachineIndex := parts[1]
+
+	resourceID, err := arm.ParseResourceID(instanceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse instance ID %q", instanceID)
+	}
+	if strings.ToLower(resourceID.ResourceType.Type) != "virtualmachinescalesets/virtualmachines" {
+		return nil, fmt.Errorf("instance %q is not a virtual machine scale set instance", instanceID)
+	}
+
 	var armnetworkInterfaces []network.Interface
 	c.limiter.Limit(ctx, "Interfaces.ListVirtualMachineScaleSetVMNetworkInterfacesComplete")
 	sinceStart := spanstat.Start()
-	result, err := c.interfaces.ListVirtualMachineScaleSetVMNetworkInterfacesComplete(ctx, c.resourceGroup, virtualMachineScaleSetName, virtualmachineIndex)
+	result, err := c.interfaces.ListVirtualMachineScaleSetVMNetworkInterfacesComplete(ctx, c.resourceGroup, resourceID.Parent.Name, resourceID.Name)
 	c.metricsAPI.ObserveAPICall("Interfaces.ListVirtualMachineScaleSetVMNetworkInterfacesComplete", deriveStatus(err), sinceStart.Seconds())
 
 	for result.NotDone() {
@@ -309,9 +316,8 @@ func (c *Client) GetInstance(ctx context.Context, vpcs ipamTypes.VirtualNetworkM
 	}
 
 	for _, armnetworkInterface := range armnetworkInterfaces {
-		if id, azureInterface := parseInterface(&armnetworkInterface, subnets, c.usePrimary); id != "" {
-			instance.Interfaces[id] = ipamTypes.InterfaceRevision{Resource: azureInterface}
-		}
+		_, azureInterface := parseInterface(&armnetworkInterface, subnets, c.usePrimary)
+		instance.Interfaces[azureInterface.ID] = ipamTypes.InterfaceRevision{Resource: azureInterface}
 	}
 	return &instance, nil
 
