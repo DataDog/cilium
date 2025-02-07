@@ -131,6 +131,7 @@ cilium:
     # The cilium image depends on the runtime image
     - cilium-runtime
   variables:
+    MODIFIERS: "RACE=1"
     DOCKERFILE_PATH: images/cilium/Dockerfile
     DOCKER_BUILD_ARGS: |
       CILIUM_BUILDER_IMAGE=$CILIUM_BUILDER_IMAGE

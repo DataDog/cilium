@@ -1227,6 +1227,7 @@ type DeleteConfig struct {
 // which depends on kvstore connectivity must be protected by a flag in
 // DeleteConfig and the restore logic must opt-out of it.
 func (e *Endpoint) leaveLocked(proxyWaitGroup *completion.WaitGroup, conf DeleteConfig) []error {
+	e.getLogger().Info("Anton-Test: starting leaveLocked")
 	errs := []error{}
 
 	// Remove policy references from shared policy structures
@@ -1235,11 +1236,14 @@ func (e *Endpoint) leaveLocked(proxyWaitGroup *completion.WaitGroup, conf Delete
 
 	// Remove restored rules of cleaned endpoint
 	e.owner.RemoveRestoredDNSRules(e.ID)
+	e.getLogger().Info("Anton-Test: removed restored DNS rules")
 
 	realizedRedirects := e.GetRealizedRedirects()
+	e.getLogger().Info("Anton-Test: realized redirects: ", realizedRedirects)
 	if e.SecurityIdentity != nil && len(realizedRedirects) > 0 {
 		// Passing a new map of nil will purge all redirects
 		finalize, _ := e.removeOldRedirects(nil, realizedRedirects, proxyWaitGroup)
+		e.getLogger().Info("Anton-Test: removed old redirects")
 		if finalize != nil {
 			finalize()
 		}
@@ -1272,6 +1276,7 @@ func (e *Endpoint) leaveLocked(proxyWaitGroup *completion.WaitGroup, conf Delete
 
 	e.removeDirectories()
 	e.controllers.RemoveAll()
+	log.Info("Stopped endpoint controllers")
 	e.cleanPolicySignals()
 
 	if trigger := e.dnsHistoryTrigger.Swap(nil); trigger != nil {
@@ -2526,6 +2531,7 @@ func (e *Endpoint) Delete(conf DeleteConfig) []error {
 		return []error{}
 	}
 	e.setState(StateDisconnecting, "Deleting endpoint")
+	e.getLogger().Info("Anton-Test: Delete: set state to disconnecting")
 
 	if option.Config.IPAM == ipamOption.IPAMENI || option.Config.IPAM == ipamOption.IPAMAzure || option.Config.IPAM == ipamOption.IPAMAlibabaCloud {
 		e.getLogger().WithFields(logrus.Fields{
