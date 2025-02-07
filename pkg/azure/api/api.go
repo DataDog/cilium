@@ -284,6 +284,8 @@ func deriveGatewayIP(subnetIP net.IP) string {
 func (c *Client) GetInstance(ctx context.Context, vpcs ipamTypes.VirtualNetworkMap, subnets ipamTypes.SubnetMap, instanceID string) (*ipamTypes.Instance, error) {
 	instance := ipamTypes.Instance{}
 	instance.Interfaces = map[string]ipamTypes.InterfaceRevision{}
+
+	// TODO: update ID parsing
 	parts := strings.Split(instanceID, "_")
 	virtualMachineScaleSetName := parts[0]
 	virtualmachineIndex := parts[1]
@@ -309,9 +311,8 @@ func (c *Client) GetInstance(ctx context.Context, vpcs ipamTypes.VirtualNetworkM
 	}
 
 	for _, armnetworkInterface := range armnetworkInterfaces {
-		if id, azureInterface := parseInterface(&armnetworkInterface, subnets, c.usePrimary); id != "" {
-			instance.Interfaces[id] = ipamTypes.InterfaceRevision{Resource: azureInterface}
-		}
+		_, azureInterface := parseInterface(&armnetworkInterface, subnets, c.usePrimary)
+		instance.Interfaces[azureInterface.ID] = ipamTypes.InterfaceRevision{Resource: azureInterface}
 	}
 	return &instance, nil
 

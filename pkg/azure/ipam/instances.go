@@ -76,10 +76,11 @@ func (m *InstancesManager) Resync(ctx context.Context) time.Time {
 	m.resyncLock.Lock()
 	defer m.resyncLock.Unlock()
 	// An empty instanceID indicates the full resync.
-	return m.resync(ctx, "")
+	return m.resyncInstances(ctx)
 }
 
-func (m *InstancesManager) resync(ctx context.Context, instanceID string) time.Time {
+// resyncInstance only resyncs a given instance
+func (m *InstancesManager) resyncInstance(ctx context.Context, instanceID string) time.Time {
 	resyncStart := time.Now()
 
 	vnets, subnets, err := m.api.GetVpcsAndSubnets(ctx)
@@ -88,43 +89,52 @@ func (m *InstancesManager) resync(ctx context.Context, instanceID string) time.T
 		return time.Time{}
 	}
 
-	if instanceID == "" {
-		instances, err := m.api.GetInstances(ctx, subnets)
-		if err != nil {
-			log.WithError(err).Warning("Unable to synchronize Azure instances list")
-			return time.Time{}
-		}
-
-		log.WithFields(logrus.Fields{
-			"numInstances":       instances.NumInstances(),
-			"numVirtualNetworks": len(vnets),
-			"numSubnets":         len(subnets),
-		}).Info("Synchronized Azure IPAM information")
-
-		m.mutex.Lock()
-		defer m.mutex.Unlock()
-		m.instances = instances
-		m.vnets = vnets
-		m.subnets = subnets
-	} else {
-		instance, err := m.api.GetInstance(ctx, vnets, subnets, instanceID)
-		if err != nil {
-			log.WithError(err).Warning("Unable to synchronize Azure IPAM interface list")
-			return time.Time{}
-		}
-		log.WithFields(logrus.Fields{
-			"instance":           instanceID,
-			"numVirtualNetworks": len(vnets),
-			"numSubnets":         len(subnets),
-		}).Info("Synchronized Azure IPAM information for the corresponding instance")
-
-		m.mutex.Lock()
-		defer m.mutex.Unlock()
-		m.instances.UpdateInstance(instanceID, instance)
-		m.vnets = vnets
-		m.subnets = subnets
+	instance, err := m.api.GetInstance(ctx, subnets, instanceID)
+	if err != nil {
+		log.WithError(err).WithField("instance", instanceID).Warning("Unable to synchronize Azure instance interface list")
+		return time.Time{}
 	}
 
+	log.WithFields(logrus.Fields{
+		"instance":           instanceID,
+		"numVirtualNetworks": len(vnets),
+		"numSubnets":         len(subnets),
+	}).Info("Synchronized Azure IPAM information for the corresponding instance")
+
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	m.instances.UpdateInstance(instanceID, instance)
+	m.vnets = vnets
+	m.subnets = subnets
+
+	return resyncStart
+}
+
+// resyncInstances performs a full sync of all instances
+func (m *InstancesManager) resyncInstances(ctx context.Context) time.Time {
+	resyncStart := time.Now()
+
+	vnets, subnets, err := m.api.GetVpcsAndSubnets(ctx)
+	if err != nil {
+		log.WithError(err).Warning("Unable to synchronize Azure virtualnetworks list")
+		return time.Time{}
+	}
+	instances, err := m.api.GetInstances(ctx, subnets)
+	if err != nil {
+		log.WithError(err).Warning("Unable to synchronize Azure instances list")
+		return time.Time{}
+	}
+	log.WithFields(logrus.Fields{
+		"numInstances":       instances.NumInstances(),
+		"numVirtualNetworks": len(vnets),
+		"numSubnets":         len(subnets),
+	}).Info("Synchronized Azure IPAM information")
+
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	m.instances = instances
+	m.vnets = vnets
+	m.subnets = subnets
 	return resyncStart
 }
 
@@ -133,7 +143,7 @@ func (m *InstancesManager) InstanceSync(ctx context.Context, instanceID string) 
 	// but must block the full API resync.
 	m.resyncLock.RLock()
 	defer m.resyncLock.RUnlock()
-	return m.resync(ctx, instanceID)
+	return m.resyncInstance(ctx, instanceID)
 }
 
 // DeleteInstance delete instance from m.instances
