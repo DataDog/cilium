@@ -509,7 +509,7 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params *daemonParams
 	d.k8sWatcher.RunK8sServiceHandler()
 
 	if option.Config.DNSPolicyUnloadOnShutdown {
-		log.Debugf("Registering cleanup function to unload DNS policies due to --%s", option.DNSPolicyUnloadOnShutdown)
+		log.Infof("Registering cleanup function to unload DNS policies due to --%s", option.DNSPolicyUnloadOnShutdown)
 
 		// add to pre-cleanup funcs because this needs to run on graceful shutdown, but
 		// before the relevant subystems are being shut down.
@@ -570,7 +570,7 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params *daemonParams
 			regenerationMetadata := &regeneration.ExternalRegenerationMetadata{
 				Reason:            "unloading DNS rules on graceful shutdown",
 				RegenerationLevel: regeneration.RegenerateWithoutDatapath,
-				// TODO ParentContext:
+				ParentContext:     context.Background(),
 			}
 			wg := d.endpointManager.RegenerateAllEndpoints(regenerationMetadata)
 			wg.Wait()

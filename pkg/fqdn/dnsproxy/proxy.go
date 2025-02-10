@@ -363,7 +363,7 @@ func (p *DNSProxy) RestoreRules(ep *endpoint.Endpoint) {
 func (p *DNSProxy) removeRestoredRulesLocked(endpointID uint64) {
 	log.Info("Anton-Test: starting removeRestoredRulesLocked for endpoint ", endpointID)
 	if _, exists := p.restored[endpointID]; exists {
-		log.Info("Anton-Test: removeRestoredRulesLocked: there are %d restored rules for endpoint %d", len(p.restored[endpointID]), endpointID)
+		log.Info("Anton-Test: removeRestoredRulesLocked: there are ", len(p.restored[endpointID]), " restored rules for endpoint ", endpointID)
 		// Remove IP->ID mappings for the restored EP
 		for ip, ep := range p.restoredEPs {
 			if ep.ID == uint16(endpointID) {
