@@ -377,6 +377,7 @@ func (e *Endpoint) Start(id uint16) {
 // datapath state (for instance, because the daemon is shutting down but the
 // endpoint should remain operational while the daemon is not running).
 func (e *Endpoint) Stop() {
+	e.getLogger().Info("Anton-Test: Called Stop() on endpoint")
 	// Since the endpoint is being deleted, we no longer need to run events
 	// in its event queue. This is a no-op if the queue has already been
 	// closed elsewhere.
