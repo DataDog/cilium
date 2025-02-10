@@ -114,6 +114,7 @@ cilium-runtime:
   variables:
     DOCKERFILE_PATH: images/runtime/Dockerfile
     DOCKER_BUILD_ARGS: |
+      MODIFIERS="RACE=1"
       TESTER_IMAGE=$TESTER_IMAGE
       GOLANG_IMAGE=$GOLANG_IMAGE
       UBUNTU_IMAGE=$UBUNTU_IMAGE
@@ -131,9 +132,9 @@ cilium:
     # The cilium image depends on the runtime image
     - cilium-runtime
   variables:
-    MODIFIERS: "RACE=1"
     DOCKERFILE_PATH: images/cilium/Dockerfile
     DOCKER_BUILD_ARGS: |
+      MODIFIERS="RACE=1"
       CILIUM_BUILDER_IMAGE=$CILIUM_BUILDER_IMAGE
       CILIUM_ENVOY_IMAGE=$CILIUM_ENVOY_IMAGE
     TARGET: release
