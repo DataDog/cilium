@@ -570,7 +570,7 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params *daemonParams
 			regenerationMetadata := &regeneration.ExternalRegenerationMetadata{
 				Reason:            "unloading DNS rules on graceful shutdown",
 				RegenerationLevel: regeneration.RegenerateWithoutDatapath,
-				ParentContext:     context.Background(),
+				// ParentContext:     context.Background(),
 			}
 			wg := d.endpointManager.RegenerateAllEndpoints(regenerationMetadata)
 			wg.Wait()
