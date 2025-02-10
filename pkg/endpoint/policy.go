@@ -624,7 +624,7 @@ func (e *Endpoint) setRegenerateStateLocked(regenMetadata *regeneration.External
 //   - nothing and the channel is closed if the regeneration did not happen
 func (e *Endpoint) RegenerateIfAlive(regenMetadata *regeneration.ExternalRegenerationMetadata) <-chan bool {
 	regen, err := e.SetRegenerateStateIfAlive(regenMetadata)
-	e.getLogger().Info("RegenerateIfAlive: SetRegenerateStateIfAlive returned", regen, err)
+	e.getLogger().WithError(err).Info("RegenerateIfAlive: SetRegenerateStateIfAlive returned ", regen)
 	if err != nil {
 		log.WithError(err).Debugf("Endpoint disappeared while queued to be regenerated: %s", regenMetadata.Reason)
 	}
@@ -651,8 +651,10 @@ func (e *Endpoint) Regenerate(regenMetadata *regeneration.ExternalRegenerationMe
 	)
 
 	if regenMetadata.ParentContext != nil {
+		log.Info("Anton-Test: using regenMetadata.ParentContext")
 		ctx, cFunc = context.WithCancel(regenMetadata.ParentContext)
 	} else {
+		log.Info("Anton-Test: using aliveCtx")
 		ctx, cFunc = context.WithCancel(e.aliveCtx)
 	}
 

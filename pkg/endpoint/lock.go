@@ -15,7 +15,7 @@ var (
 // lockAlive returns error if endpoint was removed, locks underlying mutex otherwise
 func (e *Endpoint) lockAlive() error {
 	e.mutex.Lock()
-	e.getLogger().Info("Anton-Test: lockAlive")
+	// e.getLogger().Info("Anton-Test: lockAlive")
 	if e.IsDisconnecting() {
 		e.getLogger().Info("Anton-Test: lockAlive - IsDisconnecting")
 		e.mutex.Unlock()
