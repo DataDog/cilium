@@ -8,10 +8,8 @@ default:
 
 variables:
   DOCKER_CTX: "."
-  DOCKER_BUILD_ARGS: ""
 
   ALPINE_IMAGE: registry.ddbuild.io/images/mirror/library/alpine:3.20.1@sha256:b89d9c93e9ed3597455c90a0b88a8bbb5cb7188438f70953fede212a0c4394e0
-  BASE_IMAGE: registry.ddbuild.io/images/base/gbi-distroless:release
   CILIUM_BPFTOOL_IMAGE: registry.ddbuild.io/images/mirror/cilium/cilium-bpftool:0db3a73729ceb42e947d826bb96a655be79e5317@sha256:de23c9546c4eafab33f75d6f5d129947bbbafc132dbd113c0cecc9a61929e6b0
   CILIUM_BUILDER_IMAGE: registry.ddbuild.io/images/mirror/cilium/cilium-builder:2bc05d278f1cee9ae39bb7631ed7fbfcca4a7b08@sha256:d11406ddfaeab85d3fc1f10836768ea60b716b456b9266f3ed8070f1bd96ffc7
   CILIUM_ENVOY_IMAGE: registry.ddbuild.io/images/mirror/cilium/cilium-envoy:v1.30.9-1737073743-40a016d11c0d863b772961ed0168eea6fe6b10a5@sha256:a69dfe0e54b24b0ff747385c8feeae0612cfbcae97bfcc8ee42a773bb3f69c88
@@ -20,7 +18,6 @@ variables:
   FIPS_BASE_IMAGE: registry.ddbuild.io/images/base/gbi-ubuntu_2204-fips:release
   GOLANG_IMAGE: registry.ddbuild.io/images/mirror/library/golang:1.22.11@sha256:d5b17d684180648e16ea974bea677498945e8b619f7b26325958d8d99e97f9ea
   TESTER_IMAGE: registry.ddbuild.io/images/mirror/cilium/image-tester:dd09c8d3ef349a909fbcdc99279516baef153f22@sha256:c056d064cb47c97acd607343db5457e1d49d9338d6d8a87e93e23cc93f052c73
-  UBUNTU_IMAGE: registry.ddbuild.io/images/base/gbi-ubuntu_2204:release
 
 # Force git to remove any reference to the local disk copy of the repository
 before_script:
@@ -43,18 +40,6 @@ cilium-operator:
     DOCKERFILE_PATH: images/operator/Dockerfile
     DOCKER_BUILD_ARGS: |
       OPERATOR_VARIANT=operator
-      BASE_IMAGE=$BASE_IMAGE
-      GOLANG_IMAGE=$GOLANG_IMAGE
-      ALPINE_IMAGE=$ALPINE_IMAGE
-      CILIUM_BUILDER_IMAGE=$CILIUM_BUILDER_IMAGE
-    TARGET: release
-
-cilium-operator-fips:
-  extends: .build-docker-image
-  variables:
-    DOCKERFILE_PATH: images/operator/Dockerfile
-    DOCKER_BUILD_ARGS: |
-      OPERATOR_VARIANT=operator
       BASE_IMAGE=$FIPS_BASE_IMAGE
       GOLANG_IMAGE=$GOLANG_IMAGE
       ALPINE_IMAGE=$ALPINE_IMAGE
@@ -67,25 +52,13 @@ cilium-operator-generic:
     DOCKERFILE_PATH: images/operator/Dockerfile
     DOCKER_BUILD_ARGS: |
       OPERATOR_VARIANT=operator-generic
-      BASE_IMAGE=$BASE_IMAGE
+      BASE_IMAGE=$FIPS_BASE_IMAGE
       GOLANG_IMAGE=$GOLANG_IMAGE
       ALPINE_IMAGE=$ALPINE_IMAGE
       CILIUM_BUILDER_IMAGE=$CILIUM_BUILDER_IMAGE
     TARGET: release
 
 cilium-operator-aws:
-  extends: .build-docker-image
-  variables:
-    DOCKERFILE_PATH: images/operator/Dockerfile
-    DOCKER_BUILD_ARGS: |
-      OPERATOR_VARIANT=operator-aws
-      BASE_IMAGE=$BASE_IMAGE
-      GOLANG_IMAGE=$GOLANG_IMAGE
-      ALPINE_IMAGE=$ALPINE_IMAGE
-      CILIUM_BUILDER_IMAGE=$CILIUM_BUILDER_IMAGE
-    TARGET: release
-
-cilium-operator-aws-fips:
   extends: .build-docker-image
   variables:
     DOCKERFILE_PATH: images/operator/Dockerfile
@@ -103,7 +76,7 @@ cilium-operator-azure:
     DOCKERFILE_PATH: images/operator/Dockerfile
     DOCKER_BUILD_ARGS: |
       OPERATOR_VARIANT=operator-azure
-      BASE_IMAGE=$BASE_IMAGE
+      BASE_IMAGE=$FIPS_BASE_IMAGE
       GOLANG_IMAGE=$GOLANG_IMAGE
       ALPINE_IMAGE=$ALPINE_IMAGE
       CILIUM_BUILDER_IMAGE=$CILIUM_BUILDER_IMAGE
@@ -116,7 +89,7 @@ cilium-runtime:
     DOCKER_BUILD_ARGS: |
       TESTER_IMAGE=$TESTER_IMAGE
       GOLANG_IMAGE=$GOLANG_IMAGE
-      UBUNTU_IMAGE=$UBUNTU_IMAGE
+      UBUNTU_IMAGE=$FIPS_BASE_IMAGE
       CILIUM_LLVM_IMAGE=$CILIUM_LLVM_IMAGE
       CILIUM_BPFTOOL_IMAGE=$CILIUM_BPFTOOL_IMAGE
       CILIUM_IPTABLES_IMAGE=$CILIUM_IPTABLES_IMAGE
@@ -143,7 +116,7 @@ hubble-relay:
   variables:
     DOCKERFILE_PATH: images/hubble-relay/Dockerfile
     DOCKER_BUILD_ARGS: |
-      BASE_IMAGE=$BASE_IMAGE
+      BASE_IMAGE=$FIPS_BASE_IMAGE
       GOLANG_IMAGE=$GOLANG_IMAGE
       CILIUM_BUILDER_IMAGE=$CILIUM_BUILDER_IMAGE
     TARGET: release
@@ -155,7 +128,7 @@ kvstoremesh:
   variables:
     DOCKERFILE_PATH: images/clustermesh-apiserver/Dockerfile
     DOCKER_BUILD_ARGS: |
-      BASE_IMAGE=$BASE_IMAGE
+      BASE_IMAGE=$FIPS_BASE_IMAGE
       GOLANG_IMAGE=$GOLANG_IMAGE
     TARGET: release
 
@@ -164,7 +137,7 @@ cilium-clustermesh-apiserver:
   variables:
     DOCKERFILE_PATH: images/clustermesh-apiserver/Dockerfile
     DOCKER_BUILD_ARGS: |
-      BASE_IMAGE=$BASE_IMAGE
+      BASE_IMAGE=$FIPS_BASE_IMAGE
       GOLANG_IMAGE=$GOLANG_IMAGE
     TARGET: release
 
