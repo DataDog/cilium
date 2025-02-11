@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
 
@@ -19,7 +20,11 @@ func newClient() (*imds.Client, error) {
 		return nil, err
 	}
 
-	return imds.NewFromConfig(cfg), nil
+	disableIMDSv1Fallback := func(o *imds.Options) {
+		o.EnableFallback = aws.FalseTernary
+	}
+
+	return imds.NewFromConfig(cfg, disableIMDSv1Fallback), nil
 }
 
 func getMetadata(client *imds.Client, path string) (string, error) {

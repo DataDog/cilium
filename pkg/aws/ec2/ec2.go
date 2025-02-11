@@ -84,7 +84,11 @@ func NewConfig(ctx context.Context) (aws.Config, error) {
 		return aws.Config{}, fmt.Errorf("unable to load AWS configuration: %w", err)
 	}
 
-	metadataClient := imds.NewFromConfig(cfg)
+	disableIMDSv1Fallback := func(o *imds.Options) {
+		o.EnableFallback = aws.FalseTernary
+	}
+
+	metadataClient := imds.NewFromConfig(cfg, disableIMDSv1Fallback)
 	instance, err := metadataClient.GetInstanceIdentityDocument(ctx, &imds.GetInstanceIdentityDocumentInput{})
 	if err != nil {
 		return aws.Config{}, fmt.Errorf("unable to retrieve instance identity document: %w", err)
