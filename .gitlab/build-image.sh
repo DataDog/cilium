@@ -4,7 +4,7 @@ set -exuo pipefail
 TARGET="${TARGET:-}"
 
 # Construct valid --build-args arguments from the DOCKER_BUILD_ARGS variable
-BUILD_ARGS=""
+BUILD_ARGS="--build-arg MODIFIERS=FIPS=1"
 IFS=$'\n'
 for arg in $DOCKER_BUILD_ARGS; do
   BUILD_ARGS+=" $(echo "--build-arg $arg")"
@@ -34,6 +34,7 @@ docker buildx build --platform linux/amd64,linux/arm64 \
   --label target=prod \
   --label CI_PIPELINE_ID="$CI_PIPELINE_ID" \
   --label CI_JOB_ID="$CI_JOB_ID" \
+  --label is_fips=true \
   --target "$TARGET" \
   --push \
   --metadata-file "$METADATA_FILE" \
@@ -52,6 +53,7 @@ if [[ $IMAGE_NAME == "cilium" || $IMAGE_NAME =~ "cilium-operator" ]]; then
     --label target=staging \
     --label CI_PIPELINE_ID="$CI_PIPELINE_ID" \
     --label CI_JOB_ID="$CI_JOB_ID" \
+    --label is_fips=true \
     --target debug \
     --push \
     --metadata-file "$METADATA_FILE_DEBUG" \

@@ -1,16 +1,16 @@
-GO := go
-GO_BUILD_FLAGS =
-GO_TEST_FLAGS =
-GO_BUILD = CGO_ENABLED=0 $(GO) build $(GO_BUILD_FLAGS)
+#GO := go
+#GO_BUILD_FLAGS =
+#GO_TEST_FLAGS =
+#GO_BUILD = CGO_ENABLED=0 $(GO) build $(GO_BUILD_FLAGS)
 SUBDIRS_HUBBLE_CLI := .
 TARGET=hubble
-VERSION=$(shell cat ../VERSION)
+#VERSION=$(shell cat ../VERSION)
 # homebrew uses the github release's tarball of the source that does not contain the '.git' directory.
 GIT_BRANCH = $(shell command -v git >/dev/null 2>&1 && git rev-parse --abbrev-ref HEAD 2> /dev/null)
 GIT_HASH = $(shell command -v git >/dev/null 2>&1 && git rev-parse --short HEAD 2> /dev/null)
 GO_TAGS ?=
 GOOS ?=
-GOARCH ?=
+#GOARCH ?=
 
 include ../Makefile.defs
 # Add the ability to override variables
@@ -27,7 +27,7 @@ hubble-bin:
 release:
 	cd ../ && \
 	$(CONTAINER_ENGINE) run --rm --workdir /cilium --volume `pwd`:/cilium --user "$(shell id -u):$(shell id -g)" \
-		$(CILIUM_BUILDER_IMAGE) sh -c "make -C hubble local-release"
+		$(CILIUM_BUILDER_IMAGE) sh -c "MODIFIERS=$(MODIFIERS) make -C hubble local-release"
 
 local-release: clean
 	set -o errexit; \
