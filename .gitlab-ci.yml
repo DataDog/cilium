@@ -8,7 +8,8 @@ default:
 
 variables:
   DOCKER_CTX: "."
-  DOCKER_BUILD_ARGS: ""
+  DOCKER_BUILD_ARGS: |
+    MODIFIERS="GOEXPERIMENT=boringcrypto CGO_ENABLED=1 EXTRA_GO_BUILD_LDFLAGS='-linkmode external -extldflags -static -extldflags --enable-static-nss'"
 
   ALPINE_IMAGE: registry.ddbuild.io/images/mirror/library/alpine:3.20.1@sha256:b89d9c93e9ed3597455c90a0b88a8bbb5cb7188438f70953fede212a0c4394e0
   BASE_IMAGE: registry.ddbuild.io/images/base/gbi-distroless:release
@@ -43,7 +44,7 @@ cilium-operator:
     DOCKERFILE_PATH: images/operator/Dockerfile
     DOCKER_BUILD_ARGS: |
       OPERATOR_VARIANT=operator
-      BASE_IMAGE=$BASE_IMAGE
+      BASE_IMAGE=$FIPS_BASE_IMAGE
       GOLANG_IMAGE=$GOLANG_IMAGE
       ALPINE_IMAGE=$ALPINE_IMAGE
       CILIUM_BUILDER_IMAGE=$CILIUM_BUILDER_IMAGE
@@ -67,7 +68,7 @@ cilium-operator-generic:
     DOCKERFILE_PATH: images/operator/Dockerfile
     DOCKER_BUILD_ARGS: |
       OPERATOR_VARIANT=operator-generic
-      BASE_IMAGE=$BASE_IMAGE
+      BASE_IMAGE=$FIPS_BASE_IMAGE
       GOLANG_IMAGE=$GOLANG_IMAGE
       ALPINE_IMAGE=$ALPINE_IMAGE
       CILIUM_BUILDER_IMAGE=$CILIUM_BUILDER_IMAGE
@@ -79,7 +80,7 @@ cilium-operator-aws:
     DOCKERFILE_PATH: images/operator/Dockerfile
     DOCKER_BUILD_ARGS: |
       OPERATOR_VARIANT=operator-aws
-      BASE_IMAGE=$BASE_IMAGE
+      BASE_IMAGE=$FIPS_BASE_IMAGE
       GOLANG_IMAGE=$GOLANG_IMAGE
       ALPINE_IMAGE=$ALPINE_IMAGE
       CILIUM_BUILDER_IMAGE=$CILIUM_BUILDER_IMAGE
@@ -103,7 +104,7 @@ cilium-operator-azure:
     DOCKERFILE_PATH: images/operator/Dockerfile
     DOCKER_BUILD_ARGS: |
       OPERATOR_VARIANT=operator-azure
-      BASE_IMAGE=$BASE_IMAGE
+      BASE_IMAGE=$FIPS_BASE_IMAGE
       GOLANG_IMAGE=$GOLANG_IMAGE
       ALPINE_IMAGE=$ALPINE_IMAGE
       CILIUM_BUILDER_IMAGE=$CILIUM_BUILDER_IMAGE
@@ -116,7 +117,7 @@ cilium-runtime:
     DOCKER_BUILD_ARGS: |
       TESTER_IMAGE=$TESTER_IMAGE
       GOLANG_IMAGE=$GOLANG_IMAGE
-      UBUNTU_IMAGE=$UBUNTU_IMAGE
+      UBUNTU_IMAGE=$FIPS_BASE_IMAGE
       CILIUM_LLVM_IMAGE=$CILIUM_LLVM_IMAGE
       CILIUM_BPFTOOL_IMAGE=$CILIUM_BPFTOOL_IMAGE
       CILIUM_IPTABLES_IMAGE=$CILIUM_IPTABLES_IMAGE
@@ -143,7 +144,7 @@ hubble-relay:
   variables:
     DOCKERFILE_PATH: images/hubble-relay/Dockerfile
     DOCKER_BUILD_ARGS: |
-      BASE_IMAGE=$BASE_IMAGE
+      BASE_IMAGE=$FIPS_BASE_IMAGE
       GOLANG_IMAGE=$GOLANG_IMAGE
       CILIUM_BUILDER_IMAGE=$CILIUM_BUILDER_IMAGE
     TARGET: release
@@ -155,7 +156,7 @@ kvstoremesh:
   variables:
     DOCKERFILE_PATH: images/clustermesh-apiserver/Dockerfile
     DOCKER_BUILD_ARGS: |
-      BASE_IMAGE=$BASE_IMAGE
+      BASE_IMAGE=$FIPS_BASE_IMAGE
       GOLANG_IMAGE=$GOLANG_IMAGE
     TARGET: release
 
@@ -164,7 +165,7 @@ cilium-clustermesh-apiserver:
   variables:
     DOCKERFILE_PATH: images/clustermesh-apiserver/Dockerfile
     DOCKER_BUILD_ARGS: |
-      BASE_IMAGE=$BASE_IMAGE
+      BASE_IMAGE=$FIPS_BASE_IMAGE
       GOLANG_IMAGE=$GOLANG_IMAGE
     TARGET: release
 
