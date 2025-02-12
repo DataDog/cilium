@@ -15,6 +15,7 @@ import (
 	azureTypes "github.com/cilium/cilium/pkg/azure/types"
 	ipamTypes "github.com/cilium/cilium/pkg/ipam/types"
 	"github.com/cilium/cilium/pkg/node/addressing"
+	oracleTypes "github.com/cilium/cilium/pkg/oracle/types"
 )
 
 // +genclient
@@ -384,6 +385,9 @@ type NodeSpec struct {
 	// +kubebuilder:validation:Optional
 	AlibabaCloud alibabaCloudTypes.Spec `json:"alibaba-cloud,omitempty"`
 
+	// +kubebuilder:validation:Optional
+	Oracle oracleTypes.OracleSpec `json:"oracle,omitempty"`
+
 	// IPAM is the address management specification. This section can be
 	// populated by a user or it can be automatically populated by an IPAM
 	// operator.
@@ -441,6 +445,9 @@ type NodeStatus struct {
 	//
 	// +kubebuilder:validation:Optional
 	AlibabaCloud alibabaCloudTypes.ENIStatus `json:"alibaba-cloud,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	Oracle oracleTypes.OracleStatus `json:"oracle,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
