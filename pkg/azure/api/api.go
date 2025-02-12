@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 	"github.com/Azure/azure-sdk-for-go/services/compute/mgmt/2021-08-01/compute"
 	"github.com/Azure/azure-sdk-for-go/services/network/mgmt/2021-08-01/network"
 	"github.com/Azure/go-autorest/autorest"
@@ -278,6 +279,46 @@ func parseInterface(iface *network.Interface, subnets ipamTypes.SubnetMap, usePr
 func deriveGatewayIP(subnetIP net.IP) string {
 	addr := subnetIP.To4()
 	return net.IPv4(addr[0], addr[1], addr[2], addr[3]+1).String()
+}
+
+// GetInstance returns the instance including all attached interfaces
+func (c *Client) GetInstance(ctx context.Context, subnets ipamTypes.SubnetMap, instanceID string) (*ipamTypes.Instance, error) {
+	instance := ipamTypes.Instance{}
+	instance.Interfaces = map[string]ipamTypes.InterfaceRevision{}
+
+	resourceID, err := arm.ParseResourceID(instanceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse instance ID %q", instanceID)
+	}
+	if strings.ToLower(resourceID.ResourceType.Type) != "virtualmachinescalesets/virtualmachines" {
+		return nil, fmt.Errorf("instance %q is not a virtual machine scale set instance", instanceID)
+	}
+
+	var armnetworkInterfaces []network.Interface
+	c.limiter.Limit(ctx, "Interfaces.ListVirtualMachineScaleSetVMNetworkInterfacesComplete")
+	sinceStart := spanstat.Start()
+	result, err := c.interfaces.ListVirtualMachineScaleSetVMNetworkInterfacesComplete(ctx, c.resourceGroup, resourceID.Parent.Name, resourceID.Name)
+	c.metricsAPI.ObserveAPICall("Interfaces.ListVirtualMachineScaleSetVMNetworkInterfacesComplete", deriveStatus(err), sinceStart.Seconds())
+
+	for result.NotDone() {
+		armnetworkInterface := result.Value()
+		err = result.NextWithContext(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		if armnetworkInterface.Name == nil {
+			continue
+		}
+		armnetworkInterfaces = append(armnetworkInterfaces, armnetworkInterface)
+	}
+
+	for _, armnetworkInterface := range armnetworkInterfaces {
+		_, azureInterface := parseInterface(&armnetworkInterface, subnets, c.usePrimary)
+		instance.Interfaces[azureInterface.ID] = ipamTypes.InterfaceRevision{Resource: azureInterface}
+	}
+	return &instance, nil
+
 }
 
 // GetInstances returns the list of all instances including all attached
