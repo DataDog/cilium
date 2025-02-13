@@ -133,6 +133,7 @@ var (
 		ipamOption.IPAMMultiPool,
 		ipamOption.IPAMAlibabaCloud,
 		ipamOption.IPAMDelegatedPlugin,
+		ipamOption.IPAMOracle,
 	}
 
 	defaultChainingModes = []string{

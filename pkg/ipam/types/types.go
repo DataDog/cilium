@@ -608,6 +608,15 @@ func (m *InstanceMap) NumInstances() (size int) {
 	return
 }
 
+func (m *InstanceMap) NumInterfaces(instaceID string) (size int) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+	if instance := m.data[instaceID]; instance != nil {
+		return len(instance.Interfaces)
+	}
+	return 0
+}
+
 // Exists returns whether the instance ID is in the instanceMap
 func (m *InstanceMap) Exists(instanceID string) (exists bool) {
 	m.mutex.RLock()
