@@ -202,7 +202,8 @@ func (d *Daemon) allocateDatapathIPs(family types.NodeAddressingFamily, fromK8s,
 
 	if (option.Config.IPAM == ipamOption.IPAMENI ||
 		option.Config.IPAM == ipamOption.IPAMAlibabaCloud ||
-		option.Config.IPAM == ipamOption.IPAMAzure) && result != nil {
+		option.Config.IPAM == ipamOption.IPAMAzure ||
+		option.Config.IPAM == ipamOption.IPAMOracle) && result != nil {
 		var routingInfo *linuxrouting.RoutingInfo
 		routingInfo, err = linuxrouting.NewRoutingInfo(result.GatewayIP, result.CIDRs,
 			result.PrimaryMAC, result.InterfaceNumber, option.Config.IPAM,

@@ -42,6 +42,9 @@ jobs:
           - name: operator-alibabacloud
             make-target: build-container-operator-alibabacloud
 
+          - name: operator-oracle
+            make-target: build-container-operator-oracle
+
           - name: operator-generic
             make-target: build-container-operator-generic
 
