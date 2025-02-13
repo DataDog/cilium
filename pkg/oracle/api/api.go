@@ -8,13 +8,12 @@ import (
 	"fmt"
 	"github.com/cilium/cilium/pkg/cidr"
 	ipamTypes "github.com/cilium/cilium/pkg/ipam/types"
-	"github.com/cilium/cilium/pkg/oracle/types"
-	"github.com/sirupsen/logrus"
-	"os"
-
 	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/logging/logfields"
+	"github.com/cilium/cilium/pkg/oracle/types"
 	"github.com/cilium/cilium/pkg/version"
+	"github.com/sirupsen/logrus"
+	"os"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
@@ -174,7 +173,10 @@ func (c *OracleClient) generateOracleInterface(vnicAttachment core.VnicAttachmen
 		InstanceID:         *vnicAttachment.InstanceId,
 		SubnetID:           *vnicAttachment.SubnetId,
 		AvailabilityDomain: *vnicAttachment.AvailabilityDomain,
-		VCN:                vcn,
+		VCN: types.OracleVCN{
+			PrimaryCIDR:    vcn.PrimaryCIDR,
+			SecondaryCIDRs: vcn.CIDRs,
+		},
 	}
 
 	vnic, err := c.networkClient.GetVnic(context.Background(), core.GetVnicRequest{

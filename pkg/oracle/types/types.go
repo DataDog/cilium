@@ -8,6 +8,7 @@ import (
 )
 
 const (
+	// TODO remove this?
 	// ProviderPrefix is the prefix used to indicate that a k8s ProviderID
 	// represents an Oracle resource
 	ProviderPrefix = "ocid1."
@@ -69,6 +70,7 @@ type OracleInterface struct {
 	// +kubebuilder:validation:Optional
 	ID string `json:"id,omitempty"`
 
+	// +kubebuilder:validation:Optional
 	IsPrimary bool `json:"is-primary,omitempty"`
 
 	// +kubebuilder:validation:Optional
@@ -77,13 +79,14 @@ type OracleInterface struct {
 	// +kubebuilder:validation:Optional
 	SecondaryIPs []OracleIP `json:"secondary-ips,omitempty"`
 
+	// +kubebuilder:validation:Optional
 	MAC string `json:"mac,omitempty"`
 
 	// +kubebuilder:validation:Optional
 	InstanceID string `json:"instance-id,omitempty"`
 
 	// +kubebuilder:validation:Optional
-	VCN types.VirtualNetwork `json:"vcn,omitempty"`
+	VCN OracleVCN `json:"vcn,omitempty"`
 
 	// +kubebuilder:validation:Optional
 	SubnetID string `json:"subnet-id,omitempty"`
@@ -93,6 +96,14 @@ type OracleInterface struct {
 
 	// +kubebuilder:validation:Optional
 	AvailabilityDomain string `json:"availability-domain,omitempty"`
+}
+
+type OracleVCN struct {
+	// +kubebuilder:validation:Optional
+	PrimaryCIDR string `json:"primary-cidr,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	SecondaryCIDRs []string `json:"secondary-cidrs,omitempty"`
 }
 
 type OracleIP struct {

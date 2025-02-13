@@ -248,7 +248,7 @@ func deriveVpcCIDRs(node *ciliumv2.CiliumNode) (primaryCIDR *cidr.CIDR, secondar
 		c, err := cidr.ParseCIDR(vnic.VCN.PrimaryCIDR)
 		if err == nil {
 			primaryCIDR = c
-			for _, sc := range vnic.VCN.CIDRs {
+			for _, sc := range vnic.VCN.SecondaryCIDRs {
 				c, err = cidr.ParseCIDR(sc)
 				if err == nil {
 					secondaryCIDRs = append(secondaryCIDRs, c)
@@ -815,7 +815,7 @@ func (a *crdAllocator) buildAllocationResult(ip net.IP, ipInfo *ipamTypes.Alloca
 			}
 			result.PrimaryMAC = vnic.MAC
 			result.CIDRs = []string{vnic.VCN.PrimaryCIDR}
-			result.CIDRs = append(result.CIDRs, vnic.VCN.CIDRs...)
+			result.CIDRs = append(result.CIDRs, vnic.VCN.SecondaryCIDRs...)
 			// https://docs.oracle.com/en-us/iaas/Content/Network/Concepts/overview.htm#Reserved__reserved_subnet
 			result.GatewayIP = deriveGatewayIP(vnic.SubnetCIDR, 1)
 			result.InterfaceNumber = "1" // TODO
