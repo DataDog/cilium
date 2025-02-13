@@ -6,6 +6,7 @@
 package cmd
 
 import (
+	allocatorOracle "github.com/cilium/cilium/pkg/ipam/allocator/oracle"
 	ipamOption "github.com/cilium/cilium/pkg/ipam/option"
 )
 

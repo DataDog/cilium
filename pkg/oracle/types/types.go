@@ -26,8 +26,6 @@ const (
 // custom resource along with an Oracle specification when the node registers
 // itself to the Kubernetes cluster.
 // This struct is embedded into v2.CiliumNode
-//
-// +k8s:deepcopy-gen=true
 type OracleSpec struct {
 
 	// +kubebuilder:validation:Optional
@@ -52,8 +50,6 @@ type OracleSpec struct {
 
 // OracleStatus is the status of Oracle addressing of the node.
 // This struct is embedded into v2.CiliumNode
-//
-// +k8s:deepcopy-gen=true
 type OracleStatus struct {
 	// Interfaces is the list of interfaces on the node
 	//
@@ -62,8 +58,6 @@ type OracleStatus struct {
 }
 
 // OracleInterface represents an Oracle VNIC
-//
-// +k8s:deepcopy-gen=true
 type OracleInterface struct {
 	// ID is the VNIC ID
 	//

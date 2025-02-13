@@ -2,4 +2,5 @@ cilium-operator
 cilium-operator-aws
 cilium-operator-azure
 cilium-operator-alibabacloud
+cilium-operator-oracle
 cilium-operator-generic
