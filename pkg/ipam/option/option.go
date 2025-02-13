@@ -19,6 +19,8 @@ const (
 	// option.IPAM
 	IPAMAzure = "azure"
 
+	IPAMOracle = "oracle"
+
 	// IPAMClusterPool is the value to select the cluster pool mode for
 	// option.IPAM
 	IPAMClusterPool = "cluster-pool"
