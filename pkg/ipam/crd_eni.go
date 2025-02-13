@@ -6,11 +6,12 @@ package ipam
 import (
 	"errors"
 	"fmt"
-	"net"
-
+	oracleTypes "github.com/cilium/cilium/pkg/oracle/types"
 	"github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
+	"net"
+	"strings"
 
 	eniTypes "github.com/cilium/cilium/pkg/aws/eni/types"
 	"github.com/cilium/cilium/pkg/backoff"
@@ -67,6 +68,61 @@ func configureENIDevices(oldNode, newNode *ciliumv2.CiliumNode, mtuConfig MtuCon
 	go setupENIDevices(addedENIByMac)
 
 	return nil
+}
+
+func configureOracleVnicDevices(oldNode, newNode *ciliumv2.CiliumNode, mtuConfig MtuConfiguration) error {
+	existingVnicIDs := make(map[string]struct{})
+	addedVnicsByMac := configMap{}
+
+	if oldNode != nil {
+		for _, iface := range oldNode.Status.Oracle.Interfaces {
+			existingVnicIDs[iface.ID] = struct{}{}
+		}
+	}
+
+	for _, iface := range newNode.Status.Oracle.Interfaces {
+		if iface.IsPrimary {
+			continue
+		}
+
+		if _, ok := existingVnicIDs[iface.ID]; !ok {
+			cfg, err := parseOracleVnicConfig(&iface, mtuConfig)
+			if err != nil {
+				log.WithError(err).
+					WithField(logfields.Resource, iface.ID).
+					Error("Skipping invalid Oracle VNIC config")
+				continue
+			}
+			addedVnicsByMac[strings.ToLower(iface.MAC)] = cfg
+		}
+	}
+
+	if len(addedVnicsByMac) > 0 {
+		log.Debug("Setting up Oracle VNIC devices: ", addedVnicsByMac)
+		go setupENIDevices(addedVnicsByMac) // TODO return error? if this fails once, it will never be retried
+	}
+
+	return nil
+}
+
+func parseOracleVnicConfig(iface *oracleTypes.OracleInterface, mtuConfig MtuConfiguration) (cfg eniDeviceConfig, err error) {
+	ip := net.ParseIP(iface.IP)
+	if ip == nil {
+		return cfg, fmt.Errorf("failed to parse Oracle VNIC primary IP %q", iface.IP)
+	}
+
+	_, cidr, err := net.ParseCIDR(iface.SubnetCIDR)
+	if err != nil {
+		return cfg, fmt.Errorf("failed to parse Oracle VNIC Subnet CIDR %q: %w", iface.SubnetCIDR, err)
+	}
+
+	return eniDeviceConfig{
+		name:         iface.ID,
+		ip:           ip,
+		cidr:         cidr,
+		mtu:          mtuConfig.GetDeviceMTU(),
+		usePrimaryIP: false,
+	}, nil
 }
 
 func setupENIDevices(eniConfigByMac configMap) {
@@ -141,7 +197,9 @@ func waitForNetlinkDevices(configByMac configMap) (linkByMac linkMap, err error)
 		} else {
 			linkByMac = linkMap{}
 			for _, link := range links {
+				log.Debug("Oracle Found link: ", link.Attrs().Name, " with MAC ", link.Attrs().HardwareAddr.String())
 				mac := link.Attrs().HardwareAddr.String()
+				// TODO fix lower-case MAC vs upper-case MAC
 				if _, ok := configByMac[mac]; ok {
 					linkByMac[mac] = link
 				}
