@@ -38,6 +38,8 @@ import (
 	nodestore "github.com/cilium/cilium/pkg/node/store"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/cilium/pkg/option"
+	oracleMetadata "github.com/cilium/cilium/pkg/oracle/metadata"
+	oracleTypes "github.com/cilium/cilium/pkg/oracle/types"
 	"github.com/cilium/cilium/pkg/time"
 )
 
@@ -597,6 +599,27 @@ func (n *NodeDiscovery) mutateNodeResource(nodeResource *ciliumv2.CiliumNode, ln
 				nodeResource.Spec.IPAM.StaticIPTags = c.IPAM.StaticIPTags
 			}
 		}
+	case ipamOption.IPAMOracle:
+		nodeResource.Spec.Oracle = oracleTypes.OracleSpec{}
+		// Retrieve required information from IMDS
+		instanceMetadata, err := oracleMetadata.GetInstanceMetadata(context.Background())
+		if err != nil {
+			return err
+		}
+		shapeConfig, err := oracleMetadata.GetShapeConfig(context.Background())
+		if err != nil {
+			return err
+		}
+
+		log.Debug("Retrieved Oracle instance metadata: ", instanceMetadata, " and shape config: ", shapeConfig)
+
+		nodeResource.Spec.InstanceID = instanceMetadata.InstanceID
+		nodeResource.Spec.Oracle.AvailabilityDomain = instanceMetadata.AvailabilityDomain
+		nodeResource.Spec.Oracle.InstanceShape = instanceMetadata.Shape
+		nodeResource.Spec.Oracle.MaxVnicAttachments = shapeConfig.MaxVnicAttachments
+		nodeResource.Spec.Oracle.SubnetTags = map[string]string{"anton": "test"}
+		// TODO subnet compartment?
+		// TODO if c := n.cniConfigManager.GetCustomNetConf(); c != nil
 	}
 
 	return nil

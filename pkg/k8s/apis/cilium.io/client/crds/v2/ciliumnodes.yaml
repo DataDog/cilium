@@ -426,6 +426,32 @@ spec:
                   for the node, if any.
                 format: int64
                 type: integer
+              oracle:
+                description: "OracleSpec is the Oracle specification of a node running
+                  via the Oracle IPAM \n The Oracle specification can either be provided
+                  explicitly by the user or the Cilium Agent running on the node can
+                  be instructed to create the CiliumNode custom resource along with
+                  an Oracle specification when the node registers itself to the Kubernetes
+                  cluster. This struct is embedded into v2.CiliumNode"
+                properties:
+                  availability-domain:
+                    type: string
+                  instance-shape:
+                    type: string
+                  max-vnic-attachments:
+                    description: 'Note: this information can be retrieved from the
+                      API as well but getting it from IMDS is more reliable for Flex
+                      Shapes'
+                    type: integer
+                  subnet-tags:
+                    additionalProperties:
+                      type: string
+                    description: Tags used to find the subnet where the VNICs should
+                      be created
+                    type: object
+                  vcn-id:
+                    type: string
+                type: object
             type: object
           status:
             description: Status defines the realized specification/configuration and
@@ -779,6 +805,55 @@ spec:
                     description: Used lists all IPv4 addresses out of Spec.IPAM.Pool
                       which have been allocated and are in use.
                     type: object
+                type: object
+              oracle:
+                description: OracleStatus is the status of Oracle addressing of the
+                  node. This struct is embedded into v2.CiliumNode
+                properties:
+                  interfaces:
+                    description: Interfaces is the list of interfaces on the node
+                    items:
+                      description: OracleInterface represents an Oracle VNIC
+                      properties:
+                        availability-domain:
+                          type: string
+                        id:
+                          description: ID is the VNIC ID
+                          type: string
+                        instance-id:
+                          type: string
+                        ip:
+                          type: string
+                        is-primary:
+                          type: boolean
+                        mac:
+                          type: string
+                        secondary-ips:
+                          items:
+                            properties:
+                              id:
+                                description: The OCID of the PrivateIP object. Required
+                                  for the DeletePrivateIp operation.
+                                type: string
+                              ip:
+                                type: string
+                            type: object
+                          type: array
+                        subnet-cidr:
+                          type: string
+                        subnet-id:
+                          type: string
+                        vcn:
+                          properties:
+                            primary-cidr:
+                              type: string
+                            secondary-cidrs:
+                              items:
+                                type: string
+                              type: array
+                          type: object
+                      type: object
+                    type: array
                 type: object
             type: object
         required:
