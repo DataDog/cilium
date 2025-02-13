@@ -33,9 +33,12 @@ type OracleClient struct {
 func NewClient(compartmentID string) (*OracleClient, error) {
 	// TODO setup auth
 	// auth.InstancePrincipalConfigurationProvider()
-	config := common.DefaultConfigProvider()
+	config, err := common.ConfigurationProviderFromFile("/oracle/.oci/config", "")
+	if err != nil {
+		return nil, err
+	}
 	retryPolicy := common.DefaultRetryPolicyWithoutEventualConsistency()
-	err := os.Setenv("OCI_SDK_APPEND_USER_AGENT", userAgent)
+	err = os.Setenv("OCI_SDK_APPEND_USER_AGENT", userAgent)
 	if err != nil {
 		log.WithError(err).Warn("Failed to set the user agent for the Oracle SDK")
 	}
@@ -139,19 +142,27 @@ func (c *OracleClient) GetSubnets(ctx context.Context, vcn ipamTypes.VirtualNetw
 
 	for _, subnet := range listSubnetsResponse.Items {
 		s := ipamTypes.Subnet{
-			ID:   *subnet.Id,
-			Name: *subnet.DisplayName,
+			ID: *subnet.Id,
+		}
+		if subnet.DisplayName != nil {
+			s.Name = *subnet.DisplayName
 		}
 		s.CIDR, err = cidr.ParseCIDR(*subnet.CidrBlock)
 		if err != nil {
 			return nil, err
 		}
-		s.AvailabilityZone = *subnet.AvailabilityDomain
+		if subnet.AvailabilityDomain != nil {
+			s.AvailabilityZone = *subnet.AvailabilityDomain
+		} else {
+			s.AvailabilityZone = "regional"
+		}
+
 		s.VirtualNetworkID = *subnet.VcnId
 		s.Tags = subnet.FreeformTags
 		// 3 IPs are reserved by Oracle
 		// https://docs.oracle.com/en-us/iaas/Content/Network/Concepts/overview.htm#Allowed
 		totalIps := s.CIDR.AvailableIPs() - 3
+
 		// TODO paging
 		// GetSubnetCidrUtilization() could be a less accurate but cheaper alternative
 		subnetIpInventoryResponse, err := c.networkClient.GetSubnetIpInventory(ctx, core.GetSubnetIpInventoryRequest{
@@ -160,8 +171,11 @@ func (c *OracleClient) GetSubnets(ctx context.Context, vcn ipamTypes.VirtualNetw
 		if err != nil {
 			return nil, err
 		}
+		log.Debug("GetSubnets: subnetIpInventoryResponse: ", subnetIpInventoryResponse.String())
 		usedIps := *subnetIpInventoryResponse.Count
 		s.AvailableAddresses = totalIps - usedIps
+
+		subnets[s.ID] = &s
 	}
 
 	return subnets, nil
@@ -260,7 +274,8 @@ func (c *OracleClient) GetInstance(ctx context.Context, vcn ipamTypes.VirtualNet
 	instance := ipamTypes.Instance{}
 
 	vnicAttachmentsResponse, err := c.computeClient.ListVnicAttachments(ctx, core.ListVnicAttachmentsRequest{
-		InstanceId: common.String(instanceID),
+		CompartmentId: common.String(c.compartmentID),
+		InstanceId:    common.String(instanceID),
 	})
 	if err != nil {
 		return nil, err

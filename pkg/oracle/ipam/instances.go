@@ -93,7 +93,7 @@ func (m *InstancesManager) resync(ctx context.Context, instanceID string) time.T
 		return time.Time{}
 	}
 
-	if instanceID != "" {
+	if instanceID == "" {
 		instances, err := m.api.GetInstances(ctx, vcn, subnets)
 		if err != nil {
 			log.WithError(err).Warning("Unable to synchronize Oracle Instances")
@@ -115,7 +115,7 @@ func (m *InstancesManager) resync(ctx context.Context, instanceID string) time.T
 			log.WithError(err).Warning("Unable to synchronize Oracle Instance ", instanceID)
 			return time.Time{}
 		}
-		
+
 		log.WithFields(logrus.Fields{
 			"vcnID":      vcn.ID,
 			"numSubnets": len(subnets),
