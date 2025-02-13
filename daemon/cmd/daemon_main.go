@@ -1566,6 +1566,7 @@ func initEnv(vp *viper.Viper) {
 	// Ensure that the user does not turn on this mode unless it's for an IPAM
 	// mode which support the bypass.
 	if option.Config.BypassIPAvailabilityUponRestore {
+		// TODO?
 		switch option.Config.IPAMMode() {
 		case ipamOption.IPAMENI, ipamOption.IPAMAzure:
 			log.Info(
