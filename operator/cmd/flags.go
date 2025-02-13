@@ -165,7 +165,7 @@ func InitGlobalFlags(cmd *cobra.Command, vp *viper.Viper) {
 			}
 		case "cilium-operator-generic":
 			switch ipamFlagValue {
-			case ipamOption.IPAMENI, ipamOption.IPAMAzure, ipamOption.IPAMAlibabaCloud:
+			case ipamOption.IPAMENI, ipamOption.IPAMAzure, ipamOption.IPAMAlibabaCloud, ipamOption.IPAMOracle:
 				return unsupporterErr()
 			}
 		}
