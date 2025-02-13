@@ -36,6 +36,9 @@ jobs:
           - name: operator-alibabacloud
             dockerfile: ./images/operator/Dockerfile
 
+          - name: operator-oracle
+            dockerfile: ./images/operator/Dockerfile
+
           - name: operator-generic
             dockerfile: ./images/operator/Dockerfile
 
