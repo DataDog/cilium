@@ -74,6 +74,9 @@ build-container-operator-azure: ## Builds components required for a cilium-opera
 build-container-operator-alibabacloud: ## Builds components required for a cilium-operator alibabacloud variant container.
 	$(MAKE) $(SUBMAKEOPTS) -C $(SUBDIR_OPERATOR_CONTAINER) cilium-operator-alibabacloud
 
+build-container-operator-oracle: ## Builds components required for a cilium-operator oracle variant container.
+	$(MAKE) $(SUBMAKEOPTS) -C $(SUBDIR_OPERATOR_CONTAINER) cilium-operator-oracle
+
 build-container-hubble-relay:
 	$(MAKE) $(SUBMAKEOPTS) -C $(SUBDIR_RELAY_CONTAINER) all
 
@@ -213,6 +216,10 @@ install-container-binary-operator-azure: ## Install binaries for all components 
 install-container-binary-operator-alibabacloud: ## Install binaries for all components required for cilium-operator alibabacloud variant container.
 	$(QUIET)$(INSTALL) -m 0755 -d $(DESTDIR)$(BINDIR)
 	$(MAKE) $(SUBMAKEOPTS) -C $(SUBDIR_OPERATOR_CONTAINER) install-alibabacloud
+
+install-container-binary-operator-oracle: ## Install binaries for all components required for cilium-operator oracle variant container.
+	$(QUIET)$(INSTALL) -m 0755 -d $(DESTDIR)$(BINDIR)
+	$(MAKE) $(SUBMAKEOPTS) -C $(SUBDIR_OPERATOR_CONTAINER) install-oracle
 
 install-container-binary-hubble-relay:
 	$(QUIET)$(INSTALL) -m 0755 -d $(DESTDIR)$(BINDIR)

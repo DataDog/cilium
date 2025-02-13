@@ -242,6 +242,22 @@ func deriveVpcCIDRs(node *ciliumv2.CiliumNode) (primaryCIDR *cidr.CIDR, secondar
 			return
 		}
 	}
+
+	// Oracle
+	for _, vnic := range node.Status.Oracle.Interfaces {
+		c, err := cidr.ParseCIDR(vnic.VCN.PrimaryCIDR)
+		if err == nil {
+			primaryCIDR = c
+			for _, sc := range vnic.VCN.SecondaryCIDRs {
+				c, err = cidr.ParseCIDR(sc)
+				if err == nil {
+					secondaryCIDRs = append(secondaryCIDRs, c)
+				}
+			}
+			return
+		}
+	}
+
 	return
 }
 
@@ -316,7 +332,7 @@ func (n *nodeStore) hasMinimumIPsInPool(localNodeStore *node.LocalNodeStore) (mi
 			minimumReached = true
 		}
 
-		if n.conf.IPAMMode() == ipamOption.IPAMENI || n.conf.IPAMMode() == ipamOption.IPAMAzure || n.conf.IPAMMode() == ipamOption.IPAMAlibabaCloud {
+		if n.conf.IPAMMode() == ipamOption.IPAMENI || n.conf.IPAMMode() == ipamOption.IPAMAzure || n.conf.IPAMMode() == ipamOption.IPAMAlibabaCloud || n.conf.IPAMMode() == ipamOption.IPAMOracle {
 			if !n.autoDetectIPv4NativeRoutingCIDR(localNodeStore) {
 				minimumReached = false
 			}
@@ -792,6 +808,20 @@ func (a *crdAllocator) buildAllocationResult(ip net.IP, ipInfo *ipamTypes.Alloca
 			return
 		}
 		return nil, fmt.Errorf("unable to find ENI %s", ipInfo.Resource)
+	case ipamOption.IPAMOracle:
+		for _, vnic := range a.store.ownNode.Status.Oracle.Interfaces {
+			if vnic.ID != ipInfo.Resource {
+				continue
+			}
+			result.PrimaryMAC = vnic.MAC
+			result.CIDRs = []string{vnic.VCN.PrimaryCIDR}
+			result.CIDRs = append(result.CIDRs, vnic.VCN.SecondaryCIDRs...)
+			// https://docs.oracle.com/en-us/iaas/Content/Network/Concepts/overview.htm#Reserved__reserved_subnet
+			result.GatewayIP = deriveGatewayIP(vnic.SubnetCIDR, 1)
+			result.InterfaceNumber = "1" // TODO
+			return
+		}
+		return nil, fmt.Errorf("unable to find VNIC %s", ipInfo.Resource)
 	}
 
 	return
