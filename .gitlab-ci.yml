@@ -109,6 +109,18 @@ cilium-operator-azure:
       CILIUM_BUILDER_IMAGE=$CILIUM_BUILDER_IMAGE
     TARGET: release
 
+cilium-operator-oracle:
+  extends: .build-docker-image
+  variables:
+    DOCKERFILE_PATH: images/operator/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      OPERATOR_VARIANT=operator-oracle
+      BASE_IMAGE=$BASE_IMAGE
+      GOLANG_IMAGE=$GOLANG_IMAGE
+      ALPINE_IMAGE=$ALPINE_IMAGE
+      CILIUM_BUILDER_IMAGE=$CILIUM_BUILDER_IMAGE
+    TARGET: release
+
 cilium-runtime:
   extends: .build-docker-image
   variables:
