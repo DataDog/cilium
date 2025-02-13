@@ -57,6 +57,8 @@ then
         make -B LOCKDEBUG=1 docker-operator-azure-image
         echo "building cilium-operator-alibabacloud image..."
         make -B LOCKDEBUG=1 docker-operator-alibabacloud-image
+        echo "building cilium-operator-oracle image..."
+        make -B LOCKDEBUG=1 docker-operator-oracle-image
         echo "building cilium-operator-generic image..."
         make -B LOCKDEBUG=1 docker-operator-generic-image
         echo "tagging cilium-operator images..."
