@@ -2493,6 +2493,8 @@ operator:
     awsDigest: ""
     # operator-alibabacloud-digest
     alibabacloudDigest: ""
+    # operator-oracle-digest
+    oracleDigest: ""
     useDigest: false
     pullPolicy: "IfNotPresent"
     suffix: ""
