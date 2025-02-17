@@ -34,30 +34,6 @@ before_script:
       aud: image-integrity
   script: .gitlab/build-image.sh
 
-cilium-operator:
-  extends: .build-docker-image
-  variables:
-    DOCKERFILE_PATH: images/operator/Dockerfile
-    DOCKER_BUILD_ARGS: |
-      OPERATOR_VARIANT=operator
-      BASE_IMAGE=$FIPS_BASE_IMAGE
-      GOLANG_IMAGE=$GOLANG_IMAGE
-      ALPINE_IMAGE=$ALPINE_IMAGE
-      CILIUM_BUILDER_IMAGE=$CILIUM_BUILDER_IMAGE
-    TARGET: release
-
-cilium-operator-fips:
-  extends: .build-docker-image
-  variables:
-    DOCKERFILE_PATH: images/operator/Dockerfile
-    DOCKER_BUILD_ARGS: |
-      OPERATOR_VARIANT=operator
-      BASE_IMAGE=$FIPS_BASE_IMAGE
-      GOLANG_IMAGE=$GOLANG_IMAGE
-      ALPINE_IMAGE=$ALPINE_IMAGE
-      CILIUM_BUILDER_IMAGE=$CILIUM_BUILDER_IMAGE
-    TARGET: release
-
 cilium-operator-generic:
   extends: .build-docker-image
   variables:
@@ -71,18 +47,6 @@ cilium-operator-generic:
     TARGET: release
 
 cilium-operator-aws:
-  extends: .build-docker-image
-  variables:
-    DOCKERFILE_PATH: images/operator/Dockerfile
-    DOCKER_BUILD_ARGS: |
-      OPERATOR_VARIANT=operator-aws
-      BASE_IMAGE=$FIPS_BASE_IMAGE
-      GOLANG_IMAGE=$GOLANG_IMAGE
-      ALPINE_IMAGE=$ALPINE_IMAGE
-      CILIUM_BUILDER_IMAGE=$CILIUM_BUILDER_IMAGE
-    TARGET: release
-
-cilium-operator-aws-fips:
   extends: .build-docker-image
   variables:
     DOCKERFILE_PATH: images/operator/Dockerfile
@@ -143,17 +107,6 @@ hubble-relay:
       BASE_IMAGE=$FIPS_BASE_IMAGE
       GOLANG_IMAGE=$GOLANG_IMAGE
       CILIUM_BUILDER_IMAGE=$CILIUM_BUILDER_IMAGE
-    TARGET: release
-
-# This job is a duplicate of the clustermesh-apiserver one
-# We keep it until we replaced all image references from kvstoremesh to clustermesh-apiserver
-kvstoremesh:
-  extends: .build-docker-image
-  variables:
-    DOCKERFILE_PATH: images/clustermesh-apiserver/Dockerfile
-    DOCKER_BUILD_ARGS: |
-      BASE_IMAGE=$FIPS_BASE_IMAGE
-      GOLANG_IMAGE=$GOLANG_IMAGE
     TARGET: release
 
 cilium-clustermesh-apiserver:
