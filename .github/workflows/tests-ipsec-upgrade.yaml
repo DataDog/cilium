@@ -261,7 +261,7 @@ jobs:
 
       - name: Install Cilium CLI
         if: ${{ steps.vars.outputs.downgrade_version != '' }}
-        uses: cilium/cilium-cli@f313219850d324b516748ff7b00a6f9fa30d34ae # v0.16.23
+        uses: cilium/cilium-cli@a4936ec2afa58bf755162928456190344a179207 # v0.16.24
         with:
           repository: ${{ env.CILIUM_CLI_RELEASE_REPO }}
           release-version: ${{ env.CILIUM_CLI_VERSION }}
@@ -351,7 +351,7 @@ jobs:
         if: ${{ steps.vars.outputs.downgrade_version != '' }}
         shell: bash
         run: |
-          ./cilium-cli upgrade --reset-then-reuse-values=false \
+          ./cilium-cli upgrade --reset-values=true \
             ${{ steps.cilium-newest-config.outputs.config }} \
             ${{ steps.kvstore.outputs.config }}
 
@@ -382,7 +382,7 @@ jobs:
         if: ${{ steps.vars.outputs.downgrade_version != '' }}
         shell: bash
         run: |
-          ./cilium-cli upgrade --reset-then-reuse-values=false \
+          ./cilium-cli upgrade --reset-values=true \
             ${{ steps.cilium-stable-config.outputs.config }} \
             ${{ steps.kvstore.outputs.config }}
 
