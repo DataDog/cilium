@@ -62,10 +62,15 @@ type (
 		ItrEnabled              bool `json:"itr_enabled"`
 		RequireGit              bool `json:"require_git"`
 		TestsSkipping           bool `json:"tests_skipping"`
+		KnownTestsEnabled       bool `json:"known_tests_enabled"`
 	}
 )
 
 func (c *client) GetSettings() (*SettingsResponseData, error) {
+	if c.repositoryURL == "" || c.commitSha == "" {
+		return nil, fmt.Errorf("civisibility.GetSettings: repository URL and commit SHA are required")
+	}
+
 	body := settingsRequest{
 		Data: settingsRequestHeader{
 			ID:   c.id,
@@ -100,14 +105,14 @@ func (c *client) GetSettings() (*SettingsResponseData, error) {
 		telemetry.GitRequestsSettingsErrors(telemetry.GetErrorTypeFromStatusCode(response.StatusCode))
 	}
 
+	if log.DebugEnabled() {
+		log.Debug("civisibility.settings: %s", string(response.Body))
+	}
+
 	var responseObject settingsResponse
 	err = response.Unmarshal(&responseObject)
 	if err != nil {
 		return nil, fmt.Errorf("unmarshalling settings response: %s", err.Error())
-	}
-
-	if log.DebugEnabled() {
-		log.Debug("civisibility.settings: %s", string(response.Body))
 	}
 
 	var settingsResponseType telemetry.SettingsResponseType

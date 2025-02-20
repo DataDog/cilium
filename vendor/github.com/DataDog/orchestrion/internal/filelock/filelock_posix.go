@@ -8,6 +8,7 @@
 package filelock
 
 import (
+	"context"
 	"os"
 	"syscall"
 )
@@ -25,4 +26,12 @@ func lock(f *os.File) error {
 // unlock removes any advisory locks from the specified file.
 func unlock(f *os.File) error {
 	return syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+}
+
+// beforeLockChange is called before the lock state is changed. It is a no-op on
+// POSIX platforms, as [syscall.Flock] allows for a lock to be upgraded or
+// downgraded freely. It returns `false` if the currently held lock is identical
+// to the target state (idempotent), and always returns a `nil` error.
+func (m *Mutex) beforeLockChange(_ context.Context, to lockState) (cont bool, err error) {
+	return m.locked != to, nil
 }

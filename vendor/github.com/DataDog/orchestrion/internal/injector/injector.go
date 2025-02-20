@@ -266,7 +266,7 @@ func (i *Injector) applyAspects(ctx gocontext.Context, params parameters) (resul
 	}, nil
 }
 
-// injectNode assesses all configured aspects agaisnt the current node, and performs any AST
+// injectNode assesses all configured aspects against the current node, and performs any AST
 // transformations. It returns whether the AST was indeed modified. In case of an error, the
 // injector aborts immediately and returns the error.
 func injectNode(ctx context.AdviceContext, aspects []*aspect.Aspect) (mod bool, err error) {
@@ -276,15 +276,13 @@ func injectNode(ctx context.AdviceContext, aspects []*aspect.Aspect) (mod bool, 
 		}
 		for idx, act := range inj.Advice {
 			var changed bool
-			changed, err = act.Apply(ctx)
-			if changed {
-				mod = true
-			}
+			changed, err := act.Apply(ctx)
+			mod = mod || changed
 			if err != nil {
 				return mod, fmt.Errorf("%q[%d]: %w", inj.ID, idx, err)
 			}
 		}
 	}
 
-	return
+	return mod, nil
 }

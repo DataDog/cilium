@@ -1,4 +1,4 @@
-// Copyright 2019-2024 The NATS Authors
+// Copyright 2019-2025 The NATS Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 	"unsafe"
@@ -90,6 +91,7 @@ type StreamStore interface {
 	LoadNextMsg(filter string, wc bool, start uint64, smp *StoreMsg) (sm *StoreMsg, skip uint64, err error)
 	LoadNextMsgMulti(sl *Sublist, start uint64, smp *StoreMsg) (sm *StoreMsg, skip uint64, err error)
 	LoadLastMsg(subject string, sm *StoreMsg) (*StoreMsg, error)
+	LoadPrevMsg(start uint64, smp *StoreMsg) (sm *StoreMsg, err error)
 	RemoveMsg(seq uint64) (bool, error)
 	EraseMsg(seq uint64) (bool, error)
 	Purge() (uint64, error)
@@ -166,6 +168,8 @@ type SimpleState struct {
 
 	// Internal usage for when the first needs to be updated before use.
 	firstNeedsUpdate bool
+	// Internal usage for when the last needs to be updated before use.
+	lastNeedsUpdate bool
 }
 
 // LostStreamData indicates msgs that have been lost.
@@ -777,4 +781,8 @@ func copyString(s string) string {
 	b := make([]byte, len(s))
 	copy(b, s)
 	return bytesToString(b)
+}
+
+func isPermissionError(err error) bool {
+	return err != nil && os.IsPermission(err)
 }

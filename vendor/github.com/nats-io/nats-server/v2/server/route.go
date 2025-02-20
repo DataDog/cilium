@@ -1,4 +1,4 @@
-// Copyright 2013-2023 The NATS Authors
+// Copyright 2013-2025 The NATS Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -1348,8 +1348,6 @@ func (c *client) processRemoteUnsub(arg []byte, leafUnsub bool) (err error) {
 		return nil
 	}
 
-	updateGWs := false
-
 	_keya := [128]byte{}
 	_key := _keya[:0]
 
@@ -1373,19 +1371,21 @@ func (c *client) processRemoteUnsub(arg []byte, leafUnsub bool) (err error) {
 	if ok {
 		delete(c.subs, key)
 		acc.sl.Remove(sub)
-		updateGWs = srv.gateway.enabled
 		if len(sub.queue) > 0 {
 			delta = sub.qw
 		}
 	}
 	c.mu.Unlock()
 
-	if updateGWs {
-		srv.gatewayUpdateSubInterest(accountName, sub, -delta)
-	}
+	// Update gateways and leaf nodes only if the subscription was found.
+	if ok {
+		if srv.gateway.enabled {
+			srv.gatewayUpdateSubInterest(accountName, sub, -delta)
+		}
 
-	// Now check on leafnode updates.
-	acc.updateLeafNodes(sub, -delta)
+		// Now check on leafnode updates.
+		acc.updateLeafNodes(sub, -delta)
+	}
 
 	if c.opts.Verbose {
 		c.sendOK()
@@ -1600,7 +1600,6 @@ func (c *client) processRemoteSub(argo []byte, hasOrigin bool) (err error) {
 	// We use the sub.sid for the key of the c.subs map.
 	key := bytesToString(sub.sid)
 	osub := c.subs[key]
-	updateGWs := false
 	if osub == nil {
 		c.subs[key] = sub
 		// Now place into the account sl.
@@ -1611,7 +1610,6 @@ func (c *client) processRemoteSub(argo []byte, hasOrigin bool) (err error) {
 			c.sendErr("Invalid Subscription")
 			return nil
 		}
-		updateGWs = srv.gateway.enabled
 	} else if sub.queue != nil {
 		// For a queue we need to update the weight.
 		delta = sub.qw - atomic.LoadInt32(&osub.qw)
@@ -1620,7 +1618,7 @@ func (c *client) processRemoteSub(argo []byte, hasOrigin bool) (err error) {
 	}
 	c.mu.Unlock()
 
-	if updateGWs {
+	if srv.gateway.enabled {
 		srv.gatewayUpdateSubInterest(acc.Name, sub, delta)
 	}
 

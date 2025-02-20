@@ -1,4 +1,4 @@
-// Copyright 2019-2024 The NATS Authors
+// Copyright 2019-2025 The NATS Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -855,9 +855,18 @@ func (c *client) sendLeafConnect(clusterName string, headers bool) error {
 		pkey, _ := kp.PublicKey()
 		cinfo.Nkey = pkey
 		cinfo.Sig = sig
-	} else if userInfo := c.leaf.remote.curURL.User; userInfo != nil {
+	}
+	// In addition, and this is to allow auth callout, set user/password or
+	// token if applicable.
+	if userInfo := c.leaf.remote.curURL.User; userInfo != nil {
+		// For backward compatibility, if only username is provided, set both
+		// Token and User, not just Token.
 		cinfo.User = userInfo.Username()
-		cinfo.Pass, _ = userInfo.Password()
+		var ok bool
+		cinfo.Pass, ok = userInfo.Password()
+		if !ok {
+			cinfo.Token = cinfo.User
+		}
 	} else if c.leaf.remote.username != _EMPTY_ {
 		cinfo.User = c.leaf.remote.username
 		cinfo.Pass = c.leaf.remote.password
@@ -988,6 +997,7 @@ func (s *Server) createLeafNode(conn net.Conn, rURL *url.URL, remote *leafNodeCf
 	c.Noticef("Leafnode connection created%s %s", remoteSuffix, c.opts.Name)
 
 	var tlsFirst bool
+	var infoTimeout time.Duration
 	if remote != nil {
 		solicited = true
 		remote.Lock()
@@ -997,6 +1007,7 @@ func (s *Server) createLeafNode(conn net.Conn, rURL *url.URL, remote *leafNodeCf
 			c.leaf.isSpoke = true
 		}
 		tlsFirst = remote.TLSHandshakeFirst
+		infoTimeout = remote.FirstInfoTimeout
 		remote.Unlock()
 		c.acc = acc
 	} else {
@@ -1054,7 +1065,7 @@ func (s *Server) createLeafNode(conn net.Conn, rURL *url.URL, remote *leafNodeCf
 				}
 			}
 			// We need to wait for the info, but not for too long.
-			c.nc.SetReadDeadline(time.Now().Add(DEFAULT_LEAFNODE_INFO_WAIT))
+			c.nc.SetReadDeadline(time.Now().Add(infoTimeout))
 		}
 
 		// We will process the INFO from the readloop and finish by
@@ -1725,6 +1736,7 @@ type leafConnectInfo struct {
 	Sig       string   `json:"sig,omitempty"`
 	User      string   `json:"user,omitempty"`
 	Pass      string   `json:"pass,omitempty"`
+	Token     string   `json:"auth_token,omitempty"`
 	ID        string   `json:"server_id,omitempty"`
 	Domain    string   `json:"domain,omitempty"`
 	Name      string   `json:"name,omitempty"`
@@ -2247,8 +2259,16 @@ func (c *client) sendLeafNodeSubUpdate(key string, n int32) {
 				checkPerms = false
 			}
 		}
-		if checkPerms && !c.canSubscribe(key) {
-			return
+		if checkPerms {
+			var subject string
+			if sep := strings.IndexByte(key, ' '); sep != -1 {
+				subject = key[:sep]
+			} else {
+				subject = key
+			}
+			if !c.canSubscribe(subject) {
+				return
+			}
 		}
 	}
 	// If we are here we can send over to the other side.
@@ -2435,7 +2455,6 @@ func (c *client) processLeafSub(argo []byte) (err error) {
 	}
 	key := bytesToString(sub.sid)
 	osub := c.subs[key]
-	updateGWs := false
 	if osub == nil {
 		c.subs[key] = sub
 		// Now place into the account sl.
@@ -2446,7 +2465,6 @@ func (c *client) processLeafSub(argo []byte) (err error) {
 			c.sendErr("Invalid Subscription")
 			return nil
 		}
-		updateGWs = srv.gateway.enabled
 	} else if sub.queue != nil {
 		// For a queue we need to update the weight.
 		delta = sub.qw - atomic.LoadInt32(&osub.qw)
@@ -2469,7 +2487,7 @@ func (c *client) processLeafSub(argo []byte) (err error) {
 	if !spoke {
 		// If we are routing add to the route map for the associated account.
 		srv.updateRouteSubscriptionMap(acc, sub, delta)
-		if updateGWs {
+		if srv.gateway.enabled {
 			srv.gatewayUpdateSubInterest(acc.Name, sub, delta)
 		}
 	}
@@ -2511,27 +2529,27 @@ func (c *client) processLeafUnsub(arg []byte) error {
 		return nil
 	}
 
-	updateGWs := false
 	spoke := c.isSpokeLeafNode()
 	// We store local subs by account and subject and optionally queue name.
 	// LS- will have the arg exactly as the key.
 	sub, ok := c.subs[string(arg)]
+	if !ok {
+		// If not found, don't try to update routes/gws/leaf nodes.
+		c.mu.Unlock()
+		return nil
+	}
 	delta := int32(1)
-	if ok && len(sub.queue) > 0 {
+	if len(sub.queue) > 0 {
 		delta = sub.qw
 	}
 	c.mu.Unlock()
 
-	if ok {
-		c.unsubscribe(acc, sub, true, true)
-		updateGWs = srv.gateway.enabled
-	}
-
+	c.unsubscribe(acc, sub, true, true)
 	if !spoke {
 		// If we are routing subtract from the route map for the associated account.
 		srv.updateRouteSubscriptionMap(acc, sub, -delta)
 		// Gateways
-		if updateGWs {
+		if srv.gateway.enabled {
 			srv.gatewayUpdateSubInterest(acc.Name, sub, -delta)
 		}
 	}
@@ -2765,7 +2783,7 @@ func (c *client) processInboundLeafMsg(msg []byte) {
 
 	// Now deal with gateways
 	if c.srv.gateway.enabled {
-		c.sendMsgToGateways(acc, msg, c.pa.subject, c.pa.reply, qnames)
+		c.sendMsgToGateways(acc, msg, c.pa.subject, c.pa.reply, qnames, true)
 	}
 }
 
@@ -2881,6 +2899,7 @@ func (c *client) leafNodeSolicitWSConnection(opts *Options, rURL *url.URL, remot
 	compress := remote.Websocket.Compression
 	// By default the server will mask outbound frames, but it can be disabled with this option.
 	noMasking := remote.Websocket.NoMasking
+	infoTimeout := remote.FirstInfoTimeout
 	remote.RUnlock()
 	// Will do the client-side TLS handshake if needed.
 	tlsRequired, err := c.leafClientHandshakeIfNeeded(remote, opts)
@@ -2933,6 +2952,7 @@ func (c *client) leafNodeSolicitWSConnection(opts *Options, rURL *url.URL, remot
 	if noMasking {
 		req.Header.Add(wsNoMaskingHeader, wsNoMaskingValue)
 	}
+	c.nc.SetDeadline(time.Now().Add(infoTimeout))
 	if err := req.Write(c.nc); err != nil {
 		return nil, WriteError, err
 	}
@@ -2940,7 +2960,6 @@ func (c *client) leafNodeSolicitWSConnection(opts *Options, rURL *url.URL, remot
 	var resp *http.Response
 
 	br := bufio.NewReaderSize(c.nc, MAX_CONTROL_LINE_SIZE)
-	c.nc.SetReadDeadline(time.Now().Add(DEFAULT_LEAFNODE_INFO_WAIT))
 	resp, err = http.ReadResponse(br, req)
 	if err == nil &&
 		(resp.StatusCode != 101 ||

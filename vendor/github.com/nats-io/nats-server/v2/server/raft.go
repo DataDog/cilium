@@ -1,4 +1,4 @@
-// Copyright 2020-2024 The NATS Authors
+// Copyright 2020-2025 The NATS Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -52,6 +52,7 @@ type RaftNode interface {
 	Current() bool
 	Healthy() bool
 	Term() uint64
+	Leaderless() bool
 	GroupLeader() string
 	HadPreviousLeader() bool
 	StepDown(preferred ...string) error
@@ -61,6 +62,7 @@ type RaftNode interface {
 	ID() string
 	Group() string
 	Peers() []*Peer
+	ProposeKnownPeers(knownPeers []string)
 	UpdateKnownPeers(knownPeers []string)
 	ProposeAddPeer(peer string) error
 	ProposeRemovePeer(peer string) error
@@ -76,6 +78,7 @@ type RaftNode interface {
 	Stop()
 	WaitForStop()
 	Delete()
+	IsSystemAccount() bool
 }
 
 type WAL interface {
@@ -173,9 +176,10 @@ type raft struct {
 	c  *client    // Internal client for subscriptions
 	js *jetStream // JetStream, if running, to see if we are out of resources
 
-	dflag    bool // Debug flag
-	pleader  bool // Has the group ever had a leader?
-	observer bool // The node is observing, i.e. not participating in voting
+	dflag     bool        // Debug flag
+	hasleader atomic.Bool // Is there a group leader right now?
+	pleader   atomic.Bool // Has the group ever had a leader?
+	observer  bool        // The node is observing, i.e. not participating in voting
 
 	extSt extensionState // Extension state
 
@@ -541,6 +545,12 @@ func (s *Server) startRaftNode(accName string, cfg *RaftConfig, labels pprofLabe
 	return n, nil
 }
 
+// Whether we are using the system account or not.
+// In 2.10.x this is always true as there is no account NRG like in 2.11.x.
+func (n *raft) IsSystemAccount() bool {
+	return true
+}
+
 // outOfResources checks to see if we are out of resources.
 func (n *raft) outOfResources() bool {
 	js := n.js
@@ -829,7 +839,7 @@ func (n *raft) AdjustBootClusterSize(csz int) error {
 	n.Lock()
 	defer n.Unlock()
 
-	if n.leader != noLeader || n.pleader {
+	if n.leader != noLeader || n.pleader.Load() {
 		return errAdjustBootCluster
 	}
 	// Same floor as bootstrap.
@@ -1326,6 +1336,12 @@ func (n *raft) isCurrent(includeForwardProgress bool) bool {
 		return false
 	}
 
+	if n.paused && n.hcommit > n.commit {
+		// We're currently paused, waiting to be resumed to apply pending commits.
+		n.debug("Not current, waiting to resume applies commit=%d, hcommit=%d", n.commit, n.hcommit)
+		return false
+	}
+
 	if n.commit == n.applied {
 		// At this point if we are current, we can return saying so.
 		clearBehindState()
@@ -1379,9 +1395,7 @@ func (n *raft) Healthy() bool {
 
 // HadPreviousLeader indicates if this group ever had a leader.
 func (n *raft) HadPreviousLeader() bool {
-	n.RLock()
-	defer n.RUnlock()
-	return n.pleader
+	return n.pleader.Load()
 }
 
 // GroupLeader returns the current leader of the group.
@@ -1392,6 +1406,17 @@ func (n *raft) GroupLeader() string {
 	n.RLock()
 	defer n.RUnlock()
 	return n.leader
+}
+
+// Leaderless is a lockless way of finding out if the group has a
+// leader or not. Use instead of GroupLeader in hot paths.
+func (n *raft) Leaderless() bool {
+	if n == nil {
+		return true
+	}
+	// Negated because we want the default state of hasLeader to be
+	// false until the first setLeader() call.
+	return !n.hasleader.Load()
 }
 
 // Guess the best next leader. Stepdown will check more thoroughly.
@@ -1556,14 +1581,12 @@ func (n *raft) ID() string {
 	if n == nil {
 		return _EMPTY_
 	}
-	n.RLock()
-	defer n.RUnlock()
+	// Lock not needed as n.id is never changed after creation.
 	return n.id
 }
 
 func (n *raft) Group() string {
-	n.RLock()
-	defer n.RUnlock()
+	// Lock not needed as n.group is never changed after creation.
 	return n.group
 }
 
@@ -1588,19 +1611,23 @@ func (n *raft) Peers() []*Peer {
 	return peers
 }
 
+// Update and propose our known set of peers.
+func (n *raft) ProposeKnownPeers(knownPeers []string) {
+	// If we are the leader update and send this update out.
+	if n.State() != Leader {
+		return
+	}
+	n.UpdateKnownPeers(knownPeers)
+	n.sendPeerState()
+}
+
 // Update our known set of peers.
 func (n *raft) UpdateKnownPeers(knownPeers []string) {
 	n.Lock()
 	// Process like peer state update.
 	ps := &peerState{knownPeers, len(knownPeers), n.extSt}
 	n.processPeerState(ps)
-	isLeader := n.State() == Leader
 	n.Unlock()
-
-	// If we are the leader send this update out as well.
-	if isLeader {
-		n.sendPeerState()
-	}
 }
 
 // ApplyQ returns the apply queue that new commits will be sent to for the
@@ -1615,8 +1642,7 @@ func (n *raft) LeadChangeC() <-chan bool { return n.leadc }
 func (n *raft) QuitC() <-chan struct{} { return n.quit }
 
 func (n *raft) Created() time.Time {
-	n.RLock()
-	defer n.RUnlock()
+	// Lock not needed as n.created is never changed after creation.
 	return n.created
 }
 
@@ -1840,7 +1866,7 @@ runner:
 	// just will remove them from the central monitoring map
 	queues := []interface {
 		unregister()
-		drain()
+		drain() int
 	}{n.reqs, n.votes, n.prop, n.entry, n.resp, n.apply}
 	for _, q := range queues {
 		q.drain()
@@ -3138,8 +3164,9 @@ func (n *raft) resetWAL() {
 // Lock should be held
 func (n *raft) updateLeader(newLeader string) {
 	n.leader = newLeader
-	if !n.pleader && newLeader != noLeader {
-		n.pleader = true
+	n.hasleader.Store(newLeader != _EMPTY_)
+	if !n.pleader.Load() && newLeader != noLeader {
+		n.pleader.Store(true)
 	}
 }
 
@@ -3416,8 +3443,13 @@ CONTINUE:
 				if l > paeWarnThreshold && l%paeWarnModulo == 0 {
 					n.warn("%d append entries pending", len(n.pae))
 				}
-			} else if l%paeWarnModulo == 0 {
-				n.debug("Not saving to append entries pending")
+			} else {
+				// Invalidate cache entry at this index, we might have
+				// stored it previously with a different value.
+				delete(n.pae, n.pindex)
+				if l%paeWarnModulo == 0 {
+					n.debug("Not saving to append entries pending")
+				}
 			}
 		} else {
 			// This is a replay on startup so just take the appendEntry version.
@@ -3853,6 +3885,10 @@ func (n *raft) setWriteErrLocked(err error) {
 	n.error("Critical write error: %v", err)
 	n.werr = err
 
+	if isPermissionError(err) {
+		go n.s.handleWritePermissionError()
+	}
+
 	if isOutOfSpaceErr(err) {
 		// For now since this can be happening all under the covers, we will call up and disable JetStream.
 		go n.s.handleOutOfSpace(nil)
@@ -3988,11 +4024,10 @@ func (n *raft) processVoteRequest(vr *voteRequest) error {
 		n.vote = vr.candidate
 		n.writeTermVote()
 		n.resetElectionTimeout()
-	} else {
-		if vr.term >= n.term && n.vote == noVote {
-			n.term = vr.term
-			n.resetElect(randCampaignTimeout())
-		}
+	} else if n.vote == noVote && n.State() != Candidate {
+		// We have a more up-to-date log, and haven't voted yet.
+		// Start campaigning earlier, but only if not candidate already, as that would short-circuit us.
+		n.resetElect(randCampaignTimeout())
 	}
 
 	// Term might have changed, make sure response has the most current
