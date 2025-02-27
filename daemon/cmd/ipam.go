@@ -269,7 +269,7 @@ func (d *Daemon) allocateHealthIPs() error {
 		// In ENI and AlibabaCloud ENI mode, we require the gateway, CIDRs, and the ENI MAC addr
 		// in order to set up rules and routes on the local node to direct
 		// endpoint traffic out of the ENIs.
-		if option.Config.IPAM == ipamOption.IPAMENI || option.Config.IPAM == ipamOption.IPAMAlibabaCloud {
+		if option.Config.IPAM == ipamOption.IPAMENI || option.Config.IPAM == ipamOption.IPAMAlibabaCloud || option.Config.IPAM == ipamOption.IPAMOracle {
 			if d.healthEndpointRouting, err = parseRoutingInfo(result); err != nil {
 				log.WithError(err).Warn("Unable to allocate health information for ENI")
 			}
