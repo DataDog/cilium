@@ -706,6 +706,8 @@ const (
 	// the default for denied DNS requests.
 	FQDNProxyDenyWithRefused = "refused"
 
+	FQDNProxyServFail = "servfail"
+
 	// FQDNProxyResponseMaxDelay is the maximum time the proxy holds back a response
 	FQDNProxyResponseMaxDelay = "tofqdns-proxy-response-max-delay"
 
@@ -1241,7 +1243,7 @@ const (
 
 // Default string arguments
 var (
-	FQDNRejectOptions = []string{FQDNProxyDenyWithNameError, FQDNProxyDenyWithRefused}
+	FQDNRejectOptions = []string{FQDNProxyDenyWithNameError, FQDNProxyDenyWithRefused, FQDNProxyServFail}
 
 	// MonitorAggregationFlagsDefault ensure that all TCP flags trigger
 	// monitor notifications even under medium monitor aggregation.
