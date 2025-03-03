@@ -240,6 +240,7 @@ func (c *Client) describeNetworkInterfaces(ctx context.Context, subnets ipamType
 		})
 	}
 	paginator := ec2.NewDescribeNetworkInterfacesPaginator(c.ec2Client, input)
+	pageCount := 0
 	for paginator.HasMorePages() {
 		c.limiter.Limit(ctx, "DescribeNetworkInterfaces")
 		sinceStart := spanstat.Start()
@@ -248,6 +249,8 @@ func (c *Client) describeNetworkInterfaces(ctx context.Context, subnets ipamType
 		if err != nil {
 			return nil, err
 		}
+		pageCount++
+		log.Info("Anton-Test: page count: ", pageCount, " number of elements: ", len(output.NetworkInterfaces))
 		result = append(result, output.NetworkInterfaces...)
 	}
 	return result, nil
