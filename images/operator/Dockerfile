@@ -76,9 +76,6 @@ RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium \
 
 FROM ${BASE_IMAGE} AS release
 
-# Datadog Modification: operator has to run as root
-USER root
-
 # TARGETOS is an automatic platform ARG enabled by Docker BuildKit.
 ARG TARGETOS
 # TARGETARCH is an automatic platform ARG enabled by Docker BuildKit.
