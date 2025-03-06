@@ -63,5 +63,7 @@ COPY --from=bpftool-dist /test /test
 RUN /test/bin/cst -C /test/llvm
 RUN /test/bin/cst -C /test/bpftool
 
-# Datadog modification: do not squash the layers to not lose GBI labels
-FROM rootfs
+FROM scratch
+
+LABEL maintainer="maintainer@cilium.io"
+COPY --from=rootfs / /
