@@ -70,6 +70,7 @@ func (s *ciliumNodeSynchronizer) Start(ctx context.Context, wg *sync.WaitGroup) 
 
 		resourceEventHandler         = cache.ResourceEventHandlerFuncs{}
 		ciliumNodeManagerQueueConfig = workqueue.RateLimitingQueueConfig{
+			Name:            "CiliumNodeManagerQueue",
 			MetricsProvider: NewPrometheusMetricsProvider(),
 		}
 		ciliumNodeManagerQueue = workqueue.NewRateLimitingQueueWithConfig(workqueue.DefaultControllerRateLimiter(), ciliumNodeManagerQueueConfig)
