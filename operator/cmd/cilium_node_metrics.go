@@ -1,64 +1,97 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright Authors of Cilium
-
 package cmd
 
 import (
-	"github.com/prometheus/client_golang/prometheus"
-
 	operatorMetrics "github.com/cilium/cilium/operator/metrics"
 	"github.com/cilium/cilium/pkg/metrics"
+	"github.com/prometheus/client_golang/prometheus"
+	"k8s.io/client-go/util/workqueue"
 )
 
-const ciliumNodeSynchronizerSubsystem = "cilium_node_synchronizer"
+const rateLimitingQueueSubsystem = "rate_limiting_queue"
 
-type prometheusMetrics struct {
-	registry             operatorMetrics.RegisterGatherer
-	QueuedItems          prometheus.Gauge
-	AllocateInterfaceOps *prometheus.CounterVec
+type PrometheusMetricsProvider struct {
+	registry prometheus.Registerer
 }
 
-// NewPrometheusMetrics returns a new interface metrics implementation backed by
-// Prometheus metrics.
-func NewPrometheusMetrics() *prometheusMetrics {
-	m := &prometheusMetrics{
-		registry: operatorMetrics.Registry,
-	}
+func NewPrometheusMetricsProvider() *PrometheusMetricsProvider {
+	return &PrometheusMetricsProvider{registry: operatorMetrics.Registry}
+}
 
-	m.QueuedItems = prometheus.NewGauge(prometheus.GaugeOpts{
+func (p PrometheusMetricsProvider) NewDepthMetric(name string) workqueue.GaugeMetric {
+	metric := prometheus.NewGauge(prometheus.GaugeOpts{
 		Namespace: metrics.CiliumOperatorNamespace,
-		Subsystem: ciliumNodeSynchronizerSubsystem,
-		Name:      "queued_items",
-		Help:      "Number of items queued for processing",
+		Subsystem: rateLimitingQueueSubsystem,
+		Name:      name + "_depth",
+		Help:      "Current depth of the workqueue",
 	})
+	p.registry.MustRegister(metric)
+	return metric
+}
 
-	m.AllocateInterfaceOps = prometheus.NewCounterVec(prometheus.CounterOpts{
+func (p PrometheusMetricsProvider) NewAddsMetric(name string) workqueue.CounterMetric {
+	metric := prometheus.NewCounter(prometheus.CounterOpts{
 		Namespace: metrics.CiliumOperatorNamespace,
-		Subsystem: ciliumNodeSynchronizerSubsystem,
-		Name:      "todo",
-		Help:      "TODO",
-	}, []string{"subnet_id"})
-
-	m.registry.MustRegister(m.QueuedItems)
-	m.registry.MustRegister(m.AllocateInterfaceOps)
-
-	return m
+		Subsystem: rateLimitingQueueSubsystem,
+		Name:      name + "_adds",
+		Help:      "Total number of adds handled by the workqueue",
+	})
+	p.registry.MustRegister(metric)
+	return metric
 }
 
-func (p *prometheusMetrics) IncInterfaceAllocation(subnetID string) {
-	p.AllocateInterfaceOps.WithLabelValues(subnetID).Inc()
+func (p PrometheusMetricsProvider) NewLatencyMetric(name string) workqueue.HistogramMetric {
+	metric := prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: metrics.CiliumOperatorNamespace,
+		Subsystem: rateLimitingQueueSubsystem,
+		Name:      name + "_latency",
+		Help:      "How long an item stays in the workqueue",
+		Buckets:   prometheus.DefBuckets,
+	})
+	p.registry.MustRegister(metric)
+	return metric
 }
 
-func (p *prometheusMetrics) SetQueuedItems(items int) {
-	p.QueuedItems.Set(float64(items))
+func (p PrometheusMetricsProvider) NewWorkDurationMetric(name string) workqueue.HistogramMetric {
+	metric := prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: metrics.CiliumOperatorNamespace,
+		Subsystem: rateLimitingQueueSubsystem,
+		Name:      name + "_work_duration",
+		Help:      "How long processing an item from the workqueue takes",
+		Buckets:   prometheus.DefBuckets,
+	})
+	p.registry.MustRegister(metric)
+	return metric
 }
 
-/*
-func merge(slices ...[]float64) []float64 {
-	result := make([]float64, 1)
-	for _, s := range slices {
-		result = append(result, s...)
-	}
-	return result
+func (p PrometheusMetricsProvider) NewUnfinishedWorkSecondsMetric(name string) workqueue.SettableGaugeMetric {
+	metric := prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: metrics.CiliumOperatorNamespace,
+		Subsystem: rateLimitingQueueSubsystem,
+		Name:      name + "_unfinished_work_seconds",
+		Help:      "How long have current threads been working",
+	})
+	p.registry.MustRegister(metric)
+	return metric
 }
-*/
+
+func (p PrometheusMetricsProvider) NewLongestRunningProcessorSecondsMetric(name string) workqueue.SettableGaugeMetric {
+	metric := prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: metrics.CiliumOperatorNamespace,
+		Subsystem: rateLimitingQueueSubsystem,
+		Name:      name + "_longest_running_processor_seconds",
+		Help:      "How long the longest running processor has been working",
+	})
+	p.registry.MustRegister(metric)
+	return metric
+}
+
+func (p PrometheusMetricsProvider) NewRetriesMetric(name string) workqueue.CounterMetric {
+	metric := prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: metrics.CiliumOperatorNamespace,
+		Subsystem: rateLimitingQueueSubsystem,
+		Name:      name + "_retries",
+		Help:      "Total number of retries handled by the workqueue",
+	})
+	p.registry.MustRegister(metric)
+	return metric
+}

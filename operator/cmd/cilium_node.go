@@ -47,8 +47,6 @@ type ciliumNodeSynchronizer struct {
 
 	k8sCiliumNodesCacheSynced    chan struct{}
 	ciliumNodeManagerQueueSynced chan struct{}
-
-	metrics *prometheusMetrics
 }
 
 func newCiliumNodeSynchronizer(clientset k8sClient.Clientset, nodeManager allocator.NodeEventHandler, withKVStore bool) *ciliumNodeSynchronizer {
@@ -59,7 +57,6 @@ func newCiliumNodeSynchronizer(clientset k8sClient.Clientset, nodeManager alloca
 
 		k8sCiliumNodesCacheSynced:    make(chan struct{}),
 		ciliumNodeManagerQueueSynced: make(chan struct{}),
-		metrics:                      NewPrometheusMetrics(),
 	}
 }
 
@@ -71,8 +68,11 @@ func (s *ciliumNodeSynchronizer) Start(ctx context.Context, wg *sync.WaitGroup) 
 		kvStoreSyncHandler     func(key string) error
 		connectedToKVStore     = make(chan struct{})
 
-		resourceEventHandler   = cache.ResourceEventHandlerFuncs{}
-		ciliumNodeManagerQueue = workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
+		resourceEventHandler         = cache.ResourceEventHandlerFuncs{}
+		ciliumNodeManagerQueueConfig = workqueue.RateLimitingQueueConfig{
+			MetricsProvider: NewPrometheusMetricsProvider(),
+		}
+		ciliumNodeManagerQueue = workqueue.NewRateLimitingQueueWithConfig(workqueue.DefaultControllerRateLimiter(), ciliumNodeManagerQueueConfig)
 		kvStoreQueue           = workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
 	)
 
@@ -316,7 +316,6 @@ func (s *ciliumNodeSynchronizer) syncHandlerConstructor(notFoundHandler func(nod
 
 // processNextWorkItem process all events from the workqueue.
 func (s *ciliumNodeSynchronizer) processNextWorkItem(queue workqueue.RateLimitingInterface, syncHandler func(key string) error) bool {
-	s.metrics.QueuedItems.Set(float64(queue.Len()))
 	key, quit := queue.Get()
 	if quit {
 		return false
