@@ -1,0 +1,129 @@
+stages:
+  - trigger
+  - build
+
+default:
+  tags: ["arch:amd64"]
+  image: registry.ddbuild.io/images/docker:24.0.4-gbi-focal
+
+variables:
+  DOCKER_CTX: "."
+
+  # Base images
+  UBUNTU_FIPS_BASE_IMAGE: registry.ddbuild.io/images/base/gbi-ubuntu_2404-fips:release
+  UBUNTU_ROOT_FIPS_BASE_IMAGE: registry.ddbuild.io/images/gbi-ubuntu_2404-root-fips:release
+  DISTROLESS_FIPS_BASE_IMAGE: registry.ddbuild.io/images/base/gbi-distroless-nossl-fips:release
+  DISTROLESS_ROOT_FIPS_BASE_IMAGE: registry.ddbuild.io/images/base/gbi-distroless-nossl-root-fips:release
+
+# Force git to remove any reference to the local disk copy of the repository
+before_script:
+  - git repack -a -d && rm -f .git/objects/info/alternates
+
+.build-docker-image:
+  stage: build
+  rules:
+    # Run the pipeline for all pushed tags + triggered pipelines
+    - if: $CI_COMMIT_TAG
+    - if: $CI_PIPELINE_SOURCE == "pipeline"
+  id_tokens:
+    DDSIGN_ID_TOKEN:
+      aud: image-integrity
+  script: .gitlab/build-image.sh
+
+cilium-operator-generic:
+  extends: .build-docker-image
+  variables:
+    DOCKERFILE_PATH: images/operator/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      OPERATOR_VARIANT=operator-generic
+      BASE_IMAGE=$DISTROLESS_ROOT_FIPS_BASE_IMAGE
+    IMAGES_TO_MIRROR: |
+      ALPINE_IMAGE
+      CILIUM_BUILDER_IMAGE
+      GOLANG_IMAGE
+    TARGET: release
+
+cilium-operator-aws:
+  extends: .build-docker-image
+  variables:
+    DOCKERFILE_PATH: images/operator/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      OPERATOR_VARIANT=operator-aws
+      BASE_IMAGE=$DISTROLESS_ROOT_FIPS_BASE_IMAGE
+    IMAGES_TO_MIRROR: |
+      ALPINE_IMAGE
+      CILIUM_BUILDER_IMAGE
+      GOLANG_IMAGE
+    TARGET: release
+
+cilium-operator-azure:
+  extends: .build-docker-image
+  variables:
+    DOCKERFILE_PATH: images/operator/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      OPERATOR_VARIANT=operator-azure
+      BASE_IMAGE=$DISTROLESS_ROOT_FIPS_BASE_IMAGE
+    IMAGES_TO_MIRROR: |
+      ALPINE_IMAGE
+      CILIUM_BUILDER_IMAGE
+      GOLANG_IMAGE
+    TARGET: release
+
+cilium-runtime:
+  extends: .build-docker-image
+  variables:
+    DOCKERFILE_PATH: images/runtime/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      UBUNTU_IMAGE=$UBUNTU_ROOT_FIPS_BASE_IMAGE
+    IMAGES_TO_MIRROR: |
+      CILIUM_BPFTOOL_IMAGE
+      CILIUM_IPTABLES_IMAGE
+      CILIUM_LLVM_IMAGE
+      GOLANG_IMAGE
+      TESTER_IMAGE
+    DOCKER_CTX: "./images/runtime"
+    TARGET: rootfs
+
+# Caveats:
+# * The build image is single-arch amd64 and we're doing cross-compilation, so the dlv copy is only valid on amd64. In
+#   other words, the arm64 image does not work.
+cilium:
+  extends: .build-docker-image
+  needs:
+    # The cilium image depends on the runtime image
+    - cilium-runtime
+  variables:
+    DOCKERFILE_PATH: images/cilium/Dockerfile
+    IMAGES_TO_MIRROR: |
+      CILIUM_BUILDER_IMAGE
+      CILIUM_ENVOY_IMAGE
+    TARGET: release
+    NOSTRIP: 0
+
+hubble-relay:
+  extends: .build-docker-image
+  variables:
+    DOCKERFILE_PATH: images/hubble-relay/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      BASE_IMAGE=$UBUNTU_FIPS_BASE_IMAGE
+    IMAGES_TO_MIRROR: |
+      CILIUM_BUILDER_IMAGE
+      GOLANG_IMAGE
+    TARGET: release
+
+cilium-clustermesh-apiserver:
+  extends: .build-docker-image
+  variables:
+    DOCKERFILE_PATH: images/clustermesh-apiserver/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      BASE_IMAGE=$DISTROLESS_FIPS_BASE_IMAGE
+    IMAGES_TO_MIRROR: |
+      GOLANG_IMAGE
+    TARGET: release
+
+
+trigger-builds:
+  stage: trigger
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  script: .gitlab/trigger-builds.sh
