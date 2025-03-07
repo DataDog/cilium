@@ -19,6 +19,7 @@ import (
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/k8s/informer"
 	"github.com/cilium/cilium/pkg/k8s/utils"
+	_ "github.com/cilium/cilium/pkg/k8s/watchers"
 	"github.com/cilium/cilium/pkg/kvstore/store"
 	nodeStore "github.com/cilium/cilium/pkg/node/store"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
@@ -61,6 +62,7 @@ func newCiliumNodeSynchronizer(clientset k8sClient.Clientset, nodeManager alloca
 }
 
 func (s *ciliumNodeSynchronizer) Start(ctx context.Context, wg *sync.WaitGroup) error {
+
 	var (
 		ciliumNodeKVStore      *store.SharedStore
 		err                    error
@@ -68,12 +70,13 @@ func (s *ciliumNodeSynchronizer) Start(ctx context.Context, wg *sync.WaitGroup) 
 		kvStoreSyncHandler     func(key string) error
 		connectedToKVStore     = make(chan struct{})
 
-		resourceEventHandler         = cache.ResourceEventHandlerFuncs{}
-		ciliumNodeManagerQueueConfig = workqueue.RateLimitingQueueConfig{
+		resourceEventHandler = cache.ResourceEventHandlerFuncs{}
+		/*ciliumNodeManagerQueueConfig = workqueue.RateLimitingQueueConfig{
 			Name:            "CiliumNodeManagerQueue",
-			MetricsProvider: NewPrometheusMetricsProvider(),
+			MetricsProvider: metrics.NewPrometheusMetricsProvider(),
 		}
-		ciliumNodeManagerQueue = workqueue.NewRateLimitingQueueWithConfig(workqueue.DefaultControllerRateLimiter(), ciliumNodeManagerQueueConfig)
+		ciliumNodeManagerQueue = workqueue.NewRateLimitingQueueWithConfig(workqueue.DefaultControllerRateLimiter(), ciliumNodeManagerQueueConfig)*/
+		ciliumNodeManagerQueue = workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
 		kvStoreQueue           = workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
 	)
 
