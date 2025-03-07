@@ -6,7 +6,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"github.com/cilium/cilium/operator/metrics"
 	"strings"
 	"sync"
 
