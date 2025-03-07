@@ -6,6 +6,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"github.com/cilium/cilium/operator/metrics"
 	"strings"
 	"sync"
 
@@ -70,13 +71,12 @@ func (s *ciliumNodeSynchronizer) Start(ctx context.Context, wg *sync.WaitGroup) 
 		kvStoreSyncHandler     func(key string) error
 		connectedToKVStore     = make(chan struct{})
 
-		resourceEventHandler = cache.ResourceEventHandlerFuncs{}
-		/*ciliumNodeManagerQueueConfig = workqueue.RateLimitingQueueConfig{
-			Name:            "CiliumNodeManagerQueue",
-			MetricsProvider: metrics.NewPrometheusMetricsProvider(),
+		resourceEventHandler         = cache.ResourceEventHandlerFuncs{}
+		ciliumNodeManagerQueueConfig = workqueue.RateLimitingQueueConfig{
+			Name: "node_mgr_queue",
+			// MetricsProvider: metrics.NewPrometheusMetricsProvider(),
 		}
-		ciliumNodeManagerQueue = workqueue.NewRateLimitingQueueWithConfig(workqueue.DefaultControllerRateLimiter(), ciliumNodeManagerQueueConfig)*/
-		ciliumNodeManagerQueue = workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
+		ciliumNodeManagerQueue = workqueue.NewRateLimitingQueueWithConfig(workqueue.DefaultControllerRateLimiter(), ciliumNodeManagerQueueConfig)
 		kvStoreQueue           = workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
 	)
 
