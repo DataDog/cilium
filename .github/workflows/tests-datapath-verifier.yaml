@@ -55,7 +55,7 @@ concurrency:
 
 env:
   # renovate: datasource=golang-version depName=go
-  go-version: 1.23.6
+  go-version: 1.23.7
 
 jobs:
   echo-inputs:
@@ -144,7 +144,6 @@ jobs:
 
             # The LVH image ships with LLVM taken from a release Cilium version.
             # Replace it with the one extracted from the cilium-builder image.
-            /bootstrap/deb-docker.sh # Install docker first.
             /host/contrib/scripts/extract-llvm.sh /tmp/llvm
             mv /tmp/llvm/usr/local/bin/{clang,llc} /bin/
             rm -r /tmp/llvm
@@ -170,7 +169,7 @@ jobs:
 
       - name: Upload artifacts
         if: ${{ !success() }}
-        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: datapath-verifier_${{ matrix.kernel }}
           path: datapath-verifier
