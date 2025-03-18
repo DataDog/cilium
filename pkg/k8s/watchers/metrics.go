@@ -42,36 +42,36 @@ func init() {
 	k8s_metrics.RateLimiterLatency = registerOps.RateLimiterLatency
 	k8s_metrics.RequestResult = registerOps.RequestResult
 
-	workqueue.SetProvider(workqueueMetricsProvider{})
+	workqueue.SetProvider(WorkqueueMetricsProvider{})
 }
 
-type workqueueMetricsProvider struct{}
+type WorkqueueMetricsProvider struct{}
 
-func (workqueueMetricsProvider) NewDepthMetric(name string) workqueue.GaugeMetric {
+func (WorkqueueMetricsProvider) NewDepthMetric(name string) workqueue.GaugeMetric {
 	return metrics.WorkQueueDepth.WithLabelValues(name)
 }
 
-func (workqueueMetricsProvider) NewAddsMetric(name string) workqueue.CounterMetric {
+func (WorkqueueMetricsProvider) NewAddsMetric(name string) workqueue.CounterMetric {
 	return metrics.WorkQueueAddsTotal.WithLabelValues(name)
 }
 
-func (workqueueMetricsProvider) NewLatencyMetric(name string) workqueue.HistogramMetric {
+func (WorkqueueMetricsProvider) NewLatencyMetric(name string) workqueue.HistogramMetric {
 	return metrics.WorkQueueLatency.WithLabelValues(name)
 }
 
-func (workqueueMetricsProvider) NewWorkDurationMetric(name string) workqueue.HistogramMetric {
+func (WorkqueueMetricsProvider) NewWorkDurationMetric(name string) workqueue.HistogramMetric {
 	return metrics.WorkQueueDuration.WithLabelValues(name)
 }
 
-func (workqueueMetricsProvider) NewUnfinishedWorkSecondsMetric(name string) workqueue.SettableGaugeMetric {
+func (WorkqueueMetricsProvider) NewUnfinishedWorkSecondsMetric(name string) workqueue.SettableGaugeMetric {
 	return metrics.WorkQueueUnfinishedWork.WithLabelValues(name)
 }
 
-func (workqueueMetricsProvider) NewLongestRunningProcessorSecondsMetric(name string) workqueue.SettableGaugeMetric {
+func (WorkqueueMetricsProvider) NewLongestRunningProcessorSecondsMetric(name string) workqueue.SettableGaugeMetric {
 	return metrics.WorkQueueLongestRunningProcessor.WithLabelValues(name)
 }
 
-func (workqueueMetricsProvider) NewRetriesMetric(name string) workqueue.CounterMetric {
+func (WorkqueueMetricsProvider) NewRetriesMetric(name string) workqueue.CounterMetric {
 	return metrics.WorkQueueRetries.WithLabelValues(name)
 }
 

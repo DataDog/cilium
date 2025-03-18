@@ -19,7 +19,7 @@ import (
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/k8s/informer"
 	"github.com/cilium/cilium/pkg/k8s/utils"
-	_ "github.com/cilium/cilium/pkg/k8s/watchers"
+	"github.com/cilium/cilium/pkg/k8s/watchers"
 	"github.com/cilium/cilium/pkg/kvstore/store"
 	nodeStore "github.com/cilium/cilium/pkg/node/store"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
@@ -62,6 +62,7 @@ func newCiliumNodeSynchronizer(clientset k8sClient.Clientset, nodeManager alloca
 }
 
 func (s *ciliumNodeSynchronizer) Start(ctx context.Context, wg *sync.WaitGroup) error {
+	workqueue.SetProvider(watchers.WorkqueueMetricsProvider{})
 
 	var (
 		ciliumNodeKVStore      *store.SharedStore
