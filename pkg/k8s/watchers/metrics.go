@@ -17,6 +17,7 @@ import (
 )
 
 func init() {
+	log.Info("Anton-Test: Running init!")
 	// The client-go Register function can be called only once,
 	// but there's a possibility that another package calls it and
 	// registers the client-go metrics on its own registry.

@@ -78,6 +78,7 @@ func (s *ciliumNodeSynchronizer) Start(ctx context.Context, wg *sync.WaitGroup) 
 		ciliumNodeManagerQueue = workqueue.NewRateLimitingQueueWithConfig(workqueue.DefaultControllerRateLimiter(), ciliumNodeManagerQueueConfig)
 		kvStoreQueue           = workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
 	)
+	log.Info("Anton-Test: Created ciliumNodeManagerQueue")
 
 	// KVStore is enabled -> we will run the event handler to sync objects into
 	// KVStore.
