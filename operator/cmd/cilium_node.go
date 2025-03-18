@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -67,10 +68,23 @@ func (s *ciliumNodeSynchronizer) Start(ctx context.Context, wg *sync.WaitGroup) 
 		nodeManagerSyncHandler func(key string) error
 		kvStoreSyncHandler     func(key string) error
 		connectedToKVStore     = make(chan struct{})
-
 		resourceEventHandler   = cache.ResourceEventHandlerFuncs{}
-		ciliumNodeManagerQueue = workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
-		kvStoreQueue           = workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
+	)
+
+	var ciliumNodeManagerQueueConfig = workqueue.RateLimitingQueueConfig{
+		Name: "node_manager",
+	}
+	var kvStoreQueueConfig = workqueue.RateLimitingQueueConfig{
+		Name: "kvstore",
+	}
+
+	ciliumNodeManagerQueueConfig.MetricsProvider = NewWorkqueuePrometheusMetricsProvider()
+	kvStoreQueueConfig.MetricsProvider = NewWorkqueuePrometheusMetricsProvider()
+
+	var ciliumNodeManagerQueue = workqueue.NewRateLimitingQueueWithConfig(workqueue.DefaultControllerRateLimiter(), ciliumNodeManagerQueueConfig)
+	var kvStoreQueue = workqueue.NewRateLimitingQueueWithConfig(
+		workqueue.NewItemExponentialFailureRateLimiter(1*time.Second, 120*time.Second),
+		kvStoreQueueConfig,
 	)
 
 	// KVStore is enabled -> we will run the event handler to sync objects into
