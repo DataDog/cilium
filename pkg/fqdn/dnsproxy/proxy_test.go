@@ -408,7 +408,7 @@ func TestRejectNonMatchingRefusedResponseWithRefused(t *testing.T) {
 func TestErrorResponseServfail(t *testing.T) {
 	s := setupDNSProxyTestSuite(t)
 	s.proxy.lookupTargetDNSServer = func(w dns.ResponseWriter) (network u8proto.U8proto, server netip.AddrPort, err error) {
-		return nil, nil, "Cannot find target DNS server"
+		return u8proto.UDP, netip.AddrPortFrom(netip.MustParseAddr("0.0.0.0"), uint16(0)), fmt.Errorf("cannot find target DNS server")
 	}
 
 	request := new(dns.Msg)
