@@ -8,6 +8,7 @@ package ipam
 import (
 	"context"
 	"fmt"
+	"github.com/cilium/cilium/pkg/tracing"
 	"sort"
 
 	"github.com/sirupsen/logrus"
@@ -278,6 +279,10 @@ func (n *NodeManager) GetNames() (allNodeNames []string) {
 // Upsert is called whenever a CiliumNode resource has been updated in the
 // Kubernetes apiserver. The CiliumNode will be created if it didn't exist before.
 func (n *NodeManager) Upsert(resource *v2.CiliumNode) {
+	ctx3 := context.Background()
+	var err error
+	span, ctx2 := tracing.StartSpan(ctx3)
+	defer func() { span.Finish(tracing.WithError(err)) }()
 	n.mutex.Lock()
 	defer n.mutex.Unlock()
 	node, ok := n.nodes[resource.Name]
@@ -292,8 +297,7 @@ func (n *NodeManager) Upsert(resource *v2.CiliumNode) {
 			},
 		}
 
-		ctx, cancel := context.WithCancel(context.Background())
-		// InstanceAPI is stale and the instances API is stable then do resync instancesAPI to sync instances
+		ctx, cancel := context.WithCancel(ctx2) // InstanceAPI is stale and the instances API is stable then do resync instancesAPI to sync instances
 		if !n.instancesAPI.HasInstance(resource.InstanceID()) && n.stableInstancesAPI {
 			if syncTime := n.instancesAPI.InstanceSync(ctx, resource.InstanceID()); syncTime.IsZero() {
 				node.logger().Warning("Failed to resync the instance from the API after new node was found")
@@ -385,6 +389,10 @@ func (n *NodeManager) Upsert(resource *v2.CiliumNode) {
 // Delete is called after a CiliumNode resource has been deleted via the
 // Kubernetes apiserver
 func (n *NodeManager) Delete(resource *v2.CiliumNode) {
+	ctx3 := context.Background()
+	var err error
+	span, _ := tracing.StartSpan(ctx3)
+	defer func() { span.Finish(tracing.WithError(err)) }()
 	n.mutex.Lock()
 
 	if node, ok := n.nodes[resource.Name]; ok {
