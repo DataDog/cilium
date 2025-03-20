@@ -27,7 +27,7 @@ hubble-bin:
 release:
 	cd ../ && \
 	$(CONTAINER_ENGINE) run --rm --workdir /cilium --volume `pwd`:/cilium --user "$(shell id -u):$(shell id -g)" \
-		$(CILIUM_BUILDER_IMAGE) sh -c "make -C hubble local-release"
+		$(CILIUM_BUILDER_IMAGE) sh -c "MODIFIERS=$(MODIFIERS) make -C hubble local-release"
 
 local-release: clean
 	set -o errexit; \
