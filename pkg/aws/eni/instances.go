@@ -256,14 +256,16 @@ func (m *InstancesManager) resync(ctx context.Context, instanceID string) time.T
 	m.vpcLock.Unlock()
 	m.securityGroupLock.Lock()
 	m.securityGroups = securityGroups
+	m.securityGroupLock.Unlock()
 
 	if operatorOption.Config.UpdateEC2AdapterLimitViaAPI {
+		timer := time.Now()
 		if err := limits.UpdateFromEC2API(ctx, m.api); err != nil {
 			log.WithError(err).Warning("Unable to update instance type to adapter limits from EC2 API")
 			return time.Time{}
 		}
+		log.Info("Anton-Test: Updated instance type to adapter limits from EC2 API in ", time.Since(timer))
 	}
-	m.securityGroupLock.Unlock()
 
 	return resyncStart
 }
