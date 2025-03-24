@@ -46,18 +46,13 @@ type EC2API interface {
 // InstancesManager maintains the list of instances. It must be kept up to date
 // by calling resync() regularly.
 type InstancesManager struct {
+	mutex          lock.RWMutex
 	resyncLock     lock.RWMutex
 	instances      *ipamTypes.InstanceMap
 	subnets        ipamTypes.SubnetMap
 	vpcs           ipamTypes.VirtualNetworkMap
 	securityGroups types.SecurityGroupMap
 	api            EC2API
-
-	instanceLock      lock.RWMutex
-	subnetLock        lock.RWMutex
-	vpcLock           lock.RWMutex
-	routeTableLock    lock.RWMutex
-	securityGroupLock lock.RWMutex
 }
 
 // NewInstancesManager returns a new instances manager
@@ -76,8 +71,8 @@ func (m *InstancesManager) CreateNode(obj *v2.CiliumNode, n *ipam.Node) ipam.Nod
 
 // HasInstance returns whether the instance is in instances
 func (m *InstancesManager) HasInstance(instanceID string) bool {
-	m.instanceLock.RLock()
-	defer m.instanceLock.RUnlock()
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
 	return m.instances.Exists(instanceID)
 }
 
@@ -97,8 +92,8 @@ func (m *InstancesManager) GetPoolQuota() ipamTypes.PoolQuotaMap {
 //
 // The returned subnet is immutable so it can be safely accessed
 func (m *InstancesManager) GetSubnet(subnetID string) *ipamTypes.Subnet {
-	m.subnetLock.RLock()
-	defer m.subnetLock.RUnlock()
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
 
 	return m.subnets[subnetID]
 }
@@ -107,8 +102,8 @@ func (m *InstancesManager) GetSubnet(subnetID string) *ipamTypes.Subnet {
 //
 // The returned subnetMap is immutable so it can be safely accessed
 func (m *InstancesManager) GetSubnets(ctx context.Context) ipamTypes.SubnetMap {
-	m.subnetLock.RLock()
-	defer m.subnetLock.RUnlock()
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
 
 	subnetsCopy := make(ipamTypes.SubnetMap)
 	for k, v := range m.subnets {
@@ -123,8 +118,8 @@ func (m *InstancesManager) GetSubnets(ctx context.Context) ipamTypes.SubnetMap {
 //
 // The returned subnet is immutable so it can be safely accessed
 func (m *InstancesManager) FindSubnetByIDs(vpcID, availabilityZone string, subnetIDs []string) (bestSubnet *ipamTypes.Subnet) {
-	m.subnetLock.RLock()
-	defer m.subnetLock.RUnlock()
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
 
 	for _, s := range m.subnets {
 		if s.VirtualNetworkID == vpcID && s.AvailabilityZone == availabilityZone {
@@ -147,8 +142,8 @@ func (m *InstancesManager) FindSubnetByIDs(vpcID, availabilityZone string, subne
 //
 // The returned subnet is immutable so it can be safely accessed
 func (m *InstancesManager) FindSubnetByTags(vpcID, availabilityZone string, required ipamTypes.Tags) (bestSubnet *ipamTypes.Subnet) {
-	m.subnetLock.RLock()
-	defer m.subnetLock.RUnlock()
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
 
 	for _, s := range m.subnets {
 		if s.VirtualNetworkID == vpcID && s.AvailabilityZone == availabilityZone && s.Tags.Match(required) {
@@ -165,8 +160,8 @@ func (m *InstancesManager) FindSubnetByTags(vpcID, availabilityZone string, requ
 //
 // The returned security groups slice is immutable so it can be safely accessed
 func (m *InstancesManager) FindSecurityGroupByTags(vpcID string, required ipamTypes.Tags) []*types.SecurityGroup {
-	m.securityGroupLock.RLock()
-	defer m.securityGroupLock.RUnlock()
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
 
 	securityGroups := []*types.SecurityGroup{}
 	for _, securityGroup := range m.securityGroups {
@@ -229,9 +224,9 @@ func (m *InstancesManager) resync(ctx context.Context, instanceID string) time.T
 			"numSecurityGroups": len(securityGroups),
 		}).Info("Synchronized ENI information")
 
-		m.instanceLock.Lock()
+		m.mutex.Lock()
+		defer m.mutex.Unlock()
 		m.instances = instances
-		m.instanceLock.Unlock()
 	} else {
 		instance, err := m.api.GetInstance(ctx, vpcs, subnets, instanceID)
 		if err != nil {
@@ -246,20 +241,14 @@ func (m *InstancesManager) resync(ctx context.Context, instanceID string) time.T
 			"numSecurityGroups": len(securityGroups),
 		}).Info("Synchronized ENI information for the corresponding instance")
 
-		m.instanceLock.Lock()
+		m.mutex.Lock()
+		defer m.mutex.Unlock()
 		m.instances.UpdateInstance(instanceID, instance)
-		m.instanceLock.Unlock()
 	}
 
-	m.subnetLock.Lock()
 	m.subnets = subnets
-	m.subnetLock.Unlock()
-	m.vpcLock.Lock()
 	m.vpcs = vpcs
-	m.vpcLock.Unlock()
-	m.securityGroupLock.Lock()
 	m.securityGroups = securityGroups
-	m.securityGroupLock.Unlock()
 
 	if operatorOption.Config.UpdateEC2AdapterLimitViaAPI {
 		timer := time.Now()
@@ -287,11 +276,10 @@ func (m *InstancesManager) InstanceSync(ctx context.Context, instanceID string) 
 // the ENI is already known, the definition is updated, otherwise the ENI is
 // added to the instance.
 func (m *InstancesManager) UpdateENI(instanceID string, eni *eniTypes.ENI) {
-	m.instanceLock.Lock()
-	defer m.instanceLock.Unlock()
-
+	m.mutex.Lock()
 	eniRevision := ipamTypes.InterfaceRevision{Resource: eni}
 	m.instances.Update(instanceID, eniRevision)
+	m.mutex.Unlock()
 }
 
 // ForeachInstance will iterate over each interface for a particular instance inside `instances`
@@ -307,16 +295,14 @@ func (m *InstancesManager) ForeachInstance(instanceID string, fn ipamTypes.Inter
 		return
 	}
 
-	m.instanceLock.RLock()
-	defer m.instanceLock.RUnlock()
-
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
 	m.instances.ForeachInterface(instanceID, fn)
 }
 
 // DeleteInstance delete instance from m.instances
 func (m *InstancesManager) DeleteInstance(instanceID string) {
-	m.instanceLock.Lock()
-	defer m.instanceLock.Unlock()
-
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
 	m.instances.Delete(instanceID)
 }
