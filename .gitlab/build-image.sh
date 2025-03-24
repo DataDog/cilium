@@ -17,7 +17,7 @@ done
 IFS=$' '
 
 # Construct valid --build-args arguments from the DOCKER_BUILD_ARGS variable
-BUILD_ARGS="--build-arg MODIFIERS=BORINGCRYPTO=1"
+BUILD_ARGS="--build-arg MODIFIERS=GOEXPERIMENT=boringcrypto"
 IFS=$'\n'
 for arg in ${DOCKER_BUILD_ARGS:-}; do
     BUILD_ARGS+=" $(echo "--build-arg $arg")"
