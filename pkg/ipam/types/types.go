@@ -6,7 +6,6 @@ package types
 import (
 	"fmt"
 	"net/netip"
-	"sync/atomic"
 
 	"github.com/cilium/cilium/pkg/cidr"
 	"github.com/cilium/cilium/pkg/lock"
@@ -448,43 +447,47 @@ type Instance struct {
 // +k8s:deepcopy-gen=false
 // +deepequal-gen=false
 type InstanceMap struct {
-	data    lock.Map[string, *Instance]
-	counter int64
+	mutex lock.RWMutex
+	data  map[string]*Instance
 }
 
 // NewInstanceMap returns a new InstanceMap
 func NewInstanceMap() *InstanceMap {
-	return &InstanceMap{}
+	return &InstanceMap{data: map[string]*Instance{}}
 }
 
 // UpdateInstance updates the interfaces map for a particular instance.
 func (m *InstanceMap) UpdateInstance(instanceID string, instance *Instance) {
-	if _, exists := m.data.Load(instanceID); !exists {
-		atomic.AddInt64(&m.counter, 1)
-	}
-	m.data.Store(instanceID, instance)
+	m.mutex.Lock()
+	m.data[instanceID] = instance
+	m.mutex.Unlock()
 }
 
 // Update updates the definition of an interface for a particular instance. If
 // the interface is already known, the definition is updated, otherwise the
 // interface is added to the instance.
 func (m *InstanceMap) Update(instanceID string, iface InterfaceRevision) {
+	m.mutex.Lock()
+	m.updateLocked(instanceID, iface)
+	m.mutex.Unlock()
+}
+
+func (m *InstanceMap) updateLocked(instanceID string, iface InterfaceRevision) {
 	if iface.Resource == nil {
 		return
 	}
 
-	value, exists := m.data.LoadOrStore(instanceID, &Instance{})
-	instance := value
-
-	if !exists {
-		atomic.AddInt64(&m.counter, 1)
+	i, ok := m.data[instanceID]
+	if !ok {
+		i = &Instance{}
+		m.data[instanceID] = i
 	}
 
-	if instance.Interfaces == nil {
-		instance.Interfaces = map[string]InterfaceRevision{}
+	if i.Interfaces == nil {
+		i.Interfaces = map[string]InterfaceRevision{}
 	}
 
-	instance.Interfaces[iface.Resource.InterfaceID()] = iface
+	i.Interfaces[iface.Resource.InterfaceID()] = iface
 }
 
 type Address interface{}
@@ -511,19 +514,21 @@ func foreachAddress(instanceID string, instance *Instance, fn AddressIterator) e
 // will point to live data and must be deep copied if used outside of the
 // context of the iterator function.
 func (m *InstanceMap) ForeachAddress(instanceID string, fn AddressIterator) error {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
 	if instanceID != "" {
-		if instance, ok := m.data.Load(instanceID); ok {
+		if instance := m.data[instanceID]; instance != nil {
 			return foreachAddress(instanceID, instance, fn)
 		}
 		return fmt.Errorf("instance does not exist: %q", instanceID)
 	}
 
-	m.data.Range(func(instanceID string, instance *Instance) bool {
+	for instanceID, instance := range m.data {
 		if err := foreachAddress(instanceID, instance, fn); err != nil {
-			return false
+			return err
 		}
-		return true
-	})
+	}
 
 	return nil
 }
@@ -550,27 +555,31 @@ func foreachInterface(instanceID string, instance *Instance, fn InterfaceIterato
 // will point to live data and must be deep copied if used outside of the
 // context of the iterator function.
 func (m *InstanceMap) ForeachInterface(instanceID string, fn InterfaceIterator) error {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
 	if instanceID != "" {
-		if instance, ok := m.data.Load(instanceID); ok {
+		if instance := m.data[instanceID]; instance != nil {
 			return foreachInterface(instanceID, instance, fn)
 		}
 		return fmt.Errorf("instance does not exist: %q", instanceID)
 	}
-
-	m.data.Range(func(instanceID string, instance *Instance) bool {
+	for instanceID, instance := range m.data {
 		if err := foreachInterface(instanceID, instance, fn); err != nil {
-			return false
+			return err
 		}
-		return true
-	})
+	}
 
 	return nil
 }
 
-// GetInterface returns a particular interface of an instance. The
+// GetInterface returns returns a particular interface of an instance. The
 // boolean indicates whether the interface was found or not.
 func (m *InstanceMap) GetInterface(instanceID, interfaceID string) (InterfaceRevision, bool) {
-	if instance, ok := m.data.Load(instanceID); ok {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
+	if instance := m.data[instanceID]; instance != nil {
 		if rev, ok := instance.Interfaces[interfaceID]; ok {
 			return rev, true
 		}
@@ -583,27 +592,35 @@ func (m *InstanceMap) GetInterface(instanceID, interfaceID string) (InterfaceRev
 func (m *InstanceMap) DeepCopy() *InstanceMap {
 	c := NewInstanceMap()
 	m.ForeachInterface("", func(instanceID, interfaceID string, rev InterfaceRevision) error {
+		// c is not exposed yet, we can access it without locking it
 		rev.Resource = rev.Resource.DeepCopyInterface()
-		c.Update(instanceID, rev)
+		c.updateLocked(instanceID, rev)
 		return nil
 	})
 	return c
 }
 
 // NumInstances returns the number of instances in the instance map
-func (m *InstanceMap) NumInstances() int {
-	return int(atomic.LoadInt64(&m.counter))
+func (m *InstanceMap) NumInstances() (size int) {
+	m.mutex.RLock()
+	size = len(m.data)
+	m.mutex.RUnlock()
+	return
 }
 
 // Exists returns whether the instance ID is in the instanceMap
 func (m *InstanceMap) Exists(instanceID string) (exists bool) {
-	_, exists = m.data.Load(instanceID)
-	return exists
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+	if instance := m.data[instanceID]; instance != nil {
+		return true
+	}
+	return false
 }
 
 // Delete instance from m.data
 func (m *InstanceMap) Delete(instanceID string) {
-	if _, exists := m.data.LoadAndDelete(instanceID); exists {
-		atomic.AddInt64(&m.counter, -1)
-	}
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	delete(m.data, instanceID)
 }
