@@ -281,7 +281,7 @@ func (n *NodeManager) GetNames() (allNodeNames []string) {
 func (n *NodeManager) Upsert(resource *v2.CiliumNode) {
 	ctx3 := context.Background()
 	var err error
-	span, ctx2 := tracing.StartSpan(ctx3)
+	span, ctx2 := tracing.StartSpan(ctx3, "Upsert")
 	defer func() { span.Finish(tracing.WithError(err)) }()
 	n.mutex.Lock()
 	defer n.mutex.Unlock()
@@ -391,7 +391,7 @@ func (n *NodeManager) Upsert(resource *v2.CiliumNode) {
 func (n *NodeManager) Delete(resource *v2.CiliumNode) {
 	ctx3 := context.Background()
 	var err error
-	span, _ := tracing.StartSpan(ctx3)
+	span, _ := tracing.StartSpan(ctx3, "Delete")
 	defer func() { span.Finish(tracing.WithError(err)) }()
 	n.mutex.Lock()
 

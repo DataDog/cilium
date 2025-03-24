@@ -7,6 +7,7 @@ package eni
 
 import (
 	"context"
+	"github.com/cilium/cilium/pkg/tracing"
 
 	ec2_types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/sirupsen/logrus"
@@ -181,6 +182,8 @@ func (m *InstancesManager) FindSecurityGroupByTags(vpcID string, required ipamTy
 // cache in the instanceManager. It returns the time when the resync has
 // started or time.Time{} if it did not complete.
 func (m *InstancesManager) Resync(ctx context.Context) time.Time {
+	span, ctx := tracing.StartSpan(ctx, "ResyncFull")
+	defer func() { span.Finish() }()
 	// Full API resync should block the instance incremental resync from all nodes.
 	m.resyncLock.Lock()
 	defer m.resyncLock.Unlock()
@@ -271,6 +274,8 @@ func (m *InstancesManager) resync(ctx context.Context, instanceID string) time.T
 }
 
 func (m *InstancesManager) InstanceSync(ctx context.Context, instanceID string) time.Time {
+	span, ctx := tracing.StartSpan(ctx, "ResyncPartial")
+	defer func() { span.Finish() }()
 	// Instance incremental resync from different nodes should be executed in parallel,
 	// but must block the full API resync.
 	m.resyncLock.RLock()
