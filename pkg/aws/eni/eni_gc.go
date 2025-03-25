@@ -7,6 +7,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	ec2_types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+
 	"github.com/cilium/cilium/pkg/controller"
 	"github.com/cilium/cilium/pkg/ipam/types"
 	"github.com/cilium/cilium/pkg/time"
@@ -34,7 +37,7 @@ type GarbageCollectionParams struct {
 func StartENIGarbageCollector(ctx context.Context, api EC2API, params GarbageCollectionParams) {
 	log.Info("Starting to garbage collect detached ENIs")
 
-	var enisMarkedForDeletion []string
+	var enisMarkedForDeletion []ec2_types.NetworkInterface
 	controllerManager.UpdateController(gcENIControllerName, controller.ControllerParams{
 		Group: gcENIControllerGroup,
 		DoFunc: func(ctx context.Context) error {
@@ -43,9 +46,15 @@ func StartENIGarbageCollector(ctx context.Context, api EC2API, params GarbageCol
 			// ENI to be attached to a node, we wait for one run interval before we delete
 			// any ENIs. If the interface has been attached by the next run interval,
 			// the deletion will fail and the interface will not be garbage collected.
-			for _, eniID := range enisMarkedForDeletion {
+			for _, eni := range enisMarkedForDeletion {
+				eniID := aws.ToString(eni.NetworkInterfaceId)
 				log.WithField("eniID", eniID).Debug("Garbage collecting ENI")
-				err := api.DeleteNetworkInterface(ctx, eniID)
+				addresses := []string{}
+				for _, ip := range eni.PrivateIpAddresses {
+					addresses = append(addresses, aws.ToString(ip.PrivateIpAddress))
+				}
+				err := api.DeleteNetworkInterface(ctx, eniID, addresses)
+
 				if err != nil {
 					log.WithError(err).Debug("Failed to garbage collect ENI")
 				}
