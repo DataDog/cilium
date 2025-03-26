@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/aws/aws-sdk-go-v2/aws/ratelimit"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
@@ -92,6 +94,12 @@ func NewConfig(ctx context.Context) (aws.Config, error) {
 
 	cfg.Region = instance.Region
 	cfg.EndpointResolver = aws.EndpointResolverFunc(endpoints.Resolver)
+	cfg.Retryer = func() aws.Retryer {
+		return retry.NewStandard(func(o *retry.StandardOptions) {
+			// We only want to rely on internal Cilium rate-limiting
+			o.RateLimiter = ratelimit.None
+		})
+	}
 
 	return cfg, nil
 }
