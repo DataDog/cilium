@@ -37,8 +37,8 @@ RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium \
 RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium \
     --mount=type=cache,target=/root/.cache \
     --mount=type=cache,target=/go/pkg \
-    make GOARCH=${TARGETARCH} $(echo $MODIFIERS | tr -d '"') NOSTRIP=1 \
-    && mkdir -p /out/${TARGETOS}/${TARGETARCH}/usr/bin && mv clustermesh-apiserver /out/${TARGETOS}/${TARGETARCH}/usr/bin
+    make GOARCH=${TARGETARCH} DESTDIR=/out/${TARGETOS}/${TARGETARCH} $(echo $MODIFIERS | tr -d '"') NOSTRIP=1 \
+    build-container-clustermesh-apiserver install-container-binary-clustermeshapiserver
 
 WORKDIR /go/src/github.com/cilium/cilium
 # licenses-all is a "script" that executes "go run" so its ARCH should be set

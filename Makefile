@@ -14,6 +14,7 @@ include Makefile.defs
 
 SUBDIRS_CILIUM_CONTAINER := cilium-dbg daemon cilium-health bugtool tools/mount tools/sysctlfix plugins/cilium-cni
 SUBDIR_OPERATOR_CONTAINER := operator
+SUBDIR_CLUSTERMESH_APISERVER_CONTAINER := clustermesh-apiserver
 SUBDIR_RELAY_CONTAINER := hubble-relay
 
 ifdef LIBNETWORK_PLUGIN
@@ -24,7 +25,7 @@ endif
 -include Makefile.override
 
 # List of subdirectories used for global "make build", "make clean", etc
-SUBDIRS := $(SUBDIRS_CILIUM_CONTAINER) $(SUBDIR_OPERATOR_CONTAINER) plugins tools $(SUBDIR_RELAY_CONTAINER) bpf
+SUBDIRS := $(SUBDIRS_CILIUM_CONTAINER) $(SUBDIR_OPERATOR_CONTAINER) $(SUBDIR_CLUSTERMESH_APISERVER_CONTAINER) plugins tools $(SUBDIR_RELAY_CONTAINER) bpf
 
 # Filter out any directories where the parent directory is also present, to avoid
 # building or cleaning a subdirectory twice.
@@ -73,6 +74,9 @@ build-container-operator-azure: ## Builds components required for a cilium-opera
 
 build-container-operator-alibabacloud: ## Builds components required for a cilium-operator alibabacloud variant container.
 	$(MAKE) $(SUBMAKEOPTS) -C $(SUBDIR_OPERATOR_CONTAINER) cilium-operator-alibabacloud
+
+build-container-clustermesh-apiserver: ## Builds components required for a cilium-operator alibabacloud variant container.
+	$(MAKE) $(SUBMAKEOPTS) -C $(SUBDIR_CLUSTERMESH_APISERVER_CONTAINER) clustermesh-apiserver
 
 build-container-hubble-relay:
 	$(MAKE) $(SUBMAKEOPTS) -C $(SUBDIR_RELAY_CONTAINER) all
@@ -213,6 +217,10 @@ install-container-binary-operator-azure: ## Install binaries for all components 
 install-container-binary-operator-alibabacloud: ## Install binaries for all components required for cilium-operator alibabacloud variant container.
 	$(QUIET)$(INSTALL) -m 0755 -d $(DESTDIR)$(BINDIR)
 	$(MAKE) $(SUBMAKEOPTS) -C $(SUBDIR_OPERATOR_CONTAINER) install-alibabacloud
+
+install-container-binary-clustermesh-apiserver:
+	$(QUIET)$(INSTALL) -m 0755 -d $(DESTDIR)$(BINDIR)
+	$(MAKE) $(SUBMAKEOPTS) -C $(SUBDIR_CLUSTERMESH_APISERVER_CONTAINER) install-binary
 
 install-container-binary-hubble-relay:
 	$(QUIET)$(INSTALL) -m 0755 -d $(DESTDIR)$(BINDIR)
