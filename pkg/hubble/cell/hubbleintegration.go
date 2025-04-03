@@ -367,7 +367,9 @@ func (h *hubbleIntegration) launch(ctx context.Context) {
 					"tls":     h.config.EnableMetricsServerTLS,
 				}).Info("Starting Hubble Metrics server")
 
+				h.log.Errorf("HADRIEN5 h.config.Metrics %#v", h.config.Metrics)
 				metricConfigs := api.ParseStaticMetricsConfig(strings.Fields(h.config.Metrics))
+				h.log.Errorf("HADRIEN6 metricConfigs %#v\n metricConfigs.Metrics %#v\n &metricConfigs.Metrics %#v", metricConfigs, metricConfigs.Metrics, &metricConfigs.Metrics)
 				err := metrics.InitMetrics(metrics.Registry, metricConfigs, grpcMetrics)
 				if err != nil {
 					h.log.WithError(err).Error("Unable to setup metrics")

@@ -107,6 +107,7 @@ func (d *DynamicFlowProcessor) onConfigReload(ctx context.Context, hash uint64, 
 		}
 	}
 
+	d.logger.Errorf("HADRIEN2 config.Metrics: %#v", config.Metrics)
 	for _, cm := range config.Metrics {
 		// Existing handler matches new config entry:
 		//   no-op, if config unchanged;
