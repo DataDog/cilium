@@ -51,6 +51,8 @@ func (r *Registry) ConfigureHandlers(registry *prometheus.Registry, enabled *Con
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
+	r.log.Errorf("HADRIEN3 enabled %#v\nenabled.Metrics %#v", enabled, enabled.Metrics)
+
 	var enabledHandlers []NamedHandler
 	metricNames := enabled.GetMetricNames()
 	for _, metricsConfig := range enabled.Metrics {
@@ -73,6 +75,7 @@ func (r *Registry) ValidateAndCreateHandler(registry *prometheus.Registry, metri
 func (r *Registry) validateAndCreateHandlerLocked(registry *prometheus.Registry, metricsConfig *MetricConfig, metricNames *map[string]*MetricConfig) (*NamedHandler, error) {
 	plugin, ok := r.handlers[metricsConfig.Name]
 	if !ok {
+		r.log.Errorf("HADRIEN HERE\nmetricsConfig |%#v|\nmetricsConfig.Name |%#v|\nr.handlers |%#v|", metricsConfig, metricsConfig.Name, r.handlers)
 		return nil, fmt.Errorf("metric '%s' does not exist", metricsConfig.Name)
 	}
 
