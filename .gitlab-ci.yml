@@ -16,7 +16,7 @@ variables:
   CILIUM_ENVOY_IMAGE: registry.ddbuild.io/images/mirror/cilium/cilium-envoy:v1.31.5-1741765102-efed3defcc70ab5b263a0fc44c93d316b846a211@sha256:377c78c13d2731f3720f931721ee309159e782d882251709cb0fac3b42c03f4b
   CILIUM_IPTABLES_IMAGE: registry.ddbuild.io/images/mirror/cilium/iptables:67f517af50e18f64cd12625021f1c39246bb4f92@sha256:d075f03e89aacf51908346ec8ed5d251b8d3ad528ce30a710fcd074cdf91f11d
   CILIUM_LLVM_IMAGE: registry.ddbuild.io/images/mirror/cilium/cilium-llvm:9f1bfe736009afb1fbb562718bbc42ea07d37d8e@sha256:a666a7a01a2dc610c3ab6e32f25ca5e294201f3cbbc01f233320c527955deee3
-  GOLANG_IMAGE: registry.ddbuild.io/images/mirror/library/golang:1.23.7@sha256:1acb493b9f9dfdfe705042ce09e8ded908ce4fb342405ecf3ca61ce7f3b168c7
+  GOLANG_IMAGE: registry.ddbuild.io/images/mirror/library/golang:1.24.1@sha256:52ff1b35ff8de185bf9fd26c70077190cd0bed1e9f16a2d498ce907e5c421268
   TESTER_IMAGE: registry.ddbuild.io/images/mirror/cilium/image-tester:dd09c8d3ef349a909fbcdc99279516baef153f22@sha256:c056d064cb47c97acd607343db5457e1d49d9338d6d8a87e93e23cc93f052c73
 
   # Datadog images
