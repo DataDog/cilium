@@ -106,7 +106,6 @@ type Resources struct {
 	CiliumNetworkPolicies            resource.Resource[*cilium_api_v2.CiliumNetworkPolicy]
 	CiliumClusterwideNetworkPolicies resource.Resource[*cilium_api_v2.CiliumClusterwideNetworkPolicy]
 	CiliumCIDRGroups                 resource.Resource[*cilium_api_v2alpha1.CiliumCIDRGroup]
-	CiliumSlimEndpoint               resource.Resource[*types.CiliumEndpoint]
 	CiliumEndpointSlice              resource.Resource[*cilium_api_v2alpha1.CiliumEndpointSlice]
 	CiliumNode                       resource.Resource[*cilium_api_v2.CiliumNode]
 }

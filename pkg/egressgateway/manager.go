@@ -155,7 +155,6 @@ type Params struct {
 	PolicyMap         egressmap.PolicyMap
 	Policies          resource.Resource[*Policy]
 	Nodes             resource.Resource[*cilium_api_v2.CiliumNode]
-	Endpoints         resource.Resource[*k8sTypes.CiliumEndpoint]
 	Sysctl            sysctl.Sysctl
 
 	Lifecycle cell.Lifecycle
@@ -214,7 +213,7 @@ func newEgressGatewayManager(p Params) (*Manager, error) {
 		policyMap:                     p.PolicyMap,
 		policies:                      p.Policies,
 		ciliumNodes:                   p.Nodes,
-		endpoints:                     p.Endpoints,
+		endpoints:                     nil,
 		sysctl:                        p.Sysctl,
 	}
 
