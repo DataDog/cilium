@@ -5,22 +5,18 @@ package watchers
 
 import (
 	"context"
-	"net"
-	"sync"
-	"sync/atomic"
-
 	"github.com/cilium/hive/cell"
 	"github.com/sirupsen/logrus"
+	"net"
+	"sync"
 
 	agentK8s "github.com/cilium/cilium/daemon/k8s"
 	"github.com/cilium/cilium/pkg/endpointmanager"
 	hubblemetrics "github.com/cilium/cilium/pkg/hubble/metrics"
 	"github.com/cilium/cilium/pkg/identity"
 	"github.com/cilium/cilium/pkg/ipcache"
-	"github.com/cilium/cilium/pkg/k8s/resource"
 	k8sSynced "github.com/cilium/cilium/pkg/k8s/synced"
 	"github.com/cilium/cilium/pkg/k8s/types"
-	"github.com/cilium/cilium/pkg/kvstore"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/node"
 	"github.com/cilium/cilium/pkg/option"
@@ -79,77 +75,7 @@ func (k *K8sCiliumEndpointsWatcher) initCiliumEndpointOrSlices(ctx context.Conte
 	if option.Config.EnableCiliumEndpointSlice {
 		go k.ciliumEndpointSliceInit(ctx, asyncControllers)
 	} else {
-		go k.ciliumEndpointsInit(ctx, asyncControllers)
-	}
-}
-
-func (k *K8sCiliumEndpointsWatcher) ciliumEndpointsInit(ctx context.Context, asyncControllers *sync.WaitGroup) {
-	// CiliumEndpoint objects are used for ipcache discovery until the
-	// key-value store is connected
-	var once sync.Once
-	apiGroup := k8sAPIGroupCiliumEndpointV2
-
-	for {
-		var synced atomic.Bool
-		stop := make(chan struct{})
-
-		k.k8sResourceSynced.BlockWaitGroupToSyncResources(
-			stop,
-			nil,
-			func() bool { return synced.Load() },
-			apiGroup,
-		)
-		k.k8sAPIGroups.AddAPI(apiGroup)
-
-		// Signalize that we have put node controller in the wait group to sync resources.
-		once.Do(asyncControllers.Done)
-
-		// derive another context to signal Events() in case of kvstore connection
-		eventsCtx, cancel := context.WithCancel(ctx)
-
-		go func() {
-			defer close(stop)
-
-			events := k.resources.CiliumSlimEndpoint.Events(eventsCtx)
-			cache := make(map[resource.Key]*types.CiliumEndpoint)
-			for event := range events {
-				var err error
-				switch event.Kind {
-				case resource.Sync:
-					synced.Store(true)
-				case resource.Upsert:
-					oldObj, ok := cache[event.Key]
-					if !ok || !oldObj.DeepEqual(event.Object) {
-						k.endpointUpdated(oldObj, event.Object)
-						cache[event.Key] = event.Object
-					}
-				case resource.Delete:
-					k.endpointDeleted(event.Object)
-					delete(cache, event.Key)
-				}
-				event.Done(err)
-			}
-		}()
-
-		select {
-		case <-kvstore.Connected():
-			log.Info("Connected to key-value store, stopping CiliumEndpoint watcher")
-			cancel()
-			k.k8sResourceSynced.CancelWaitGroupToSyncResources(apiGroup)
-			k.k8sAPIGroups.RemoveAPI(apiGroup)
-			<-stop
-		case <-ctx.Done():
-			cancel()
-			<-stop
-			return
-		}
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-kvstore.Client().Disconnected():
-			log.Info("Disconnected from key-value store, restarting CiliumEndpoint watcher")
-		}
+		// go k.ciliumEndpointsInit(ctx, asyncControllers)
 	}
 }
 
