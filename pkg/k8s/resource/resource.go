@@ -6,6 +6,8 @@ package resource
 import (
 	"context"
 	"fmt"
+	"github.com/cilium/cilium/pkg/logging"
+	"github.com/cilium/cilium/pkg/logging/logfields"
 	"reflect"
 	"runtime"
 	"strconv"
@@ -29,6 +31,8 @@ import (
 	"github.com/cilium/cilium/pkg/metrics"
 	"github.com/cilium/cilium/pkg/promise"
 )
+
+var log = logging.DefaultLogger.WithField(logfields.LogSubsys, "resource")
 
 // Resource provides access to a Kubernetes resource through either
 // a stream of events or a read-only store.
@@ -822,6 +826,7 @@ func (p *wrapperController) Run(stopCh <-chan struct{}) {
 }
 
 func (r *resource[T]) newInformer() (cache.Indexer, cache.Controller) {
+	log.Info("Anton-Test: Creating informer for resource ", r.resourceName())
 	clientState := cache.NewIndexer(cache.DeletionHandlingMetaNamespaceKeyFunc, r.opts.indexers)
 	opts := cache.DeltaFIFOOptions{KeyFunction: cache.MetaNamespaceKeyFunc, KnownObjects: clientState}
 	fifo := cache.NewDeltaFIFOWithOptions(opts)
