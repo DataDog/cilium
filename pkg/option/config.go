@@ -801,6 +801,10 @@ const (
 	// KVstoreConnectivityTimeout is the timeout when performing kvstore operations
 	KVstoreConnectivityTimeout = "kvstore-connectivity-timeout"
 
+	// KVstorePodNetworkSupport enables the support for running the Cilium KVstore
+	// in pod network.
+	KVstorePodNetworkSupport = "kvstore-pod-network-support"
+
 	// IdentityChangeGracePeriod is the name of the
 	// IdentityChangeGracePeriod option
 	IdentityChangeGracePeriod = "identity-change-grace-period"
@@ -1874,6 +1878,10 @@ type DaemonConfig struct {
 	// KVstoreConnectivityTimeout is the timeout when performing kvstore operations
 	KVstoreConnectivityTimeout time.Duration
 
+	// KVstorePodNetworkSupport enables the support for running the Cilium KVstore
+	// in pod network.
+	KVstorePodNetworkSupport bool
+
 	// IdentityChangeGracePeriod is the grace period that needs to pass
 	// before an endpoint that has changed its identity will start using
 	// that new identity. During the grace period, the new identity has
@@ -2461,6 +2469,7 @@ var (
 		ToFQDNsMaxIPsPerHost:            defaults.ToFQDNsMaxIPsPerHost,
 		KVstorePeriodicSync:             defaults.KVstorePeriodicSync,
 		KVstoreConnectivityTimeout:      defaults.KVstoreConnectivityTimeout,
+		KVstorePodNetworkSupport:        defaults.KVstorePodNetworkSupport,
 		IdentityChangeGracePeriod:       defaults.IdentityChangeGracePeriod,
 		IdentityRestoreGracePeriod:      defaults.IdentityRestoreGracePeriodK8s,
 		FixedIdentityMapping:            make(map[string]string),
@@ -2761,6 +2770,12 @@ func (c *DaemonConfig) DirectRoutingDeviceRequired() bool {
 func (c *DaemonConfig) LoadBalancerUsesDSR() bool {
 	return c.NodePortMode == NodePortModeDSR ||
 		c.NodePortMode == NodePortModeHybrid
+}
+
+// KVstoreEnabledWithoutPodNetworkSupport returns whether Cilium is configured to connect
+// to an external KVStore, and the support for running it in pod network is disabled.
+func (c *DaemonConfig) KVstoreEnabledWithoutPodNetworkSupport() bool {
+	return c.KVStore != "" && !c.KVstorePodNetworkSupport
 }
 
 func (c *DaemonConfig) validateIPv6ClusterAllocCIDR() error {
@@ -3099,6 +3114,7 @@ func (c *DaemonConfig) Populate(vp *viper.Viper) {
 	c.KVstoreKeepAliveInterval = c.KVstoreLeaseTTL / defaults.KVstoreKeepAliveIntervalFactor
 	c.KVstorePeriodicSync = vp.GetDuration(KVstorePeriodicSync)
 	c.KVstoreConnectivityTimeout = vp.GetDuration(KVstoreConnectivityTimeout)
+	c.KVstorePodNetworkSupport = vp.GetBool(KVstorePodNetworkSupport)
 	c.KVstoreMaxConsecutiveQuorumErrors = vp.GetUint(KVstoreMaxConsecutiveQuorumErrorsName)
 	c.LabelPrefixFile = vp.GetString(LabelPrefixFile)
 	c.Labels = vp.GetStringSlice(Labels)
