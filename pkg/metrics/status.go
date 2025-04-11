@@ -43,7 +43,7 @@ func newStatusCollectorWithClients(d daemonHealthGetter, c connectivityStatusGet
 		controllersFailingDesc: prometheus.NewDesc(
 			prometheus.BuildFQName(Namespace, "", "controllers_failing"),
 			"Number of failing controllers",
-			nil, nil,
+			[]string{"controller_name"}, nil,
 		),
 		ipAddressesDesc: prometheus.NewDesc(
 			prometheus.BuildFQName(Namespace, "", "ip_addresses"),
@@ -82,22 +82,19 @@ func (s *statusCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 
 	// Controllers failing
-	controllersFailing := 0
-
 	for _, ctrl := range statusResponse.Payload.Controllers {
 		if ctrl.Status == nil {
 			continue
 		}
 		if ctrl.Status.ConsecutiveFailureCount > 0 {
-			controllersFailing++
+			ch <- prometheus.MustNewConstMetric(
+				s.controllersFailingDesc,
+				prometheus.GaugeValue,
+				float64(ctrl.Status.ConsecutiveFailureCount),
+				ctrl.Name,
+			)
 		}
 	}
-
-	ch <- prometheus.MustNewConstMetric(
-		s.controllersFailingDesc,
-		prometheus.GaugeValue,
-		float64(controllersFailing),
-	)
 
 	if statusResponse.Payload.Ipam != nil {
 		// Address count
