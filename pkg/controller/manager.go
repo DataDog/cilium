@@ -321,8 +321,9 @@ func (c *managedController) GetStatusModel() *models.ControllerStatus {
 	defer c.mutex.RUnlock()
 
 	status := &models.ControllerStatus{
-		Name: c.name,
-		UUID: strfmt.UUID(c.uuid),
+		Name:  c.name,
+		Group: c.group.Name,
+		UUID:  strfmt.UUID(c.uuid),
 		Configuration: &models.ControllerStatusConfiguration{
 			ErrorRetry:     !c.params.NoErrorRetry,
 			ErrorRetryBase: strfmt.Duration(c.params.ErrorRetryBaseDuration),

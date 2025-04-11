@@ -43,7 +43,7 @@ func newStatusCollectorWithClients(d daemonHealthGetter, c connectivityStatusGet
 		controllersFailingDesc: prometheus.NewDesc(
 			prometheus.BuildFQName(Namespace, "", "controllers_failing"),
 			"Number of failing controllers",
-			[]string{"controller_name"}, nil,
+			[]string{"controller_group"}, nil,
 		),
 		ipAddressesDesc: prometheus.NewDesc(
 			prometheus.BuildFQName(Namespace, "", "ip_addresses"),
@@ -91,7 +91,7 @@ func (s *statusCollector) Collect(ch chan<- prometheus.Metric) {
 				s.controllersFailingDesc,
 				prometheus.GaugeValue,
 				float64(ctrl.Status.ConsecutiveFailureCount),
-				ctrl.Name,
+				ctrl.Group,
 			)
 		}
 	}

@@ -30,6 +30,9 @@ type ControllerStatus struct {
 	// Name of controller
 	Name string `json:"name,omitempty"`
 
+	// The group this controller belongs to
+	Group string `json:"group,omitempty"`
+
 	// status
 	Status *ControllerStatusStatus `json:"status,omitempty"`
 
