@@ -2466,6 +2466,10 @@ func init() {
             }
           }
         },
+        "group": {
+          "description": "The group this controller belongs to",
+          "type": "string"
+        },
         "name": {
           "description": "Name of controller",
           "type": "string"
@@ -8140,6 +8144,10 @@ func init() {
               "format": "duration"
             }
           }
+        },
+        "group": {
+          "description": "The group this controller belongs to",
+          "type": "string"
         },
         "name": {
           "description": "Name of controller",

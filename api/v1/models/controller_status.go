@@ -27,11 +27,11 @@ type ControllerStatus struct {
 	// configuration
 	Configuration *ControllerStatusConfiguration `json:"configuration,omitempty"`
 
-	// Name of controller
-	Name string `json:"name,omitempty"`
-
 	// The group this controller belongs to
 	Group string `json:"group,omitempty"`
+
+	// Name of controller
+	Name string `json:"name,omitempty"`
 
 	// status
 	Status *ControllerStatusStatus `json:"status,omitempty"`
