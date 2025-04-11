@@ -35,8 +35,19 @@ service Observer {
     // namespace in ascending order.
     rpc GetNamespaces(GetNamespacesRequest) returns (GetNamespacesResponse) {}
 
+    rpc GetPolicies(GetPoliciesRequest) returns (GetPoliciesResponse) {}
+
     // ServerStatus returns some details about the running hubble server.
     rpc ServerStatus(ServerStatusRequest) returns (ServerStatusResponse) {}
+}
+
+message GetPoliciesRequest {
+    flow.Endpoint endpoint = 1;
+}
+
+message GetPoliciesResponse {
+    // Policies is a list of policies that apply to the endpoint.
+    repeated flow.Policy policies = 1;
 }
 
 message ServerStatusRequest {}
