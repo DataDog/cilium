@@ -226,9 +226,9 @@ Users (Alphabetically)
       Q: @weizhoublue, @kebe7jun
 
     * N: Datadog
-      D: Datadog is using Cilium in AWS (self-hosted k8s)
-      U: ENI Networking, Service load-balancing, Encryption, Network Policies, Hubble
-      Q: @lbernail, @roboll, @mvisonneau
+      D: Datadog is using Cilium in AWS, Azure, and GCP (self-hosted k8s)
+      U: ENI Networking, Service load-balancing, Network Policies, Hubble
+      Q: @lbernail, @mvisonneau, @antonipp, @HadrienPatte, @jaredledvina
 
     * N: Dcode.tech
       D: We specialize in AWS and Kubernetes, and actively implement Cilium at our clients. 
