@@ -1,0 +1,34 @@
+meta:
+  name: hadrien-test
+  description: An example configuration.
+aspects:
+  - id: 'context-function-tracing'
+    join-point:
+      function-body:
+        function:
+          - signature:
+              args:
+                - context.Context
+    advice:
+      - prepend-statements:
+          imports:
+            context: context
+            tracer: gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer
+          template: |-
+            {{ $ctx := .Function.ArgumentOfType "context.Context" }}
+            {{- if (eq $ctx "") -}}
+              {{- $ctx = "ctx" -}}
+              ctx := context.TODO()
+            {{ end -}}
+
+            {{ $functionName := .Function.Name -}}
+            {{- if eq $functionName "" -}}
+              {{ $functionName = "placeholder" }}
+            {{- end -}}
+
+            spanTOTO, {{ $ctx }} := tracer.StartSpanFromContext(
+              {{ $ctx }},
+              "test",
+              tracer.ResourceName("{{ $functionName }}"),
+            )
+            defer spanTOTO.Finish()
