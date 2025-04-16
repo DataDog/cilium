@@ -1,0 +1,61 @@
+meta:
+  name: hadrien-test
+  description: An example configuration.
+aspects:
+  - id: 'context-function-tracing'
+    join-point:
+      package-name: api
+      # all-of:
+        # - package-name: api
+        # - one-of:
+        #     - package-name: azure
+        #     - package-name: aws
+        #     - package-name: api
+        #     - package-name: ipam
+        #     - package-name: eni
+        #     - package-name: metadata
+        #     - package-name: limits
+          # - import-path: github.com/cilium/cilium/pkg/azure/api
+          # - import-path: github.com/cilium/cilium/pkg/azure/ipam
+          # - import-path: github.com/cilium/cilium/pkg/aws/eni
+          # - import-path: github.com/cilium/cilium/pkg/aws/eni/limits
+          # - import-path: github.com/cilium/cilium/pkg/aws/metadata
+          # - import-path: github.com/cilium/cilium/pkg/ipam
+          # - import-path: github.com/cilium/cilium/pkg/ipam/allocator/aws
+          # - import-path: github.com/cilium/cilium/pkg/ipam/alocator/azure
+        # - function-body:
+        #     function:
+        #       - signature:
+        #           args:
+        #             - context.Context
+    advice:
+      - prepend-statements:
+          imports:
+            context: context
+            tracer: gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer
+          template: |-
+            {{ $ctx := .Function.ArgumentOfType "context.Context" }}
+            {{- if (eq $ctx "") -}}
+              {{- $ctx = "ctx" -}}
+              ctx := context.TODO()
+            {{ end -}}
+
+            {{ $functionName := .Function.Name -}}
+            {{- if eq $functionName "" -}}
+              {{ $functionName = "placeholder" }}
+            {{- end -}}
+
+            var span *tracer.Span
+            span, {{ $ctx }} := tracer.StartSpanFromContext(
+              {{ $ctx }},
+              "test",
+              tracer.ResourceName("{{ $functionName }}"),
+            )
+
+            {{ with .Function.ResultOfType "error" -}}
+              defer func(){
+                span.Finish(tracer.WithError({{ . }}))
+              }()
+            {{ else -}}
+              defer span.Finish()
+            {{- end -}}
