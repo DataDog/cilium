@@ -119,7 +119,7 @@ jobs:
           cat /tmp/matrix.json
 
       - name: Login to Azure
-        uses: azure/login@a65d910e8af852a8061c627c456678983e180302 # v2.2.0
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2.3.0
         with:
           creds: ${{ secrets.AZURE_PR_SP_CREDS }}
 
@@ -209,7 +209,7 @@ jobs:
           echo owner=${OWNER} >> $GITHUB_OUTPUT
 
       - name: Login to Azure
-        uses: azure/login@a65d910e8af852a8061c627c456678983e180302 # v2.2.0
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2.3.0
         with:
           creds: ${{ secrets.AZURE_PR_SP_CREDS }}
 
@@ -239,7 +239,7 @@ jobs:
             --name ${{ env.name }}
 
       - name: Install Cilium CLI
-        uses: cilium/cilium-cli@0caa9e5cbfe3a80a1fd6bbc1f5f9926da35b0373 # v0.18.2
+        uses: cilium/cilium-cli@e7f03e4ec38a7008f4f5b9855ca9df721a9db185 # v0.18.3
         with:
           repository: ${{ env.CILIUM_CLI_RELEASE_REPO }}
           release-version: ${{ env.CILIUM_CLI_VERSION }}
@@ -342,21 +342,21 @@ jobs:
 
       - name: Upload artifacts
         if: ${{ !success() }}
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cilium-sysdumps-${{ matrix.index }}
           path: cilium-sysdump-*.zip
 
       - name: Upload JUnits [junit]
         if: ${{ always() }}
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cilium-junits-${{ matrix.index }}
           path: cilium-junits/*.xml
 
       - name: Upload features tested
         if: ${{ always() }}
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: features-tested-${{ matrix.index }}
           path: ${{ env.job_name }}*.json

@@ -444,7 +444,7 @@ not_esp:
 			if (unlikely(ret != CTX_ACT_OK))
 				return ret;
 
-			ctx_egw_done_set(ctx);
+			set_identity_mark(ctx, *identity, MARK_MAGIC_EGW_DONE);
 
 			/* to-netdev@bpf_host handles SNAT, so no need to do it here. */
 			ret = egress_gw_fib_lookup_and_redirect(ctx, snat_addr,
@@ -581,6 +581,65 @@ static __always_inline bool is_esp(struct __ctx_buff *ctx, __u16 proto)
 	}
 
 	return protocol == IPPROTO_ESP;
+}
+
+/* skip_encryption is a function introduced via backport into the v1.17 stable
+ * branch and does NOT exist in newer versions.
+ *
+ * this function determines, in 'cil_to_overlay', whether we apply a mark that
+ * will avoid encrypting VXLAN traffic at the ultimate egress device (bpf_host).
+ * the encryption at the ultimate egress device was introduced in the same
+ * backport patch to support V1.17 <-> V1.18 upgrade and downgrade paths.
+ *
+ * if the traffic would not be encrypted per v1.17 rules, we mark the packet to
+ * avoid encrypting at the ultimate egress device.
+ * this is to avoid any issues sending traffic to a v1.16 node which does not
+ * understand how to decrypt VXLAN-in-ESP traffic.
+ */
+static __always_inline bool
+skip_encryption(struct __ctx_buff *ctx, __be16 proto, __u32 src_sec_identity)
+{
+	void *data, *data_end;
+	__u8 protocol = 0;
+	struct ipv6hdr *ip6 __maybe_unused;
+	struct iphdr *ip4 __maybe_unused;
+	struct remote_endpoint_info __maybe_unused *dst = NULL;
+
+
+	switch (proto) {
+#ifdef ENABLE_IPV6
+	case bpf_htons(ETH_P_IPV6):
+		if (!revalidate_data_pull(ctx, &data, &data_end, &ip6))
+			return false;
+		protocol = ip6->nexthdr;
+		dst = lookup_ip6_remote_endpoint((union v6addr *)&ip6->daddr, 0);
+		break;
+#endif
+#ifdef ENABLE_IPV4
+	case bpf_htons(ETH_P_IP):
+		if (!revalidate_data_pull(ctx, &data, &data_end, &ip4))
+			return false;
+		protocol = ip4->protocol;
+		dst = lookup_ip4_remote_endpoint(ip4->daddr, 0);
+		break;
+#endif
+	default:
+		return false;
+	}
+
+	if (!dst)
+		return false;
+
+	if (protocol == IPPROTO_ESP)
+		return true;
+	if (src_sec_identity == HOST_ID)
+		return true;
+	if (!identity_is_cluster(dst->sec_identity))
+		return true;
+	if (identity_is_remote_node(dst->sec_identity))
+		return true;
+
+	return false;
 }
 #endif /* ENABLE_IPSEC */
 
@@ -800,8 +859,12 @@ int cil_to_overlay(struct __ctx_buff *ctx)
 	if (!ctx_get_tunnel_key(ctx, &tunnel_key, TUNNEL_KEY_WITHOUT_SRC_IP, 0))
 		src_sec_identity = get_id_from_tunnel_id(tunnel_key.tunnel_id,
 							 ctx_get_protocol(ctx));
-
-	set_identity_mark(ctx, src_sec_identity, MARK_MAGIC_OVERLAY);
+#ifdef ENABLE_IPSEC
+	if (skip_encryption(ctx, proto, src_sec_identity))
+		set_identity_mark(ctx, src_sec_identity, MARK_MAGIC_OVERLAY_ENCRYPTED);
+	else
+#endif
+		set_identity_mark(ctx, src_sec_identity, MARK_MAGIC_OVERLAY);
 
 #ifdef ENABLE_NODEPORT
 	if (snat_done) {

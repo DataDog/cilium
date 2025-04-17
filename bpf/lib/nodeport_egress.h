@@ -139,6 +139,7 @@ nodeport_rev_dnat_fwd_ipv6(struct __ctx_buff *ctx, bool *snat_done,
 	struct ipv6_ct_tuple tuple __align_stack_8 = {};
 	void *data, *data_end;
 	struct ipv6hdr *ip6;
+	__u32 monitor = 0;
 	int ret, l4_off;
 
 	if (!revalidate_data(ctx, &data, &data_end, &ip6))
@@ -175,9 +176,10 @@ skip_fib:
 
 	ret = ct_lazy_lookup6(get_ct_map6(&tuple), &tuple, ctx, l4_off, CT_INGRESS,
 			      SCOPE_REVERSE, CT_ENTRY_NODEPORT | CT_ENTRY_DSR,
-			      NULL, &trace->monitor);
+			      NULL, &monitor);
 	if (ret == CT_REPLY) {
 		trace->reason = TRACE_REASON_CT_REPLY;
+		trace->monitor = monitor;
 
 		ret = __lb6_rev_nat(ctx, l4_off, &tuple, nat_info);
 		if (IS_ERR(ret))
@@ -323,11 +325,12 @@ static __always_inline int nodeport_snat_fwd_ipv4(struct __ctx_buff *ctx,
 			 * Check if its a reply packet, if it is, redirect it to the
 			 * parent interface.
 			 */
-			if (ipv4_load_l4_ports(ctx, ip4, l4_off, CT_EGRESS,
-					       (__be16 *)&tuple.dport, NULL) < 0)
-				return DROP_INVALID;
+			ret = ct_extract_ports4(ctx, ip4, l4_off, CT_EGRESS, &tuple, NULL);
+			if (ret < 0 && ret != DROP_CT_UNKNOWN_PROTO)
+				return ret;
 
-			if (ct_is_reply4(get_ct_map4(&tuple), &tuple)) {
+			if (ret != DROP_CT_UNKNOWN_PROTO &&
+			    ct_is_reply4(get_ct_map4(&tuple), &tuple)) {
 				/* Look up the parent interface's MAC address and set it as the
 				 * source MAC address of the packet. We will assume the destination
 				 * MAC address is still correct. This assumption only holds if the
@@ -448,6 +451,7 @@ nodeport_rev_dnat_fwd_ipv4(struct __ctx_buff *ctx, bool *snat_done,
 	void *data, *data_end;
 	bool has_l4_header, is_fragment;
 	struct iphdr *ip4;
+	__u32 monitor = 0;
 
 	if (!revalidate_data(ctx, &data, &data_end, &ip4))
 		return DROP_INVALID;
@@ -490,13 +494,14 @@ skip_fib:
 	ret = ct_lazy_lookup4(get_ct_map4(&tuple), &tuple, ctx, is_fragment,
 			      l4_off, has_l4_header, CT_INGRESS, SCOPE_REVERSE,
 			      CT_ENTRY_NODEPORT | CT_ENTRY_DSR,
-			      &ct_state, &trace->monitor);
+			      &ct_state, &monitor);
 
 	/* nodeport_rev_dnat_get_info_ipv4() just checked that such a
 	 * CT entry exists:
 	 */
 	if (ret == CT_REPLY) {
 		trace->reason = TRACE_REASON_CT_REPLY;
+		trace->monitor = monitor;
 
 		ret = __lb4_rev_nat(ctx, l3_off, l4_off, &tuple,
 				    nat_info, false, has_l4_header);

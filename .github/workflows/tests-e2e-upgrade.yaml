@@ -103,7 +103,7 @@ jobs:
         include:
           - name: '1'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: 'rhel8.6-20250206.054533'
+            kernel: 'rhel8.6-20250409.090442'
             kube-proxy: 'iptables'
             kpr: 'false'
             tunnel: 'vxlan'
@@ -112,7 +112,7 @@ jobs:
 
           - name: '2'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '5.4-20250206.054533'
+            kernel: '5.4-20250409.090442'
             kube-proxy: 'iptables'
             kpr: 'false'
             tunnel: 'disabled'
@@ -121,7 +121,7 @@ jobs:
 
           - name: '3'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '5.10-20250206.054533'
+            kernel: '5.10-20250409.090442'
             kube-proxy: 'iptables'
             kpr: 'false'
             tunnel: 'disabled'
@@ -130,7 +130,7 @@ jobs:
 
           - name: '4'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '5.10-20250206.054533'
+            kernel: '5.10-20250409.090442'
             kube-proxy: 'iptables'
             kpr: 'true'
             devices: '{eth0,eth1}'
@@ -143,7 +143,7 @@ jobs:
 
           - name: '5'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '5.15-20250206.054533'
+            kernel: '5.15-20250409.090442'
             kube-proxy: 'iptables'
             kpr: 'true'
             devices: '{eth0,eth1}'
@@ -157,7 +157,7 @@ jobs:
 
           - name: '6'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '6.1-20250206.054533'
+            kernel: '6.1-20250409.090442'
             kube-proxy: 'none'
             kpr: 'true'
             devices: '{eth0,eth1}'
@@ -171,7 +171,7 @@ jobs:
 
           - name: '7'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '6.12-20250206.054533'
+            kernel: '6.12-20250409.090442'
             kube-proxy: 'none'
             kpr: 'true'
             devices: '{eth0,eth1}'
@@ -187,7 +187,7 @@ jobs:
 
           - name: '8'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '6.12-20250206.054533'
+            kernel: '6.12-20250409.090442'
             kube-proxy: 'iptables'
             kpr: 'false'
             tunnel: 'geneve'
@@ -198,7 +198,7 @@ jobs:
 
           - name: '9'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '5.10-20250206.054533'
+            kernel: '5.10-20250409.090442'
             kube-proxy: 'iptables'
             kpr: 'true'
             devices: '{eth0,eth1}'
@@ -213,7 +213,7 @@ jobs:
 
           - name: '10'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '5.15-20250206.054533'
+            kernel: '5.15-20250409.090442'
             kube-proxy: 'iptables'
             kpr: 'false'
             tunnel: 'disabled'
@@ -227,7 +227,7 @@ jobs:
 
           - name: '11'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '6.1-20250206.054533'
+            kernel: '6.1-20250409.090442'
             kube-proxy: 'none'
             kpr: 'true'
             devices: '{eth0,eth1}'
@@ -244,7 +244,7 @@ jobs:
 
           - name: '12'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '6.12-20250206.054533'
+            kernel: '6.12-20250409.090442'
             kube-proxy: 'none'
             kpr: 'true'
             devices: '{eth0,eth1}'
@@ -259,7 +259,7 @@ jobs:
 
           - name: '13'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: 'rhel8.6-20250206.054533'
+            kernel: 'rhel8.6-20250409.090442'
             kube-proxy: 'iptables'
             kpr: 'false'
             tunnel: 'vxlan'
@@ -271,7 +271,7 @@ jobs:
             # explains why 5.4 might cause north-south-loadbalancing tests to
             # fail.
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '5.15-20250206.054533'
+            kernel: '5.15-20250409.090442'
             kube-proxy: 'iptables'
             kpr: 'true'
             devices: '{eth0,eth1}'
@@ -284,7 +284,7 @@ jobs:
 
           - name: '15'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '6.12-20250206.054533'
+            kernel: '6.12-20250409.090442'
             kube-proxy: 'none'
             kpr: 'true'
             devices: '{eth0,eth1}'
@@ -297,7 +297,7 @@ jobs:
 
           - name: '16'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '5.15-20250206.054533'
+            kernel: '5.15-20250409.090442'
             kube-proxy: 'none'
             kpr: 'true'
             devices: '{eth0,eth1}'
@@ -312,7 +312,7 @@ jobs:
 
           - name: '17'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '6.12-20250206.054533'
+            kernel: '6.12-20250409.090442'
             misc: 'bpf.datapathMode=netkit,bpf.masquerade=true,enableIPv4BIGTCP=true,enableIPv6BIGTCP=true'
             kube-proxy: 'none'
             kpr: 'true'
@@ -324,7 +324,7 @@ jobs:
 
           - name: '18'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '6.12-20250206.054533'
+            kernel: '6.12-20250409.090442'
             misc: 'bpf.datapathMode=netkit-l2,bpf.masquerade=true,enableIPv4BIGTCP=true,enableIPv6BIGTCP=true'
             kube-proxy: 'none'
             kpr: 'true'
@@ -336,7 +336,7 @@ jobs:
 
           - name: '19'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '6.12-20250206.054533'
+            kernel: '6.12-20250409.090442'
             misc: 'bpf.datapathMode=netkit,bpf.masquerade=true'
             kube-proxy: 'none'
             kpr: 'true'
@@ -348,7 +348,7 @@ jobs:
 
           - name: '20'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '6.12-20250206.054533'
+            kernel: '6.12-20250409.090442'
             misc: 'bpf.datapathMode=netkit-l2,bpf.masquerade=true'
             kube-proxy: 'none'
             kpr: 'true'
@@ -359,7 +359,7 @@ jobs:
 
           - name: '21'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '6.12-20250206.054533'
+            kernel: '6.12-20250409.090442'
             misc: 'bpf.datapathMode=netkit,bpf.masquerade=true'
             kube-proxy: 'none'
             kpr: 'true'
@@ -370,7 +370,7 @@ jobs:
 
           - name: '22'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '6.12-20250206.054533'
+            kernel: '6.12-20250409.090442'
             misc: 'bpf.datapathMode=netkit-l2,bpf.masquerade=true'
             kube-proxy: 'none'
             kpr: 'true'
@@ -381,7 +381,7 @@ jobs:
 
           - name: '23'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '6.12-20250206.054533'
+            kernel: '6.12-20250409.090442'
             misc: 'bpf.datapathMode=netkit,bpf.masquerade=true'
             kube-proxy: 'none'
             kpr: 'true'
@@ -395,7 +395,7 @@ jobs:
 
           - name: '24'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '6.12-20250206.054533'
+            kernel: '6.12-20250409.090442'
             misc: 'bpf.datapathMode=netkit,bpf.masquerade=true,enableIPv4BIGTCP=true,enableIPv6BIGTCP=true'
             kube-proxy: 'none'
             kpr: 'true'
@@ -408,7 +408,7 @@ jobs:
 
           - name: '25'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '6.12-20250206.054533'
+            kernel: '6.12-20250409.090442'
             misc: 'bpf.datapathMode=netkit-l2,bpf.masquerade=true,enableIPv4BIGTCP=true,enableIPv6BIGTCP=true'
             kube-proxy: 'none'
             kpr: 'true'
@@ -421,7 +421,7 @@ jobs:
 
           - name: '26'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '6.6-20250206.054533'
+            kernel: '6.6-20250409.090442'
             kube-proxy: 'none'
             kpr: 'true'
             devices: '{eth0,eth1}'
@@ -433,7 +433,7 @@ jobs:
 
           - name: '27'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '6.6-20250206.054533'
+            kernel: '6.6-20250409.090442'
             kube-proxy: 'none'
             kpr: 'true'
             devices: '{eth0,eth1}'
@@ -445,7 +445,7 @@ jobs:
 
           - name: '28'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '6.6-20250206.054533'
+            kernel: '6.6-20250409.090442'
             kube-proxy: 'none'
             kpr: 'true'
             devices: '{eth0,eth1}'
@@ -458,7 +458,7 @@ jobs:
 
           - name: '29'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '6.12-20250206.054533'
+            kernel: '6.12-20250409.090442'
             kube-proxy: 'none'
             kpr: 'true'
             devices: '{eth0,eth1}'
@@ -470,7 +470,7 @@ jobs:
 
           - name: '30'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '6.12-20250206.054533'
+            kernel: '6.12-20250409.090442'
             kube-proxy: 'none'
             kpr: 'true'
             devices: '{eth0,eth1}'
@@ -482,7 +482,7 @@ jobs:
 
           - name: '31'
             # renovate: datasource=docker depName=quay.io/lvh-images/kind
-            kernel: '6.12-20250206.054533'
+            kernel: '6.12-20250409.090442'
             kube-proxy: 'none'
             kpr: 'true'
             devices: '{eth0,eth1}'
@@ -616,7 +616,7 @@ jobs:
           " >> $GITHUB_OUTPUT
 
       - name: Install Cilium CLI
-        uses: cilium/cilium-cli@0caa9e5cbfe3a80a1fd6bbc1f5f9926da35b0373 # v0.18.2
+        uses: cilium/cilium-cli@e7f03e4ec38a7008f4f5b9855ca9df721a9db185 # v0.18.3
         with:
           repository: ${{ env.CILIUM_CLI_RELEASE_REPO }}
           release-version: ${{ env.CILIUM_CLI_VERSION }}
@@ -694,7 +694,10 @@ jobs:
           # Create pods which establish long lived connections. It will be used by
           # subsequent connectivity tests with --include-conn-disrupt-test to catch any
           # interruption in such flows.
-          cilium connectivity test --include-conn-disrupt-test --conn-disrupt-test-setup \
+          cilium connectivity test --include-unsafe-tests --include-conn-disrupt-test \
+            --include-conn-disrupt-test-ns-traffic \
+            --include-conn-disrupt-test-egw \
+            --conn-disrupt-test-setup \
             --conn-disrupt-test-restarts-path "./cilium-conn-disrupt-restarts" \
             --conn-disrupt-dispatch-interval 0ms
 
@@ -742,7 +745,10 @@ jobs:
         shell: bash
         run: |
           cilium connectivity test \
+            --include-unsafe-tests \
             --include-conn-disrupt-test \
+            --include-conn-disrupt-test-ns-traffic \
+            --include-conn-disrupt-test-egw \
             --test "no-interrupted-connections" \
             --conn-disrupt-test-restarts-path "./cilium-conn-disrupt-restarts" \
             ${{ steps.cli-flags.outputs.flags }}
@@ -778,7 +784,10 @@ jobs:
         shell: bash
         run: |
           cilium connectivity test \
+            --include-unsafe-tests \
             --include-conn-disrupt-test \
+            --include-conn-disrupt-test-ns-traffic \
+            --include-conn-disrupt-test-egw \
             --conn-disrupt-test-setup \
             --conn-disrupt-test-restarts-path "./cilium-conn-disrupt-restarts" \
             --conn-disrupt-dispatch-interval 0ms
@@ -820,7 +829,10 @@ jobs:
         shell: bash
         run: |
           cilium connectivity test \
+            --include-unsafe-tests \
             --include-conn-disrupt-test \
+            --include-conn-disrupt-test-ns-traffic \
+            --include-conn-disrupt-test-egw \
             --test "no-interrupted-connections" \
             --conn-disrupt-test-restarts-path "./cilium-conn-disrupt-restarts" \
             ${{ steps.cli-flags.outputs.flags }}
@@ -877,21 +889,21 @@ jobs:
 
       - name: Upload artifacts
         if: ${{ !success() }}
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cilium-sysdumps-${{ matrix.name }}
           path: cilium-sysdump-*.zip
 
       - name: Upload JUnits [junit]
         if: ${{ always() }}
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cilium-junits-${{ matrix.name }}
           path: cilium-junits/*.xml
 
       - name: Upload features tested
         if: ${{ always() }}
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: features-tested-${{ matrix.name }}
           path: ${{ env.job_name }}*.json
