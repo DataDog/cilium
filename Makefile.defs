@@ -58,8 +58,8 @@ ifeq ($(DOCKER_IMAGE_TAG),)
 endif
 
 # renovate: datasource=docker depName=gcr.io/etcd-development/etcd
-ETCD_IMAGE_VERSION = v3.5.19
-ETCD_IMAGE_SHA = sha256:c415170328bbb2cb497c79dbd8494b1c8d58886dccf95fbfdd3845c13c6d1ca3
+ETCD_IMAGE_VERSION = v3.5.21
+ETCD_IMAGE_SHA = sha256:fd158fbe55240e252947bbd2e8dddc217997ff43978071fac2bd202b6ad15c03
 ETCD_IMAGE=gcr.io/etcd-development/etcd:$(ETCD_IMAGE_VERSION)@$(ETCD_IMAGE_SHA)
 
 CONSUL_IMAGE=consul:1.7.2
@@ -87,6 +87,10 @@ GO_BUILD_LDFLAGS ?=
 # go build/test -tags values
 GO_TAGS_FLAGS += osusergo
 
+# Keep the Go <=1.22 semantics for parsing type aliases.
+GODEBUG += gotypesalias=0
+export GODEBUG
+
 # This is declared here as it is needed to change the covermode depending on if
 # RACE is specified.
 GOTEST_COVER_OPTS =
@@ -104,8 +108,8 @@ endif
 endif
 
 # renovate: datasource=docker depName=golangci/golangci-lint
-GOLANGCILINT_WANT_VERSION = v1.60.1
-GOLANGCILINT_IMAGE_SHA = sha256:799e4ab272bbe830d202a373714ef6e0ea0b2f9948ce4c39fec930b7eeaee001
+GOLANGCILINT_WANT_VERSION = v2.0.0
+GOLANGCILINT_IMAGE_SHA = sha256:6513c569224cd49ba365401f583cf34eaf44b0862aeb6f9a402cff05a7b53d75
 GOLANGCILINT_VERSION = $(shell golangci-lint version --format short 2>/dev/null)
 
 VERSION = $(shell cat $(dir $(lastword $(MAKEFILE_LIST)))/VERSION)

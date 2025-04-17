@@ -184,7 +184,7 @@ jobs:
           misc: ${{ matrix.misc }}
 
       - name: Install Cilium CLI
-        uses: cilium/cilium-cli@0caa9e5cbfe3a80a1fd6bbc1f5f9926da35b0373 # v0.18.2
+        uses: cilium/cilium-cli@e7f03e4ec38a7008f4f5b9855ca9df721a9db185 # v0.18.3
         with:
           repository: ${{ env.CILIUM_CLI_RELEASE_REPO }}
           release-version: ${{ env.CILIUM_CLI_VERSION }}
@@ -273,8 +273,8 @@ jobs:
       - name: Start unencrypted packets check
         uses: ./.github/actions/bpftrace/start
         with:
-          script: ./.github/actions/bpftrace/scripts/check-ipsec-leaks.bt
-          args: ${{ steps.bpftrace-params.outputs.params }} "true"
+          script: ./.github/actions/bpftrace/scripts/check-encryption-leaks.bt
+          args: ${{ steps.bpftrace-params.outputs.params }} "true" "ipsec"
 
       - name: Run tests (${{ join(matrix.*, ', ') }})
         shell: bash
@@ -301,10 +301,10 @@ jobs:
       - name: Start unencrypted packets check for key rotation
         uses: ./.github/actions/bpftrace/start
         with:
-          script: ./.github/actions/bpftrace/scripts/check-ipsec-leaks.bt
+          script: ./.github/actions/bpftrace/scripts/check-encryption-leaks.bt
           # As we are not testing with proxy connections during key rotation,
           # disable the check for proxy traffic.
-          args: ${{ steps.bpftrace-params.outputs.params }} "false"
+          args: ${{ steps.bpftrace-params.outputs.params }} "false" "ipsec"
 
       - name: Setup conn-disrupt-test before rotating (${{ join(matrix.*, ', ') }})
         uses: ./.github/actions/conn-disrupt-test-setup
@@ -326,26 +326,20 @@ jobs:
       - name: Start unencrypted packets check for tests
         uses: ./.github/actions/bpftrace/start
         with:
-          script: ./.github/actions/bpftrace/scripts/check-ipsec-leaks.bt
-          args: ${{ steps.bpftrace-params.outputs.params }} "true"
+          script: ./.github/actions/bpftrace/scripts/check-encryption-leaks.bt
+          args: ${{ steps.bpftrace-params.outputs.params }} "true" "ipsec"
 
       - name: Run tests (${{ join(matrix.*, ', ') }})
         shell: bash
         run: |
           mkdir -p cilium-junits
 
-          TEST=""
-          if [ "${{ matrix.key-one }}" = "gcm(aes)" ] && [ "${{ matrix.key-two }}" = "cbc(aes)" ]; then
-            # Until https://github.com/cilium/cilium/issues/29480 is resolved
-            TEST='--test "!pod-to-pod-no-frag"'
-          fi
-
           ./cilium-cli connectivity test --include-unsafe-tests --collect-sysdump-on-failure \
             --sysdump-hubble-flows-count=1000000 --sysdump-hubble-flows-timeout=5m \
             --sysdump-output-filename "cilium-sysdump-${{ matrix.name }}-<ts>" \
             --junit-file "cilium-junits/${{ env.job_name }} (${{ join(matrix.*, ', ') }}).xml" \
             --junit-property github_job_step="Run tests (${{ join(matrix.*, ', ') }})" \
-            --flush-ct $TEST
+            --flush-ct
 
       - name: Features tested
         uses: ./.github/actions/feature-status
@@ -374,21 +368,21 @@ jobs:
 
       - name: Upload artifacts
         if: ${{ !success() }}
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cilium-sysdumps-${{ matrix.name }}
           path: cilium-sysdump-*.zip
 
       - name: Upload JUnits [junit]
         if: ${{ always() }}
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cilium-junits-${{ matrix.name }}
           path: cilium-junits/*.xml
 
       - name: Upload features tested
         if: ${{ always() }}
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: features-tested-${{ matrix.name }}
           path: ${{ env.job_name }}*.json
@@ -407,7 +401,7 @@ jobs:
     steps:
       - name: Merge Sysdumps
         if: ${{ needs.setup-and-test.result == 'failure' }}
-        uses: actions/upload-artifact/merge@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact/merge@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cilium-sysdumps
           pattern: cilium-sysdumps-*
@@ -415,14 +409,14 @@ jobs:
           delete-merged: true
         continue-on-error: true
       - name: Merge JUnits
-        uses: actions/upload-artifact/merge@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact/merge@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cilium-junits
           pattern: cilium-junits-*
           retention-days: 5
           delete-merged: true
       - name: Merge Features tested
-        uses: actions/upload-artifact/merge@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact/merge@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: features-tested
           pattern: features-tested-*
