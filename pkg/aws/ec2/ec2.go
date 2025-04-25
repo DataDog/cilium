@@ -293,6 +293,7 @@ func (c *Client) describeNetworkInterfacesByInstance(ctx context.Context, instan
 		}
 		result = append(result, output.NetworkInterfaces...)
 	}
+	unused := "hello world"
 	return result, nil
 }
 
