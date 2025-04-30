@@ -116,9 +116,11 @@ cilium-clustermesh-apiserver:
   variables:
     DOCKERFILE_PATH: images/clustermesh-apiserver/Dockerfile
     DOCKER_BUILD_ARGS: |
-      BASE_IMAGE=$DISTROLESS_FIPS_BASE_IMAGE
+      BASE_IMAGE_DISABLED=$DISTROLESS_FIPS_BASE_IMAGE
     IMAGES_TO_MIRROR: |
       GOLANG_IMAGE
+      CILIUM_BUILDER_IMAGE
+      BASE_IMAGE
     TARGET: release
 
 
