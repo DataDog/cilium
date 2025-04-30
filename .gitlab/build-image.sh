@@ -56,7 +56,7 @@ docker buildx build --platform linux/amd64,linux/arm64 \
 ddsign sign "$IMAGE_REF" --docker-metadata-file "$METADATA_FILE"
 
 # Always build the debug version of the Cilium Agent and Operator images
-if [[ $IMAGE_NAME == "cilium" || $IMAGE_NAME =~ "cilium-operator" ]]; then
+if [[ $IMAGE_NAME == "cilium" || $IMAGE_NAME =~ "cilium-operator" || $IMAGE_NAME =~ "clustermesh-apiserver" ]]; then
     METADATA_FILE_DEBUG=$(mktemp)
     docker buildx build --platform linux/amd64,linux/arm64 \
         --tag "$IMAGE_REF"-debug \
