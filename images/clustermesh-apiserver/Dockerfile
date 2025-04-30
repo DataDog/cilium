@@ -28,12 +28,14 @@ ARG TARGETARCH
 ARG MODIFIERS
 
 WORKDIR /go/src/github.com/cilium/cilium/clustermesh-apiserver
+
+# We must override NOSTRIP=1 to ensure binaries include debug symbols for extraction. They will be stripped subsequently
 RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium \
     mkdir -p /out/${TARGETOS}/${TARGETARCH} && cp etcd-config.yaml /out/${TARGETOS}/${TARGETARCH}/etcd-config.yaml
 RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium \
     --mount=type=cache,target=/root/.cache \
     --mount=type=cache,target=/go/pkg \
-    make GOARCH=${TARGETARCH} $(echo $MODIFIERS | tr -d '"') \
+    make GOARCH=${TARGETARCH} $(echo $MODIFIERS | tr -d '"') NOSTRIP=1 \
     && mkdir -p /out/${TARGETOS}/${TARGETARCH}/usr/bin && mv clustermesh-apiserver /out/${TARGETOS}/${TARGETARCH}/usr/bin
 
 WORKDIR /go/src/github.com/cilium/cilium
@@ -43,6 +45,19 @@ RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium \
     --mount=type=cache,target=/root/.cache \
     --mount=type=cache,target=/go/pkg \
     make GOARCH=${BUILDARCH} licenses-all && mv LICENSE.all /out/${TARGETOS}/${TARGETARCH}
+
+# Extract debug symbols to /tmp/debug and strip the binaries if NOSTRIP is not set.
+RUN set -xe && \
+    export D=/tmp/debug/${TARGETOS}/${TARGETARCH} && \
+    objcopy --only-keep-debug ${0} ${0}.debug && \
+    if ! echo "$MODIFIERS" | grep "NOSTRIP=1" ; then objcopy --strip-all ${0} && (cd $(dirname ${0}) && objcopy --add-gnu-debuglink=${filename}.debug ${filename}) ; fi && \
+    mkdir -p $(dirname ${D}/${0}) && \
+    mv -v ${0}.debug ${D}/${0}.debug' \
+    {} \;
+
+# Check debug symbols are present
+RUN for f in $(find /tmp/debug -type f -name '*.debug' -not -name 'debug-wrapper.debug') ; do readelf -S ${f} | grep -q \\.symtab || \
+    (echo Debug symbols are missing in ${f} - possibly due to incorrect build parameters && false); done
 
 # BUILDPLATFORM is an automatic platform ARG enabled by Docker BuildKit.
 # Represents the plataform where the build is happening, do not mix with
@@ -78,3 +93,32 @@ COPY --from=builder /out/${TARGETOS}/${TARGETARCH}/LICENSE.all /LICENSE.all
 ENV GOPS_CONFIG_DIR=/tmp/gops
 
 ENTRYPOINT ["/usr/bin/clustermesh-apiserver"]
+
+FROM --platform=${BUILDPLATFORM} ${CILIUM_BUILDER_IMAGE} AS debug-tools
+
+#
+# Cilium Clustermesh-apiserver debug image.
+#
+# Typical image builds will stop above at the 'release' target, but
+# developers follow this Dockerfile to the end. Starting from a release
+# image, install delve debugger and wrap the cilium-clustermesh-apiserver
+# binary calls with a script that automatically provisions the debugger
+# on a dedicated port.
+FROM release AS debug
+# TARGETOS is an automatic platform ARG enabled by Docker BuildKit.
+ARG TARGETOS
+# TARGETARCH is an automatic platform ARG enabled by Docker BuildKit.
+ARG TARGETARCH
+ARG DEBUG_HOLD
+ENV DEBUG_PORT=2346
+ENV DEBUG_HOLD=${DEBUG_HOLD}
+COPY --from=builder /out/${TARGETOS}/${TARGETARCH}/usr/bin/clustermesh-apiserver /usr/bin/clustermesh-apiserver-bin
+COPY --from=debug-tools /go/bin/dlv /usr/bin/dlv
+COPY --from=debug-tools /out/${TARGETOS}/${TARGETARCH}/bin/debug-wrapper /usr/bin/clustermesh-apiserver
+
+# Copy in the debug symbols in case the binaries were stripped
+COPY --from=builder /tmp/debug/${TARGETOS}/${TARGETARCH}/ /usr/lib/debug/
+
+# Ensure dlv finds the debug symbols. Due to CGO_ENABLED=0, we have no GNU build-id, so Delve's default search path
+# is insufficient.
+ADD images/clustermesh-apiserver/dlv-config.yml /root/.config/dlv/config.yml

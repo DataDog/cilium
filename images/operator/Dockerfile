@@ -42,14 +42,14 @@ RUN set -xe && \
     export D=/tmp/debug/${TARGETOS}/${TARGETARCH} && \
     cd /out/${TARGETOS}/${TARGETARCH} && \
     find . -type f \
-      -executable \
-      -exec sh -c \
-        'filename=$(basename ${0}) && \
-         objcopy --only-keep-debug ${0} ${0}.debug && \
-         if ! echo "$MODIFIERS" | grep "NOSTRIP=1" ; then objcopy --strip-all ${0} && (cd $(dirname ${0}) && objcopy --add-gnu-debuglink=${filename}.debug ${filename}) ; fi && \
-         mkdir -p $(dirname ${D}/${0}) && \
-         mv -v ${0}.debug ${D}/${0}.debug' \
-      {} \;
+    -executable \
+    -exec sh -c \
+    'filename=$(basename ${0}) && \
+    objcopy --only-keep-debug ${0} ${0}.debug && \
+    if ! echo "$MODIFIERS" | grep "NOSTRIP=1" ; then objcopy --strip-all ${0} && (cd $(dirname ${0}) && objcopy --add-gnu-debuglink=${filename}.debug ${filename}) ; fi && \
+    mkdir -p $(dirname ${D}/${0}) && \
+    mv -v ${0}.debug ${D}/${0}.debug' \
+    {} \;
 
 # Check debug symbols are present
 RUN for f in $(find /tmp/debug -type f -name '*.debug' -not -name 'debug-wrapper.debug') ; do readelf -S ${f} | grep -q \\.symtab || \
@@ -94,7 +94,7 @@ FROM --platform=${BUILDPLATFORM} ${CILIUM_BUILDER_IMAGE} AS debug-tools
 #
 # Cilium Operator debug image.
 #
-# Typical image bulids will stop above at the 'release' target, but
+# Typical image builds will stop above at the 'release' target, but
 # developers follow this Dockerfile to the end. Starting from a release
 # image, install delve debugger and wrap the cilium-operator binary calls
 # with a script that automatically provisions the debugger on a
