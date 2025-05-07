@@ -326,6 +326,7 @@ func (m *multiPoolManager) waitForAllPools() {
 // available for the given IP family. This function is supposed to only be called
 // before any IPs are handed out, so hasAvailableIPs returns true so as long as
 // the local node has IPs assigned to it in the given pool.
+//dd:span
 func (m *multiPoolManager) waitForPool(ctx context.Context, family Family, poolName Pool) (ready bool) {
 	for {
 		m.mutex.Lock()
@@ -475,6 +476,7 @@ func (m *multiPoolManager) isRestoreFinishedLocked(family Family) bool {
 	return m.finishedRestore[family]
 }
 
+//dd:span
 func (m *multiPoolManager) updateCiliumNode(ctx context.Context) error {
 	m.mutex.Lock()
 	newNode := m.node.DeepCopy()

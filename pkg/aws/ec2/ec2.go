@@ -93,6 +93,7 @@ func NewClient(ec2Client *ec2.Client, metrics MetricsAPI, rateLimit float64, bur
 }
 
 // NewConfig returns a new aws.Config configured with the correct region + endpoint resolver
+//dd:span
 func NewConfig(ctx context.Context) (aws.Config, error) {
 	cfg, err := awsconfig.LoadDefaultConfig(ctx)
 	if err != nil {
@@ -176,6 +177,7 @@ func deriveStatus(err error) string {
 	return "OK"
 }
 
+//dd:span
 func DetectEKSClusterName(ctx context.Context, cfg aws.Config) (string, error) {
 	instance, err := imds.NewFromConfig(cfg).GetInstanceIdentityDocument(ctx, &imds.GetInstanceIdentityDocumentInput{})
 	if err != nil {
@@ -200,6 +202,7 @@ func DetectEKSClusterName(ctx context.Context, cfg aws.Config) (string, error) {
 	return aws.ToString(tags.Tags[0].Value), nil
 }
 
+//dd:span
 func (c *Client) GetDetachedNetworkInterfaces(ctx context.Context, tags ipamTypes.Tags, maxResults int32) ([]string, error) {
 	result := make([]string, 0, int(maxResults))
 	input := &ec2.DescribeNetworkInterfacesInput{
@@ -232,6 +235,7 @@ func (c *Client) GetDetachedNetworkInterfaces(ctx context.Context, tags ipamType
 }
 
 // describeNetworkInterfaces lists all ENIs
+//dd:span
 func (c *Client) describeNetworkInterfaces(ctx context.Context, subnets ipamTypes.SubnetMap) ([]ec2_types.NetworkInterface, error) {
 	var result []ec2_types.NetworkInterface
 	input := &ec2.DescribeNetworkInterfacesInput{
@@ -270,6 +274,7 @@ func (c *Client) describeNetworkInterfaces(ctx context.Context, subnets ipamType
 }
 
 // describeNetworkInterfacesByInstance gets ENIs on the given instance
+//dd:span
 func (c *Client) describeNetworkInterfacesByInstance(ctx context.Context, instanceID string) ([]ec2_types.NetworkInterface, error) {
 	var result []ec2_types.NetworkInterface
 
@@ -297,6 +302,7 @@ func (c *Client) describeNetworkInterfacesByInstance(ctx context.Context, instan
 }
 
 // describeNetworkInterfacesFromInstances lists all ENIs matching filtered EC2 instances
+//dd:span
 func (c *Client) describeNetworkInterfacesFromInstances(ctx context.Context) ([]ec2_types.NetworkInterface, error) {
 	enisFromInstances := make(map[string]struct{})
 
@@ -454,6 +460,7 @@ func parseENI(iface *ec2_types.NetworkInterface, vpcs ipamTypes.VirtualNetworkMa
 }
 
 // GetInstance returns the instance including its ENIs by the given instanceID
+//dd:span
 func (c *Client) GetInstance(ctx context.Context, vpcs ipamTypes.VirtualNetworkMap, subnets ipamTypes.SubnetMap, instanceID string) (*ipamTypes.Instance, error) {
 	instance := ipamTypes.Instance{}
 	instance.Interfaces = map[string]ipamTypes.InterfaceRevision{}
@@ -482,6 +489,7 @@ func (c *Client) GetInstance(ctx context.Context, vpcs ipamTypes.VirtualNetworkM
 
 // GetInstances returns the list of all instances including their ENIs as
 // instanceMap
+//dd:span
 func (c *Client) GetInstances(ctx context.Context, vpcs ipamTypes.VirtualNetworkMap, subnets ipamTypes.SubnetMap) (*ipamTypes.InstanceMap, error) {
 	instances := ipamTypes.NewInstanceMap()
 
@@ -512,6 +520,7 @@ func (c *Client) GetInstances(ctx context.Context, vpcs ipamTypes.VirtualNetwork
 }
 
 // describeVpcs lists all VPCs
+//dd:span
 func (c *Client) describeVpcs(ctx context.Context) ([]ec2_types.Vpc, error) {
 	var result []ec2_types.Vpc
 	paginator := ec2.NewDescribeVpcsPaginator(c.ec2Client, &ec2.DescribeVpcsInput{})
@@ -529,6 +538,7 @@ func (c *Client) describeVpcs(ctx context.Context) ([]ec2_types.Vpc, error) {
 }
 
 // GetVpcs retrieves and returns all Vpcs
+//dd:span
 func (c *Client) GetVpcs(ctx context.Context) (ipamTypes.VirtualNetworkMap, error) {
 	vpcs := ipamTypes.VirtualNetworkMap{}
 
@@ -557,6 +567,7 @@ func (c *Client) GetVpcs(ctx context.Context) (ipamTypes.VirtualNetworkMap, erro
 }
 
 // describeSubnets lists all subnets
+//dd:span
 func (c *Client) describeSubnets(ctx context.Context) ([]ec2_types.Subnet, error) {
 	var result []ec2_types.Subnet
 	input := &ec2.DescribeSubnetsInput{}
@@ -579,6 +590,7 @@ func (c *Client) describeSubnets(ctx context.Context) ([]ec2_types.Subnet, error
 }
 
 // GetSubnets returns all EC2 subnets as a subnetMap
+//dd:span
 func (c *Client) GetSubnets(ctx context.Context) (ipamTypes.SubnetMap, error) {
 	subnets := ipamTypes.SubnetMap{}
 
@@ -622,6 +634,7 @@ func (c *Client) GetSubnets(ctx context.Context) (ipamTypes.SubnetMap, error) {
 }
 
 // CreateNetworkInterface creates an ENI with the given parameters
+//dd:span
 func (c *Client) CreateNetworkInterface(ctx context.Context, toAllocate int32, subnetID, desc string, groups []string, allocatePrefixes bool) (string, *eniTypes.ENI, error) {
 
 	input := &ec2.CreateNetworkInterfaceInput{
@@ -664,6 +677,7 @@ func (c *Client) CreateNetworkInterface(ctx context.Context, toAllocate int32, s
 }
 
 // DeleteNetworkInterface deletes an ENI with the specified ID
+//dd:span
 func (c *Client) DeleteNetworkInterface(ctx context.Context, eniID string) error {
 	input := &ec2.DeleteNetworkInterfaceInput{
 		NetworkInterfaceId: aws.String(eniID),
@@ -677,6 +691,7 @@ func (c *Client) DeleteNetworkInterface(ctx context.Context, eniID string) error
 }
 
 // AttachNetworkInterface attaches a previously created ENI to an instance
+//dd:span
 func (c *Client) AttachNetworkInterface(ctx context.Context, index int32, instanceID, eniID string) (string, error) {
 	input := &ec2.AttachNetworkInterfaceInput{
 		DeviceIndex:        aws.Int32(index),
@@ -696,6 +711,7 @@ func (c *Client) AttachNetworkInterface(ctx context.Context, index int32, instan
 }
 
 // ModifyNetworkInterface modifies the attributes of an ENI
+//dd:span
 func (c *Client) ModifyNetworkInterface(ctx context.Context, eniID, attachmentID string, deleteOnTermination bool) error {
 	changes := &ec2_types.NetworkInterfaceAttachmentChanges{
 		AttachmentId:        aws.String(attachmentID),
@@ -716,6 +732,7 @@ func (c *Client) ModifyNetworkInterface(ctx context.Context, eniID, attachmentID
 
 // AssignPrivateIpAddresses assigns the specified number of secondary IP
 // addresses
+//dd:span
 func (c *Client) AssignPrivateIpAddresses(ctx context.Context, eniID string, addresses int32) ([]string, error) {
 	input := &ec2.AssignPrivateIpAddressesInput{
 		NetworkInterfaceId:             aws.String(eniID),
@@ -737,6 +754,7 @@ func (c *Client) AssignPrivateIpAddresses(ctx context.Context, eniID string, add
 }
 
 // UnassignPrivateIpAddresses unassigns specified IP addresses from ENI
+//dd:span
 func (c *Client) UnassignPrivateIpAddresses(ctx context.Context, eniID string, addresses []string) error {
 	input := &ec2.UnassignPrivateIpAddressesInput{
 		NetworkInterfaceId: aws.String(eniID),
@@ -750,6 +768,7 @@ func (c *Client) UnassignPrivateIpAddresses(ctx context.Context, eniID string, a
 	return err
 }
 
+//dd:span
 func (c *Client) AssignENIPrefixes(ctx context.Context, eniID string, prefixes int32) error {
 	input := &ec2.AssignPrivateIpAddressesInput{
 		NetworkInterfaceId: aws.String(eniID),
@@ -763,6 +782,7 @@ func (c *Client) AssignENIPrefixes(ctx context.Context, eniID string, prefixes i
 	return err
 }
 
+//dd:span
 func (c *Client) UnassignENIPrefixes(ctx context.Context, eniID string, prefixes []string) error {
 	input := &ec2.UnassignPrivateIpAddressesInput{
 		NetworkInterfaceId: aws.String(eniID),
@@ -777,6 +797,7 @@ func (c *Client) UnassignENIPrefixes(ctx context.Context, eniID string, prefixes
 }
 
 // AssociateEIP tries to find an Elastic IP Address with the given tags and associates it with the given instance
+//dd:span
 func (c *Client) AssociateEIP(ctx context.Context, instanceID string, eipTags ipamTypes.Tags) (string, error) {
 	if len(eipTags) == 0 {
 		return "", fmt.Errorf("no EIP tags were provided")
@@ -838,6 +859,7 @@ func createAWSTagSlice(tags map[string]string) []ec2_types.Tag {
 	return awsTags
 }
 
+//dd:span
 func (c *Client) describeSecurityGroups(ctx context.Context) ([]ec2_types.SecurityGroup, error) {
 	var result []ec2_types.SecurityGroup
 	paginator := ec2.NewDescribeSecurityGroupsPaginator(c.ec2Client, &ec2.DescribeSecurityGroupsInput{})
@@ -855,6 +877,7 @@ func (c *Client) describeSecurityGroups(ctx context.Context) ([]ec2_types.Securi
 }
 
 // GetSecurityGroups returns all EC2 security groups as a SecurityGroupMap
+//dd:span
 func (c *Client) GetSecurityGroups(ctx context.Context) (types.SecurityGroupMap, error) {
 	securityGroups := types.SecurityGroupMap{}
 
@@ -884,6 +907,7 @@ func (c *Client) GetSecurityGroups(ctx context.Context) (types.SecurityGroupMap,
 }
 
 // GetInstanceTypes returns all the known EC2 instance types in the configured region
+//dd:span
 func (c *Client) GetInstanceTypes(ctx context.Context) ([]ec2_types.InstanceTypeInfo, error) {
 	var result []ec2_types.InstanceTypeInfo
 	paginator := ec2.NewDescribeInstanceTypesPaginator(c.ec2Client, &ec2.DescribeInstanceTypesInput{})

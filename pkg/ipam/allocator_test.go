@@ -29,9 +29,11 @@ func (o *ownerMock) UpdateCiliumNodeResource() {}
 
 type resourceMock struct{}
 
+//dd:span
 func (rm *resourceMock) Observe(ctx context.Context, next func(resource.Event[*ciliumv2.CiliumNode]), complete func(error)) {
 }
 
+//dd:span
 func (rm *resourceMock) Events(ctx context.Context, opts ...resource.EventsOpt) <-chan resource.Event[*ciliumv2.CiliumNode] {
 	return nil
 }

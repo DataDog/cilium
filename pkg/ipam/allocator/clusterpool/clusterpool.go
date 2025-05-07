@@ -31,6 +31,7 @@ type AllocatorOperator struct {
 }
 
 // Init sets up Cilium allocator based on given options
+//dd:span
 func (a *AllocatorOperator) Init(ctx context.Context) error {
 	if option.Config.EnableIPv4 {
 		if len(operatorOption.Config.ClusterPoolIPv4CIDR) == 0 {
@@ -64,6 +65,7 @@ func (a *AllocatorOperator) Init(ctx context.Context) error {
 }
 
 // Start kicks of Operator allocation.
+//dd:span
 func (a *AllocatorOperator) Start(ctx context.Context, updater ipam.CiliumNodeGetterUpdater) (allocator.NodeEventHandler, error) {
 	log.WithFields(logrus.Fields{
 		logfields.IPv4CIDRs: operatorOption.Config.ClusterPoolIPv4CIDR,

@@ -26,9 +26,11 @@ var log = logging.DefaultLogger.WithField(logfields.LogSubsys, "ipam-allocator-a
 type AllocatorAzure struct{}
 
 // Init in Azure implementation doesn't need to do anything
+//dd:span
 func (*AllocatorAzure) Init(ctx context.Context) error { return nil }
 
 // Start kicks of the Azure IP allocation
+//dd:span
 func (*AllocatorAzure) Start(ctx context.Context, getterUpdater ipam.CiliumNodeGetterUpdater) (allocator.NodeEventHandler, error) {
 
 	var (
