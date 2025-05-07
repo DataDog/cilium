@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/DataDog/dd-trace-go/v2/ddtrace/ext"
@@ -87,7 +88,25 @@ func (s *Span) AsMap() map[string]interface{} {
 	m[ext.MapSpanTraceID] = s.traceID
 	m[ext.MapSpanParentID] = s.parentID
 	m[ext.MapSpanError] = s.error
+	if events := s.spanEventsAsJSONString(); events != "" {
+		m[ext.MapSpanEvents] = events
+	}
 	return m
+}
+
+func (s *Span) spanEventsAsJSONString() string {
+	if !s.supportsEvents {
+		return s.meta["events"]
+	}
+	if s.spanEvents == nil {
+		return ""
+	}
+	events, err := json.Marshal(s.spanEvents)
+	if err != nil {
+		log.Error("failed to marshal span events: %v", err)
+		return ""
+	}
+	return string(events)
 }
 
 // Span represents a computation. Callers must call Finish when a Span is
@@ -109,15 +128,18 @@ type Span struct {
 	parentID   uint64             `msg:"parent_id"`             // identifier of the span's direct parent
 	error      int32              `msg:"error"`                 // error status of the span; 0 means no errors
 	spanLinks  []SpanLink         `msg:"span_links,omitempty"`  // links to other spans
+	spanEvents []spanEvent        `msg:"span_events,omitempty"` // events produced related to this span
 
-	goExecTraced bool         `msg:"-"`
-	noDebugStack bool         `msg:"-"` // disables debug stack traces
-	finished     bool         `msg:"-"` // true if the span has been submitted to a tracer. Can only be read/modified if the trace is locked.
-	context      *SpanContext `msg:"-"` // span propagation context
-	integration  string       `msg:"-"` // where the span was started from, such as a specific contrib or "manual"
+	goExecTraced   bool         `msg:"-"`
+	noDebugStack   bool         `msg:"-"` // disables debug stack traces
+	finished       bool         `msg:"-"` // true if the span has been submitted to a tracer. Can only be read/modified if the trace is locked.
+	context        *SpanContext `msg:"-"` // span propagation context
+	integration    string       `msg:"-"` // where the span was started from, such as a specific contrib or "manual"
+	supportsEvents bool         `msg:"-"` // whether the span supports native span events or not
 
 	pprofCtxActive  context.Context `msg:"-"` // contains pprof.WithLabel labels to tell the profiler more about this span
 	pprofCtxRestore context.Context `msg:"-"` // contains pprof.WithLabel labels of the parent span (if any) that need to be restored when this span finishes
+	finishGuard     atomic.Uint32   `msg:"-"` // finishGuard value to detect if Span.Finish has been called to only finish the span once
 
 	taskEnd func() // ends execution tracer (runtime/trace) task, if started
 }
@@ -265,31 +287,6 @@ func (s *Span) SetTag(key string, value interface{}) {
 	s.setMeta(key, fmt.Sprint(value))
 }
 
-// AddLink sets a casuality link to another span via a spanContext. It also
-// stores details about the link in an attributes map.
-func (s *Span) AddLink(spanContext *SpanContext, attributes map[string]string) {
-	traceIDHex := spanContext.TraceID()
-	traceIDHigh, _ := strconv.ParseUint(traceIDHex[:8], 16, 64)
-
-	samplingDecision, hasSamplingDecision := spanContext.SamplingPriority()
-	var flags uint32
-	if hasSamplingDecision && samplingDecision >= ext.PriorityAutoKeep {
-		flags = uint32(1<<31 | 1)
-	} else if hasSamplingDecision {
-		flags = uint32(1 << 31)
-	} else {
-		flags = uint32(0)
-	}
-
-	s.spanLinks = append(s.spanLinks, SpanLink{
-		TraceID:     spanContext.TraceIDLower(),
-		TraceIDHigh: traceIDHigh,
-		SpanID:      spanContext.SpanID(),
-		Attributes:  attributes,
-		Flags:       flags,
-	})
-}
-
 // setSamplingPriority locks the span, then updates the sampling priority.
 // It also updates the trace's sampling priority.
 func (s *Span) setSamplingPriority(priority int, sampler samplernames.SamplerName) {
@@ -304,22 +301,13 @@ func (s *Span) setSamplingPriority(priority int, sampler samplernames.SamplerNam
 // root returns the root span of the span's trace. The return value shouldn't be
 // nil as long as the root span is valid and not finished.
 func (s *Span) Root() *Span {
-	if s == nil {
+	if s == nil || s.context == nil {
 		return nil
 	}
-	t := s.trace()
-	return t.rootSpan()
-}
-
-func (s *Span) trace() *trace {
-	if s.context == nil {
+	if s.context.trace == nil {
 		return nil
 	}
-
-	s.context.mu.RLock()
-	defer s.context.mu.RUnlock()
-
-	return s.context.trace
+	return s.context.trace.root
 }
 
 // SetUser associates user information to the current trace which the
@@ -337,12 +325,8 @@ func (s *Span) SetUser(id string, opts ...UserMonitoringOption) {
 	for _, fn := range opts {
 		fn(&cfg)
 	}
-
-	var (
-		trace = s.trace()
-		root  = trace.rootSpan()
-	)
-
+	root := s.Root()
+	trace := root.context.trace
 	root.Lock()
 	defer root.Unlock()
 	// We don't lock spans when flushing, so we could have a data race when
@@ -351,8 +335,6 @@ func (s *Span) SetUser(id string, opts ...UserMonitoringOption) {
 	if root.finished {
 		return
 	}
-
-	s.context.mu.Lock()
 	if cfg.PropagateID {
 		// Delete usr.id from the tags since _dd.p.usr.id takes precedence
 		delete(root.meta, keyUserID)
@@ -367,7 +349,6 @@ func (s *Span) SetUser(id string, opts ...UserMonitoringOption) {
 		}
 		delete(root.meta, keyPropagatedUserID)
 	}
-	s.context.mu.Unlock()
 
 	usrData := map[string]string{
 		keyUserID:        id,
@@ -415,21 +396,19 @@ func (s *Span) setSamplingPriorityLocked(priority int, sampler samplernames.Samp
 // This method is not safe for concurrent use.
 func (s *Span) setTagError(value interface{}, cfg errorConfig) {
 	setError := func(yes bool) {
-		s.context.mu.Lock()
-		defer s.context.mu.Unlock()
 		if yes {
 			if s.error == 0 {
 				// new error
-				s.context.errors++
+				atomic.AddInt32(&s.context.errors, 1)
 			}
 			s.error = 1
-			return
+		} else {
+			if s.error > 0 {
+				// flip from active to inactive
+				atomic.AddInt32(&s.context.errors, -1)
+			}
+			s.error = 0
 		}
-		if s.error > 0 {
-			// flip from active to inactive
-			s.context.errors--
-		}
-		s.error = 0
 	}
 	if s.finished {
 		return
@@ -573,8 +552,8 @@ func (s *Span) setMetric(key string, v float64) {
 	}
 }
 
-// AddSpanLink appends the given link to the span's span links.
-func (s *Span) AddSpanLink(link SpanLink) {
+// AddLink appends the given link to the span's span links.
+func (s *Span) AddLink(link SpanLink) {
 	s.spanLinks = append(s.spanLinks, link)
 }
 
@@ -594,10 +573,37 @@ func (s *Span) serializeSpanLinksInMeta() {
 	s.meta["_dd.span_links"] = string(spanLinkBytes)
 }
 
+// serializeSpanEvents sets the span events from the current span in the correct transport, depending on whether the
+// agent supports the native method or not.
+func (s *Span) serializeSpanEvents() {
+	if len(s.spanEvents) == 0 {
+		return
+	}
+	// if span events are natively supported by the agent, there's nothing to do
+	// as the events will be already included when the span is serialized.
+	if s.supportsEvents {
+		return
+	}
+	// otherwise, we need to serialize them as a string tag and remove them from the struct
+	// so they are not sent twice.
+	b, err := json.Marshal(s.spanEvents)
+	s.spanEvents = nil
+	if err != nil {
+		log.Debug("Unable to marshal span events; events dropped from span meta\n%v", err)
+		return
+	}
+	s.meta["events"] = string(b)
+}
+
 // Finish closes this Span (but not its children) providing the duration
 // of its part of the tracing session.
 func (s *Span) Finish(opts ...FinishOption) {
 	if s == nil {
+		return
+	}
+	// If Span.Finish has already been called, do nothing.
+	// In this way, we can ensure that Span.Finish is called at most once.
+	if !s.finishGuard.CompareAndSwap(0, 1) {
 		return
 	}
 	t := now()
@@ -646,19 +652,14 @@ func (s *Span) Finish(opts ...FinishOption) {
 
 	if s.Root() == s {
 		if tr, ok := GetGlobalTracer().(*tracer); ok && tr.rulesSampling.traces.enabled() {
-			var (
-				t        = s.trace()
-				isLocked = t.isLocked()
-				decision = t.propagatingTag(keyDecisionMaker)
-			)
-
-			if !isLocked && decision != "-4" {
+			if !s.context.trace.isLocked() && s.context.trace.propagatingTag(keyDecisionMaker) != "-4" {
 				tr.rulesSampling.SampleTrace(s)
 			}
 		}
 	}
 
 	s.serializeSpanLinksInMeta()
+	s.serializeSpanEvents()
 
 	s.finish(t)
 	orchestrion.GLSPopValue(sharedinternal.ActiveSpanKey)
@@ -719,7 +720,7 @@ func (s *Span) finish(finishTime int64) {
 	}
 	if keep {
 		// a single kept span keeps the whole trace.
-		s.keep()
+		s.context.trace.keep()
 	}
 	if log.DebugEnabled() {
 		// avoid allocating the ...interface{} argument if debug logging is disabled
@@ -733,21 +734,6 @@ func (s *Span) finish(finishTime int64) {
 		// point are attributed correctly.
 		pprof.SetGoroutineLabels(s.pprofCtxRestore)
 	}
-}
-
-func (s *Span) keep() {
-	s.context.mu.RLock()
-	defer s.context.mu.RUnlock()
-
-	s.context.trace.keep()
-}
-
-func (s *Span) drop() {
-	s.context.mu.RLock()
-	defer s.context.mu.RUnlock()
-
-	s.context.trace.drop()
-	s.context.trace.setSamplingPriority(ext.PriorityAutoReject, samplernames.RuleRate)
 }
 
 // textNonParsable specifies the text that will be assigned to resources for which the resource
@@ -782,11 +768,7 @@ func shouldKeep(s *Span) bool {
 		// positive sampling priorities stay
 		return true
 	}
-
-	s.context.mu.RLock()
-	defer s.context.mu.RUnlock()
-
-	if s.context.errors > 0 {
+	if atomic.LoadInt32(&s.context.errors) > 0 {
 		// traces with any span containing an error get kept
 		return true
 	}
@@ -876,6 +858,30 @@ func (s *Span) Format(f fmt.State, c rune) {
 	default:
 		fmt.Fprintf(f, "%%!%c(tracer.Span=%v)", c, s)
 	}
+}
+
+// AddEvent attaches a new event to the current span.
+func (s *Span) AddEvent(name string, opts ...SpanEventOption) {
+	if s.finished {
+		return
+	}
+	cfg := SpanEventConfig{}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	if cfg.Time.IsZero() {
+		cfg.Time = time.Now()
+	}
+	event := spanEvent{
+		Name:         name,
+		TimeUnixNano: uint64(cfg.Time.UnixNano()),
+	}
+	if s.supportsEvents {
+		event.Attributes = toSpanEventAttributeMsg(cfg.Attributes)
+	} else {
+		event.RawAttributes = cfg.Attributes
+	}
+	s.spanEvents = append(s.spanEvents, event)
 }
 
 func getMeta(s *Span, key string) (string, bool) {
