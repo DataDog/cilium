@@ -226,11 +226,49 @@ func (p Printer) getVerdict(f *flowpb.Flow) string {
 	case flowpb.Verdict_FORWARDED, flowpb.Verdict_REDIRECTED:
 		if f.GetEventType().GetType() == api.MessageTypePolicyVerdict {
 			msg = "ALLOWED"
+			// TODO truncate
+			if f.TrafficDirection == flowpb.TrafficDirection_EGRESS && len(f.EgressAllowedBy) > 0 {
+				msg += " BY "
+				for i, rule := range f.EgressAllowedBy {
+					if i > 0 {
+						msg += ", "
+					}
+					msg += fmt.Sprintf("%s (%s)", rule.Name, rule.Kind)
+				}
+			}
+			if f.TrafficDirection == flowpb.TrafficDirection_INGRESS && len(f.IngressAllowedBy) > 0 {
+				msg += " BY "
+				for i, rule := range f.IngressAllowedBy {
+					if i > 0 {
+						msg += ", "
+					}
+					msg += fmt.Sprintf("%s (%s)", rule.Name, rule.Kind)
+				}
+			}
 		}
 		return p.color.verdictForwarded(msg)
 	case flowpb.Verdict_DROPPED, flowpb.Verdict_ERROR:
 		if f.GetEventType().GetType() == api.MessageTypePolicyVerdict {
 			msg = "DENIED"
+		}
+		// TODO truncate
+		if f.TrafficDirection == flowpb.TrafficDirection_EGRESS && len(f.EgressDeniedBy) > 0 {
+			msg += " BY "
+			for i, rule := range f.EgressDeniedBy {
+				if i > 0 {
+					msg += ", "
+				}
+				msg += fmt.Sprintf("%s (%s)", rule.Name, rule.Kind)
+			}
+		}
+		if f.TrafficDirection == flowpb.TrafficDirection_INGRESS && len(f.IngressDeniedBy) > 0 {
+			msg += " BY "
+			for i, rule := range f.IngressDeniedBy {
+				if i > 0 {
+					msg += ", "
+				}
+				msg += fmt.Sprintf("%s (%s)", rule.Name, rule.Kind)
+			}
 		}
 		return p.color.verdictDropped(msg)
 	case flowpb.Verdict_AUDIT:
