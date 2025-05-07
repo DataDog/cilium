@@ -20,5 +20,8 @@ import (
 	_ "github.com/DataDog/orchestrion" // integration
 
 	// _ "gopkg.in/DataDog/dd-trace-go.v1" // integration
-	_ "github.com/DataDog/dd-trace-go/orchestrion/all/v2"
+	// _ "github.com/DataDog/dd-trace-go/orchestrion/all/v2"
+
+	_ "gopkg.in/DataDog/dd-trace-go.v1/contrib/net/http" // integration
+	_ "gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"   // integration
 )
