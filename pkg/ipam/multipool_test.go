@@ -476,20 +476,24 @@ type fakeK8sCiliumNodeAPIResource struct {
 	onDeleteEvent func(err error)
 }
 
+//dd:span
 func (f *fakeK8sCiliumNodeAPIResource) Update(ctx context.Context, ciliumNode *ciliumv2.CiliumNode, _ metav1.UpdateOptions) (*ciliumv2.CiliumNode, error) {
 	err := f.updateNode(ciliumNode)
 	return ciliumNode, err
 }
 
+//dd:span
 func (f *fakeK8sCiliumNodeAPIResource) UpdateStatus(ctx context.Context, ciliumNode *ciliumv2.CiliumNode, _ metav1.UpdateOptions) (*ciliumv2.CiliumNode, error) {
 	err := f.updateNode(ciliumNode)
 	return ciliumNode, err
 }
 
+//dd:span
 func (f *fakeK8sCiliumNodeAPIResource) Observe(ctx context.Context, next func(resource.Event[*ciliumv2.CiliumNode]), complete func(error)) {
 	panic("unimplemented")
 }
 
+//dd:span
 func (f *fakeK8sCiliumNodeAPIResource) Events(ctx context.Context, _ ...resource.EventsOpt) <-chan resource.Event[*ciliumv2.CiliumNode] {
 	f.mutex.Lock()
 	defer f.mutex.Unlock()

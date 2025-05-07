@@ -134,6 +134,7 @@ func deriveStatus(err error) string {
 }
 
 // describeNetworkInterfaces lists all Azure Interfaces in the client's resource group
+//dd:span
 func (c *Client) describeNetworkInterfaces(ctx context.Context) ([]network.Interface, error) {
 	networkInterfaces, err := c.vmssNetworkInterfaces(ctx)
 	if err != nil {
@@ -149,6 +150,7 @@ func (c *Client) describeNetworkInterfaces(ctx context.Context) ([]network.Inter
 }
 
 // vmNetworkInterfaces list all interfaces of non-VMSS instances in the client's resource group
+//dd:span
 func (c *Client) vmNetworkInterfaces(ctx context.Context) ([]network.Interface, error) {
 	var networkInterfaces []network.Interface
 
@@ -178,6 +180,7 @@ func (c *Client) vmNetworkInterfaces(ctx context.Context) ([]network.Interface, 
 }
 
 // vmssNetworkInterfaces list all interfaces from VMS in Scale Sets in the client's resource group
+//dd:span
 func (c *Client) vmssNetworkInterfaces(ctx context.Context) ([]network.Interface, error) {
 	var networkInterfaces []network.Interface
 
@@ -296,6 +299,7 @@ func deriveGatewayIP(subnetIP net.IP) string {
 }
 
 // GetInstance returns the instance including all attached interfaces
+//dd:span
 func (c *Client) GetInstance(ctx context.Context, subnets ipamTypes.SubnetMap, instanceID string) (*ipamTypes.Instance, error) {
 	instance := ipamTypes.Instance{}
 	instance.Interfaces = map[string]ipamTypes.InterfaceRevision{}
@@ -337,6 +341,7 @@ func (c *Client) GetInstance(ctx context.Context, subnets ipamTypes.SubnetMap, i
 
 // GetInstances returns the list of all instances including all attached
 // interfaces as instanceMap
+//dd:span
 func (c *Client) GetInstances(ctx context.Context, subnets ipamTypes.SubnetMap) (*ipamTypes.InstanceMap, error) {
 	instances := ipamTypes.NewInstanceMap()
 
@@ -355,6 +360,7 @@ func (c *Client) GetInstances(ctx context.Context, subnets ipamTypes.SubnetMap) 
 }
 
 // describeVpcs lists all VPCs
+//dd:span
 func (c *Client) describeVpcs(ctx context.Context) ([]network.VirtualNetwork, error) {
 	c.limiter.Limit(ctx, VirtualNetworksList)
 
@@ -406,6 +412,7 @@ func parseSubnet(subnet *network.Subnet) (s *ipamTypes.Subnet) {
 }
 
 // GetVpcsAndSubnets retrieves and returns all Vpcs
+//dd:span
 func (c *Client) GetVpcsAndSubnets(ctx context.Context) (ipamTypes.VirtualNetworkMap, ipamTypes.SubnetMap, error) {
 	vpcs := ipamTypes.VirtualNetworkMap{}
 	subnets := ipamTypes.SubnetMap{}
@@ -443,6 +450,7 @@ func generateIpConfigName() string {
 }
 
 // AssignPrivateIpAddressesVMSS assign a private IP to an interface attached to a VMSS instance
+//dd:span
 func (c *Client) AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, subnetID, interfaceName string, addresses int) error {
 	var netIfConfig *compute.VirtualMachineScaleSetNetworkConfiguration
 
@@ -519,6 +527,7 @@ func (c *Client) AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, v
 }
 
 // AssignPrivateIpAddressesVM assign a private IP to an interface attached to a standalone instance
+//dd:span
 func (c *Client) AssignPrivateIpAddressesVM(ctx context.Context, subnetID, interfaceName string, addresses int) error {
 	c.limiter.Limit(ctx, InterfacesGet)
 	sinceStart := spanstat.Start()

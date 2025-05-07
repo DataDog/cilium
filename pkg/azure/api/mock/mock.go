@@ -125,6 +125,7 @@ func (a *API) rateLimit() {
 	}
 }
 
+//dd:span
 func (a *API) GetInstances(ctx context.Context, subnets ipamTypes.SubnetMap) (*ipamTypes.InstanceMap, error) {
 	a.rateLimit()
 	a.delaySim.Delay(GetInstances)
@@ -139,6 +140,7 @@ func (a *API) GetInstances(ctx context.Context, subnets ipamTypes.SubnetMap) (*i
 	return a.instances.DeepCopy(), nil
 }
 
+//dd:span
 func (a *API) GetVpcsAndSubnets(ctx context.Context) (ipamTypes.VirtualNetworkMap, ipamTypes.SubnetMap, error) {
 	a.rateLimit()
 	a.delaySim.Delay(GetVpcsAndSubnets)
@@ -166,10 +168,12 @@ func (a *API) GetVpcsAndSubnets(ctx context.Context) (ipamTypes.VirtualNetworkMa
 	return vnets, subnets, nil
 }
 
+//dd:span
 func (a *API) AssignPrivateIpAddressesVM(ctx context.Context, subnetID, interfaceName string, addresses int) error {
 	return nil
 }
 
+//dd:span
 func (a *API) AssignPrivateIpAddressesVMSS(ctx context.Context, vmName, vmssName, subnetID, interfaceName string, addresses int) error {
 	a.rateLimit()
 	a.delaySim.Delay(AssignPrivateIpAddressesVMSS)

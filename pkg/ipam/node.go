@@ -410,6 +410,7 @@ func (n *Node) InstanceID() (id string) {
 	return
 }
 
+//dd:span
 func (n *Node) instanceAPISync(ctx context.Context, instanceID string) (time.Time, bool) {
 	syncTime := n.manager.instancesAPI.InstanceSync(ctx, instanceID)
 	success := !syncTime.IsZero()
@@ -556,6 +557,7 @@ func (n *Node) ResourceCopy() *v2.CiliumNode {
 // attaches it to the instance as specified by the CiliumNode. neededAddresses
 // of secondary IPs are assigned to the interface up to the maximum number of
 // addresses as allowed by the instance.
+//dd:span
 func (n *Node) createInterface(ctx context.Context, a *AllocationAction) (created bool, err error) {
 	if a.EmptyInterfaceSlots == 0 {
 		// This is not a failure scenario, warn once per hour but do
@@ -808,6 +810,7 @@ func (n *Node) deleteLocalReleaseStatus(ip string) {
 // * released           : IP successfully released. Set by operator
 //
 // Handshake would be aborted if there are new allocations and the node doesn't have IPs in excess anymore.
+//dd:span
 func (n *Node) handleIPRelease(ctx context.Context, a *maintenanceAction) (instanceMutated bool, err error) {
 	scopedLog := n.logger()
 	var ipsToMark []string
@@ -913,6 +916,7 @@ func (n *Node) handleIPRelease(ctx context.Context, a *maintenanceAction) (insta
 
 // handleIPAllocation allocates the necessary IPs needed to resolve deficit on the node.
 // If existing interfaces don't have enough capacity, new interface would be created.
+//dd:span
 func (n *Node) handleIPAllocation(ctx context.Context, a *maintenanceAction) (instanceMutated bool, err error) {
 	scopedLog := n.logger()
 	if a.allocation == nil {
@@ -945,6 +949,7 @@ func (n *Node) handleIPAllocation(ctx context.Context, a *maintenanceAction) (in
 // maintainIPPool attempts to allocate or release all required IPs to fulfill the needed gap.
 // returns instanceMutated which tracks if state changed with the cloud provider and is used
 // to determine if IPAM pool maintainer trigger func needs to be invoked.
+//dd:span
 func (n *Node) maintainIPPool(ctx context.Context) (instanceMutated bool, err error) {
 	if n.manager.releaseExcessIPs {
 		n.removeStaleReleaseIPs()
@@ -1003,6 +1008,7 @@ func (n *Node) updateLastResync(syncTime time.Time) {
 
 // MaintainIPPool attempts to allocate or release all required IPs to fulfill
 // the needed gap. If required, interfaces are created.
+//dd:span
 func (n *Node) MaintainIPPool(ctx context.Context) error {
 	// As long as the instances API is unstable, don't perform any
 	// operation that can mutate state.

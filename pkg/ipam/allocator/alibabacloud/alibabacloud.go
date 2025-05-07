@@ -38,6 +38,7 @@ type AllocatorAlibabaCloud struct {
 
 // Init sets up ENI limits based on given options
 // Credential ref https://github.com/aliyun/alibaba-cloud-sdk-go/blob/master/docs/2-Client-EN.md
+//dd:span
 func (a *AllocatorAlibabaCloud) Init(ctx context.Context) error {
 	var aMetrics openapi.MetricsAPI
 
@@ -90,6 +91,7 @@ func (a *AllocatorAlibabaCloud) Init(ctx context.Context) error {
 // Start kicks off ENI allocation, the initial connection to AlibabaCloud
 // APIs is done in a blocking manner. Provided this is successful, a controller is
 // started to manage allocation based on CiliumNode custom resources
+//dd:span
 func (a *AllocatorAlibabaCloud) Start(ctx context.Context, getterUpdater ipam.CiliumNodeGetterUpdater) (allocator.NodeEventHandler, error) {
 	var iMetrics ipam.MetricsAPI
 

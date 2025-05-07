@@ -71,6 +71,7 @@ func (m *InstancesManager) GetPoolQuota() (quota ipamTypes.PoolQuotaMap) {
 // Resync fetches the list of VPC, subnets, and VMSS VMs and updates the local
 // cache in the instanceManager. It returns the time when the resync has
 // started or time.Time{} if it did not complete.
+//dd:span
 func (m *InstancesManager) Resync(ctx context.Context) time.Time {
 	// Full API resync should block the instance incremental resync from all nodes.
 	m.resyncLock.Lock()
@@ -80,6 +81,7 @@ func (m *InstancesManager) Resync(ctx context.Context) time.Time {
 }
 
 // resyncInstance only resyncs a given instance
+//dd:span
 func (m *InstancesManager) resyncInstance(ctx context.Context, instanceID string) time.Time {
 	resyncStart := time.Now()
 
@@ -111,6 +113,7 @@ func (m *InstancesManager) resyncInstance(ctx context.Context, instanceID string
 }
 
 // resyncInstances performs a full sync of all instances
+//dd:span
 func (m *InstancesManager) resyncInstances(ctx context.Context) time.Time {
 	resyncStart := time.Now()
 
@@ -138,6 +141,7 @@ func (m *InstancesManager) resyncInstances(ctx context.Context) time.Time {
 	return resyncStart
 }
 
+//dd:span
 func (m *InstancesManager) InstanceSync(ctx context.Context, instanceID string) time.Time {
 	// Instance incremental resync from different nodes should be executed in parallel,
 	// but must block the full API resync.

@@ -211,6 +211,7 @@ func NewNodeManager(instancesAPI AllocationImplementation, k8sAPI CiliumNodeGett
 	return mngr, nil
 }
 
+//dd:span
 func (n *NodeManager) instancesAPIResync(ctx context.Context) (time.Time, bool) {
 	syncTime := n.instancesAPI.Resync(ctx)
 	success := !syncTime.IsZero()
@@ -220,6 +221,7 @@ func (n *NodeManager) instancesAPIResync(ctx context.Context) (time.Time, bool) 
 
 // Start kicks of the NodeManager by performing the initial state
 // synchronization and starting the background sync goroutine
+//dd:span
 func (n *NodeManager) Start(ctx context.Context) error {
 	// Trigger the initial resync in a blocking manner
 	if _, ok := n.instancesAPIResync(ctx); !ok {
@@ -476,6 +478,7 @@ type ipResyncStats struct {
 	nodeCapacity        int
 }
 
+//dd:span
 func (n *NodeManager) resyncNode(ctx context.Context, node *Node, stats *resyncStats, syncTime time.Time) {
 	node.updateLastResync(syncTime)
 	node.recalculate()
@@ -525,6 +528,7 @@ func (n *NodeManager) resyncNode(ctx context.Context, node *Node, stats *resyncS
 // attendance is defined by the number of IPs needed to reach the configured
 // watermarks. Any updates to the node resource are synchronized to the
 // Kubernetes apiserver.
+//dd:span
 func (n *NodeManager) Resync(ctx context.Context, syncTime time.Time) {
 	n.mutex.Lock()
 	defer n.mutex.Unlock()

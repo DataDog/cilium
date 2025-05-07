@@ -198,6 +198,7 @@ func (n *Node) PrepareIPRelease(excessIPs int, scopedLog *logrus.Entry) *ipam.Re
 }
 
 // ReleaseIPs performs the ENI IP release operation
+//dd:span
 func (n *Node) ReleaseIPs(ctx context.Context, r *ipam.ReleaseAction) error {
 	if err := n.manager.api.UnassignPrivateIpAddresses(ctx, r.InterfaceID, r.IPsToRelease); err != nil {
 		return err
@@ -278,6 +279,7 @@ func isSubnetAtPrefixCapacity(err error) bool {
 }
 
 // AllocateIPs performs the ENI allocation oepration
+//dd:span
 func (n *Node) AllocateIPs(ctx context.Context, a *ipam.AllocationAction) error {
 	// Check if the interface to allocate on is prefix delegated
 	n.mutex.RLock()
@@ -304,10 +306,12 @@ func (n *Node) AllocateIPs(ctx context.Context, a *ipam.AllocationAction) error 
 	return nil
 }
 
+//dd:span
 func (n *Node) AllocateStaticIP(ctx context.Context, staticIPTags ipamTypes.Tags) (string, error) {
 	return n.manager.api.AssociateEIP(ctx, n.node.InstanceID(), staticIPTags)
 }
 
+//dd:span
 func (n *Node) getSecurityGroupIDs(ctx context.Context, eniSpec eniTypes.ENISpec) ([]string, error) {
 	// 1. check explicit security groups associations via checking Spec.ENI.SecurityGroups
 	// 2. check if Spec.ENI.SecurityGroupTags is passed and if so filter by those
@@ -420,6 +424,7 @@ const (
 // attaches it to the instance as specified by the CiliumNode. neededAddresses
 // of secondary IPs are assigned to the interface up to the maximum number of
 // addresses as allowed by the instance.
+//dd:span
 func (n *Node) CreateInterface(ctx context.Context, allocation *ipam.AllocationAction, scopedLog *logrus.Entry) (int, string, error) {
 	limits, limitsAvailable := n.getLimits()
 	if !limitsAvailable {
@@ -554,6 +559,7 @@ func (n *Node) CreateInterface(ctx context.Context, allocation *ipam.AllocationA
 
 // ResyncInterfacesAndIPs is called to retrieve and ENIs and IPs as known to
 // the EC2 API and return them
+//dd:span
 func (n *Node) ResyncInterfacesAndIPs(ctx context.Context, scopedLog *logrus.Entry) (
 	available ipamTypes.AllocationMap,
 	stats stats.InterfaceStats,
