@@ -229,11 +229,12 @@ func (p Printer) getVerdict(f *flowpb.Flow) string {
 		}
 		// TODO truncate
 		if f.GetTrafficDirection() == flowpb.TrafficDirection_EGRESS && len(f.GetEgressAllowedBy()) > 0 {
-			msg += " BY "
 			i := 0
 			for _, rule := range f.GetEgressAllowedBy() {
 				if rule.GetKind() != "" && rule.GetName() != "" {
-					if i > 0 {
+					if i == 0 {
+						msg += " BY "
+					} else {
 						msg += ", "
 					}
 					msg += fmt.Sprintf("%s (%s)", rule.GetName(), rule.GetKind())
@@ -241,11 +242,12 @@ func (p Printer) getVerdict(f *flowpb.Flow) string {
 				}
 			}
 		} else if f.GetTrafficDirection() == flowpb.TrafficDirection_INGRESS && len(f.GetIngressAllowedBy()) > 0 {
-			msg += " BY "
 			i := 0
 			for _, rule := range f.GetIngressAllowedBy() {
 				if rule.GetKind() != "" && rule.GetName() != "" {
-					if i > 0 {
+					if i == 0 {
+						msg += " BY "
+					} else {
 						msg += ", "
 					}
 					msg += fmt.Sprintf("%s (%s)", rule.GetName(), rule.GetKind())
@@ -260,11 +262,12 @@ func (p Printer) getVerdict(f *flowpb.Flow) string {
 		}
 		// TODO truncate
 		if f.GetTrafficDirection() == flowpb.TrafficDirection_EGRESS && len(f.GetEgressDeniedBy()) > 0 {
-			msg += " BY "
 			i := 0
 			for _, rule := range f.GetEgressDeniedBy() {
 				if rule.GetKind() != "" && rule.GetName() != "" {
-					if i > 0 {
+					if i == 0 {
+						msg += " BY "
+					} else {
 						msg += ", "
 					}
 					msg += fmt.Sprintf("%s (%s)", rule.GetName(), rule.GetKind())
@@ -272,11 +275,12 @@ func (p Printer) getVerdict(f *flowpb.Flow) string {
 				}
 			}
 		} else if f.GetTrafficDirection() == flowpb.TrafficDirection_INGRESS && len(f.GetIngressDeniedBy()) > 0 {
-			msg += " BY "
 			i := 0
 			for _, rule := range f.GetIngressDeniedBy() {
 				if rule.GetKind() != "" && rule.GetName() != "" {
-					if i > 0 {
+					if i == 0 {
+						msg += " BY "
+					} else {
 						msg += ", "
 					}
 					msg += fmt.Sprintf("%s (%s)", rule.GetName(), rule.GetKind())
