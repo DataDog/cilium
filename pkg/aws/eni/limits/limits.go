@@ -838,6 +838,7 @@ type ec2API interface {
 
 // UpdateFromEC2API updates limits from the EC2 API via calling
 // https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DescribeInstanceTypes.html.
+//dd:span
 func UpdateFromEC2API(ctx context.Context, api ec2API) error {
 	instanceTypeInfos, err := api.GetInstanceTypes(ctx)
 	if err != nil {

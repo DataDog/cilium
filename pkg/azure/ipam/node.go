@@ -61,6 +61,7 @@ func (n *Node) PrepareIPRelease(excessIPs int, scopedLog *logrus.Entry) *ipam.Re
 }
 
 // ReleaseIPs performs the IP release operation
+//dd:span
 func (n *Node) ReleaseIPs(ctx context.Context, r *ipam.ReleaseAction) error {
 	return fmt.Errorf("not implemented")
 }
@@ -117,6 +118,7 @@ func (n *Node) PrepareIPAllocation(scopedLog *logrus.Entry) (a *ipam.AllocationA
 }
 
 // AllocateIPs performs the Azure IP allocation operation
+//dd:span
 func (n *Node) AllocateIPs(ctx context.Context, a *ipam.AllocationAction) error {
 	iface, ok := a.Interface.Resource.(*types.AzureInterface)
 	if !ok {
@@ -130,6 +132,7 @@ func (n *Node) AllocateIPs(ctx context.Context, a *ipam.AllocationAction) error 
 	}
 }
 
+//dd:span
 func (n *Node) AllocateStaticIP(ctx context.Context, staticIPTags ipamTypes.Tags) (string, error) {
 	// TODO, see https://github.com/cilium/cilium/issues/34094
 	return "", fmt.Errorf("not implemented")
@@ -137,12 +140,14 @@ func (n *Node) AllocateStaticIP(ctx context.Context, staticIPTags ipamTypes.Tags
 
 // CreateInterface is called to create a new interface. This operation is
 // currently not supported on Azure.
+//dd:span
 func (n *Node) CreateInterface(ctx context.Context, allocation *ipam.AllocationAction, scopedLog *logrus.Entry) (int, string, error) {
 	return 0, "", fmt.Errorf("not implemented")
 }
 
 // ResyncInterfacesAndIPs is called to retrieve interfaces and IPs known
 // to the Azure API and return them
+//dd:span
 func (n *Node) ResyncInterfacesAndIPs(ctx context.Context, scopedLog *logrus.Entry) (
 	available ipamTypes.AllocationMap,
 	stats stats.InterfaceStats,

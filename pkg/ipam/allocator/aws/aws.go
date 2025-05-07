@@ -34,6 +34,7 @@ type AllocatorAWS struct {
 	eniGCTags map[string]string
 }
 
+//dd:span
 func initENIGarbageCollectionTags(ctx context.Context, cfg aws.Config) (eniTags map[string]string) {
 	// Use user-provided tags if available
 	if len(operatorOption.Config.ENIGarbageCollectionTags) != 0 {
@@ -69,6 +70,7 @@ func initENIGarbageCollectionTags(ctx context.Context, cfg aws.Config) (eniTags 
 }
 
 // Init sets up ENI limits based on given options
+//dd:span
 func (a *AllocatorAWS) Init(ctx context.Context) error {
 	var aMetrics ec2shim.MetricsAPI
 
@@ -110,6 +112,7 @@ func (a *AllocatorAWS) Init(ctx context.Context) error {
 // Start kicks of ENI allocation, the initial connection to AWS
 // APIs is done in a blocking manner, given that is successful, a controller is
 // started to manage allocation based on CiliumNode custom resources
+//dd:span
 func (a *AllocatorAWS) Start(ctx context.Context, getterUpdater ipam.CiliumNodeGetterUpdater) (allocator.NodeEventHandler, error) {
 	var iMetrics ipam.MetricsAPI
 

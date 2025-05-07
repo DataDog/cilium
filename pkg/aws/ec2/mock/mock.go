@@ -188,6 +188,7 @@ func (e *API) rateLimit() {
 // CreateNetworkInterface mocks the interface creation. As with the upstream
 // EC2 API, the number of IP addresses in toAllocate are the number of
 // secondary IPs, a primary IP is always allocated.
+//dd:span
 func (e *API) CreateNetworkInterface(ctx context.Context, toAllocate int32, subnetID, desc string, groups []string, allocatePrefixes bool) (string, *eniTypes.ENI, error) {
 	e.rateLimit()
 	e.delaySim.Delay(CreateNetworkInterface)
@@ -247,6 +248,7 @@ func (e *API) CreateNetworkInterface(ctx context.Context, toAllocate int32, subn
 	return eniID, eni.DeepCopy(), nil
 }
 
+//dd:span
 func (e *API) DeleteNetworkInterface(ctx context.Context, eniID string) error {
 	e.rateLimit()
 	e.delaySim.Delay(DeleteNetworkInterface)
@@ -272,6 +274,7 @@ func (e *API) DeleteNetworkInterface(ctx context.Context, eniID string) error {
 	return fmt.Errorf("ENI ID %s not found", eniID)
 }
 
+//dd:span
 func (e *API) AttachNetworkInterface(ctx context.Context, index int32, instanceID, eniID string) (string, error) {
 	e.rateLimit()
 	e.delaySim.Delay(AttachNetworkInterface)
@@ -301,6 +304,7 @@ func (e *API) AttachNetworkInterface(ctx context.Context, index int32, instanceI
 	return "", nil
 }
 
+//dd:span
 func (e *API) DetachNetworkInterface(ctx context.Context, instanceID, eniID string) error {
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
@@ -316,6 +320,7 @@ func (e *API) DetachNetworkInterface(ctx context.Context, instanceID, eniID stri
 	return fmt.Errorf("ENI ID %s is not attached to instance %s", eniID, instanceID)
 }
 
+//dd:span
 func (e *API) ModifyNetworkInterface(ctx context.Context, eniID, attachmentID string, deleteOnTermination bool) error {
 	e.rateLimit()
 	e.delaySim.Delay(ModifyNetworkInterface)
@@ -330,6 +335,7 @@ func (e *API) ModifyNetworkInterface(ctx context.Context, eniID, attachmentID st
 	return nil
 }
 
+//dd:span
 func (e *API) GetDetachedNetworkInterfaces(ctx context.Context, tags ipamTypes.Tags, maxResults int32) ([]string, error) {
 	result := make([]string, 0, int(maxResults))
 	for _, eni := range e.unattached {
@@ -344,6 +350,7 @@ func (e *API) GetDetachedNetworkInterfaces(ctx context.Context, tags ipamTypes.T
 	return result, nil
 }
 
+//dd:span
 func (e *API) AssignPrivateIpAddresses(ctx context.Context, eniID string, addresses int32) ([]string, error) {
 	e.rateLimit()
 	e.delaySim.Delay(AssignPrivateIpAddresses)
@@ -380,6 +387,7 @@ func (e *API) AssignPrivateIpAddresses(ctx context.Context, eniID string, addres
 	return nil, fmt.Errorf("Unable to find ENI with ID %s", eniID)
 }
 
+//dd:span
 func (e *API) UnassignPrivateIpAddresses(ctx context.Context, eniID string, addresses []string) error {
 	e.rateLimit()
 	e.delaySim.Delay(UnassignPrivateIpAddresses)
@@ -461,6 +469,7 @@ func assignPrefixToENI(e *API, eni *eniTypes.ENI, prefixes int32) error {
 	return nil
 }
 
+//dd:span
 func (e *API) AssignENIPrefixes(ctx context.Context, eniID string, prefixes int32) error {
 	e.rateLimit()
 	e.delaySim.Delay(AssignPrivateIpAddresses)
@@ -480,6 +489,7 @@ func (e *API) AssignENIPrefixes(ctx context.Context, eniID string, prefixes int3
 	return fmt.Errorf("Unable to find ENI with ID %s", eniID)
 }
 
+//dd:span
 func (e *API) UnassignENIPrefixes(ctx context.Context, eniID string, prefixes []string) error {
 	e.rateLimit()
 	e.delaySim.Delay(UnassignPrivateIpAddresses)
@@ -539,6 +549,7 @@ func (e *API) UnassignENIPrefixes(ctx context.Context, eniID string, prefixes []
 	return fmt.Errorf("Unable to find ENI with ID %s", eniID)
 }
 
+//dd:span
 func (e *API) GetInstance(ctx context.Context, vpcs ipamTypes.VirtualNetworkMap, subnets ipamTypes.SubnetMap, instanceID string) (*ipamTypes.Instance, error) {
 	instance := ipamTypes.Instance{}
 	instance.Interfaces = map[string]ipamTypes.InterfaceRevision{}
@@ -572,6 +583,7 @@ func (e *API) GetInstance(ctx context.Context, vpcs ipamTypes.VirtualNetworkMap,
 	return &instance, nil
 }
 
+//dd:span
 func (e *API) AssociateEIP(ctx context.Context, instanceID string, eipTags ipamTypes.Tags) (string, error) {
 	e.rateLimit()
 	e.delaySim.Delay(AssociateEIP)
@@ -600,6 +612,7 @@ func (e *API) AssociateEIP(ctx context.Context, instanceID string, eipTags ipamT
 	return "", fmt.Errorf("unable to find ENI 0 for instance %s", instanceID)
 }
 
+//dd:span
 func (e *API) GetInstances(ctx context.Context, vpcs ipamTypes.VirtualNetworkMap, subnets ipamTypes.SubnetMap) (*ipamTypes.InstanceMap, error) {
 	instances := ipamTypes.NewInstanceMap()
 
@@ -629,6 +642,7 @@ func (e *API) GetInstances(ctx context.Context, vpcs ipamTypes.VirtualNetworkMap
 	return instances, nil
 }
 
+//dd:span
 func (e *API) GetVpcs(ctx context.Context) (ipamTypes.VirtualNetworkMap, error) {
 	vpcs := ipamTypes.VirtualNetworkMap{}
 
@@ -641,6 +655,7 @@ func (e *API) GetVpcs(ctx context.Context) (ipamTypes.VirtualNetworkMap, error) 
 	return vpcs, nil
 }
 
+//dd:span
 func (e *API) GetSubnets(ctx context.Context) (ipamTypes.SubnetMap, error) {
 	subnets := ipamTypes.SubnetMap{}
 
@@ -653,6 +668,7 @@ func (e *API) GetSubnets(ctx context.Context) (ipamTypes.SubnetMap, error) {
 	return subnets, nil
 }
 
+//dd:span
 func (e *API) TagENI(ctx context.Context, eniID string, eniTags map[string]string) error {
 	e.rateLimit()
 	e.delaySim.Delay(TagENI)
@@ -678,6 +694,7 @@ func (e *API) TagENI(ctx context.Context, eniID string, eniTags map[string]strin
 	return fmt.Errorf("Unable to find ENI with ID %s", eniID)
 }
 
+//dd:span
 func (e *API) GetSecurityGroups(ctx context.Context) (types.SecurityGroupMap, error) {
 	securityGroups := types.SecurityGroupMap{}
 
@@ -690,6 +707,7 @@ func (e *API) GetSecurityGroups(ctx context.Context) (types.SecurityGroupMap, er
 	return securityGroups, nil
 }
 
+//dd:span
 func (e *API) GetInstanceTypes(ctx context.Context) ([]ec2_types.InstanceTypeInfo, error) {
 	return e.instanceTypes, nil
 }

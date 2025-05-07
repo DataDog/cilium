@@ -22,15 +22,18 @@ type Allocator struct {
 	poolAlloc *PoolAllocator
 }
 
+//dd:span
 func (a *Allocator) Init(ctx context.Context) error {
 	a.poolAlloc = NewPoolAllocator()
 	return nil
 }
 
+//dd:span
 func (a *Allocator) Start(ctx context.Context, getterUpdater ipam.CiliumNodeGetterUpdater) (allocator.NodeEventHandler, error) {
 	return NewNodeHandler(a.poolAlloc, getterUpdater), nil
 }
 
+//dd:span
 func (a *Allocator) UpsertPool(ctx context.Context, pool *cilium_v2alpha1.CiliumPodIPPool) error {
 	var ipv4CIDRs, ipv6CIDRs []string
 	var ipv4MaskSize, ipv6MaskSize int
@@ -68,6 +71,7 @@ func (a *Allocator) UpsertPool(ctx context.Context, pool *cilium_v2alpha1.Cilium
 	)
 }
 
+//dd:span
 func (a *Allocator) DeletePool(ctx context.Context, pool *cilium_v2alpha1.CiliumPodIPPool) error {
 	log.WithFields(logrus.Fields{
 		"pool-name": pool.Name,

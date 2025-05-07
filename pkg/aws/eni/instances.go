@@ -101,6 +101,7 @@ func (m *InstancesManager) GetSubnet(subnetID string) *ipamTypes.Subnet {
 // GetSubnets returns all the tracked subnets
 //
 // The returned subnetMap is immutable so it can be safely accessed
+//dd:span
 func (m *InstancesManager) GetSubnets(ctx context.Context) ipamTypes.SubnetMap {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
@@ -176,6 +177,7 @@ func (m *InstancesManager) FindSecurityGroupByTags(vpcID string, required ipamTy
 // Resync fetches the list of EC2 instances and subnets and updates the local
 // cache in the instanceManager. It returns the time when the resync has
 // started or time.Time{} if it did not complete.
+//dd:span
 func (m *InstancesManager) Resync(ctx context.Context) time.Time {
 	// Full API resync should block the instance incremental resync from all nodes.
 	m.resyncLock.Lock()
@@ -184,6 +186,7 @@ func (m *InstancesManager) Resync(ctx context.Context) time.Time {
 	return m.resync(ctx, "")
 }
 
+//dd:span
 func (m *InstancesManager) resync(ctx context.Context, instanceID string) time.Time {
 	resyncStart := time.Now()
 
@@ -258,6 +261,7 @@ func (m *InstancesManager) resync(ctx context.Context, instanceID string) time.T
 	return resyncStart
 }
 
+//dd:span
 func (m *InstancesManager) InstanceSync(ctx context.Context, instanceID string) time.Time {
 	// Instance incremental resync from different nodes should be executed in parallel,
 	// but must block the full API resync.

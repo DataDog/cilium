@@ -56,10 +56,12 @@ func (a *allocationImplementationMock) GetPoolQuota() ipamTypes.PoolQuotaMap {
 	}
 }
 
+//dd:span
 func (a *allocationImplementationMock) Resync(ctx context.Context) time.Time {
 	return time.Now()
 }
 
+//dd:span
 func (a *allocationImplementationMock) InstanceSync(ctx context.Context, instanceID string) time.Time {
 	return time.Now()
 }
@@ -87,10 +89,12 @@ func (n *nodeOperationsMock) UpdatedNode(obj *v2.CiliumNode) {}
 
 func (n *nodeOperationsMock) PopulateStatusFields(resource *v2.CiliumNode) {}
 
+//dd:span
 func (n *nodeOperationsMock) CreateInterface(ctx context.Context, allocation *AllocationAction, scopedLog *logrus.Entry) (int, string, error) {
 	return 0, "operation not supported", fmt.Errorf("operation not supported")
 }
 
+//dd:span
 func (n *nodeOperationsMock) ResyncInterfacesAndIPs(ctx context.Context, scopedLog *logrus.Entry) (
 	ipamTypes.AllocationMap,
 	ipamStats.InterfaceStats,
@@ -116,6 +120,7 @@ func (n *nodeOperationsMock) PrepareIPAllocation(scopedLog *logrus.Entry) (*Allo
 	}, nil
 }
 
+//dd:span
 func (n *nodeOperationsMock) AllocateIPs(ctx context.Context, allocation *AllocationAction) error {
 	n.mutex.Lock()
 	n.allocator.mutex.Lock()
@@ -129,6 +134,7 @@ func (n *nodeOperationsMock) AllocateIPs(ctx context.Context, allocation *Alloca
 	return nil
 }
 
+//dd:span
 func (n *nodeOperationsMock) AllocateStaticIP(ctx context.Context, staticIPTags ipamTypes.Tags) (string, error) {
 	return "", nil
 }
@@ -161,6 +167,7 @@ func (n *nodeOperationsMock) releaseIP(ip string) error {
 	return fmt.Errorf("IP %s not found", ip)
 }
 
+//dd:span
 func (n *nodeOperationsMock) ReleaseIPs(ctx context.Context, release *ReleaseAction) error {
 	for _, ipToDelete := range release.IPsToRelease {
 		if err := n.releaseIP(ipToDelete); err != nil {

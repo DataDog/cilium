@@ -31,6 +31,7 @@ type GarbageCollectionParams struct {
 	ENITags types.Tags
 }
 
+//dd:span
 func StartENIGarbageCollector(ctx context.Context, api EC2API, params GarbageCollectionParams) {
 	log.Info("Starting to garbage collect detached ENIs")
 
