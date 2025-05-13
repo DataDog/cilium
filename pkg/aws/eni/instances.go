@@ -21,6 +21,7 @@ import (
 	v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/time"
+	"github.com/cilium/cilium/pkg/tracing"
 )
 
 // EC2API is the API surface used of the EC2 API
@@ -102,6 +103,10 @@ func (m *InstancesManager) GetSubnet(subnetID string) *ipamTypes.Subnet {
 //
 // The returned subnetMap is immutable so it can be safely accessed
 func (m *InstancesManager) GetSubnets(ctx context.Context) ipamTypes.SubnetMap {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
@@ -177,6 +182,10 @@ func (m *InstancesManager) FindSecurityGroupByTags(vpcID string, required ipamTy
 // cache in the instanceManager. It returns the time when the resync has
 // started or time.Time{} if it did not complete.
 func (m *InstancesManager) Resync(ctx context.Context) time.Time {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
 	// Full API resync should block the instance incremental resync from all nodes.
 	m.resyncLock.Lock()
 	defer m.resyncLock.Unlock()
@@ -185,6 +194,10 @@ func (m *InstancesManager) Resync(ctx context.Context) time.Time {
 }
 
 func (m *InstancesManager) resync(ctx context.Context, instanceID string) time.Time {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
 	resyncStart := time.Now()
 
 	vpcs, err := m.api.GetVpcs(ctx)
@@ -259,6 +272,10 @@ func (m *InstancesManager) resync(ctx context.Context, instanceID string) time.T
 }
 
 func (m *InstancesManager) InstanceSync(ctx context.Context, instanceID string) time.Time {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
 	// Instance incremental resync from different nodes should be executed in parallel,
 	// but must block the full API resync.
 	m.resyncLock.RLock()
