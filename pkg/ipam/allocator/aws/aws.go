@@ -24,6 +24,7 @@ import (
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/metrics"
 	"github.com/cilium/cilium/pkg/option"
+	"github.com/cilium/cilium/pkg/tracing"
 )
 
 var log = logging.DefaultLogger.WithField(logfields.LogSubsys, "ipam-allocator-aws")
@@ -35,6 +36,10 @@ type AllocatorAWS struct {
 }
 
 func initENIGarbageCollectionTags(ctx context.Context, cfg aws.Config) (eniTags map[string]string) {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
 	// Use user-provided tags if available
 	if len(operatorOption.Config.ENIGarbageCollectionTags) != 0 {
 		return operatorOption.Config.ENIGarbageCollectionTags
@@ -70,6 +75,10 @@ func initENIGarbageCollectionTags(ctx context.Context, cfg aws.Config) (eniTags 
 
 // Init sets up ENI limits based on given options
 func (a *AllocatorAWS) Init(ctx context.Context) error {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
 	var aMetrics ec2shim.MetricsAPI
 
 	cfg, err := ec2shim.NewConfig(ctx)
@@ -111,6 +120,10 @@ func (a *AllocatorAWS) Init(ctx context.Context) error {
 // APIs is done in a blocking manner, given that is successful, a controller is
 // started to manage allocation based on CiliumNode custom resources
 func (a *AllocatorAWS) Start(ctx context.Context, getterUpdater ipam.CiliumNodeGetterUpdater) (allocator.NodeEventHandler, error) {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
 	var iMetrics ipam.MetricsAPI
 
 	log.Info("Starting ENI allocator...")

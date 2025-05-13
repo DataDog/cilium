@@ -10,6 +10,7 @@ import (
 	"github.com/cilium/cilium/pkg/controller"
 	"github.com/cilium/cilium/pkg/ipam/types"
 	"github.com/cilium/cilium/pkg/time"
+	"github.com/cilium/cilium/pkg/tracing"
 )
 
 const gcENIControllerName = "ipam-eni-gc"
@@ -32,6 +33,10 @@ type GarbageCollectionParams struct {
 }
 
 func StartENIGarbageCollector(ctx context.Context, api EC2API, params GarbageCollectionParams) {
+	var err error
+	span, ctx := tracing.StartSpan(ctx)
+	defer func() { span.Finish(tracing.WithError(err)) }()
+
 	log.Info("Starting to garbage collect detached ENIs")
 
 	var enisMarkedForDeletion []string
