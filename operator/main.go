@@ -6,9 +6,16 @@ package main
 import (
 	"github.com/cilium/cilium/operator/cmd"
 	"github.com/cilium/cilium/pkg/hive"
+	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
 func main() {
+	tracer.Start(
+		tracer.WithService("cilium-operator"),
+		tracer.WithAnalyticsRate(1),
+	)
+	defer tracer.Stop()
+
 	operatorHive := hive.New(cmd.Operator)
 
 	cmd.Execute(cmd.NewOperatorCmd(operatorHive))
