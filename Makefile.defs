@@ -28,7 +28,7 @@ LOCALSTATEDIR?=/var
 RUNDIR?=/var/run
 CONFDIR?=/etc
 
-export GO ?= go
+export GO ?= go run github.com/DataDog/orchestrion@bfa9ef5ea3b72fe8dc5684cd94a883daa183060e go
 NATIVE_ARCH = $(shell GOARCH= $(GO) env GOARCH)
 export GOARCH ?= $(NATIVE_ARCH)
 
