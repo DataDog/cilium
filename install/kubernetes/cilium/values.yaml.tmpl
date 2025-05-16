@@ -1231,7 +1231,7 @@ hubble:
       #
       #   --set hubble.redact.enabled="true"
       #   --set hubble.redact.kafka.apiKey="true"
-      apiKey: false
+      apiKey: true
   # -- An additional address for Hubble to listen to.
   # Set this field ":4244" if you are enabling Hubble Relay, as it assumes that
   # Hubble is listening on port 4244.
@@ -1878,6 +1878,8 @@ livenessProbe:
   failureThreshold: 10
   # -- interval between checks of the liveness probe
   periodSeconds: 30
+  # -- whether to require k8s connectivity as part of the check.
+  requireK8sConnectivity: true
 readinessProbe:
   # -- failure threshold of readiness probe
   failureThreshold: 3

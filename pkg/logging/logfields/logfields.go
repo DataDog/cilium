@@ -800,4 +800,7 @@ const (
 	Target = "target"
 
 	InstanceType = "instanceType"
+
+	// L7Parser is the L7 parser used for L7 network traffic
+	L7Parser = "l7parser"
 )
