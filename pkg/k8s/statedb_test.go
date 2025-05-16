@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"slices"
 	"sync/atomic"
 	"testing"
 
@@ -220,11 +221,14 @@ func testStateDBReflector(t *testing.T, p reflectorTestParams) {
 	}
 	var transformManyFunc k8s.TransformManyFunc[*testObject]
 	if p.doTransformMany {
-		transformManyFunc = func(_ statedb.ReadTxn, a any) (objs []*testObject) {
+		transformManyFunc = func(_ statedb.ReadTxn, deleted bool, a any) (toInsert, toDelete iter.Seq[*testObject]) {
 			transformCalled.Store(true)
 			obj := a.(*testObject).DeepCopy()
 			obj.Transform = "transform-many"
-			return []*testObject{obj}
+			if deleted {
+				return nil, slices.Values([]*testObject{obj})
+			}
+			return slices.Values([]*testObject{obj}), nil
 		}
 	}
 
@@ -261,7 +265,7 @@ func testStateDBReflector(t *testing.T, p reflectorTestParams) {
 						Name:           "test",
 						Table:          tbl,
 						BufferSize:     10,
-						BufferWaitTime: time.Millisecond,
+						BufferWaitTime: 10 * time.Millisecond,
 						ListerWatcher:  lw,
 						Transform:      transformFunc,
 						TransformMany:  transformManyFunc,
@@ -352,6 +356,30 @@ func testStateDBReflector(t *testing.T, p reflectorTestParams) {
 	require.Len(t, objs, 2)
 	require.Equal(t, obj1Name, objs[0].Name)
 	require.Equal(t, obj2Name, objs[1].Name)
+
+	// Update the nodes back to back. The ordering must be retained even when
+	// the changes land in the same buffer.
+	for i := range 10 {
+		fst := i%2 == 0
+		if fst {
+			lw.Upsert(obj.DeepCopy())
+			lw.Upsert(node2.DeepCopy())
+		} else {
+			lw.Upsert(node2.DeepCopy())
+			lw.Upsert(obj.DeepCopy())
+		}
+		<-watch
+		iter, watch = table.LowerBoundWatch(db.ReadTxn(), statedb.ByRevision[*testObject](0))
+		objs = statedb.Collect(iter)
+		require.Len(t, objs, 2)
+		if fst {
+			require.Equal(t, obj1Name, objs[0].Name)
+			require.Equal(t, obj2Name, objs[1].Name)
+		} else {
+			require.Equal(t, obj2Name, objs[0].Name)
+			require.Equal(t, obj1Name, objs[1].Name)
+		}
+	}
 
 	// Finally delete the nodes
 	lw.Delete(obj)

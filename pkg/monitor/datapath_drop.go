@@ -15,17 +15,30 @@ import (
 )
 
 const (
-	DropNotifyVersion0 = 0
-	DropNotifyVersion1 = 1
+	DropNotifyVersion0 = iota
+	DropNotifyVersion1
+	DropNotifyVersion2
+)
 
-	// DropNotifyV1Len is the amount of packet data provided in a v1 drop notification.
-	DropNotifyV1Len = 36
+const (
+	// dropNotifyV1Len is the amount of packet data provided in a v0/v1 drop notification.
+	dropNotifyV1Len = 36
+	// dropNotifyV2Len is the amount of packet data provided in a v2 drop notification.
+	dropNotifyV2Len = 40
+)
+
+const (
+	// DropNotifyFlagIsIPv6 is set in DropNotify.Flags when it refers to an IPv6 flow.
+	DropNotifyFlagIsIPv6 uint8 = 1 << iota
+	// DropNotifyFlagIsL3Device is set in DropNotify.Flags when it refers to a L3 device.
+	DropNotifyFlagIsL3Device
 )
 
 var (
 	dropNotifyLengthFromVersion = map[uint16]uint{
-		DropNotifyVersion0: DropNotifyV1Len, // retain backwards compatibility for testing.
-		DropNotifyVersion1: DropNotifyV1Len,
+		DropNotifyVersion0: dropNotifyV1Len, // retain backwards compatibility for testing.
+		DropNotifyVersion1: dropNotifyV1Len,
+		DropNotifyVersion2: dropNotifyV2Len,
 	}
 )
 
@@ -45,6 +58,8 @@ type DropNotify struct {
 	File     uint8
 	ExtError int8
 	Ifindex  uint32
+	Flags    uint8
+	_        [3]uint8
 	// data
 }
 
@@ -64,17 +79,33 @@ func DecodeDropNotify(data []byte, dn *DropNotify) error {
 }
 
 func (n *DropNotify) decodeDropNotify(data []byte) error {
-	if l := len(data); l < DropNotifyV1Len {
-		return fmt.Errorf("unexpected DropNotify data length, expected %d but got %d", DropNotifyV1Len, l)
+	if l := len(data); l < dropNotifyV1Len {
+		return fmt.Errorf("unexpected DropNotify data length, expected at least %d but got %d", dropNotifyV1Len, l)
 	}
 
+	version := byteorder.Native.Uint16(data[14:16])
+
+	// Check against max version.
+	if version > DropNotifyVersion2 {
+		return fmt.Errorf("Unrecognized drop event (version %d)", version)
+	}
+
+	// Decode logic for version >= v2.
+	if version >= DropNotifyVersion2 {
+		if l := len(data); l < dropNotifyV2Len {
+			return fmt.Errorf("unexpected DropNotify data length (version %d), expected at least %d but got %d", version, dropNotifyV2Len, l)
+		}
+		n.Flags = data[36]
+	}
+
+	// Decode logic for version >= v0/v1.
 	n.Type = data[0]
 	n.SubType = data[1]
 	n.Source = byteorder.Native.Uint16(data[2:4])
 	n.Hash = byteorder.Native.Uint32(data[4:8])
 	n.OrigLen = byteorder.Native.Uint32(data[8:12])
 	n.CapLen = byteorder.Native.Uint16(data[12:14])
-	n.Version = byteorder.Native.Uint16(data[14:16])
+	n.Version = version
 	n.SrcLabel = identity.NumericIdentity(byteorder.Native.Uint32(data[16:20]))
 	n.DstLabel = identity.NumericIdentity(byteorder.Native.Uint32(data[20:24]))
 	n.DstID = byteorder.Native.Uint32(data[24:28])
@@ -84,6 +115,16 @@ func (n *DropNotify) decodeDropNotify(data []byte) error {
 	n.Ifindex = byteorder.Native.Uint32(data[32:36])
 
 	return nil
+}
+
+// IsL3Device returns true if the trace comes from an L3 device.
+func (n *DropNotify) IsL3Device() bool {
+	return n.Flags&DropNotifyFlagIsL3Device != 0
+}
+
+// IsIPv6 returns true if the trace refers to an IPv6 packet.
+func (n *DropNotify) IsIPv6() bool {
+	return n.Flags&DropNotifyFlagIsIPv6 != 0
 }
 
 // DataOffset returns the offset from the beginning of DropNotify where the
@@ -100,7 +141,7 @@ func (n *DropNotify) DumpInfo(data []byte, numeric DisplayFormat) {
 	fmt.Fprintf(buf, "xx drop (%s) flow %#x to endpoint %d, ifindex %d, file %s:%d, ",
 		api.DropReasonExt(n.SubType, n.ExtError), n.Hash, n.DstID, n.Ifindex, api.BPFFileName(n.File), int(n.Line))
 	n.dumpIdentity(buf, numeric)
-	fmt.Fprintf(buf, ": %s\n", GetConnectionSummary(data[n.DataOffset():]))
+	fmt.Fprintf(buf, ": %s\n", GetConnectionSummary(data[n.DataOffset():], &decodeOpts{n.IsL3Device(), n.IsIPv6()}))
 	buf.Flush()
 }
 

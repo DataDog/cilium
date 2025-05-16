@@ -42,6 +42,8 @@ enum trace_point {
 	TRACE_FROM_OVERLAY,
 	TRACE_FROM_NETWORK,
 	TRACE_TO_NETWORK,
+	TRACE_FROM_CRYPTO,
+	TRACE_TO_CRYPTO,
 } __packed;
 
 /* Reasons for forwarding a packet, keep in sync with pkg/monitor/datapath_trace.go */
@@ -128,6 +130,29 @@ _update_trace_metrics(struct __ctx_buff *ctx, enum trace_point obs_point,
 	case TRACE_FROM_PROXY:
 	case TRACE_TO_PROXY:
 		break;
+	/* We define TRACE_{FROM,TO}_CRYPTO only (a) when Wireguard is enabled and (b) for:
+	 * - bpf_wireguard (cil_to_wireguard), attached as egress to cilium_wg0;
+	 * - bpf_host (cil_from_netdev), attached as ingress to cilium_wg0.
+	 * In both the cases, THIS_INTERFACE_IFINDEX should be equal to WG_IFINDEX, but we
+	 * cannot throw a build_bug for cil_from_netdev since it has already been compiled
+	 * (we simply rewrite the constant THIS_INTERFACE_IFINDEX).
+	 * Using these obs points from different programs would result in a build bug.
+	 */
+#if defined(IS_BPF_WIREGUARD) || (defined(IS_BPF_HOST) && defined(ENABLE_WIREGUARD))
+	case TRACE_TO_CRYPTO:
+		_update_metrics(ctx_full_len(ctx), METRIC_EGRESS,
+				REASON_ENCRYPTING, line, file);
+		break;
+	case TRACE_FROM_CRYPTO:
+		_update_metrics(ctx_full_len(ctx), METRIC_INGRESS,
+				REASON_DECRYPTING, line, file);
+		break;
+#else
+	case TRACE_TO_CRYPTO:
+	case TRACE_FROM_CRYPTO:
+		__throw_build_bug();
+		break;
+#endif
 	}
 }
 
@@ -146,7 +171,8 @@ struct trace_notify {
 	__u16		dst_id;
 	__u8		reason;
 	__u8		ipv6:1;
-	__u8		pad:7;
+	__u8		l3_dev:1;
+	__u8		pad:6;
 	__u32		ifindex;
 	union {
 		struct {
@@ -169,6 +195,7 @@ emit_trace_notify(enum trace_point obs_point, __u32 monitor)
 		case TRACE_FROM_HOST:
 		case TRACE_FROM_STACK:
 		case TRACE_FROM_OVERLAY:
+		case TRACE_FROM_CRYPTO:
 		case TRACE_FROM_NETWORK:
 			return false;
 		default:
@@ -197,6 +224,7 @@ _send_trace_notify(struct __ctx_buff *ctx, enum trace_point obs_point,
 		   __u32 src, __u32 dst, __u16 dst_id, __u32 ifindex,
 		   enum trace_reason reason, __u32 monitor, __u16 line, __u8 file)
 {
+	bool l3_dev = false, ipv6 = false;
 	__u64 ctx_len = ctx_full_len(ctx);
 	__u64 cap_len = min_t(__u64, monitor ? : TRACE_PAYLOAD_LEN,
 			      ctx_len);
@@ -220,6 +248,13 @@ _send_trace_notify(struct __ctx_buff *ctx, enum trace_point obs_point,
 			return;
 	}
 
+#if defined(ENABLE_WIREGUARD) && (defined(IS_BPF_HOST) || defined(IS_BPF_WIREGUARD))
+	if (THIS_INTERFACE_IFINDEX == WG_IFINDEX) {
+		l3_dev = true;
+		ipv6 = ctx->protocol == bpf_htons(ETH_P_IPV6);
+	}
+#endif
+
 	msg = (typeof(msg)) {
 		__notify_common_hdr(CILIUM_NOTIFY_TRACE, obs_point),
 		__notify_pktcap_hdr((__u32)ctx_len, (__u16)cap_len, NOTIFY_CAPTURE_VER),
@@ -227,6 +262,8 @@ _send_trace_notify(struct __ctx_buff *ctx, enum trace_point obs_point,
 		.dst_label	= dst,
 		.dst_id		= dst_id,
 		.reason		= reason,
+		.ipv6		= ipv6,
+		.l3_dev		= l3_dev,
 		.ifindex	= ifindex,
 	};
 	memset(&msg.orig_ip6, 0, sizeof(union v6addr));
@@ -241,6 +278,7 @@ send_trace_notify4(struct __ctx_buff *ctx, enum trace_point obs_point,
 		   __u32 src, __u32 dst, __be32 orig_addr, __u16 dst_id,
 		   __u32 ifindex, enum trace_reason reason, __u32 monitor)
 {
+	bool l3_dev = false;
 	__u64 ctx_len = ctx_full_len(ctx);
 	__u64 cap_len = min_t(__u64, monitor ? : TRACE_PAYLOAD_LEN,
 			      ctx_len);
@@ -264,6 +302,11 @@ send_trace_notify4(struct __ctx_buff *ctx, enum trace_point obs_point,
 			return;
 	}
 
+#if defined(ENABLE_WIREGUARD) && (defined(IS_BPF_HOST) || defined(IS_BPF_WIREGUARD))
+	if (THIS_INTERFACE_IFINDEX == WG_IFINDEX)
+		l3_dev = true;
+#endif
+
 	msg = (typeof(msg)) {
 		__notify_common_hdr(CILIUM_NOTIFY_TRACE, obs_point),
 		__notify_pktcap_hdr((__u32)ctx_len, (__u16)cap_len, NOTIFY_CAPTURE_VER),
@@ -272,7 +315,8 @@ send_trace_notify4(struct __ctx_buff *ctx, enum trace_point obs_point,
 		.dst_id		= dst_id,
 		.reason		= reason,
 		.ifindex	= ifindex,
-		.ipv6		= 0,
+		.ipv6		= false,
+		.l3_dev		= l3_dev,
 		.orig_ip4	= orig_addr,
 	};
 
@@ -287,6 +331,7 @@ send_trace_notify6(struct __ctx_buff *ctx, enum trace_point obs_point,
 		   __u16 dst_id, __u32 ifindex, enum trace_reason reason,
 		   __u32 monitor)
 {
+	bool l3_dev = false;
 	__u64 ctx_len = ctx_full_len(ctx);
 	__u64 cap_len = min_t(__u64, monitor ? : TRACE_PAYLOAD_LEN,
 			      ctx_len);
@@ -310,6 +355,11 @@ send_trace_notify6(struct __ctx_buff *ctx, enum trace_point obs_point,
 			return;
 	}
 
+#if defined(ENABLE_WIREGUARD) && (defined(IS_BPF_HOST) || defined(IS_BPF_WIREGUARD))
+	if (THIS_INTERFACE_IFINDEX == WG_IFINDEX)
+		l3_dev = true;
+#endif
+
 	msg = (typeof(msg)) {
 		__notify_common_hdr(CILIUM_NOTIFY_TRACE, obs_point),
 		__notify_pktcap_hdr((__u32)ctx_len, (__u16)cap_len, NOTIFY_CAPTURE_VER),
@@ -318,7 +368,8 @@ send_trace_notify6(struct __ctx_buff *ctx, enum trace_point obs_point,
 		.dst_id		= dst_id,
 		.reason		= reason,
 		.ifindex	= ifindex,
-		.ipv6		= 1,
+		.ipv6		= true,
+		.l3_dev		= l3_dev,
 	};
 
 	ipv6_addr_copy(&msg.orig_ip6, orig_addr);

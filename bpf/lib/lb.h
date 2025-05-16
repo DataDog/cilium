@@ -60,6 +60,7 @@ struct {
 	__type(value, struct lb_affinity_val);
 	__uint(pinning, LIBBPF_PIN_BY_NAME);
 	__uint(max_entries, CILIUM_LB_AFFINITY_MAP_MAX_ENTRIES);
+	__uint(map_flags, LRU_MEM_FLAVOR);
 } LB6_AFFINITY_MAP __section_maps_btf;
 #endif
 
@@ -81,6 +82,7 @@ struct {
 	__type(value, struct lb6_health);
 	__uint(pinning, LIBBPF_PIN_BY_NAME);
 	__uint(max_entries, CILIUM_LB_BACKENDS_MAP_MAX_ENTRIES);
+	__uint(map_flags, LRU_MEM_FLAVOR);
 } LB6_HEALTH_MAP __section_maps_btf;
 #endif
 
@@ -147,6 +149,7 @@ struct {
 	__type(value, struct lb_affinity_val);
 	__uint(pinning, LIBBPF_PIN_BY_NAME);
 	__uint(max_entries, CILIUM_LB_AFFINITY_MAP_MAX_ENTRIES);
+	__uint(map_flags, LRU_MEM_FLAVOR);
 } LB4_AFFINITY_MAP __section_maps_btf;
 #endif
 
@@ -168,6 +171,7 @@ struct {
 	__type(value, struct lb4_health);
 	__uint(pinning, LIBBPF_PIN_BY_NAME);
 	__uint(max_entries, CILIUM_LB_BACKENDS_MAP_MAX_ENTRIES);
+	__uint(map_flags, LRU_MEM_FLAVOR);
 } LB4_HEALTH_MAP __section_maps_btf;
 #endif
 
@@ -627,6 +631,7 @@ struct lb6_service *lb6_lookup_service(struct lb6_key *key,
 				       const bool scope_switch)
 {
 	struct lb6_service *svc;
+	__u8 orig_proto = key->proto;
 
 	key->scope = LB_LOOKUP_SCOPE_EXT;
 	key->backend_slot = 0;
@@ -644,7 +649,16 @@ struct lb6_service *lb6_lookup_service(struct lb6_key *key,
 		if (!scope_switch || !lb6_svc_is_two_scopes(svc))
 			return svc;
 		key->scope = LB_LOOKUP_SCOPE_INT;
+		key->proto = orig_proto;
 		svc = map_lookup_elem(&LB6_SERVICES_MAP_V2, key);
+
+#if defined(ENABLE_SERVICE_PROTOCOL_DIFFERENTIATION)
+		/* Also check for ANY protocol for internal scope lookups */
+		if (!svc && key->proto != 0) {
+			key->proto = 0;
+			svc = map_lookup_elem(&LB6_SERVICES_MAP_V2, key);
+		}
+#endif
 	}
 
 	return svc;
@@ -1347,6 +1361,7 @@ struct lb4_service *lb4_lookup_service(struct lb4_key *key,
 				       const bool scope_switch)
 {
 	struct lb4_service *svc;
+	__u8 orig_proto = key->proto;
 
 	key->scope = LB_LOOKUP_SCOPE_EXT;
 	key->backend_slot = 0;
@@ -1364,7 +1379,16 @@ struct lb4_service *lb4_lookup_service(struct lb4_key *key,
 		if (!scope_switch || !lb4_svc_is_two_scopes(svc))
 			return svc;
 		key->scope = LB_LOOKUP_SCOPE_INT;
+		key->proto = orig_proto;
 		svc = map_lookup_elem(&LB4_SERVICES_MAP_V2, key);
+
+#if defined(ENABLE_SERVICE_PROTOCOL_DIFFERENTIATION)
+		/* Also check for ANY protocol for internal scope lookups */
+		if (!svc && key->proto != 0) {
+			key->proto = 0;
+			svc = map_lookup_elem(&LB4_SERVICES_MAP_V2, key);
+		}
+#endif
 	}
 
 	return svc;

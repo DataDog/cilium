@@ -89,9 +89,11 @@ func (r *gatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	tlsRouteList := &gatewayv1alpha2.TLSRouteList{}
-	if err := r.Client.List(ctx, tlsRouteList); err != nil {
-		scopedLog.ErrorContext(ctx, "Unable to list TLSRoutes", logfields.Error, err)
-		return r.handleReconcileErrorWithStatus(ctx, err, original, gw)
+	if helpers.HasTLSRouteSupport(r.Client.Scheme()) {
+		if err := r.Client.List(ctx, tlsRouteList); err != nil {
+			scopedLog.ErrorContext(ctx, "Unable to list TLSRoutes", logfields.Error, err)
+			return r.handleReconcileErrorWithStatus(ctx, err, original, gw)
+		}
 	}
 
 	// TODO(tam): Only list the services / ServiceImports used by accepted Routes
@@ -277,6 +279,11 @@ func (r *gatewayReconciler) filterHTTPRoutesByListener(ctx context.Context, gw *
 
 func parentRefMatched(gw *gatewayv1.Gateway, listener *gatewayv1.Listener, routeNamespace string, refs []gatewayv1.ParentReference) bool {
 	for _, ref := range refs {
+		// Check if the parentRef is a Gateway before checking name and namespace
+		if !helpers.IsGateway(ref) {
+			continue
+		}
+
 		if string(ref.Name) == gw.GetName() && gw.GetNamespace() == helpers.NamespaceDerefOr(ref.Namespace, routeNamespace) {
 			if ref.SectionName == nil && ref.Port == nil {
 				return true

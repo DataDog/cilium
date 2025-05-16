@@ -40,7 +40,7 @@ jobs:
         with:
           cache-dependency-path: "src/github.com/cilium/cilium/*.sum"
           # renovate: datasource=golang-version depName=go
-          go-version: 1.23.8
+          go-version: 1.24.3
 
       - name: Build Ginkgo
         if: ${{ steps.cache.outputs.cache-hit != 'true' }}
@@ -143,7 +143,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 # v5.5.0
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.10'
       - name: Install yamela
@@ -168,7 +168,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 # v5.5.0
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.10'
       - name: Install yamela
@@ -214,12 +214,12 @@ jobs:
           for FILE in *.yaml;do
             JOBS=$(yq '.jobs | to_entries | .[] | select(.value.name == null) | "  " + .key' $FILE)
             STEPS=$(yq '.jobs | to_entries | .[] as $job | $job.value.steps[] | {"key": $job.key, "name": .name} | select(.name == null) | "  "+.key' $FILE)
-            if [ "${JOBS}" != "" ];then
+            if [[ ${JOBS} =~ [^[:space:]] ]];then
               echo Jobs are missing name field, in file $FILE
               echo "${JOBS}" | awk '{for (i=1; i<=NF; i++) print "  " $i}'
               EXIT=1
             fi
-            if [ "${STEPS}" != "" ];then
+            if [[ ${STEPS} =~ [^[:space:]] ]];then
               echo Steps are missing name field, under these Jobs in file $FILE
               echo "${STEPS}" | awk '{for (i=1; i<=NF; i++) print "  " $i}'
               EXIT=1
