@@ -113,7 +113,7 @@ func (s *server) Start(ctx cell.HookContext) error {
 			s.logger.WithError(err).Error("server stopped unexpectedly")
 		}
 	}()
-	s.logger.Info("Started pprof server")
+	s.logger.Info("Started pprof server - Hello world")
 
 	return nil
 }
