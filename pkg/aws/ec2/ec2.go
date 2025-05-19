@@ -892,7 +892,14 @@ func (c *Client) AssociateEIP(ctx context.Context, eniID string, eipTags ipamTyp
 	}
 	c.limiter.Limit(ctx, "DescribeAddresses")
 	sinceStart := spanstat.Start()
+	span2, ctx := tracer.StartSpanFromContext(
+		ctx,
+		"pkg/aws/ec2",
+		tracer.ResourceName("(*ec2Client).DescribeAddresses"),
+		tracer.ServiceName("cilium-operator"),
+	)
 	addresses, err := c.ec2Client.DescribeAddresses(ctx, describeAddressesInput)
+	span2.Finish(tracer.WithError(err))
 	c.metricsAPI.ObserveAPICall("DescribeAddresses", deriveStatus(err), sinceStart.Seconds())
 	if err != nil {
 		return "", err
@@ -901,7 +908,7 @@ func (c *Client) AssociateEIP(ctx context.Context, eniID string, eipTags ipamTyp
 
 	for _, address := range addresses.Addresses {
 		// ignore EIPs that are already associated
-		fmt.Printf("HADRIEN: address %+v\n", address)
+		fmt.Printf("HADRIEN: address %+v\n\n", address)
 		if address.InstanceId != nil || address.NetworkInterfaceId != nil {
 			continue
 		}
@@ -912,7 +919,14 @@ func (c *Client) AssociateEIP(ctx context.Context, eniID string, eipTags ipamTyp
 		}
 		c.limiter.Limit(ctx, "AssociateAddress")
 		sinceStart = spanstat.Start()
+		span3, ctx := tracer.StartSpanFromContext(
+			ctx,
+			"pkg/aws/ec2",
+			tracer.ResourceName("(*ec2Client).AssociateAddress"),
+			tracer.ServiceName("cilium-operator"),
+		)
 		association, err := c.ec2Client.AssociateAddress(ctx, associateAddressInput)
+		span3.Finish(tracer.WithError(err))
 		c.metricsAPI.ObserveAPICall("AssociateAddress", deriveStatus(err), sinceStart.Seconds())
 		if err != nil {
 			return "", err
