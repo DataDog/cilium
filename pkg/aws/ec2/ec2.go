@@ -870,7 +870,7 @@ func (c *Client) UnassignENIPrefixes(ctx context.Context, eniID string, prefixes
 }
 
 // AssociateEIP tries to find an Elastic IP Address with the given tags and associates it with the given instance
-func (c *Client) AssociateEIP(ctx context.Context, instanceID string, eipTags ipamTypes.Tags) (string, error) {
+func (c *Client) AssociateEIP(ctx context.Context, eniID string, eipTags ipamTypes.Tags) (string, error) {
 	var err error
 	span, ctx := tracing.StartSpan(ctx)
 	defer func() { span.Finish(tracing.WithError(err)) }()
@@ -900,23 +900,24 @@ func (c *Client) AssociateEIP(ctx context.Context, instanceID string, eipTags ip
 	log.Infof("Found %d EIPs corresponding to tags %v", len(addresses.Addresses), eipTags)
 
 	for _, address := range addresses.Addresses {
-		// Only pick unassociated EIPs
-		if address.AssociationId == nil {
-			associateAddressInput := &ec2.AssociateAddressInput{
-				AllocationId:       address.AllocationId,
-				AllowReassociation: aws.Bool(false),
-				InstanceId:         aws.String(instanceID),
-			}
-			c.limiter.Limit(ctx, "AssociateAddress")
-			sinceStart = spanstat.Start()
-			association, err := c.ec2Client.AssociateAddress(ctx, associateAddressInput)
-			c.metricsAPI.ObserveAPICall("AssociateAddress", deriveStatus(err), sinceStart.Seconds())
-			if err != nil {
-				return "", err
-			}
-			log.Infof("Associated EIP %s with instance %s (association ID: %s)", *address.PublicIp, instanceID, *association.AssociationId)
-			return *address.PublicIp, nil
+		// ignore EIPs that are already associated
+		if address.AssociationId != nil {
+			continue
 		}
+		associateAddressInput := &ec2.AssociateAddressInput{
+			AllocationId:       address.AllocationId,
+			AllowReassociation: aws.Bool(false),
+			NetworkInterfaceId: aws.String(eniID),
+		}
+		c.limiter.Limit(ctx, "AssociateAddress")
+		sinceStart = spanstat.Start()
+		association, err := c.ec2Client.AssociateAddress(ctx, associateAddressInput)
+		c.metricsAPI.ObserveAPICall("AssociateAddress", deriveStatus(err), sinceStart.Seconds())
+		if err != nil {
+			return "", err
+		}
+		log.Infof("Associated EIP %s with ENI %s (association ID: %s)", *address.PublicIp, eniID, *association.AssociationId)
+		return *address.PublicIp, nil
 	}
 
 	return "", fmt.Errorf("no unassociated EIPs found for tags %v", eipTags)
