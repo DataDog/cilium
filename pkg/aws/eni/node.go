@@ -318,7 +318,21 @@ func (n *Node) AllocateStaticIP(ctx context.Context, staticIPTags ipamTypes.Tags
 	span, ctx := tracing.StartSpan(ctx)
 	defer func() { span.Finish(tracing.WithError(err)) }()
 
-	return n.manager.api.AssociateEIP(ctx, n.node.InstanceID(), staticIPTags)
+	var eniID string
+	n.mutex.RLock()
+	defer n.mutex.RUnlock()
+	for _, eni := range n.enis {
+		if eni.PublicIP == "" {
+			eniID = eni.ID
+			break
+		}
+	}
+
+	if eniID == "" {
+		return "", fmt.Errorf("no ENI found to associate static IP")
+	}
+
+	return n.manager.api.AssociateEIP(ctx, eniID, staticIPTags)
 }
 
 func (n *Node) getSecurityGroupIDs(ctx context.Context, eniSpec eniTypes.ENISpec) ([]string, error) {
