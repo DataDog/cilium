@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+    "strings"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -81,6 +82,12 @@ func handleErr(err error, key string, workQueue workqueue.TypedRateLimitingInter
 		if workQueue.NumRequeues(key) >= maxSilentRetries {
 			logger.Info("Successfully updated tains and conditions for the node", logfields.NodeName, key)
 		}
+		workQueue.Forget(key)
+		return
+	}
+
+	if strings.Contains(err.Error(), "not found") {
+		// Node not found
 		workQueue.Forget(key)
 		return
 	}
