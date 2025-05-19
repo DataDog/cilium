@@ -85,6 +85,12 @@ func handleErr(err error, key string, workQueue workqueue.TypedRateLimitingInter
 		return
 	}
 
+	if strings.Contains(err.Error(), "not found") {
+		// Node not found
+		workQueue.Forget(key)
+		return
+	}
+
 	if workQueue.NumRequeues(key) < maxSilentRetries {
 		logger.Debug("Error updating taints and conditions for the node, will retry", logfields.NodeName, key, logfields.Error, err)
 	} else {
