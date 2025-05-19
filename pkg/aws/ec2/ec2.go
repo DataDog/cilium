@@ -24,6 +24,7 @@ import (
 	ipPkg "github.com/cilium/cilium/pkg/ip"
 	"github.com/cilium/cilium/pkg/ipam/option"
 	ipamTypes "github.com/cilium/cilium/pkg/ipam/types"
+	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/spanstat"
@@ -869,6 +870,8 @@ func (c *Client) UnassignENIPrefixes(ctx context.Context, eniID string, prefixes
 	return err
 }
 
+var EIPlock lock.Map[string, bool]
+
 // AssociateEIP tries to find an Elastic IP Address with the given tags and associates it with the given instance
 func (c *Client) AssociateEIP(ctx context.Context, eniID string, eipTags ipamTypes.Tags) (string, error) {
 	var err error
@@ -892,7 +895,14 @@ func (c *Client) AssociateEIP(ctx context.Context, eniID string, eipTags ipamTyp
 	}
 	c.limiter.Limit(ctx, "DescribeAddresses")
 	sinceStart := spanstat.Start()
+	span2, ctx := tracer.StartSpanFromContext(
+		ctx,
+		"pkg/aws/ec2",
+		tracer.ResourceName("(*ec2Client).DescribeAddresses"),
+		tracer.ServiceName("cilium-operator"),
+	)
 	addresses, err := c.ec2Client.DescribeAddresses(ctx, describeAddressesInput)
+	span2.Finish(tracer.WithError(err))
 	c.metricsAPI.ObserveAPICall("DescribeAddresses", deriveStatus(err), sinceStart.Seconds())
 	if err != nil {
 		return "", err
@@ -901,10 +911,16 @@ func (c *Client) AssociateEIP(ctx context.Context, eniID string, eipTags ipamTyp
 
 	for _, address := range addresses.Addresses {
 		// ignore EIPs that are already associated
-		fmt.Printf("HADRIEN: address %+v\n", address)
+		fmt.Printf("HADRIEN: address %+v\n\n", address)
 		if address.InstanceId != nil || address.NetworkInterfaceId != nil {
 			continue
 		}
+		_, ok := EIPlock.LoadOrStore(address.AllocationId, true)
+		if !ok {
+			// this EIP is already being processed by another goroutine
+			continue
+		}
+		defer EIPlock.Delete(address.AllocationId)
 		associateAddressInput := &ec2.AssociateAddressInput{
 			AllocationId:       address.AllocationId,
 			AllowReassociation: aws.Bool(false),
@@ -912,7 +928,17 @@ func (c *Client) AssociateEIP(ctx context.Context, eniID string, eipTags ipamTyp
 		}
 		c.limiter.Limit(ctx, "AssociateAddress")
 		sinceStart = spanstat.Start()
+		span3, ctx := tracer.StartSpanFromContext(
+			ctx,
+			"pkg/aws/ec2",
+			tracer.ResourceName("(*ec2Client).AssociateAddress"),
+			tracer.ServiceName("cilium-operator"),
+		)
 		association, err := c.ec2Client.AssociateAddress(ctx, associateAddressInput)
+		if err != nil {
+			err = fmt.Errorf("failed to associate EIP %s (AllocationId: %s, AssociationId: %s, InstanceId: %s, NetworkInterfaceId: %s) with ENI %s: %w", aws.ToString(address.PublicIp), aws.ToString(address.AllocationId), aws.ToString(address.AssociationId), aws.ToString(address.InstanceId), aws.ToString(address.NetworkInterfaceId), eniID, err)
+		}
+		span3.Finish(tracer.WithError(err))
 		c.metricsAPI.ObserveAPICall("AssociateAddress", deriveStatus(err), sinceStart.Seconds())
 		if err != nil {
 			return "", err
