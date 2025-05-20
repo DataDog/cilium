@@ -51,6 +51,7 @@ docker buildx build --platform linux/amd64,linux/arm64 \
     --target "$TARGET" \
     --push \
     --metadata-file "$METADATA_FILE" \
+    --output type=image,push=true,compression=zstd,force-compression=true \
     "$DOCKER_CTX"
 
 ddsign sign "$IMAGE_REF" --docker-metadata-file "$METADATA_FILE"
@@ -70,6 +71,7 @@ if [[ $IMAGE_NAME == "cilium" || $IMAGE_NAME =~ "cilium-operator" ]]; then
         --target debug \
         --push \
         --metadata-file "$METADATA_FILE_DEBUG" \
+        --output type=image,push=true,compression=zstd,force-compression=true \
         "$DOCKER_CTX"
     ddsign sign "$IMAGE_REF"-debug --docker-metadata-file "$METADATA_FILE_DEBUG"
 fi
