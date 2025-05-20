@@ -1,6 +1,9 @@
+include: 'https://gitlab-templates.ddbuild.io/slack-notifier/v2/template.yml'
+
 stages:
   - trigger
   - build
+  - notify
 
 default:
   tags: ["arch:amd64"]
@@ -127,3 +130,15 @@ trigger-builds:
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
   script: .gitlab/trigger-builds.sh
+
+# Test failure in build stage
+build-failure:
+  stage: build
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  script: |
+    echo "This job is expected to fail"
+    exit 1
+
+notify-on-failure:
+  extends: .slack-notifier.on-failure
