@@ -134,8 +134,6 @@ trigger-builds:
 # Test failure in build stage
 build-failure:
   stage: build
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "schedule"
   script: |
     echo "This job is expected to fail"
     exit 1
