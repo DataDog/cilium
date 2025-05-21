@@ -777,7 +777,7 @@ func (n *Node) IsPrefixDelegated() bool {
 		return false
 	}
 	// Allocating prefixes is supported only on nitro instances
-	if limits.HypervisorType != "nitro" {
+	if limits.HypervisorType == "xen" {
 		n.loggerLocked().WithFields(logFields).Info("Prefix delegation is only supported on nitro instances")
 		return false
 	}
