@@ -759,24 +759,31 @@ func (n *Node) isPrefixDelegationEnabled() bool {
 // Currently, mixed usage of secondary IPs and prefixes is not supported. n.mutex
 // read lock must be held before calling this method.
 func (n *Node) IsPrefixDelegated() bool {
+	logFields := logrus.Fields{
+		"nodeName":                 n.k8sObj.Name,
+		"instanceID":               n.instanceID,
+		"instanceType":             n.k8sObj.Spec.ENI.InstanceType,
+		"disableDelegationEnabled": n.k8sObj.Spec.ENI.DisablePrefixDelegation,
+	}
 	if !n.isPrefixDelegationEnabled() {
-		n.loggerLocked().Info("Prefix delegation is not enabled on this node")
+		n.loggerLocked().WithFields(logFields).Info("Prefix delegation is not enabled on this node")
 		return false
 	}
 	// Verify if this node is nitro based
 	limits, limitsAvailable := n.getLimitsLocked()
+	logFields["hypervisorType"] = limits.HypervisorType
 	if !limitsAvailable {
-		n.loggerLocked().Info("Instance limits are not available, cannot enable prefix delegation")
+		n.loggerLocked().WithFields(logFields).Info("Instance limits are not available, cannot enable prefix delegation")
 		return false
 	}
 	// Allocating prefixes is supported only on nitro instances
 	if limits.HypervisorType != "nitro" {
-		n.loggerLocked().WithField("hypervisorType", limits.HypervisorType).Info("Prefix delegation is only supported on nitro instances")
+		n.loggerLocked().WithFields(logFields).Info("Prefix delegation is only supported on nitro instances")
 		return false
 	}
 	// Check if this node is allowed to use prefix delegation
 	if n.k8sObj.Spec.ENI.DisablePrefixDelegation != nil && aws.ToBool(n.k8sObj.Spec.ENI.DisablePrefixDelegation) {
-		n.loggerLocked().Info("Prefix delegation is explicitly disabled in the node spec")
+		n.loggerLocked().WithFields(logFields).Info("Prefix delegation is explicitly disabled in the node spec")
 		return false
 	}
 	// Verify if all interfaces are prefix delegated. We don't want to enable prefix delegation on nodes that already
@@ -790,7 +797,7 @@ func (n *Node) IsPrefixDelegated() bool {
 			if len(eni.Addresses) == 1 && eni.Addresses[0] == eni.IP {
 				continue
 			}
-			n.loggerLocked().Info("ENI already has secondary IPs, cannot enable prefix delegation")
+			n.loggerLocked().WithFields(logFields).Info("ENI already has secondary IPs, cannot enable prefix delegation")
 			return false
 		}
 	}
