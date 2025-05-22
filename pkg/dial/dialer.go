@@ -44,7 +44,7 @@ func newContextDialer(log logrus.FieldLogger, dialContext dialContextFn, resolve
 					logfields.Address: host,
 					logfields.Port:    port,
 					logfields.Target:  resolved,
-				}).Debug("Resolved hostname via custom dialer")
+				}).Info("Resolved hostname via custom dialer")
 
 				hostport = net.JoinHostPort(resolved, port)
 				break
