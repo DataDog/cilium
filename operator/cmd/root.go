@@ -656,6 +656,7 @@ func (legacy *legacyOnLeader) onStart(_ cell.HookContext) error {
 			goopts = &kvstore.ExtraOptions{
 				DialOption: []grpc.DialOption{
 					grpc.WithContextDialer(dial.NewContextDialer(log, legacy.svcResolver)),
+					grpc.WithAuthority("toto"),
 				},
 			}
 		}
