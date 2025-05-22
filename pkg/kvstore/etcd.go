@@ -165,8 +165,10 @@ func (e *etcdModule) setConfig(opts map[string]string) error {
 
 func (e *etcdModule) setExtraConfig(opts *ExtraOptions) error {
 	if opts != nil && len(opts.DialOption) != 0 {
+		fmt.Printf("HADRIEN start of setExtraConfig, opts.DialOption is %+v", opts.DialOption)
 		e.config = &client.Config{}
 		e.config.DialOptions = append(e.config.DialOptions, opts.DialOption...)
+		fmt.Printf("HADRIEN end of setExtraConfig, e.config.DialOptions is %+v", e.config.DialOptions)
 	}
 	return nil
 }
@@ -501,6 +503,7 @@ func (e *etcdClient) Disconnected() <-chan struct{} {
 }
 
 func connectEtcdClient(ctx context.Context, config *client.Config, cfgPath string, errChan chan error, clientOptions clientOptions, opts *ExtraOptions) (BackendOperations, error) {
+	fmt.Printf("HADRIEN start of connectEtcdClient, config is %+v", config)
 	if cfgPath != "" {
 		cfg, err := clientyaml.NewConfig(cfgPath)
 		if err != nil {
@@ -515,6 +518,7 @@ func connectEtcdClient(ctx context.Context, config *client.Config, cfgPath strin
 		cfg.DialOptions = append(cfg.DialOptions, config.DialOptions...)
 		config = cfg
 	}
+	fmt.Printf("HADRIEN continuation of connectEtcdClient, config is %+v", config)
 
 	// Shuffle the order of endpoints to avoid all agents connecting to the
 	// same etcd endpoint and to work around etcd client library failover
@@ -559,6 +563,8 @@ func connectEtcdClient(ctx context.Context, config *client.Config, cfgPath strin
 		logger: log.WithFields(logrus.Fields{
 			"endpoints": config.Endpoints,
 			"config":    cfgPath,
+			// "X_config":  config,
+			// "X_opts": opts,
 		}),
 	}
 
@@ -585,7 +591,11 @@ func connectEtcdClient(ctx context.Context, config *client.Config, cfgPath strin
 		ParallelRequests: clientOptions.MaxInflight,
 	}, ciliumratemetrics.APILimiterObserver())
 
-	ec.logger.Info("Connecting to etcd server...")
+	ec.logger.Info("Connecting to etcd server [[[CAN YOU SEE ME????]]]...")
+	ec.logger.WithField("X.opts.DialOption", fmt.Sprintf("%+v", opts.DialOption)).Info("Connecting to etcd server 2 [[[CAN YOU SEE ME????]]]...")
+	if len(opts.DialOption) == 1 {
+		ec.logger.WithField("X.opts.DialOption[0]", fmt.Sprintf("%+v", opts.DialOption[0])).Info("Connecting to etcd server 3 [[[CAN YOU SEE ME????]]]...")
+	}
 
 	leaseTTL := option.Config.KVstoreLeaseTTL
 	if option.Config.KVstoreLeaseTTL == 0 {
