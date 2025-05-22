@@ -559,6 +559,8 @@ func connectEtcdClient(ctx context.Context, config *client.Config, cfgPath strin
 		logger: log.WithFields(logrus.Fields{
 			"endpoints": config.Endpoints,
 			"config":    cfgPath,
+			"X_config":  config,
+			"X_opts":    opts,
 		}),
 	}
 
