@@ -68,6 +68,7 @@ func NewClient(ctx context.Context, selectedBackend string, opts map[string]stri
 		return nil, errChan
 	}
 
+	fmt.Printf("HADRIEN in NewClient before calling setExtraConfig, &options is %+v\n\n\n", &options)
 	if err := module.setExtraConfig(options); err != nil {
 		errChan <- err
 		return nil, errChan

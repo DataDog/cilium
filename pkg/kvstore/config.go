@@ -76,6 +76,7 @@ func setup(ctx context.Context, selectedBackend string, opts map[string]string, 
 		return err
 	}
 
+	fmt.Printf("HADRIEN in setup before calling setExtraConfig, &goOpts is %+v\n\n\n", &goOpts)
 	if err := module.setExtraConfig(goOpts); err != nil {
 		return err
 	}
