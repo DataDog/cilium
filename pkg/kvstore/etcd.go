@@ -559,6 +559,8 @@ func connectEtcdClient(ctx context.Context, config *client.Config, cfgPath strin
 		logger: log.WithFields(logrus.Fields{
 			"endpoints": config.Endpoints,
 			"config":    cfgPath,
+			// "X_config":  config,
+			// "X_opts": opts,
 		}),
 	}
 
@@ -585,7 +587,11 @@ func connectEtcdClient(ctx context.Context, config *client.Config, cfgPath strin
 		ParallelRequests: clientOptions.MaxInflight,
 	}, ciliumratemetrics.APILimiterObserver())
 
-	ec.logger.Info("Connecting to etcd server...")
+	ec.logger.Info("Connecting to etcd server [[[CAN YOU SEE ME????]]]...")
+	ec.logger.WithField("X.opts.DialOption", fmt.Sprintf("%+v", opts.DialOption)).Info("Connecting to etcd server 2 [[[CAN YOU SEE ME????]]]...")
+	if len(opts.DialOption) == 1 {
+		ec.logger.WithField("X.opts.DialOption[0]", fmt.Sprintf("%+v", opts.DialOption[0])).Info("Connecting to etcd server 3 [[[CAN YOU SEE ME????]]]...")
+	}
 
 	leaseTTL := option.Config.KVstoreLeaseTTL
 	if option.Config.KVstoreLeaseTTL == 0 {
