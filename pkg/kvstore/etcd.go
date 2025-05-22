@@ -561,6 +561,7 @@ func connectEtcdClient(ctx context.Context, config *client.Config, cfgPath strin
 			"config":    cfgPath,
 		}),
 	}
+	fmt.Printf("HADRIEN config: %+v\n\nextraOptions: %+v", config, opts)
 
 	initialLimit := clientOptions.RateLimit
 	// If BootstrapRateLimit and BootstrapComplete are provided, set the
