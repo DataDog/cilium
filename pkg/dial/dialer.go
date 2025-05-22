@@ -37,17 +37,19 @@ func newContextDialer(log logrus.FieldLogger, dialContext dialContextFn, resolve
 			// Return the same error that DialContext would return in this case.
 			return nil, &net.OpError{Op: "dial", Net: "tcp", Source: nil, Addr: nil, Err: err}
 		}
-
+		log.Warnf("HADRIEN in newContextDialer with resolvers %+v, resolvers")
 		for _, resolver := range resolvers {
 			if resolved, err := resolver.Resolve(ctx, host); err == nil {
 				log.WithFields(logrus.Fields{
 					logfields.Address: host,
 					logfields.Port:    port,
 					logfields.Target:  resolved,
-				}).Debug("Resolved hostname via custom dialer")
+				}).Warn("Resolved hostname via custom dialer")
 
 				hostport = net.JoinHostPort(resolved, port)
 				break
+			} else {
+				log.Warnf("HADRIEN: failed to resolve host %+v with resolver 5+v", host, resolver)
 			}
 		}
 
