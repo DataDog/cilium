@@ -561,6 +561,7 @@ func connectEtcdClient(ctx context.Context, config *client.Config, cfgPath strin
 			"config":    cfgPath,
 		}),
 	}
+	ec.logger.WithField("X_config", config).WithField("X_opts", opts).Warn("HADRIEN look")
 
 	initialLimit := clientOptions.RateLimit
 	// If BootstrapRateLimit and BootstrapComplete are provided, set the
