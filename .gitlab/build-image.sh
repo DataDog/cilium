@@ -68,7 +68,6 @@ if [[ $IMAGE_NAME == "cilium" || $IMAGE_NAME =~ "cilium-operator" ]]; then
         --label CI_JOB_ID="$CI_JOB_ID" \
         --label is_fips=true \
         --target debug \
-        --push \
         --metadata-file "$METADATA_FILE_DEBUG" \
         --output type=image,push=true,compression=zstd,force-compression=true \
         "$DOCKER_CTX"
