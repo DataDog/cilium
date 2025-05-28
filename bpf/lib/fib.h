@@ -6,6 +6,7 @@
 #include <bpf/ctx/ctx.h>
 #include <bpf/api.h>
 #include <bpf/helpers.h>
+#include <bpf/bpf_tracing.h>
 
 #include "common.h"
 #include "neigh.h"
