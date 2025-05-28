@@ -5,6 +5,7 @@
 
 #include <bpf/ctx/ctx.h>
 #include <bpf/api.h>
+#include <bpf/helpers.h>
 
 #include "common.h"
 #include "neigh.h"
