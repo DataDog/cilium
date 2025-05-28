@@ -51,7 +51,7 @@ static __always_inline bool fib_ok(int ret)
   * @arg ctx			packet
   * @arg needs_l2_check		check for L3 -> L2 redirect
   * @arg fib_params		FIB lookup parameters
-  * @arg allow_neigh_map	fallback to neighbour map for DMAC
+  * @arg allow_neigh_map		fallback to neighbour map for DMAC
   * @arg fib_result		result of a preceding FIB lookup
   * @arg oif			egress interface index
   * @arg ext_err		extended error
@@ -91,6 +91,11 @@ fib_do_redirect(struct __ctx_buff *ctx, const bool needs_l2_check,
 	 * header needs to be pushed.
 	 */
 	if (fib_params) {
+		if (fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70d9a5) { /* 10.112.217.165 */
+			bpf_printk("fib_do_redirect: Found target IP 10.112.217.165, fib_result=%d, ifindex=%d, needs_l2_check=%d",
+			       fib_result, fib_params->l.ifindex, needs_l2_check);
+		}
+
 		if (fib_result == BPF_FIB_LKUP_RET_NO_NEIGH &&
 		    !is_defined(HAVE_FIB_IFINDEX) && *oif) {
 			/* For kernels without d1c362e1dd68 ("bpf: Always
@@ -109,9 +114,22 @@ fib_do_redirect(struct __ctx_buff *ctx, const bool needs_l2_check,
 		bool l2_hdr_required = true;
 		int ret;
 
+		if (fib_params && fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70d9a5) {
+			bpf_printk("fib_do_redirect: Entering L2 check for 10.112.217.165, oif=%d", *oif);
+		}
+
 		ret = maybe_add_l2_hdr(ctx, *oif, &l2_hdr_required);
-		if (ret != 0)
+		if (ret != 0) {
+			if (fib_params && fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70d9a5) {
+				bpf_printk("fib_do_redirect: L2 header add failed for 10.112.217.165, ret=%d", ret);
+			}
 			return ret;
+		}
+
+		if (fib_params && fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70d9a5) {
+			bpf_printk("fib_do_redirect: L2 header required=%d for 10.112.217.165", l2_hdr_required);
+		}
+
 		if (!l2_hdr_required)
 			goto out_send;
 	}
@@ -119,12 +137,19 @@ fib_do_redirect(struct __ctx_buff *ctx, const bool needs_l2_check,
 	/* determine if we are performing redirect or redirect_neigh*/
 	switch (fib_result) {
 	case BPF_FIB_LKUP_RET_SUCCESS:
+		if (fib_params && fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70d9a5) {
+			bpf_printk("fib_do_redirect: FIB lookup success for 10.112.217.165, setting MACs");
+		}
 		if (eth_store_daddr(ctx, fib_params->l.dmac, 0) < 0)
 			return DROP_WRITE_ERROR;
 		if (eth_store_saddr(ctx, fib_params->l.smac, 0) < 0)
 			return DROP_WRITE_ERROR;
 		break;
 	case BPF_FIB_LKUP_RET_NO_NEIGH:
+		if (fib_params && fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70d9a5) {
+			bpf_printk("fib_do_redirect: FIB lookup no neigh for 10.112.217.165, neigh_resolver=%d",
+			       neigh_resolver_available());
+		}
 		/* If we are able to resolve neighbors on demand, always
 		 * prefer that over the BPF neighbor map since the latter
 		 * might be less accurate in some asymmetric corner cases.
@@ -138,10 +163,16 @@ fib_do_redirect(struct __ctx_buff *ctx, const bool needs_l2_check,
 						     &fib_params->l.ipv6_dst,
 						     sizeof(nh_params.ipv6_nh));
 
+				if (fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70d9a5) {
+					bpf_printk("fib_do_redirect: Using redirect_neigh for 10.112.217.165 with params");
+				}
 				return (int)redirect_neigh(*oif, &nh_params,
 							   sizeof(nh_params), 0);
 			}
 
+			if (fib_params && fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70d9a5) {
+				bpf_printk("fib_do_redirect: Using redirect_neigh for 10.112.217.165 without params");
+			}
 			return (int)redirect_neigh(*oif, NULL, 0, 0);
 		} else {
 			union macaddr smac = NATIVE_DEV_MAC_BY_IFINDEX(*oif);
@@ -158,6 +189,9 @@ fib_do_redirect(struct __ctx_buff *ctx, const bool needs_l2_check,
 			}
 
 			if (!dmac) {
+				if (fib_params && fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70d9a5) {
+					bpf_printk("fib_do_redirect: No DMAC found for 10.112.217.165");
+				}
 				*ext_err = BPF_FIB_MAP_NO_NEIGH;
 				return DROP_NO_FIB;
 			}
@@ -168,6 +202,9 @@ fib_do_redirect(struct __ctx_buff *ctx, const bool needs_l2_check,
 		}
 	};
 out_send:
+	if (fib_params && fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70d9a5) {
+		bpf_printk("fib_do_redirect: Final redirect for 10.112.217.165 to oif=%d", *oif);
+	}
 	return (int)ctx_redirect(ctx, *oif, 0);
 }
 
