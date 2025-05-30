@@ -27,12 +27,14 @@ import (
 	"github.com/cilium/cilium/pkg/ip"
 	ipamOption "github.com/cilium/cilium/pkg/ipam/option"
 	ipamTypes "github.com/cilium/cilium/pkg/ipam/types"
+	"github.com/cilium/cilium/pkg/ipmasq"
 	ciliumv2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 	"github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/k8s/informer"
 	"github.com/cilium/cilium/pkg/k8s/utils"
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/logging/logfields"
+	ipmasqMap "github.com/cilium/cilium/pkg/maps/ipmasq"
 	"github.com/cilium/cilium/pkg/node"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/cilium/pkg/option"
@@ -78,6 +80,8 @@ type nodeStore struct {
 	conf      *option.DaemonConfig
 	mtuConfig MtuConfiguration
 	sysctl    sysctl.Sysctl
+
+	ipMasqMap ipmasq.IPMasqMap
 }
 
 // newNodeStore initializes a new store which reflects the CiliumNode custom
@@ -101,6 +105,7 @@ func newNodeStore(
 		mtuConfig:          mtuConfig,
 		clientset:          clientset,
 		sysctl:             sysctl,
+		ipMasqMap:          &ipmasqMap.IPMasqBPFMap{},
 	}
 	store.restoreFinished = make(chan struct{})
 
@@ -744,7 +749,6 @@ func (a *crdAllocator) buildAllocationResult(ip net.IP, ipInfo *ipamTypes.Alloca
 	if a.store.ownNode == nil {
 		return
 	}
-
 	switch a.conf.IPAMMode() {
 
 	// In ENI mode, the Resource points to the ENI so we can derive the
@@ -758,6 +762,16 @@ func (a *crdAllocator) buildAllocationResult(ip net.IP, ipInfo *ipamTypes.Alloca
 				// Add manually configured Native Routing CIDR
 				if a.conf.IPv4NativeRoutingCIDR != nil {
 					result.CIDRs = append(result.CIDRs, a.conf.IPv4NativeRoutingCIDR.String())
+				}
+				// If the ip-masq-agent is enabled, get the CIDRs that are not masqueraded
+				if a.conf.EnableIPMasqAgent {
+					nonMasqCidrs, err := a.store.ipMasqMap.Dump()
+					if err != nil {
+						a.logger.Warn("Failed to dump IPMasqBPFMap", logfields.Error, err)
+					}
+					for _, prefix := range nonMasqCidrs {
+						result.CIDRs = append(result.CIDRs, prefix.String())
+					}
 				}
 				if eni.Subnet.CIDR != "" {
 					// The gateway for a subnet and VPC is always x.x.x.1
