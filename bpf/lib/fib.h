@@ -6,11 +6,20 @@
 #include <bpf/ctx/ctx.h>
 #include <bpf/api.h>
 #include <bpf/helpers.h>
-#include <bpf/bpf_helpers.h>
 
 #include "common.h"
 #include "neigh.h"
 #include "l3.h"
+
+static long (*bpf_trace_printk)(const char *fmt, __u32 fmt_size, ...) = (void *) 6;
+
+#define bpf_printk(fmt, ...)				\
+({							\
+	static const char ____fmt[] = fmt;				\
+	bpf_trace_printk(____fmt, sizeof(____fmt),	\
+			 ##__VA_ARGS__);		\
+})
+
 
 static __always_inline int
 add_l2_hdr(struct __ctx_buff *ctx __maybe_unused)
@@ -94,7 +103,7 @@ fib_do_redirect(struct __ctx_buff *ctx, const bool needs_l2_check,
 	 */
 	if (fib_params) {
 		if (fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70d9a5) { /* 10.112.217.165 */
-			static const char fmt[] = "fib_do_redirect: Found target IP 10.112.217.165, fib_result=%d, ifindex=%d, needs_l2_check=%d";
+			static const char fmt[] = "fib_do_redirect: fib_result=%d, ifindex=%d, needs_l2_check=%d";
 			bpf_trace_printk(fmt, sizeof(fmt), fib_result, fib_params->l.ifindex, needs_l2_check);
 		}
 
