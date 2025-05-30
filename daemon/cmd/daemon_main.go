@@ -65,7 +65,6 @@ import (
 	"github.com/cilium/cilium/pkg/ipam"
 	ipamOption "github.com/cilium/cilium/pkg/ipam/option"
 	"github.com/cilium/cilium/pkg/ipcache"
-	"github.com/cilium/cilium/pkg/ipmasq"
 	"github.com/cilium/cilium/pkg/k8s"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
 	k8sSynced "github.com/cilium/cilium/pkg/k8s/synced"
@@ -1625,7 +1624,6 @@ type daemonParams struct {
 	Hubble              hubblecell.HubbleIntegration
 	LRPManager          *redirectpolicy.Manager
 	MaglevConfig        maglev.Config
-	IPMasqAgent         *ipmasq.IPMasqAgent
 }
 
 func newDaemonPromise(params daemonParams) promise.Promise[*Daemon] {
