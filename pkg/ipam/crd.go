@@ -33,6 +33,7 @@ import (
 	"github.com/cilium/cilium/pkg/k8s/utils"
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/logging/logfields"
+	"github.com/cilium/cilium/pkg/maps/ipmasq"
 	"github.com/cilium/cilium/pkg/node"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/cilium/pkg/option"
@@ -758,6 +759,16 @@ func (a *crdAllocator) buildAllocationResult(ip net.IP, ipInfo *ipamTypes.Alloca
 				// Add manually configured Native Routing CIDR
 				if a.conf.IPv4NativeRoutingCIDR != nil {
 					result.CIDRs = append(result.CIDRs, a.conf.IPv4NativeRoutingCIDR.String())
+				}
+				if a.conf.EnableIPMasqAgent {
+					m := ipmasq.IPMasqBPFMap{}
+					nonMasqCidrs, err := m.Dump()
+					if err != nil {
+						log.WithError(err).Warningf("Failed to dump IP Masq map: %v", err)
+					}
+					for _, prefix := range nonMasqCidrs {
+						result.CIDRs = append(result.CIDRs, prefix.String())
+					}
 				}
 				if eni.Subnet.CIDR != "" {
 					// The gateway for a subnet and VPC is always x.x.x.1
