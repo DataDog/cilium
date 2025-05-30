@@ -11,6 +11,7 @@ import (
 	agentK8s "github.com/cilium/cilium/daemon/k8s"
 	"github.com/cilium/cilium/pkg/datapath/linux/sysctl"
 	"github.com/cilium/cilium/pkg/datapath/types"
+	"github.com/cilium/cilium/pkg/ipmasq"
 	"github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/node"
@@ -117,6 +118,7 @@ type IPAM struct {
 	clientset      client.Clientset
 	nodeDiscovery  Owner
 	sysctl         sysctl.Sysctl
+	ipMasqAgent    *ipmasq.IPMasqAgent
 }
 
 // DebugStatus implements debug.StatusObject to provide debug status collection
