@@ -759,6 +759,7 @@ func (a *crdAllocator) buildAllocationResult(ip net.IP, ipInfo *ipamTypes.Alloca
 				if a.conf.IPv4NativeRoutingCIDR != nil {
 					result.CIDRs = append(result.CIDRs, a.conf.IPv4NativeRoutingCIDR.String())
 				}
+				result.CIDRs = append(result.CIDRs, eni.VPC.PeeredCIDRs...)
 				if eni.Subnet.CIDR != "" {
 					// The gateway for a subnet and VPC is always x.x.x.1
 					// Ref: https://docs.aws.amazon.com/vpc/latest/userguide/VPC_Route_Tables.html
