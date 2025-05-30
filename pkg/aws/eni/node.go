@@ -768,7 +768,7 @@ func (n *Node) IsPrefixDelegated() bool {
 		return false
 	}
 	// Allocating prefixes is not supported on xen instances
-	if limits.HypervisorType == "xen" {
+	if limits.HypervisorType != "nitro" && !limits.IsBareMetal {
 		return false
 	}
 	// Check if this node is allowed to use prefix delegation
