@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/fsnotify/fsnotify"
@@ -257,6 +258,10 @@ func (a *IPMasqAgent) readConfig() (bool, error) {
 	a.masqLinkLocalIPv6 = cfg.MasqLinkLocalIPv6
 
 	return false, nil
+}
+
+func (a *IPMasqAgent) NonMasqCIDRsFromConfig() []netip.Prefix {
+	return slices.Collect(maps.Values(a.nonMasqCIDRsFromConfig))
 }
 
 // restore dumps the ipmasq BPF map and populates IPMasqAgent.nonMasqCIDRsInMap

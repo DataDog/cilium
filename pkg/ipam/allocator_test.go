@@ -59,7 +59,11 @@ var mtuMock = fakeMTU{}
 func TestAllocatedIPDump(t *testing.T) {
 	fakeAddressing := fakeTypes.NewNodeAddressing()
 	localNodeStore := node.NewTestLocalNodeStore(node.LocalNode{})
+<<<<<<< HEAD
 	ipam := NewIPAM(fakeAddressing, testConfiguration, &ownerMock{}, localNodeStore, &ownerMock{}, &resourceMock{}, &mtuMock, nil, nil, nil)
+=======
+	ipam := NewIPAM(hivetest.Logger(t), fakeAddressing, testConfiguration, &ownerMock{}, localNodeStore, &ownerMock{}, &resourceMock{}, &mtuMock, nil, nil, nil, nil)
+>>>>>>> 506750eac9 (Ensure ip rules match the BPF ip-masq-agent configuration in AWS ENI mode)
 	ipam.ConfigureAllocator()
 
 	allocv4, allocv6, status := ipam.Dump()
@@ -80,7 +84,11 @@ func TestExpirationTimer(t *testing.T) {
 
 	fakeAddressing := fakeTypes.NewNodeAddressing()
 	localNodeStore := node.NewTestLocalNodeStore(node.LocalNode{})
+<<<<<<< HEAD
 	ipam := NewIPAM(fakeAddressing, testConfiguration, &ownerMock{}, localNodeStore, &ownerMock{}, &resourceMock{}, &mtuMock, nil, nil, nil)
+=======
+	ipam := NewIPAM(hivetest.Logger(t), fakeAddressing, testConfiguration, &ownerMock{}, localNodeStore, &ownerMock{}, &resourceMock{}, &mtuMock, nil, nil, nil, nil)
+>>>>>>> 506750eac9 (Ensure ip rules match the BPF ip-masq-agent configuration in AWS ENI mode)
 	ipam.ConfigureAllocator()
 
 	err := ipam.AllocateIP(ip, "foo", PoolDefault())
@@ -148,7 +156,11 @@ func TestAllocateNextWithExpiration(t *testing.T) {
 	fakeAddressing := fakeTypes.NewNodeAddressing()
 	localNodeStore := node.NewTestLocalNodeStore(node.LocalNode{})
 	fakeMetadata := fakeMetadataFunc(func(owner string, family Family) (pool string, err error) { return "some-pool", nil })
+<<<<<<< HEAD
 	ipam := NewIPAM(fakeAddressing, testConfiguration, &ownerMock{}, localNodeStore, &ownerMock{}, &resourceMock{}, &mtuMock, nil, fakeMetadata, nil)
+=======
+	ipam := NewIPAM(hivetest.Logger(t), fakeAddressing, testConfiguration, &ownerMock{}, localNodeStore, &ownerMock{}, &resourceMock{}, &mtuMock, nil, fakeMetadata, nil, nil)
+>>>>>>> 506750eac9 (Ensure ip rules match the BPF ip-masq-agent configuration in AWS ENI mode)
 	ipam.ConfigureAllocator()
 
 	// Allocate IPs and test expiration timer. 'pool' is empty in order to test
