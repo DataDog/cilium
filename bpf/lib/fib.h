@@ -98,6 +98,8 @@ fib_do_redirect(struct __ctx_buff *ctx, const bool needs_l2_check,
 		const struct bpf_fib_lookup_padded *fib_params,
 		bool allow_neigh_map, int fib_result, int *oif, __s8 *ext_err)
 {
+    static const char fmt[] = "fib_do_redirect: hello world!";
+    bpf_trace_printk(fmt, sizeof(fmt));
 	/* determine which oif to use before needs_l2_check determines if layer 2
 	 * header needs to be pushed.
 	 */
@@ -347,6 +349,9 @@ fib_redirect_v4(struct __ctx_buff *ctx, int l3_off,
 {
 	struct bpf_fib_lookup_padded fib_params __maybe_unused = {0};
 	int ret;
+
+	static const char fmt[] = "fib_redirect_v4: hello world!";
+    bpf_trace_printk(fmt, sizeof(fmt));
 
 #ifdef ENABLE_SKIP_FIB
 	*oif = DIRECT_ROUTING_DEV_IFINDEX;
