@@ -505,6 +505,10 @@ If ``--instance-tags-filter`` is used:
 
  * ``DescribeInstances``
 
+If ``--aws-auto-detect-peered-vpcs`` is enabled:
+
+ * ``DescribeVpcPeeringConnections``
+
 *****************************
 EC2 instance types ENI limits
 *****************************

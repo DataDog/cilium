@@ -138,6 +138,9 @@ const (
 	// node
 	AWSUsePrimaryAddress = "aws-use-primary-address"
 
+	// AWSAutoDetectPeeredVPCs enables auto-detection of peered VPC CIDRs (useful for excluding them from masquerading)
+	AWSAutoDetectPeeredVPCs = "aws-auto-detect-peered-vpcs"
+
 	// Azure options
 
 	// AzureSubscriptionID is the subscription ID to use when accessing the Azure API
@@ -348,6 +351,9 @@ type OperatorConfig struct {
 	// e.g. "ec2-fips.us-west-1.amazonaws.com" to use a FIPS endpoint in the us-west-1 region.
 	EC2APIEndpoint string
 
+	// AWSAutoDetectPeeredVPCs enables auto-detection of peered VPC CIDRs (useful for excluding them from masquerading)
+	AWSAutoDetectPeeredVPCs bool
+
 	// Azure options
 
 	// AzureSubscriptionID is the subscription ID to use when accessing the Azure API
@@ -467,6 +473,7 @@ func (c *OperatorConfig) Populate(vp *viper.Viper) {
 	c.ExcessIPReleaseDelay = vp.GetInt(ExcessIPReleaseDelay)
 	c.ENIGarbageCollectionInterval = vp.GetDuration(ENIGarbageCollectionInterval)
 	c.AWSPaginationEnabled = vp.GetBool(AWSPaginationEnabled)
+	c.AWSAutoDetectPeeredVPCs = vp.GetBool(AWSAutoDetectPeeredVPCs)
 
 	// Azure options
 
