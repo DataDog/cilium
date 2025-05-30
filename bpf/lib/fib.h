@@ -102,7 +102,7 @@ fib_do_redirect(struct __ctx_buff *ctx, const bool needs_l2_check,
 	 * header needs to be pushed.
 	 */
 	if (fib_params) {
-		if (fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70d9a5) { /* 10.112.217.165 */
+		if (fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70e1a8) { /* 10.112.225.168 */
 			static const char fmt[] = "fib_do_redirect: fib_result=%d, ifindex=%d, needs_l2_check=%d";
 			bpf_trace_printk(fmt, sizeof(fmt), fib_result, fib_params->l.ifindex, needs_l2_check);
 		}
@@ -125,22 +125,22 @@ fib_do_redirect(struct __ctx_buff *ctx, const bool needs_l2_check,
 		bool l2_hdr_required = true;
 		int ret;
 
-		if (fib_params && fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70d9a5) {
-			static const char fmt[] = "fib_do_redirect: Entering L2 check for 10.112.217.165, oif=%d";
+		if (fib_params && fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70e1a8) {
+			static const char fmt[] = "fib_do_redirect: Entering L2 check for 10.112.225.168, oif=%d";
 			bpf_trace_printk(fmt, sizeof(fmt), *oif);
 		}
 
 		ret = maybe_add_l2_hdr(ctx, *oif, &l2_hdr_required);
 		if (ret != 0) {
-			if (fib_params && fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70d9a5) {
-				static const char fmt[] = "fib_do_redirect: L2 header add failed for 10.112.217.165, ret=%d";
+			if (fib_params && fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70e1a8) {
+				static const char fmt[] = "fib_do_redirect: L2 header add failed for 10.112.225.168, ret=%d";
 				bpf_trace_printk(fmt, sizeof(fmt), ret);
 			}
 			return ret;
 		}
 
-		if (fib_params && fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70d9a5) {
-			static const char fmt[] = "fib_do_redirect: L2 header required=%d for 10.112.217.165";
+		if (fib_params && fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70e1a8) {
+			static const char fmt[] = "fib_do_redirect: L2 header required=%d for 10.112.225.168";
 			bpf_trace_printk(fmt, sizeof(fmt), l2_hdr_required);
 		}
 
@@ -151,8 +151,8 @@ fib_do_redirect(struct __ctx_buff *ctx, const bool needs_l2_check,
 	/* determine if we are performing redirect or redirect_neigh*/
 	switch (fib_result) {
 	case BPF_FIB_LKUP_RET_SUCCESS:
-		if (fib_params && fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70d9a5) {
-			static const char fmt[] = "fib_do_redirect: FIB lookup success for 10.112.217.165, setting MACs";
+		if (fib_params && fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70e1a8) {
+			static const char fmt[] = "fib_do_redirect: FIB lookup success for 10.112.225.168, setting MACs";
 			bpf_trace_printk(fmt, sizeof(fmt));
 		}
 		if (eth_store_daddr(ctx, fib_params->l.dmac, 0) < 0)
@@ -161,8 +161,8 @@ fib_do_redirect(struct __ctx_buff *ctx, const bool needs_l2_check,
 			return DROP_WRITE_ERROR;
 		break;
 	case BPF_FIB_LKUP_RET_NO_NEIGH:
-		if (fib_params && fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70d9a5) {
-			static const char fmt[] = "fib_do_redirect: FIB lookup no neigh for 10.112.217.165, neigh_resolver=%d";
+		if (fib_params && fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70e1a8) {
+			static const char fmt[] = "fib_do_redirect: FIB lookup no neigh for 10.112.225.168, neigh_resolver=%d";
 			bpf_trace_printk(fmt, sizeof(fmt), neigh_resolver_available());
 		}
 		/* If we are able to resolve neighbors on demand, always
@@ -178,16 +178,16 @@ fib_do_redirect(struct __ctx_buff *ctx, const bool needs_l2_check,
 						     &fib_params->l.ipv6_dst,
 						     sizeof(nh_params.ipv6_nh));
 
-				if (fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70d9a5) {
-					static const char fmt[] = "fib_do_redirect: Using redirect_neigh for 10.112.217.165 with params";
+				if (fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70e1a8) {
+					static const char fmt[] = "fib_do_redirect: Using redirect_neigh for 10.112.225.168 with params";
 					bpf_trace_printk(fmt, sizeof(fmt));
 				}
 				return (int)redirect_neigh(*oif, &nh_params,
 							   sizeof(nh_params), 0);
 			}
 
-			if (fib_params && fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70d9a5) {
-				static const char fmt[] = "fib_do_redirect: Using redirect_neigh for 10.112.217.165 without params";
+			if (fib_params && fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70e1a8) {
+				static const char fmt[] = "fib_do_redirect: Using redirect_neigh for 10.112.225.168 without params";
 				bpf_trace_printk(fmt, sizeof(fmt));
 			}
 			return (int)redirect_neigh(*oif, NULL, 0, 0);
@@ -206,8 +206,8 @@ fib_do_redirect(struct __ctx_buff *ctx, const bool needs_l2_check,
 			}
 
 			if (!dmac) {
-				if (fib_params && fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70d9a5) {
-					static const char fmt[] = "fib_do_redirect: No DMAC found for 10.112.217.165";
+				if (fib_params && fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70e1a8) {
+					static const char fmt[] = "fib_do_redirect: No DMAC found for 10.112.225.168";
 					bpf_trace_printk(fmt, sizeof(fmt));
 				}
 				*ext_err = BPF_FIB_MAP_NO_NEIGH;
@@ -220,8 +220,8 @@ fib_do_redirect(struct __ctx_buff *ctx, const bool needs_l2_check,
 		}
 	};
 out_send:
-	if (fib_params && fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70d9a5) {
-		static const char fmt[] = "fib_do_redirect: Final redirect for 10.112.217.165 to oif=%d";
+	if (fib_params && fib_params->l.family == AF_INET && fib_params->l.ipv4_dst == 0x0a70e1a8) {
+		static const char fmt[] = "fib_do_redirect: Final redirect for 10.112.225.168 to oif=%d";
 		bpf_trace_printk(fmt, sizeof(fmt), *oif);
 	}
 	return (int)ctx_redirect(ctx, *oif, 0);
