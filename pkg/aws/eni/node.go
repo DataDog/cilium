@@ -767,6 +767,10 @@ func (n *Node) IsPrefixDelegated() bool {
 	if !limitsAvailable {
 		return false
 	}
+	n.loggerLocked().WithFields(logrus.Fields{
+		"HypervisorType": limits.HypervisorType,
+		"IsBareMetal":    limits.IsBareMetal,
+	}).Info("Checking if prefix delegation is enabled on node")
 	// Allocating prefixes is not supported on xen instances
 	if limits.HypervisorType != "nitro" && !limits.IsBareMetal {
 		return false
