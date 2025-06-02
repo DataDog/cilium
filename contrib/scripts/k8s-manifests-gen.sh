@@ -4,6 +4,8 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
+unset PWD
+
 SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
 ##@ API targets
