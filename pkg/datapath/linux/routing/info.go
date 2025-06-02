@@ -76,6 +76,7 @@ func parse(gateway string, cidrs []string, macAddr, ifaceNum, ipamMode string, m
 
 		parsedCIDRs = append(parsedCIDRs, *c)
 	}
+	log.Info("Anton-Test: parsed CIDRs ", parsedCIDRs)
 
 	parsedMAC, err := mac.ParseMAC(macAddr)
 	if err != nil {

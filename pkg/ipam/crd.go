@@ -759,6 +759,7 @@ func (a *crdAllocator) buildAllocationResult(ip net.IP, ipInfo *ipamTypes.Alloca
 				if a.conf.IPv4NativeRoutingCIDR != nil {
 					result.CIDRs = append(result.CIDRs, a.conf.IPv4NativeRoutingCIDR.String())
 				}
+				log.Info("Anton-Test: Found peered CIDRs: ", eni.VPC.PeeredCIDRs)
 				result.CIDRs = append(result.CIDRs, eni.VPC.PeeredCIDRs...)
 				if eni.Subnet.CIDR != "" {
 					// The gateway for a subnet and VPC is always x.x.x.1
