@@ -769,7 +769,7 @@ func (a *crdAllocator) buildAllocationResult(ip net.IP, ipInfo *ipamTypes.Alloca
 					for _, prefix := range nonMasqCidrs {
 						result.CIDRs = append(result.CIDRs, prefix.String())
 					}
-					log.Info("Anton-test: Added non-masquerade CIDRs. New CIDRs: ", result.CIDRs)
+					log.Info("Anton-test: Added non-masquerade CIDRs for ", a.store.ownNode.Name, ". New CIDRs: ", result.CIDRs)
 				}
 				if eni.Subnet.CIDR != "" {
 					// The gateway for a subnet and VPC is always x.x.x.1

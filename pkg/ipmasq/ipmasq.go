@@ -137,6 +137,8 @@ func (a *IPMasqAgent) Start() {
 		log.WithError(err).Warn("Failed to update")
 	}
 
+	log.Info("Anton-test: Starting ip-masq-agent")
+
 	a.stop = make(chan struct{})
 	a.handlerFinished = make(chan struct{})
 
@@ -213,6 +215,8 @@ func (a *IPMasqAgent) Update() error {
 			delete(a.nonMasqCIDRsInMap, cidrStr)
 		}
 	}
+
+	log.Info("Anton-test: Updated ip-masq-agent. CIDRs in map: ", a.nonMasqCIDRsInMap)
 
 	return nil
 }
