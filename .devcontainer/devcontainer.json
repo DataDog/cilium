@@ -1,18 +1,24 @@
 {
-  "name": "Cilium",
-  "image": "quay.io/cilium/cilium-builder:b37296d28bbd6f18fd45e1e452ce77f1d3acf025@sha256:867699c0c3b034f96e3476e0782dbab45e28dafb6ea02a8922fc9b087be6f8b2",
-  "workspaceFolder": "/go/src/github.com/cilium/cilium",
-  "workspaceMount": "source=${localWorkspaceFolder},target=/go/src/github.com/cilium/cilium,type=bind",
-  "features": {
-    "ghcr.io/devcontainers/features/docker-in-docker": {}
-  },
-  "mounts": [
-    // To enable kernel modules for devcontainer
-    "source=/lib/modules,target=/lib/modules,type=bind,readonly",
-    "source=/usr/lib/modules,target=/usr/lib/modules,type=bind,readonly"
-  ],
-  "runArgs": [
-    "--sysctl", "net.ipv6.conf.all.disable_ipv6=0"
-  ],
-  "postCreateCommand": "git config --global --add safe.directory /go/src/github.com/cilium/cilium"
+    "name": "Cilium",
+    "image": "quay.io/cilium/cilium-builder:b37296d28bbd6f18fd45e1e452ce77f1d3acf025@sha256:867699c0c3b034f96e3476e0782dbab45e28dafb6ea02a8922fc9b087be6f8b2",
+    //"workspaceFolder": "/go/src/github.com/cilium/cilium",
+    //"workspaceMount": "source=${localWorkspaceFolder},target=/go/src/github.com/cilium/cilium,type=bind",
+    "containerUser": "root",
+    "forwardPorts": [
+        22
+    ],
+    "features": {
+        "registry.ddbuild.io/workspaces/features/base:0.4.65976150": {},
+        "ghcr.io/devcontainers/features/docker-in-docker": {}
+    },
+    "mounts": [
+        "source=/lib/modules,target=/lib/modules,type=bind,readonly",
+        "source=/usr/lib/modules,target=/usr/lib/modules,type=bind,readonly"
+    ],
+    //"runArgs": [
+    //    "--sysctl",
+    //    "net.ipv6.conf.all.disable_ipv6=0"
+    //],
+    //"postCreateCommand": "git config --global --add safe.directory /go/src/github.com/cilium/cilium",
+    "waitFor": "postStartCommand"
 }
