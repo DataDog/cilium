@@ -274,45 +274,15 @@ func (c *Client) describeNetworkInterfaces(ctx context.Context, subnets ipamType
 	return result, nil
 }
 
-// describeNetworkInterfacesByInstance gets ENIs on the given instance
-func (c *Client) describeNetworkInterfacesByInstance(ctx context.Context, instanceID string) ([]ec2_types.NetworkInterface, error) {
+// describeNetworkInterfacesFromInstances lists all ENIs matching filtered EC2 instances
+func (c *Client) describeNetworkInterfacesFromInstances(ctx context.Context, filters []ec2_types.Filter) ([]ec2_types.NetworkInterface, error) {
 	var result []ec2_types.NetworkInterface
 
-	input := &ec2.DescribeNetworkInterfacesInput{
-		Filters: []ec2_types.Filter{
-			{
-				Name:   aws.String("attachment.instance-id"),
-				Values: []string{instanceID},
-			},
-		},
-	}
-	if operatorOption.Config.AWSPaginationEnabled {
-		input.MaxResults = aws.Int32(defaults.ENIMaxResultsPerApiCall)
-	}
-	paginator := ec2.NewDescribeNetworkInterfacesPaginator(c.ec2Client, input)
-	for paginator.HasMorePages() {
-		c.limiter.Limit(ctx, DescribeNetworkInterfaces)
-		sinceStart := spanstat.Start()
-		output, err := paginator.NextPage(ctx)
-		c.metricsAPI.ObserveAPICall(DescribeNetworkInterfaces, deriveStatus(err), sinceStart.Seconds())
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, output.NetworkInterfaces...)
-	}
-	return result, nil
-}
-
-// describeNetworkInterfacesFromInstances lists all ENIs matching filtered EC2 instances
-func (c *Client) describeNetworkInterfacesFromInstances(ctx context.Context) ([]ec2_types.NetworkInterface, error) {
-	enisFromInstances := make(map[string]struct{})
-
-	instanceAttrs := &ec2.DescribeInstancesInput{}
-	if len(c.instancesFilters) > 0 {
-		instanceAttrs.Filters = c.instancesFilters
+	input := &ec2.DescribeInstancesInput{
+		Filters: filters,
 	}
 
-	paginator := ec2.NewDescribeInstancesPaginator(c.ec2Client, instanceAttrs)
+	paginator := ec2.NewDescribeInstancesPaginator(c.ec2Client, input)
 	for paginator.HasMorePages() {
 		c.limiter.Limit(ctx, DescribeInstances)
 		sinceStart := spanstat.Start()
@@ -323,51 +293,70 @@ func (c *Client) describeNetworkInterfacesFromInstances(ctx context.Context) ([]
 		}
 
 		// loop the instances and add all ENIs to the list
-		for _, r := range output.Reservations {
-			for _, i := range r.Instances {
-				for _, ifs := range i.NetworkInterfaces {
-					enisFromInstances[aws.ToString(ifs.NetworkInterfaceId)] = struct{}{}
+		for _, reservation := range output.Reservations {
+			for _, instance := range reservation.Instances {
+				for _, instanceENI := range instance.NetworkInterfaces {
+					// ENIs associated with an instance always have an IPv4 primary address
+					result = append(result, ConvertInstanceNetworkInterfaceToNetworkInterface(instanceENI, instance.InstanceId))
+
 				}
 			}
 		}
 	}
 
-	enisListFromInstances := make([]string, 0, len(enisFromInstances))
-	for k := range enisFromInstances {
-		enisListFromInstances = append(enisListFromInstances, k)
-	}
-
-	ENIAttrs := &ec2.DescribeNetworkInterfacesInput{
-		// Filters out ipv6-only ENIs. For now we require that every interface
-		// has a primary IPv4 address.
-		Filters: []ec2_types.Filter{
-			{
-				Name:   aws.String("private-ip-address"),
-				Values: []string{"*"},
-			},
-		},
-	}
-	if operatorOption.Config.AWSPaginationEnabled {
-		ENIAttrs.MaxResults = aws.Int32(defaults.ENIMaxResultsPerApiCall)
-	}
-	if len(enisListFromInstances) > 0 {
-		ENIAttrs.NetworkInterfaceIds = enisListFromInstances
-	}
-
-	var result []ec2_types.NetworkInterface
-
-	ENIPaginator := ec2.NewDescribeNetworkInterfacesPaginator(c.ec2Client, ENIAttrs)
-	for ENIPaginator.HasMorePages() {
-		c.limiter.Limit(ctx, DescribeNetworkInterfaces)
-		sinceStart := spanstat.Start()
-		output, err := ENIPaginator.NextPage(ctx)
-		c.metricsAPI.ObserveAPICall(DescribeNetworkInterfaces, deriveStatus(err), sinceStart.Seconds())
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, output.NetworkInterfaces...)
-	}
 	return result, nil
+}
+
+// ConvertInstanceNetworkInterfaceToNetworkInterface converts an InstanceNetworkInterface to a NetworkInterface
+// making sure all the fileds expected by parseENI are set
+func ConvertInstanceNetworkInterfaceToNetworkInterface(eni ec2_types.InstanceNetworkInterface, instanceID *string) ec2_types.NetworkInterface {
+	// Convert InstancePrivateIpAddress to NetworkInterfacePrivateIpAddress
+	privateIpAddresses := make([]ec2_types.NetworkInterfacePrivateIpAddress, 0, len(eni.PrivateIpAddresses))
+	for _, ip := range eni.PrivateIpAddresses {
+		privateIpAddresses = append(privateIpAddresses, ec2_types.NetworkInterfacePrivateIpAddress{
+			PrivateIpAddress: ip.PrivateIpAddress,
+			Primary:          ip.Primary,
+		})
+	}
+
+	// Convert InstanceIpv4Prefix to Ipv4PrefixSpecification
+	ipv4Prefixes := make([]ec2_types.Ipv4PrefixSpecification, 0, len(eni.Ipv4Prefixes))
+	for _, prefix := range eni.Ipv4Prefixes {
+		ipv4Prefixes = append(ipv4Prefixes, ec2_types.Ipv4PrefixSpecification{
+			Ipv4Prefix: prefix.Ipv4Prefix,
+		})
+	}
+
+	networkInterface := ec2_types.NetworkInterface{
+		NetworkInterfaceId: eni.NetworkInterfaceId,
+		Description:        eni.Description,
+		MacAddress:         eni.MacAddress,
+		PrivateIpAddress:   eni.PrivateIpAddress,
+		PrivateIpAddresses: privateIpAddresses,
+		Ipv4Prefixes:       ipv4Prefixes,
+		Groups:             eni.Groups,
+		SubnetId:           eni.SubnetId,
+		VpcId:              eni.VpcId,
+
+		TagSet: nil,
+	}
+
+	// Convert InstanceNetworkInterfaceAttachment to NetworkInterfaceAttachment
+	if eni.Attachment != nil {
+		networkInterface.Attachment = &ec2_types.NetworkInterfaceAttachment{
+			DeviceIndex: eni.Attachment.DeviceIndex,
+			InstanceId:  instanceID,
+		}
+	}
+
+	// Convert InstanceNetworkInterfaceAssociation to NetworkInterfaceAssociation
+	if eni.Association != nil {
+		networkInterface.Association = &ec2_types.NetworkInterfaceAssociation{
+			PublicIp: eni.Association.PublicIp,
+		}
+	}
+
+	return networkInterface
 }
 
 // parseENI parses a ec2.NetworkInterface as returned by the EC2 service API,
@@ -470,7 +459,13 @@ func (c *Client) GetInstance(ctx context.Context, vpcs ipamTypes.VirtualNetworkM
 	var networkInterfaces []ec2_types.NetworkInterface
 	var err error
 
-	networkInterfaces, err = c.describeNetworkInterfacesByInstance(ctx, instanceID)
+	instanceFilters := []ec2_types.Filter{
+		{
+			Name:   aws.String("instance-id"),
+			Values: []string{instanceID},
+		},
+	}
+	networkInterfaces, err = c.describeNetworkInterfacesFromInstances(ctx, instanceFilters)
 	if err != nil {
 		return nil, err
 	}
@@ -498,7 +493,7 @@ func (c *Client) GetInstances(ctx context.Context, vpcs ipamTypes.VirtualNetwork
 	var err error
 
 	if len(c.instancesFilters) > 0 {
-		networkInterfaces, err = c.describeNetworkInterfacesFromInstances(ctx)
+		networkInterfaces, err = c.describeNetworkInterfacesFromInstances(ctx, c.instancesFilters)
 	} else {
 		networkInterfaces, err = c.describeNetworkInterfaces(ctx, subnets)
 	}
