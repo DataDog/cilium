@@ -1,0 +1,44 @@
+meta:
+  name: context-function-tracing
+  description: Automatically instrument all functions that take a context.Context as argument
+aspects:
+  - id: 'context-function-tracing'
+    join-point:
+      all-of:
+        # - import-path: github.com/cilium/cilium/pkg
+        - function-body:
+            function:
+              - signature:
+                  args:
+                    - context.Context
+    advice:
+      - prepend-statements:
+          imports:
+            context: context
+            tracer: gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer
+          template: |-
+            {{ $ctx := .Function.ArgumentOfType "context.Context" }}
+            {{- if (eq $ctx "") -}}
+              {{- $ctx = "ctx" -}}
+              ctx := context.TODO()
+            {{ end -}}
+
+            {{ $functionName := .Function.Name -}}
+            {{- if eq $functionName "" -}}
+              {{ $functionName = "placeholder" }}
+            {{- end -}}
+
+            var span *tracer.Span
+            span, {{ $ctx }} := tracer.StartSpanFromContext(
+              {{ $ctx }},
+              "test",
+              tracer.ResourceName("{{ $functionName }}"),
+            )
+
+            {{ with .Function.ResultOfType "error" -}}
+              defer func(){
+                span.Finish(tracer.WithError({{ . }}))
+              }()
+            {{ else -}}
+              defer span.Finish()
+            {{- end -}}
