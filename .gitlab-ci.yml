@@ -10,7 +10,6 @@ variables:
   DOCKER_CTX: "."
 
   # Base images
-  UBUNTU_FIPS_BASE_IMAGE: registry.ddbuild.io/images/base/gbi-ubuntu_2404-fips:release
   UBUNTU_ROOT_FIPS_BASE_IMAGE: registry.ddbuild.io/images/gbi-ubuntu_2404-root-fips:release
   DISTROLESS_FIPS_BASE_IMAGE: registry.ddbuild.io/images/base/gbi-distroless-nossl-fips:release
   DISTROLESS_ROOT_FIPS_BASE_IMAGE: registry.ddbuild.io/images/base/gbi-distroless-nossl-root-fips:release
@@ -105,7 +104,7 @@ hubble-relay:
   variables:
     DOCKERFILE_PATH: images/hubble-relay/Dockerfile
     DOCKER_BUILD_ARGS: |
-      BASE_IMAGE=$UBUNTU_FIPS_BASE_IMAGE
+      BASE_IMAGE=$DISTROLESS_FIPS_BASE_IMAGE
     IMAGES_TO_MIRROR: |
       CILIUM_BUILDER_IMAGE
       GOLANG_IMAGE
