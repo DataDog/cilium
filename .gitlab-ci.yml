@@ -1,0 +1,230 @@
+default:
+  tags: ["arch:amd64"]
+  image: registry.ddbuild.io/images/docker:27.3.1
+
+variables:
+  # Defaults
+  DOCKER_CTX: "."
+  TARGET: release
+
+  # Base images
+  UBUNTU_ROOT_FIPS_BASE_IMAGE: registry.ddbuild.io/images/gbi-ubuntu_2404-root-fips:release
+  DISTROLESS_FIPS_BASE_IMAGE: registry.ddbuild.io/images/base/gbi-distroless-nossl-fips:release
+  DISTROLESS_ROOT_FIPS_BASE_IMAGE: registry.ddbuild.io/images/base/gbi-distroless-nossl-root-fips:release
+
+# Force git to remove any reference to the local disk copy of the repository
+before_script:
+  - git repack -a -d && rm -f .git/objects/info/alternates
+
+.build-docker-image:
+  stage: build
+  rules:
+    # Run the build jobs for all pushed tags + triggered pipelines
+    #
+    # Run the cilium-cli build only if its Dockerfile is present in the tree
+    - if: ($CI_COMMIT_TAG || $CI_PIPELINE_SOURCE == "pipeline") && $CI_JOB_NAME == "cilium-cli"
+      exists:
+        - cilium-cli/Dockerfile
+    # Skip build jobs for non cilium-cli images if the cilium-cli Dockerfile is in the tree
+    - if: ($CI_COMMIT_TAG || $CI_PIPELINE_SOURCE == "pipeline") && $CI_JOB_NAME != "cilium-cli"
+      exists:
+        - cilium-cli/Dockerfile
+      when: never
+    # Else run build job
+    - if: ($CI_COMMIT_TAG || $CI_PIPELINE_SOURCE == "pipeline") && $CI_JOB_NAME != "cilium-cli"
+  id_tokens:
+    DDSIGN_ID_TOKEN:
+      aud: image-integrity
+  script: |
+    set -euo pipefail
+
+    # Replicate images
+    IFS=$'\n'
+    for arg_name in ${IMAGES_TO_MIRROR:-}; do
+      source_image_ref=$(grep "ARG ${arg_name}=" $DOCKERFILE_PATH | sed 's/^[^=]*=//')
+      dest_image_ref="registry.ddbuild.io"$(echo $source_image_ref | sed 's|^[^/]*||')
+      if ! crane manifest $dest_image_ref; then
+        echo "Mirroring $source_image_ref to $dest_image_ref"
+        crane copy $source_image_ref $dest_image_ref
+      fi
+      DOCKER_BUILD_ARGS+=$'\n'"${arg_name}=${dest_image_ref}"
+    done
+    IFS=$' '
+
+    # Construct valid --build-args arguments from the DOCKER_BUILD_ARGS variable
+    BUILD_ARGS="--build-arg MODIFIERS=GOEXPERIMENT=boringcrypto"
+    IFS=$'\n'
+    for arg in ${DOCKER_BUILD_ARGS:-}; do
+      BUILD_ARGS+=" $(echo "--build-arg $arg")"
+    done
+    IFS=$' '
+
+    IMAGE_NAME=$CI_JOB_NAME
+    IMAGE_REF="registry.ddbuild.io/$IMAGE_NAME:$CI_COMMIT_TAG"
+
+    METADATA_FILE=$(mktemp)
+    docker buildx build --platform linux/amd64,linux/arm64 \
+      --tag "$IMAGE_REF" \
+      --file "$DOCKERFILE_PATH" \
+      $BUILD_ARGS \
+      --label CILIUM_VERSION="$(cat VERSION)" \
+      --label target=prod \
+      --label CI_PIPELINE_ID="$CI_PIPELINE_ID" \
+      --label CI_JOB_ID="$CI_JOB_ID" \
+      --label is_fips=true \
+      --target "$TARGET" \
+      --metadata-file "$METADATA_FILE" \
+      --output type=image,push=true,compression=zstd,force-compression=true,oci-mediatypes=true \
+      "$DOCKER_CTX"
+
+    ddsign sign "$IMAGE_REF" --docker-metadata-file "$METADATA_FILE"
+
+    # Always build the debug version of the Cilium Agent and Operator images
+    if [[ $IMAGE_NAME == "cilium" || $IMAGE_NAME =~ "cilium-operator" ]]; then
+      IMAGE_REF_DEBUG="$IMAGE_REF"-debug
+      METADATA_FILE_DEBUG=$(mktemp)
+      docker buildx build --platform linux/amd64,linux/arm64 \
+        --tag "$IMAGE_REF_DEBUG" \
+        --file "$DOCKERFILE_PATH" \
+        $BUILD_ARGS \
+        --label CILIUM_VERSION="$(cat VERSION)" \
+        --label target=staging \
+        --label CI_PIPELINE_ID="$CI_PIPELINE_ID" \
+        --label CI_JOB_ID="$CI_JOB_ID" \
+        --label is_fips=true \
+        --target debug \
+        --metadata-file "$METADATA_FILE_DEBUG" \
+        --output type=image,push=true,compression=zstd,force-compression=true,oci-mediatypes=true \
+        "$DOCKER_CTX"
+
+      ddsign sign "$IMAGE_REF_DEBUG" --docker-metadata-file "$METADATA_FILE_DEBUG"
+    fi
+
+branch-pipeline:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  script: |
+    set -euo pipefail
+
+    BRANCHES=(
+      "cilium-cli"
+      "v1.16-dd"
+      "v1.17-dd"
+    )
+
+    # Trigger a CI pipeline for each branch
+    for BRANCH in $BRANCHES; do
+      curl --request POST \
+        --form token="${CI_JOB_TOKEN}" \
+        --form ref="$BRANCH" \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/trigger/pipeline"
+    done
+
+tag-pipeline:
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "pipeline"
+  script: |
+    set -euo pipefail
+
+    # Find the 3 latest -dd tags on the current branch
+    GIT_TAGS_TO_BUILD=$(git --no-pager tag --sort=-creatordate --merged HEAD | grep -E ".*-dd[0-9]+$" | head -n 3)
+
+    # Trigger a CI pipeline for each tag
+    for TAG in $GIT_TAGS_TO_BUILD; do
+      curl --request POST \
+        --form token="${CI_JOB_TOKEN}" \
+        --form ref="$TAG" \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/trigger/pipeline"
+    done
+
+cilium-cli:
+  extends: .build-docker-image
+  variables:
+    DOCKERFILE_PATH: cilium-cli/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      BASE_IMAGE=$DISTROLESS_FIPS_BASE_IMAGE
+    IMAGES_TO_MIRROR: |
+      GOLANG_IMAGE
+
+cilium-operator-generic:
+  extends: .build-docker-image
+  variables:
+    DOCKERFILE_PATH: images/operator/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      OPERATOR_VARIANT=operator-generic
+      BASE_IMAGE=$DISTROLESS_ROOT_FIPS_BASE_IMAGE
+    IMAGES_TO_MIRROR: |
+      ALPINE_IMAGE
+      CILIUM_BUILDER_IMAGE
+      GOLANG_IMAGE
+
+cilium-operator-aws:
+  extends: .build-docker-image
+  variables:
+    DOCKERFILE_PATH: images/operator/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      OPERATOR_VARIANT=operator-aws
+      BASE_IMAGE=$DISTROLESS_ROOT_FIPS_BASE_IMAGE
+    IMAGES_TO_MIRROR: |
+      ALPINE_IMAGE
+      CILIUM_BUILDER_IMAGE
+      GOLANG_IMAGE
+
+cilium-operator-azure:
+  extends: .build-docker-image
+  variables:
+    DOCKERFILE_PATH: images/operator/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      OPERATOR_VARIANT=operator-azure
+      BASE_IMAGE=$DISTROLESS_ROOT_FIPS_BASE_IMAGE
+    IMAGES_TO_MIRROR: |
+      ALPINE_IMAGE
+      CILIUM_BUILDER_IMAGE
+      GOLANG_IMAGE
+
+cilium-runtime:
+  extends: .build-docker-image
+  variables:
+    DOCKERFILE_PATH: images/runtime/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      UBUNTU_IMAGE=$UBUNTU_ROOT_FIPS_BASE_IMAGE
+    IMAGES_TO_MIRROR: |
+      CILIUM_BPFTOOL_IMAGE
+      CILIUM_IPTABLES_IMAGE
+      CILIUM_LLVM_IMAGE
+      GOLANG_IMAGE
+      TESTER_IMAGE
+    DOCKER_CTX: "./images/runtime"
+    TARGET: rootfs
+
+cilium:
+  extends: .build-docker-image
+  needs:
+    # The cilium image depends on the runtime image
+    - cilium-runtime
+  variables:
+    DOCKERFILE_PATH: images/cilium/Dockerfile
+    IMAGES_TO_MIRROR: |
+      CILIUM_BUILDER_IMAGE
+      CILIUM_ENVOY_IMAGE
+
+hubble-relay:
+  extends: .build-docker-image
+  variables:
+    DOCKERFILE_PATH: images/hubble-relay/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      BASE_IMAGE=$DISTROLESS_FIPS_BASE_IMAGE
+    IMAGES_TO_MIRROR: |
+      CILIUM_BUILDER_IMAGE
+      GOLANG_IMAGE
+
+cilium-clustermesh-apiserver:
+  extends: .build-docker-image
+  variables:
+    DOCKERFILE_PATH: images/clustermesh-apiserver/Dockerfile
+    DOCKER_BUILD_ARGS: |
+      BASE_IMAGE=$DISTROLESS_FIPS_BASE_IMAGE
+    IMAGES_TO_MIRROR: |
+      GOLANG_IMAGE
