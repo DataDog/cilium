@@ -1,0 +1,77 @@
+default:
+  tags: ["arch:amd64"]
+  image: registry.ddbuild.io/images/docker:24.0.4-gbi-focal
+
+variables:
+  # Defaults
+  DOCKER_CTX: "."
+  TARGET: release
+
+  # Base images
+  DISTROLESS_FIPS_BASE_IMAGE: registry.ddbuild.io/images/base/gbi-distroless-nossl-fips:release
+
+# Force git to remove any reference to the local disk copy of the repository
+before_script:
+  - git repack -a -d && rm -f .git/objects/info/alternates
+
+.build-docker-image:
+  stage: build
+  rules:
+    # Run the pipeline for all pushed tags + triggered pipelines
+    - if: $CI_COMMIT_TAG
+    - if: $CI_PIPELINE_SOURCE == "pipeline"
+  id_tokens:
+    DDSIGN_ID_TOKEN:
+      aud: image-integrity
+  script: |
+    # Replicate images
+    IFS=$'\n'
+    for arg_name in ${IMAGES_TO_MIRROR:-}; do
+      source_image_ref=$(grep "ARG ${arg_name}=" $DOCKERFILE_PATH | sed 's/^[^=]*=//')
+      dest_image_ref="registry.ddbuild.io"$(echo $source_image_ref | sed 's|^[^/]*||')
+      if ! crane manifest $dest_image_ref; then
+        echo "Mirroring $source_image_ref to $dest_image_ref"
+        crane copy $source_image_ref $dest_image_ref
+      fi
+      DOCKER_BUILD_ARGS+="\n${arg_name}=${dest_image_ref}"
+    done
+    IFS=$' '
+
+    # Construct valid --build-args arguments from the DOCKER_BUILD_ARGS variable
+    BUILD_ARGS=""
+    IFS=$'\n'
+    for arg in ${DOCKER_BUILD_ARGS:-}; do
+      BUILD_ARGS+=" $(echo "--build-arg $arg")"
+    done
+    IFS=$' '
+
+    IMAGE_NAME=$CI_JOB_NAME
+    # Construct the image tag
+    IMAGE_TAG="$CI_COMMIT_TAG"
+    IMAGE_REF="registry.ddbuild.io/$IMAGE_NAME:$IMAGE_TAG"
+
+    METADATA_FILE=$(mktemp)
+    docker buildx build --platform linux/amd64,linux/arm64 \
+      --tag "$IMAGE_REF" \
+      --file "$DOCKERFILE_PATH" \
+      $BUILD_ARGS \
+      --label CILIUM_VERSION="$(cat stable.txt)" \
+      --label target=prod \
+      --label CI_PIPELINE_ID="$CI_PIPELINE_ID" \
+      --label CI_JOB_ID="$CI_JOB_ID" \
+      --target "$TARGET" \
+      --metadata-file "$METADATA_FILE" \
+      --output type=image,push=true,compression=zstd,force-compression=true,oci-mediatypes=true \
+      "$DOCKER_CTX"
+
+    ddsign sign "$IMAGE_REF" --docker-metadata-file "$METADATA_FILE"
+
+
+cilium-cli:
+  extends: .build-docker-image
+  variables:
+    DOCKERFILE_PATH: Dockerfile
+    DOCKER_BUILD_ARGS: |
+      BASE_IMAGE=$DISTROLESS_FIPS_BASE_IMAGE
+    IMAGES_TO_MIRROR: |
+      GOLANG_IMAGE
