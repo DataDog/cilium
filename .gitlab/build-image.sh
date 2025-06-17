@@ -12,7 +12,7 @@ for arg_name in ${IMAGES_TO_MIRROR:-}; do
         echo "Mirroring $source_image_ref to $dest_image_ref"
         crane copy $source_image_ref $dest_image_ref
     fi
-    DOCKER_BUILD_ARGS+="\n${arg_name}=${dest_image_ref}"
+    DOCKER_BUILD_ARGS+=$'\n${arg_name}=${dest_image_ref}'
 done
 IFS=$' '
 
