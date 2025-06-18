@@ -853,20 +853,9 @@ func (ct *ConnectivityTest) deploy(ctx context.Context) error {
 			Labels:      map[string]string{"other": "echo"},
 			Annotations: ct.params.DeploymentAnnotations.Match(echoSameNodeDeploymentName),
 			Affinity: &corev1.Affinity{
-				PodAffinity: &corev1.PodAffinity{
-					RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{
-						{
-							LabelSelector: &metav1.LabelSelector{
-								MatchExpressions: []metav1.LabelSelectorRequirement{
-									{Key: "name", Operator: metav1.LabelSelectorOpIn, Values: []string{clientDeploymentName}},
-								},
-							},
-							TopologyKey: corev1.LabelHostname,
-						},
-					},
-				},
 				NodeAffinity: ct.maybeNodeToNodeEncryptionAffinity(),
 			},
+			NodeSelector:   ct.params.NodeSelector,
 			Tolerations:    ct.params.GetTolerations(),
 			ReadinessProbe: newLocalReadinessProbe(containerPort, "/"),
 		}, ct.params.DNSTestServerImage)
@@ -908,27 +897,12 @@ func (ct *ConnectivityTest) deploy(ctx context.Context) error {
 	if err != nil {
 		ct.Logf("✨ [%s] Deploying %s deployment...", ct.clients.src.ClusterName(), client2DeploymentName)
 		clientDeployment := newDeployment(deploymentParameters{
-			Name:        client2DeploymentName,
-			Kind:        kindClientName,
-			Image:       ct.params.CurlImage,
-			Command:     []string{"/usr/bin/pause"},
-			Labels:      map[string]string{"other": "client"},
-			Annotations: ct.params.DeploymentAnnotations.Match(client2DeploymentName),
-			Affinity: &corev1.Affinity{
-				PodAffinity: &corev1.PodAffinity{
-					RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{
-						{
-							LabelSelector: &metav1.LabelSelector{
-								MatchExpressions: []metav1.LabelSelectorRequirement{
-									{Key: "name", Operator: metav1.LabelSelectorOpIn, Values: []string{clientDeploymentName}},
-								},
-							},
-							TopologyKey: corev1.LabelHostname,
-						},
-					},
-				},
-				NodeAffinity: ct.maybeNodeToNodeEncryptionAffinity(),
-			},
+			Name:         client2DeploymentName,
+			Kind:         kindClientName,
+			Image:        ct.params.CurlImage,
+			Command:      []string{"/usr/bin/pause"},
+			Labels:       map[string]string{"other": "client"},
+			Annotations:  ct.params.DeploymentAnnotations.Match(client2DeploymentName),
 			NodeSelector: ct.params.NodeSelector,
 			Tolerations:  ct.params.GetTolerations(),
 		})
@@ -1068,7 +1042,7 @@ func (ct *ConnectivityTest) deploy(ctx context.Context) error {
 							{
 								LabelSelector: &metav1.LabelSelector{
 									MatchExpressions: []metav1.LabelSelectorRequirement{
-										{Key: "name", Operator: metav1.LabelSelectorOpIn, Values: []string{clientDeploymentName}},
+										{Key: "name", Operator: metav1.LabelSelectorOpIn, Values: []string{clientDeploymentName, client2DeploymentName}},
 									},
 								},
 								TopologyKey: corev1.LabelHostname,
