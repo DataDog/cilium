@@ -252,6 +252,9 @@ func newDeployment(p deploymentParameters) *appsv1.Deployment {
 
 	maps.Copy(dep.Spec.Template.ObjectMeta.Labels, p.Labels)
 
+	dep.Spec.Template.ObjectMeta.Labels["team"] = "compute"
+	dep.Spec.Template.ObjectMeta.Labels["service"] = "cilium-connectivity-tests"
+
 	return dep
 }
 
