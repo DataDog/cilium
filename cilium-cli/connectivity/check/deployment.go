@@ -261,6 +261,9 @@ func newDeployment(p deploymentParameters) *appsv1.Deployment {
 		dep.Spec.Template.Spec.DNSPolicy = "ClusterFirstWithHostNet"
 	}
 
+	dep.Spec.Template.ObjectMeta.Labels["team"] = "compute"
+	dep.Spec.Template.ObjectMeta.Labels["service"] = "cilium-connectivity-tests"
+
 	return dep
 }
 
