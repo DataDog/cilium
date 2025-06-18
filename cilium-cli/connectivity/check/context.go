@@ -351,6 +351,12 @@ func (ct *ConnectivityTest) setupAndValidate(ctx context.Context, extra SetupHoo
 	if err := extra.DetectFeatures(ctx, ct); err != nil {
 		return err
 	}
+	// Manually register local redirect policy as disabled to avoid creating the corresponding test pods that
+	// require running on the same node and are hence source of flakiness for the connectivity tests because of
+	// scheduling difficulties. This is fine as we don't run any of the local redirect policy related tests anyway
+	ct.ForceDisableFeature(features.LocalRedirectPolicy)
+	// Disable the new CCNP tests
+	ct.ForceDisableFeature(features.CCNP)
 
 	if ct.debug() {
 		ct.Debug("Detected features:")
