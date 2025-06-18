@@ -767,7 +767,7 @@ func (a *crdAllocator) buildAllocationResult(ip net.IP, ipInfo *ipamTypes.Alloca
 				if a.conf.EnableIPMasqAgent {
 					nonMasqCidrs, err := a.store.ipMasqMap.Dump()
 					if err != nil {
-						a.logger.Warn("Failed to dump IPMasqBPFMap", logfields.Error, err)
+						log.Warn("Failed to dump IPMasqBPFMap", logfields.Error, err)
 					}
 					for _, prefix := range nonMasqCidrs {
 						result.CIDRs = append(result.CIDRs, prefix.String())
