@@ -130,6 +130,7 @@ func newIPMasqAgent(configPath string, ipMasqMap IPMasqMap) (*IPMasqAgent, error
 // Start starts the ip-masq-agent goroutine which tracks the config file and
 // updates the BPF map accordingly.
 func (a *IPMasqAgent) Start() {
+	log.Info("Anton-Test: Started ip-masq-agent")
 	if err := a.restore(); err != nil {
 		log.WithError(err).Warn("Failed to restore")
 	}
@@ -213,6 +214,8 @@ func (a *IPMasqAgent) Update() error {
 			delete(a.nonMasqCIDRsInMap, cidrStr)
 		}
 	}
+
+	log.Info("Anton-Test: Updated ip-masq-agent CIDRs ", a.nonMasqCIDRsFromConfig)
 
 	return nil
 }

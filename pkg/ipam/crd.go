@@ -766,6 +766,7 @@ func (a *crdAllocator) buildAllocationResult(ip net.IP, ipInfo *ipamTypes.Alloca
 				// If the ip-masq-agent is enabled, get the CIDRs that are not masqueraded
 				if a.conf.EnableIPMasqAgent {
 					nonMasqCidrs, err := a.store.ipMasqMap.Dump()
+					log.Info("Anton-Test: Found non-masq CIDRs: ", len(nonMasqCidrs), " for ", ip.String())
 					if err != nil {
 						log.Warn("Failed to dump IPMasqBPFMap", logfields.Error, err)
 					}
