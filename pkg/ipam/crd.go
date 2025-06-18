@@ -34,7 +34,6 @@ import (
 	"github.com/cilium/cilium/pkg/k8s/utils"
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/logging/logfields"
-	ipmasqMap "github.com/cilium/cilium/pkg/maps/ipmasq"
 	"github.com/cilium/cilium/pkg/node"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/cilium/pkg/option"
@@ -80,8 +79,6 @@ type nodeStore struct {
 	conf      *option.DaemonConfig
 	mtuConfig MtuConfiguration
 	sysctl    sysctl.Sysctl
-
-	ipMasqMap ipmasq.IPMasqMap
 }
 
 // newNodeStore initializes a new store which reflects the CiliumNode custom
@@ -105,7 +102,6 @@ func newNodeStore(
 		mtuConfig:          mtuConfig,
 		clientset:          clientset,
 		sysctl:             sysctl,
-		ipMasqMap:          &ipmasqMap.IPMasqBPFMap{},
 	}
 	store.restoreFinished = make(chan struct{})
 
@@ -749,6 +745,7 @@ func (a *crdAllocator) buildAllocationResult(ip net.IP, ipInfo *ipamTypes.Alloca
 	if a.store.ownNode == nil {
 		return
 	}
+
 	switch a.conf.IPAMMode() {
 
 	// In ENI mode, the Resource points to the ENI so we can derive the
@@ -765,13 +762,12 @@ func (a *crdAllocator) buildAllocationResult(ip net.IP, ipInfo *ipamTypes.Alloca
 				}
 				// If the ip-masq-agent is enabled, get the CIDRs that are not masqueraded
 				if a.conf.EnableIPMasqAgent {
-					nonMasqCidrs, err := a.store.ipMasqMap.Dump()
+
+					ipmasqAgent := ipmasq.NewIPMasqAgent(option.Config.IPMasqAgentConfigPath)
+					nonMasqCidrs := ipmasqAgent.NonMasqCIDRsFromConfig()
 					log.Info("Anton-Test: Found non-masq CIDRs: ", len(nonMasqCidrs), " for ", ip.String())
-					if err != nil {
-						log.Warn("Failed to dump IPMasqBPFMap", logfields.Error, err)
-					}
 					for _, prefix := range nonMasqCidrs {
-						result.CIDRs = append(result.CIDRs, prefix.String())
+						result.CIDRs = append(result.CIDRs, prefix)
 					}
 				}
 				if eni.Subnet.CIDR != "" {

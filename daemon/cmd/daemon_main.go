@@ -1805,11 +1805,11 @@ func startDaemon(d *Daemon, restoredEndpoints *endpointRestoreState, cleaner *da
 	}
 
 	if option.Config.EnableIPMasqAgent {
-		ipmasqAgent, err := ipmasq.NewIPMasqAgent(option.Config.IPMasqAgentConfigPath)
+		ipmasqAgent := ipmasq.NewIPMasqAgent(option.Config.IPMasqAgentConfigPath)
+		err := ipmasqAgent.Start()
 		if err != nil {
-			return fmt.Errorf("failed to create ipmasq agent: %w", err)
+			return fmt.Errorf("failed to start ipmasq agent: %w", err)
 		}
-		ipmasqAgent.Start()
 	}
 
 	go func() {
