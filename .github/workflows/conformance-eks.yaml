@@ -56,11 +56,12 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  test_concurrency: 3
   clusterName: ${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ github.run_id }}-${{ github.run_attempt }}
   # renovate: datasource=github-releases depName=eksctl-io/eksctl
-  eksctl_version: v0.207.0
+  eksctl_version: v0.210.0
   # renovate: datasource=github-releases depName=kubernetes/kubernetes
-  kubectl_version: v1.33.0
+  kubectl_version: v1.33.1
 
 jobs:
   echo-inputs:
@@ -119,7 +120,7 @@ jobs:
           cat /tmp/matrix.json
 
       - name: Set up AWS CLI credentials
-        uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d2dd070d28d111c5fe6722 # v4.1.0
+        uses: aws-actions/configure-aws-credentials@b47578312673ae6fa5b5096b330d9fbac3d116df # v4.2.1
         with:
           role-to-assume: ${{ secrets.AWS_PR_ASSUME_ROLE }}
           aws-region: us-west-1
@@ -212,7 +213,7 @@ jobs:
             CILIUM_INSTALL_DEFAULTS+=" --helm-set kubeProxyReplacement=true"
           fi
 
-          CONNECTIVITY_TEST_DEFAULTS="--flow-validation=disabled --hubble=false --test-concurrency=3 \
+          CONNECTIVITY_TEST_DEFAULTS="--flow-validation=disabled --hubble=false \
             --collect-sysdump-on-failure --external-target amazon.com."
           echo cilium_install_defaults=${CILIUM_INSTALL_DEFAULTS} >> $GITHUB_OUTPUT
           echo connectivity_test_defaults=${CONNECTIVITY_TEST_DEFAULTS} >> $GITHUB_OUTPUT
@@ -234,7 +235,7 @@ jobs:
           rm eksctl_$(uname -s)_amd64.tar.gz
 
       - name: Set up AWS CLI credentials
-        uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d2dd070d28d111c5fe6722 # v4.1.0
+        uses: aws-actions/configure-aws-credentials@b47578312673ae6fa5b5096b330d9fbac3d116df # v4.2.1
         with:
           role-to-assume: ${{ secrets.AWS_PR_ASSUME_ROLE }}
           aws-region: ${{ matrix.region }}
@@ -349,6 +350,7 @@ jobs:
       - name: Run connectivity test (${{ join(matrix.*, ', ') }})
         run: |
           cilium connectivity test ${{ steps.vars.outputs.connectivity_test_defaults }} \
+          --test-concurrency=${{ env.test_concurrency }} \
           --junit-file "cilium-junits/${{ env.job_name }} (${{ join(matrix.*, ', ') }}) - 1.xml" \
           --junit-property github_job_step="Run connectivity test (${{ join(matrix.*, ', ') }})"
 
@@ -376,6 +378,7 @@ jobs:
         uses: ./.github/actions/conn-disrupt-test-check
         with:
           full-test: 'true'
+          test-concurrency: ${{ env.test_concurrency }}
           extra-connectivity-test-flags: ${{ steps.vars.outputs.connectivity_test_defaults }}
 
       - name: Post-test information gathering
@@ -483,7 +486,7 @@ jobs:
           rm eksctl_$(uname -s)_amd64.tar.gz
 
       - name: Set up AWS CLI credentials
-        uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d2dd070d28d111c5fe6722 # v4.1.0
+        uses: aws-actions/configure-aws-credentials@b47578312673ae6fa5b5096b330d9fbac3d116df # v4.2.1
         with:
           role-to-assume: ${{ secrets.AWS_PR_ASSUME_ROLE }}
           aws-region: ${{ matrix.region }}
