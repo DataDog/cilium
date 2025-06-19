@@ -36,14 +36,14 @@ before_script:
     DDSIGN_ID_TOKEN:
       aud: image-integrity
   script: |
-    set -euo pipefail
+    set -euxo pipefail
 
     # Replicate images
     IFS=$'\n'
     for arg_name in ${IMAGES_TO_MIRROR:-}; do
       source_image_ref=$(grep "ARG ${arg_name}=" $DOCKERFILE_PATH | sed 's/^[^=]*=//')
       dest_image_ref="registry.ddbuild.io"$(echo $source_image_ref | sed 's|^[^/]*||')
-      if ! crane manifest $dest_image_ref; then
+      if ! crane manifest $dest_image_ref > /dev/null; then
         echo "Mirroring $source_image_ref to $dest_image_ref"
         crane copy $source_image_ref $dest_image_ref
       fi
@@ -52,7 +52,7 @@ before_script:
     IFS=$' '
 
     # Construct valid --build-args arguments from the DOCKER_BUILD_ARGS variable
-    BUILD_ARGS="--build-arg MODIFIERS=GOEXPERIMENT=boringcrypto"
+    BUILD_ARGS=""
     IFS=$'\n'
     for arg in ${DOCKER_BUILD_ARGS:-}; do
       BUILD_ARGS+=" $(echo "--build-arg $arg")"
@@ -66,6 +66,7 @@ before_script:
     docker buildx build --platform linux/amd64,linux/arm64 \
       --tag "$IMAGE_REF" \
       --file "$DOCKERFILE_PATH" \
+      --build-arg MODIFIERS="GOEXPERIMENT=boringcrypto BORINGCRYPTO=1" \
       $BUILD_ARGS \
       --label CILIUM_VERSION="$(cat VERSION)" \
       --label target=prod \
@@ -86,6 +87,7 @@ before_script:
       docker buildx build --platform linux/amd64,linux/arm64 \
         --tag "$IMAGE_REF_DEBUG" \
         --file "$DOCKERFILE_PATH" \
+        --build-arg MODIFIERS="GOEXPERIMENT=boringcrypto BORINGCRYPTO=1" \
         $BUILD_ARGS \
         --label CILIUM_VERSION="$(cat VERSION)" \
         --label target=staging \
@@ -104,7 +106,7 @@ branch-pipeline:
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
   script: |
-    set -euo pipefail
+    set -euxo pipefail
 
     BRANCHES=(
       "cilium-cli"
@@ -126,7 +128,7 @@ tag-pipeline:
       when: never
     - if: $CI_PIPELINE_SOURCE == "pipeline"
   script: |
-    set -euo pipefail
+    set -euxo pipefail
 
     # Find the 3 latest -dd tags on the current branch
     GIT_TAGS_TO_BUILD=$(git --no-pager tag --sort=-creatordate --merged HEAD | grep -E ".*-dd[0-9]+$" | head -n 3)
