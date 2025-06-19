@@ -270,15 +270,10 @@ func (a *IPMasqAgent) readConfig() (bool, error) {
 }
 
 func (a *IPMasqAgent) NonMasqCIDRsFromConfig() []string {
-	isEmpty, err := a.readConfig()
-	if err != nil {
-		log.Warn("Cannot retrieve nonMasqCIDRs from config", logfields.Error, err)
-		return []string{}
+	if len(a.nonMasqCIDRsFromConfig) > 0 {
+		return slices.Collect(maps.Keys(a.nonMasqCIDRsFromConfig))
 	}
-	if isEmpty {
-		return slices.Collect(maps.Keys(defaultNonMasqCIDRs))
-	}
-	return slices.Collect(maps.Keys(a.nonMasqCIDRsFromConfig))
+	return slices.Collect(maps.Keys(defaultNonMasqCIDRs))
 }
 
 // restore dumps the ipmasq BPF map and populates IPMasqAgent.nonMasqCIDRsInMap
