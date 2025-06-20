@@ -107,28 +107,28 @@ func Test_meshEndpointSlice_Reconcile(t *testing.T) {
 		}),
 	)
 	tlog := hivetest.Logger(t)
-	err := hive.Start(tlog, context.Background())
+	err := hive.Start(tlog, t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer hive.Stop(tlog, context.Background())
+	defer hive.Stop(tlog, t.Context())
 
 	globalService := common.NewGlobalServiceCache(hivetest.Logger(t), metric.NewGauge(metric.GaugeOpts{}))
 	podInformer := newMeshPodInformer(logger, globalService)
 	nodeInformer := newMeshNodeInformer(logger)
 	controller, serviceInformer, endpointsliceInformer := newEndpointSliceMeshController(
-		context.Background(), logger,
+		t.Context(), logger,
 		EndpointSliceSyncConfig{ClusterMeshMaxEndpointsPerSlice: 100},
 		podInformer, nodeInformer, fakeClient, services, globalService,
 	)
-	endpointsliceInformer.Start(context.Background().Done())
-	go serviceInformer.Start(context.Background())
-	cache.WaitForCacheSync(context.Background().Done(), serviceInformer.HasSynced)
+	endpointsliceInformer.Start(t.Context().Done())
+	go serviceInformer.Start(t.Context())
+	cache.WaitForCacheSync(t.Context().Done(), serviceInformer.HasSynced)
 
-	go controller.Run(context.Background(), 1)
+	go controller.Run(t.Context(), 1)
 	nodeInformer.onClusterAdd(remoteClusterName)
 
-	svcStore, _ := services.Store(context.Background())
+	svcStore, _ := services.Store(t.Context())
 
 	tick := 10 * time.Millisecond
 	timeout := 200 * time.Millisecond

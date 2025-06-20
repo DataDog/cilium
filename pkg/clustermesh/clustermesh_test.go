@@ -61,7 +61,7 @@ func TestClusterMesh(t *testing.T) {
 	logger := hivetest.Logger(t)
 
 	var wg sync.WaitGroup
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer func() {
 		cancel()
 		wg.Wait()

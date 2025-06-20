@@ -95,8 +95,8 @@ func (w *remoteEtcdClientWrapper) ListAndWatch(ctx context.Context, prefix strin
 	return events
 }
 
-func clockAdvance(t assert.TestingT, fc *baseclocktest.FakeClock, d time.Duration) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+func clockAdvance(t *testing.T, fc *baseclocktest.FakeClock, d time.Duration) {
+	ctx, cancel := context.WithTimeout(t.Context(), timeout)
 	defer cancel()
 
 	for !fc.HasWaiters() {
@@ -224,13 +224,13 @@ func TestRemoteClusterRun(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var wg sync.WaitGroup
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 
 			t.Cleanup(func() {
 				cancel()
 				wg.Wait()
 
-				require.NoError(t, client.DeletePrefix(context.Background(), kvstore.BaseKeyPrefix))
+				require.NoError(t, client.DeletePrefix(t.Context(), kvstore.BaseKeyPrefix))
 			})
 
 			remoteClient := &remoteEtcdClientWrapper{
@@ -315,9 +315,9 @@ func TestRemoteClusterRun(t *testing.T) {
 			go clockAdvance(t, fakeclock, 3*time.Minute)
 
 			// Assert that Remove() removes all keys previously created
-			rc.Remove(context.Background())
+			rc.Remove(t.Context())
 
-			pairs, err := client.ListPrefix(context.Background(), kvstore.BaseKeyPrefix)
+			pairs, err := client.ListPrefix(t.Context(), kvstore.BaseKeyPrefix)
 			require.NoError(t, err, "Failed to retrieve kvstore keys")
 			require.Empty(t, pairs, "Cached keys not correctly removed")
 		})
@@ -350,7 +350,7 @@ func (lcw *localClientWrapper) DeletePrefix(ctx context.Context, path string) er
 func TestRemoteClusterRemove(t *testing.T) {
 	testutils.IntegrationTest(t)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	client := kvstore.SetupDummyWithConfigOpts(t, "etcd",
 		// Explicitly set higher QPS than the default to speedup the test
 		map[string]string{kvstore.EtcdRateLimitOption: "100"},
@@ -497,7 +497,7 @@ func TestRemoteClusterRemove(t *testing.T) {
 	}
 
 	// The context expired during grace period
-	cctx, cancel := context.WithCancel(context.Background())
+	cctx, cancel := context.WithCancel(t.Context())
 	bgrun(cctx, rcs["foo"].Remove)
 	clockAdvance(t, fakeclock, 1*time.Minute)
 	cancel()
@@ -509,7 +509,7 @@ func TestRemoteClusterRemove(t *testing.T) {
 	}
 
 	// The context expired during backoff
-	cctx, cancel = context.WithCancel(context.Background())
+	cctx, cancel = context.WithCancel(t.Context())
 	bgrun(cctx, rcs["baz"].Remove)
 	clockAdvance(t, fakeclock, 1*time.Minute)
 	cancel()
@@ -526,7 +526,7 @@ func TestRemoteClusterRemoveShutdown(t *testing.T) {
 	// in-progress remote cluster removals.
 	testutils.IntegrationTest(t)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	client := kvstore.SetupDummyWithConfigOpts(t, "etcd",
 		// Explicitly set higher QPS than the default to speedup the test
 		map[string]string{kvstore.EtcdRateLimitOption: "100"},
@@ -589,7 +589,7 @@ func TestRemoteClusterStatus(t *testing.T) {
 	client := kvstore.SetupDummy(t, "etcd")
 
 	var wg sync.WaitGroup
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	t.Cleanup(func() {
 		cancel()
@@ -741,7 +741,7 @@ func TestRemoteClusterSync(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			ctx, cancel := context.WithTimeout(t.Context(), timeout)
 			defer cancel()
 
 			mockClusterMesh := &mockClusterMesh{

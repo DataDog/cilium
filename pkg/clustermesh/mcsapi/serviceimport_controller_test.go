@@ -522,7 +522,7 @@ func Test_mcsServiceImport_Reconcile(t *testing.T) {
 			Name:      "local-only",
 			Namespace: "default",
 		}
-		result, err := r.Reconcile(context.Background(), ctrl.Request{
+		result, err := r.Reconcile(t.Context(), ctrl.Request{
 			NamespacedName: key,
 		})
 
@@ -555,7 +555,7 @@ func Test_mcsServiceImport_Reconcile(t *testing.T) {
 			Name:      "remote-only",
 			Namespace: "default",
 		}
-		result, err := r.Reconcile(context.Background(), ctrl.Request{
+		result, err := r.Reconcile(t.Context(), ctrl.Request{
 			NamespacedName: key,
 		})
 
@@ -574,7 +574,7 @@ func Test_mcsServiceImport_Reconcile(t *testing.T) {
 			Name:      "unknown-ns",
 			Namespace: "unknown",
 		}
-		result, err := r.Reconcile(context.Background(), ctrl.Request{
+		result, err := r.Reconcile(t.Context(), ctrl.Request{
 			NamespacedName: key,
 		})
 
@@ -591,7 +591,7 @@ func Test_mcsServiceImport_Reconcile(t *testing.T) {
 			Name:      "unknown",
 			Namespace: "default",
 		}
-		result, err := r.Reconcile(context.Background(), ctrl.Request{
+		result, err := r.Reconcile(t.Context(), ctrl.Request{
 			NamespacedName: key,
 		})
 
@@ -608,7 +608,7 @@ func Test_mcsServiceImport_Reconcile(t *testing.T) {
 			Name:      "basic",
 			Namespace: "default",
 		}
-		result, err := r.Reconcile(context.Background(), ctrl.Request{
+		result, err := r.Reconcile(t.Context(), ctrl.Request{
 			NamespacedName: key,
 		})
 
@@ -646,7 +646,7 @@ func Test_mcsServiceImport_Reconcile(t *testing.T) {
 			Name:      "delete-local",
 			Namespace: "default",
 		}
-		result, err := r.Reconcile(context.Background(), ctrl.Request{
+		result, err := r.Reconcile(t.Context(), ctrl.Request{
 			NamespacedName: key,
 		})
 
@@ -661,9 +661,9 @@ func Test_mcsServiceImport_Reconcile(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, svcExport)
 
-		require.NoError(t, c.Delete(context.Background(), svcExport))
+		require.NoError(t, c.Delete(t.Context(), svcExport))
 
-		result, err = r.Reconcile(context.Background(), ctrl.Request{
+		result, err = r.Reconcile(t.Context(), ctrl.Request{
 			NamespacedName: key,
 		})
 
@@ -680,7 +680,7 @@ func Test_mcsServiceImport_Reconcile(t *testing.T) {
 			Name:      "delete-remote",
 			Namespace: "default",
 		}
-		result, err := r.Reconcile(context.Background(), ctrl.Request{
+		result, err := r.Reconcile(t.Context(), ctrl.Request{
 			NamespacedName: key,
 		})
 
@@ -694,7 +694,7 @@ func Test_mcsServiceImport_Reconcile(t *testing.T) {
 		remoteSvcExport := globalServiceExports.GetServiceExportByCluster(key)[remoteClusterName]
 		globalServiceExports.OnDelete(remoteSvcExport)
 
-		result, err = r.Reconcile(context.Background(), ctrl.Request{
+		result, err = r.Reconcile(t.Context(), ctrl.Request{
 			NamespacedName: key,
 		})
 
@@ -712,7 +712,7 @@ func Test_mcsServiceImport_Reconcile(t *testing.T) {
 			Name:      "multiple-clusters",
 			Namespace: "default",
 		}
-		result, err := r.Reconcile(context.Background(), ctrl.Request{
+		result, err := r.Reconcile(t.Context(), ctrl.Request{
 			NamespacedName: key,
 		})
 
@@ -734,7 +734,7 @@ func Test_mcsServiceImport_Reconcile(t *testing.T) {
 			SessionAffinity:         corev1.ServiceAffinityNone,
 		})
 
-		result, err = r.Reconcile(context.Background(), ctrl.Request{
+		result, err = r.Reconcile(t.Context(), ctrl.Request{
 			NamespacedName: key,
 		})
 
@@ -759,7 +759,7 @@ func Test_mcsServiceImport_Reconcile(t *testing.T) {
 			Name:      "svcimport-exist",
 			Namespace: "default",
 		}
-		result, err := r.Reconcile(context.Background(), ctrl.Request{
+		result, err := r.Reconcile(t.Context(), ctrl.Request{
 			NamespacedName: key,
 		})
 
@@ -785,7 +785,7 @@ func Test_mcsServiceImport_Reconcile(t *testing.T) {
 			Name:      "conflict-type-remove",
 			Namespace: "default",
 		}
-		result, err := r.Reconcile(context.Background(), ctrl.Request{
+		result, err := r.Reconcile(t.Context(), ctrl.Request{
 			NamespacedName: key,
 		})
 
@@ -814,7 +814,7 @@ func Test_mcsServiceImport_Reconcile(t *testing.T) {
 			SessionAffinity:         corev1.ServiceAffinityNone,
 		})
 
-		result, err = r.Reconcile(context.Background(), ctrl.Request{
+		result, err = r.Reconcile(t.Context(), ctrl.Request{
 			NamespacedName: key,
 		})
 
@@ -932,7 +932,7 @@ func Test_mcsServiceImport_Reconcile(t *testing.T) {
 				Name:      conflictTest.name,
 				Namespace: "default",
 			}
-			result, err := r.Reconcile(context.Background(), ctrl.Request{
+			result, err := r.Reconcile(t.Context(), ctrl.Request{
 				NamespacedName: key,
 			})
 
@@ -970,7 +970,7 @@ func Test_mcsServiceImport_Reconcile(t *testing.T) {
 				Name:      conflictTest.name,
 				Namespace: "default",
 			}
-			result, err := r.Reconcile(context.Background(), ctrl.Request{
+			result, err := r.Reconcile(t.Context(), ctrl.Request{
 				NamespacedName: key,
 			})
 

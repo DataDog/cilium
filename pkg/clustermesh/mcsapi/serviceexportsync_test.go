@@ -102,7 +102,7 @@ func Test_mcsServiceExportSync_Reconcile(t *testing.T) {
 	tick := 10 * time.Millisecond
 	timeout := 5 * time.Second
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer func() {
 		cancel()
 	}()
@@ -129,7 +129,7 @@ func Test_mcsServiceExportSync_Reconcile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer hive.Stop(tlog, context.Background())
+	defer hive.Stop(tlog, t.Context())
 	serviceStore, err := services.Store(ctx)
 	require.NoError(t, err)
 	serviceExportStore, err := serviceExports.Store(ctx)

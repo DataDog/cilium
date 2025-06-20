@@ -167,7 +167,7 @@ func TestScript(t *testing.T) {
 							MaxConnectedClusters: 255,
 						},
 					}
-					err := clustercfg.Set(context.TODO(), name, config, client)
+					err := clustercfg.Set(t.Context(), name, config, client)
 					require.NoErrorf(t, err, "Failed to set cluster config for %s", name)
 				}
 			}),
@@ -182,7 +182,7 @@ func TestScript(t *testing.T) {
 		require.NoError(t, flags.Parse(args), "flags.Parse")
 
 		t.Cleanup(func() {
-			assert.NoError(t, h.Stop(log, context.TODO()))
+			assert.NoError(t, h.Stop(log, t.Context()))
 		})
 		cmds, err := h.ScriptCommands(log)
 		require.NoError(t, err, "ScriptCommands")
@@ -195,7 +195,7 @@ func TestScript(t *testing.T) {
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	t.Cleanup(cancel)
 
 	scripttest.Test(t,

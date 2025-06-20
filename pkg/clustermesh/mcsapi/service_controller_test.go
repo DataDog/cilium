@@ -4,7 +4,6 @@
 package mcsapi
 
 import (
-	"context"
 	"testing"
 
 	"github.com/cilium/hive/hivetest"
@@ -259,7 +258,7 @@ func Test_mcsDerivedService_Reconcile(t *testing.T) {
 				Name:      name,
 				Namespace: "default",
 			}
-			result, err := r.Reconcile(context.Background(), ctrl.Request{
+			result, err := r.Reconcile(t.Context(), ctrl.Request{
 				NamespacedName: key,
 			})
 
@@ -271,7 +270,7 @@ func Test_mcsDerivedService_Reconcile(t *testing.T) {
 				Namespace: key.Namespace,
 			}
 			svc := &corev1.Service{}
-			err = c.Get(context.Background(), keyDerived, svc)
+			err = c.Get(t.Context(), keyDerived, svc)
 			require.NoError(t, err)
 
 			require.Len(t, svc.OwnerReferences, 1)
@@ -289,7 +288,7 @@ func Test_mcsDerivedService_Reconcile(t *testing.T) {
 			require.Equal(t, "test-target-port", svc.Spec.Ports[1].TargetPort.String())
 
 			svcImport := &mcsapiv1alpha1.ServiceImport{}
-			err = c.Get(context.Background(), key, svcImport)
+			err = c.Get(t.Context(), key, svcImport)
 			require.NoError(t, err)
 			require.Equal(t, keyDerived.Name, svcImport.Annotations[mcsapicontrollers.DerivedServiceAnnotation])
 		}
@@ -300,7 +299,7 @@ func Test_mcsDerivedService_Reconcile(t *testing.T) {
 			Name:      "import-only",
 			Namespace: "default",
 		}
-		result, err := r.Reconcile(context.Background(), ctrl.Request{
+		result, err := r.Reconcile(t.Context(), ctrl.Request{
 			NamespacedName: key,
 		})
 
@@ -312,7 +311,7 @@ func Test_mcsDerivedService_Reconcile(t *testing.T) {
 			Namespace: key.Namespace,
 		}
 		svc := &corev1.Service{}
-		err = c.Get(context.Background(), keyDerived, svc)
+		err = c.Get(t.Context(), keyDerived, svc)
 		require.NoError(t, err)
 
 		require.Len(t, svc.OwnerReferences, 1)
@@ -331,7 +330,7 @@ func Test_mcsDerivedService_Reconcile(t *testing.T) {
 			Name:      "import-and-local",
 			Namespace: "default",
 		}
-		result, err := r.Reconcile(context.Background(), ctrl.Request{
+		result, err := r.Reconcile(t.Context(), ctrl.Request{
 			NamespacedName: key,
 		})
 
@@ -343,7 +342,7 @@ func Test_mcsDerivedService_Reconcile(t *testing.T) {
 			Namespace: key.Namespace,
 		}
 		svc := &corev1.Service{}
-		err = c.Get(context.Background(), keyDerived, svc)
+		err = c.Get(t.Context(), keyDerived, svc)
 		require.NoError(t, err)
 
 		require.Nil(t, svc.Spec.Selector)
@@ -354,7 +353,7 @@ func Test_mcsDerivedService_Reconcile(t *testing.T) {
 			Name:      "export-only",
 			Namespace: "default",
 		}
-		result, err := r.Reconcile(context.Background(), ctrl.Request{
+		result, err := r.Reconcile(t.Context(), ctrl.Request{
 			NamespacedName: key,
 		})
 
@@ -366,7 +365,7 @@ func Test_mcsDerivedService_Reconcile(t *testing.T) {
 			Namespace: key.Namespace,
 		}
 		svc := &corev1.Service{}
-		err = c.Get(context.Background(), keyDerived, svc)
+		err = c.Get(t.Context(), keyDerived, svc)
 		require.True(t, k8sApiErrors.IsNotFound(err), "Should return not found error")
 	})
 
@@ -375,7 +374,7 @@ func Test_mcsDerivedService_Reconcile(t *testing.T) {
 			Name:      "export-no-svc",
 			Namespace: "default",
 		}
-		result, err := r.Reconcile(context.Background(), ctrl.Request{
+		result, err := r.Reconcile(t.Context(), ctrl.Request{
 			NamespacedName: key,
 		})
 
@@ -387,7 +386,7 @@ func Test_mcsDerivedService_Reconcile(t *testing.T) {
 			Namespace: key.Namespace,
 		}
 		svc := &corev1.Service{}
-		err = c.Get(context.Background(), keyDerived, svc)
+		err = c.Get(t.Context(), keyDerived, svc)
 		require.True(t, k8sApiErrors.IsNotFound(err), "Should return not found error")
 	})
 
@@ -396,7 +395,7 @@ func Test_mcsDerivedService_Reconcile(t *testing.T) {
 			Name:      "switch-to-headless",
 			Namespace: "default",
 		}
-		result, err := r.Reconcile(context.Background(), ctrl.Request{
+		result, err := r.Reconcile(t.Context(), ctrl.Request{
 			NamespacedName: key,
 		})
 
@@ -408,7 +407,7 @@ func Test_mcsDerivedService_Reconcile(t *testing.T) {
 			Namespace: key.Namespace,
 		}
 		svc := &corev1.Service{}
-		err = c.Get(context.Background(), keyDerived, svc)
+		err = c.Get(t.Context(), keyDerived, svc)
 		require.NoError(t, err)
 
 		require.Equal(t, corev1.ClusterIPNone, svc.Spec.ClusterIP)

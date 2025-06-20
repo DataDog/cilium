@@ -1449,7 +1449,7 @@ func TestRouterIDAllocation(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			req := require.New(t)
-			ctx, cancel := context.WithTimeout(context.Background(), TestTimeout)
+			ctx, cancel := context.WithTimeout(t.Context(), TestTimeout)
 			defer cancel()
 
 			f, watchersReady := newFixture(t, ctx, require.New(t), daemonConfigBGPRouterID)

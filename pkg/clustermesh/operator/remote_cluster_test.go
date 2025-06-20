@@ -78,13 +78,13 @@ func TestRemoteClusterStatus(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var wg sync.WaitGroup
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 
 			t.Cleanup(func() {
 				cancel()
 				wg.Wait()
 
-				require.NoError(t, client.DeletePrefix(context.Background(), kvstore.BaseKeyPrefix))
+				require.NoError(t, client.DeletePrefix(t.Context(), kvstore.BaseKeyPrefix))
 			})
 
 			metrics := NewMetrics()
@@ -179,7 +179,7 @@ func TestRemoteClusterHooks(t *testing.T) {
 
 	client := kvstore.SetupDummy(t, "etcd")
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	var wg sync.WaitGroup
 	t.Cleanup(func() {
 		cancel()

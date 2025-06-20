@@ -56,7 +56,7 @@ func TestClusterMesh(t *testing.T) {
 	capabilities := types.CiliumClusterConfigCapabilities{Cached: true, MaxConnectedClusters: 511}
 	for i, cluster := range []string{"cluster1", "cluster2", "cluster3"} {
 		cfg := types.CiliumClusterConfig{ID: uint32(i + 1), Capabilities: capabilities}
-		require.NoError(t, clustercfg.Set(context.Background(), cluster, cfg, client))
+		require.NoError(t, clustercfg.Set(t.Context(), cluster, cfg, client))
 	}
 
 	var ready, stopped, removed lock.Map[string, bool]
@@ -200,7 +200,7 @@ func TestClusterMeshMultipleAddRemove(t *testing.T) {
 	for i, cluster := range []string{"cluster1", "cluster2", "cluster3", "cluster4"} {
 		writeFile(t, path(cluster), fmt.Sprintf("endpoints:\n- %s\n", kvstore.EtcdDummyAddress()))
 		cfg := types.CiliumClusterConfig{ID: uint32(i + 1)}
-		require.NoError(t, clustercfg.Set(context.Background(), cluster, cfg, client))
+		require.NoError(t, clustercfg.Set(t.Context(), cluster, cfg, client))
 	}
 
 	var ready lock.Map[string, bool]

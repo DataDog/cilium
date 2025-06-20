@@ -26,7 +26,7 @@ func TestSyncState(t *testing.T) {
 	for _, f := range doneFuncs {
 		// ensure that SyncState is not complete until all doneFuncs are called
 		require.False(t, ss.Complete())
-		f(context.Background())
+		f(t.Context())
 	}
 
 	require.True(t, ss.Complete())

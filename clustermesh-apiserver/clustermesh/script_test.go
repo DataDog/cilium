@@ -100,7 +100,7 @@ func TestScript(t *testing.T) {
 		require.NoError(t, flags.Parse(args), "flags.Parse")
 
 		t.Cleanup(func() {
-			assert.NoError(t, h.Stop(log, context.TODO()))
+			assert.NoError(t, h.Stop(log, context.Background()))
 		})
 		cmds, err := h.ScriptCommands(log)
 		require.NoError(t, err, "ScriptCommands")
@@ -113,7 +113,7 @@ func TestScript(t *testing.T) {
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	t.Cleanup(cancel)
 
 	scripttest.Test(t,

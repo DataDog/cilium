@@ -4,7 +4,6 @@
 package clustermesh
 
 import (
-	"context"
 	"reflect"
 	"slices"
 	"testing"
@@ -706,7 +705,7 @@ func TestGetCASecret(t *testing.T) {
 			cm := K8sClusterMesh{params: Parameters{Namespace: "foo"}}
 			client := k8s.Client{Clientset: fake.NewSimpleClientset(tt.secret)}
 
-			cert, err := cm.getCACert(context.TODO(), &client)
+			cert, err := cm.getCACert(t.Context(), &client)
 			assert.Equal(t, tt.expected, cert)
 			tt.assertErr(t, err)
 		})

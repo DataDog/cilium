@@ -133,7 +133,7 @@ func TestRemoteClusterRun(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			logger := hivetest.Logger(t)
 			var wg sync.WaitGroup
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 
 			// The nils are only used by k8s CRD identities. We default to kvstore.
 			allocator := cache.NewCachingIdentityAllocator(logger, &testidentity.IdentityAllocatorOwnerMock{}, cache.NewTestAllocatorConfig())
@@ -144,7 +144,7 @@ func TestRemoteClusterRun(t *testing.T) {
 				wg.Wait()
 
 				allocator.Close()
-				require.NoError(t, client.DeletePrefix(context.Background(), kvstore.BaseKeyPrefix))
+				require.NoError(t, client.DeletePrefix(t.Context(), kvstore.BaseKeyPrefix))
 			})
 
 			// Populate the kvstore with the appropriate KV pairs
@@ -274,7 +274,7 @@ func TestRemoteClusterClusterIDChange(t *testing.T) {
 	logger := hivetest.Logger(t)
 	store := store.NewFactory(logger, store.MetricsProvider())
 	var wg sync.WaitGroup
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// The nils are only used by k8s CRD identities. We default to kvstore.
 	allocator := cache.NewCachingIdentityAllocator(logger, &testidentity.IdentityAllocatorOwnerMock{}, cache.NewTestAllocatorConfig())

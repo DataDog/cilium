@@ -57,7 +57,7 @@ func (mb *mockBackend) UpdateIfDifferent(_ context.Context, key string, value []
 }
 
 func TestGetSetClusterConfig(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mb := mockBackend{}
 
 	cfg1 := cmtypes.CiliumClusterConfig{ID: 11, Capabilities: cmtypes.CiliumClusterConfigCapabilities{SyncedCanaries: true}}
@@ -100,7 +100,7 @@ func TestEnforceClusterConfig(t *testing.T) {
 	defer func(orig time.Duration) { runInterval = orig }(runInterval)
 	runInterval = 25 * time.Millisecond
 
-	ctx := context.Background()
+	ctx := t.Context()
 	mb := mockBackend{}
 	log := hivetest.Logger(t)
 
