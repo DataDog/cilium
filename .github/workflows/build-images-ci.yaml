@@ -63,12 +63,29 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
 
-      - name: Cleanup Disk space in runner
-        if: runner.name == 'ubuntu-latest'
-        uses: ./.github/actions/disk-cleanup
-
       - name: Set Environment Variables
         uses: ./.github/actions/set-env-variables
+
+      - name: Setup docker volumes into /mnt
+        # This allows us to make use of all available disk.
+        shell: bash
+        run: |
+          sudo systemctl stop docker
+          sudo mv /var/lib/docker/volumes /mnt/docker-volumes
+          sudo ln -s /mnt/docker-volumes /var/lib/docker/volumes
+          sudo systemctl start docker
+
+      - name: Check for disk usage and cleanup /mnt
+        shell: bash
+        run: |
+          echo "# Disk usage"
+          df -h
+          echo "# Usage for /mnt"
+          sudo du --human-readable \
+                --threshold 50m \
+                -- /mnt
+          echo "# Removing /mnt/tmp-pv.img"
+          sudo rm -f '/mnt/tmp-pv.img'
 
       - name: Setup docker volumes into /mnt
         # This allows us to make use of all available disk.
@@ -168,7 +185,7 @@ jobs:
 
       # Import GitHub's cache build to docker cache
       - name: Copy ${{ matrix.name }} Golang cache to docker cache
-        uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1 # v6.16.0
+        uses: docker/build-push-action@1dc73863535b631f98b2378be8619f83b136f4a0 # v6.17.0
         with:
           provenance: false
           context: /tmp/.cache/go
@@ -187,7 +204,7 @@ jobs:
         uses: sigstore/cosign-installer@3454372f43399081ed03b604cb2d021dabca52bb # v3.8.2
 
       - name: CI Build ${{ matrix.name }}
-        uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1 # v6.16.0
+        uses: docker/build-push-action@1dc73863535b631f98b2378be8619f83b136f4a0 # v6.17.0
         id: docker_build_ci
         with:
           provenance: false
@@ -201,7 +218,7 @@ jobs:
             OPERATOR_VARIANT=${{ matrix.name }}
 
       - name: CI race detection Build ${{ matrix.name }}
-        uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1 # v6.16.0
+        uses: docker/build-push-action@1dc73863535b631f98b2378be8619f83b136f4a0 # v6.17.0
         id: docker_build_ci_detect_race_condition
         if: ${{ steps.check.outputs.build != '' && steps.tag.outputs.race_tag != ''}}
         with:
@@ -213,12 +230,12 @@ jobs:
           tags: ${{ steps.tag.outputs.race_tag }}
           target: release
           build-args: |
-            BASE_IMAGE=quay.io/cilium/cilium-runtime:dc1734647705f5cd9e02479b3c7fe340c9416dff@sha256:50f2f9c730685d846e61cb9661ddeb987028851e62c308cabcf9ccc85527f0bb
+            BASE_IMAGE=quay.io/cilium/cilium-runtime:282b9b7c3c7ad1bdf67f18591b6cc6fa51a99e87@sha256:7d24354f9826363a869710963974ab33a88742ac15678abd3421635c22acbcb2
             MODIFIERS="LOCKDEBUG=1 RACE=1"
             OPERATOR_VARIANT=${{ matrix.name }}
 
       - name: CI Unstripped Binaries Build ${{ matrix.name }}
-        uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1 # v6.16.0
+        uses: docker/build-push-action@1dc73863535b631f98b2378be8619f83b136f4a0 # v6.17.0
         id: docker_build_ci_unstripped
         if: ${{ steps.check.outputs.build != '' && steps.tag.outputs.unstripped_tag != ''}}
         with:
@@ -244,7 +261,7 @@ jobs:
           fi
 
       - name: Generate SBOM
-        uses: anchore/sbom-action@9f7302141466aa6482940f15371237e9d9f4c34a # v0.19.0
+        uses: anchore/sbom-action@e11c554f704a0b820cbf8c51673f6945e0731532 # v0.20.0
         with:
           artifact-name: sbom_ci_${{ matrix.name }}_${{ steps.tag.outputs.tag }}.spdx.json
           output-file: ./sbom_ci_${{ matrix.name }}_${{ steps.tag.outputs.tag }}.spdx.json
@@ -252,7 +269,7 @@ jobs:
 
       - name: Generate SBOM (race)
         if: ${{ matrix.name != 'cilium-cli' && steps.docker_build_ci_detect_race_condition.outcome != 'skipped' }}
-        uses: anchore/sbom-action@9f7302141466aa6482940f15371237e9d9f4c34a # v0.19.0
+        uses: anchore/sbom-action@e11c554f704a0b820cbf8c51673f6945e0731532 # v0.20.0
         with:
           artifact-name: sbom_ci_race_${{ matrix.name }}_${{ steps.tag.outputs.tag }}.spdx.json
           output-file: ./sbom_ci_race_${{ matrix.name }}_${{ steps.tag.outputs.tag }}.spdx.json
@@ -260,7 +277,7 @@ jobs:
 
       - name: Generate SBOM (unstripped)
         if: ${{ matrix.name != 'cilium-cli' && steps.docker_build_ci_unstripped.outcome != 'skipped' }}
-        uses: anchore/sbom-action@9f7302141466aa6482940f15371237e9d9f4c34a # v0.19.0
+        uses: anchore/sbom-action@e11c554f704a0b820cbf8c51673f6945e0731532 # v0.20.0
         with:
           artifact-name: sbom_ci_unstripped_${{ matrix.name }}_${{ steps.tag.outputs.tag }}.spdx.json
           output-file: ./sbom_ci_unstripped_${{ matrix.name }}_${{ steps.tag.outputs.tag }}.spdx.json
