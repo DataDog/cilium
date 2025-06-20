@@ -269,30 +269,19 @@ func (a *IPMasqAgent) readConfig() (bool, error) {
 	return false, nil
 }
 
-func (a *IPMasqAgent) NonMasqCIDRsFromConfig() []string {
+func (a *IPMasqAgent) NonMasqCIDRsFromConfig() []netip.Prefix {
 	// Try to fetch the CIDRs from memory first
 	if len(a.nonMasqCIDRsFromConfig) > 0 {
-		return slices.Collect(maps.Keys(a.nonMasqCIDRsFromConfig))
+		return slices.Collect(maps.Values(a.nonMasqCIDRsFromConfig))
 	}
 
 	// If it's empty, populate from config file
 	isEmpty, err := a.readConfig()
 	if err != nil || isEmpty {
 		// Fallback to defaults
-		defaultCidrs := slices.Collect(maps.Keys(defaultNonMasqCIDRs))
-		defaultCidrs = append(defaultCidrs, linkLocalCIDRIPv4Str)
-		defaultCidrs = append(defaultCidrs, linkLocalCIDRIPv6Str)
-		return defaultCidrs
+		return slices.Collect(maps.Values(defaultNonMasqCIDRs))
 	}
-
-	if !a.masqLinkLocalIPv4 {
-		a.nonMasqCIDRsFromConfig[linkLocalCIDRIPv4Str] = linkLocalCIDRIPv4
-	}
-
-	if !a.masqLinkLocalIPv6 {
-		a.nonMasqCIDRsFromConfig[linkLocalCIDRIPv6Str] = linkLocalCIDRIPv6
-	}
-	return slices.Collect(maps.Keys(a.nonMasqCIDRsFromConfig))
+	return slices.Collect(maps.Values(a.nonMasqCIDRsFromConfig))
 }
 
 // restore dumps the ipmasq BPF map and populates IPMasqAgent.nonMasqCIDRsInMap

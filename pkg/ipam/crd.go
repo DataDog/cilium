@@ -767,7 +767,11 @@ func (a *crdAllocator) buildAllocationResult(ip net.IP, ipInfo *ipamTypes.Alloca
 					nonMasqCidrs := ipmasqAgent.NonMasqCIDRsFromConfig()
 					log.Info("Anton-Test: Found non-masq CIDRs: ", len(nonMasqCidrs), " for ", ip.String())
 					for _, prefix := range nonMasqCidrs {
-						result.CIDRs = append(result.CIDRs, prefix)
+						if ip.To4() != nil && prefix.Addr().Is4() {
+							result.CIDRs = append(result.CIDRs, prefix.String())
+						} else if ip.To4() == nil && prefix.Addr().Is6() {
+							result.CIDRs = append(result.CIDRs, prefix.String())
+						}
 					}
 				}
 				if eni.Subnet.CIDR != "" {
