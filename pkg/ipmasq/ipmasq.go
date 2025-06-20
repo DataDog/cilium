@@ -279,7 +279,17 @@ func (a *IPMasqAgent) NonMasqCIDRsFromConfig() []netip.Prefix {
 	isEmpty, err := a.readConfig()
 	if err != nil || isEmpty {
 		// Fallback to defaults
-		return slices.Collect(maps.Values(defaultNonMasqCIDRs))
+		defaultCIDRs := slices.Collect(maps.Values(defaultNonMasqCIDRs))
+		defaultCIDRs = append(defaultCIDRs, linkLocalCIDRIPv4, linkLocalCIDRIPv6)
+		return defaultCIDRs
+	}
+
+	if !a.masqLinkLocalIPv4 {
+		a.nonMasqCIDRsFromConfig[linkLocalCIDRIPv4Str] = linkLocalCIDRIPv4
+	}
+
+	if !a.masqLinkLocalIPv6 {
+		a.nonMasqCIDRsFromConfig[linkLocalCIDRIPv6Str] = linkLocalCIDRIPv6
 	}
 	return slices.Collect(maps.Values(a.nonMasqCIDRsFromConfig))
 }
