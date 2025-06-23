@@ -12,6 +12,7 @@ import (
 	upstreamHive "github.com/cilium/hive"
 	"github.com/cilium/hive/cell"
 	"github.com/cilium/hive/hivetest"
+	"github.com/cilium/hive/job"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -44,6 +45,12 @@ func TestIPMasqAgentCell(t *testing.T) {
 			cfg.EnableIPMasqAgent = true
 			cfg.IPMasqAgentConfigPath = "/tmp/test-ipmasq-config"
 			return cfg
+		}),
+		cell.Provide(func() cell.Lifecycle {
+			return &noOpLifecycle{}
+		}),
+		cell.Provide(func() job.Group {
+			return &noOpJobGroup{}
 		}),
 	)
 
@@ -80,6 +87,12 @@ func TestIPMasqAgentCellDisabled(t *testing.T) {
 			cfg := &option.DaemonConfig{}
 			cfg.EnableIPMasqAgent = false
 			return cfg
+		}),
+		cell.Provide(func() cell.Lifecycle {
+			return &noOpLifecycle{}
+		}),
+		cell.Provide(func() job.Group {
+			return &noOpJobGroup{}
 		}),
 	)
 
@@ -120,6 +133,12 @@ func TestIPMasqAgentCellDependencyInjection(t *testing.T) {
 			cfg.IPMasqAgentConfigPath = "/tmp/test-ipmasq-config"
 			return cfg
 		}),
+		cell.Provide(func() cell.Lifecycle {
+			return &noOpLifecycle{}
+		}),
+		cell.Provide(func() job.Group {
+			return &noOpJobGroup{}
+		}),
 		cell.Invoke(func(a *IPMasqAgent) {
 			agent = a
 		}),
@@ -158,3 +177,17 @@ func (n *noOpLifecycle) Stop(log *slog.Logger, ctx context.Context) error {
 }
 
 func (n *noOpLifecycle) PrintHooks(w io.Writer) {}
+
+// noOpJobGroup is a no-op implementation of job.Group for testing
+type noOpJobGroup struct{}
+
+func (n *noOpJobGroup) Add(jobs ...job.Job) {}
+
+func (n *noOpJobGroup) Scoped(name string) job.ScopedGroup {
+	return &noOpScopedGroup{}
+}
+
+// noOpScopedGroup is a no-op implementation of job.ScopedGroup for testing
+type noOpScopedGroup struct{}
+
+func (n *noOpScopedGroup) Add(jobs ...job.Job) {}
