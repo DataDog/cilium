@@ -1414,6 +1414,7 @@ type daemonParams struct {
 	DNSProxy            bootstrap.FQDNProxyBootstrapper
 	DNSNameManager      namemanager.NameManager
 	KPRConfig           kpr.KPRConfig
+	IPMasqAgent         *ipmasq.IPMasqAgent
 }
 
 func newDaemonPromise(params daemonParams) (promise.Promise[*Daemon], legacy.DaemonInitialization) {
@@ -1582,13 +1583,7 @@ func startDaemon(d *Daemon, restoredEndpoints *endpointRestoreState, cleaner *da
 		}
 	}
 
-	if option.Config.EnableIPMasqAgent {
-		ipmasqAgent, err := ipmasq.NewIPMasqAgent(d.logger, d.metricsRegistry, option.Config.IPMasqAgentConfigPath)
-		if err != nil {
-			return fmt.Errorf("failed to create ipmasq agent: %w", err)
-		}
-		ipmasqAgent.Start()
-	}
+	// IPMasqAgent is now managed by the ipmasq.Cell lifecycle
 
 	go func() {
 		if d.endpointRestoreComplete != nil {
