@@ -30,6 +30,7 @@ type ipMasqAgentParams struct {
 	Lifecycle       cell.Lifecycle
 	JobGroup        job.Group
 	MetricsRegistry *metrics.Registry
+	DaemonConfig    *option.DaemonConfig
 }
 
 type ipMasqAgentResult struct {
@@ -39,11 +40,16 @@ type ipMasqAgentResult struct {
 }
 
 func newIPMasqAgentCell(params ipMasqAgentParams) (ipMasqAgentResult, error) {
-	if !option.Config.EnableIPMasqAgent {
+	cfg := params.DaemonConfig
+	if cfg == nil {
+		cfg = option.Config
+	}
+
+	if cfg == nil || !cfg.EnableIPMasqAgent {
 		return ipMasqAgentResult{}, nil
 	}
 
-	agent, err := NewIPMasqAgent(params.Logger, params.MetricsRegistry, option.Config.IPMasqAgentConfigPath)
+	agent, err := NewIPMasqAgent(params.Logger, params.MetricsRegistry, cfg.IPMasqAgentConfigPath)
 	if err != nil {
 		return ipMasqAgentResult{}, err
 	}
