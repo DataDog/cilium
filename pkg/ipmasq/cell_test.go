@@ -26,9 +26,6 @@ func TestIPMasqAgentCell(t *testing.T) {
 	// Create a test hive with the IPMasqAgent cell
 	testHive := hive.New(
 		Cell,
-		cell.Provide(func() *slog.Logger {
-			return slog.Default()
-		}),
 		cell.Provide(func() *metrics.Registry {
 			return metrics.NewRegistry(metrics.RegistryParams{
 				Logger:       slog.Default(),
@@ -63,9 +60,6 @@ func TestIPMasqAgentCellDisabled(t *testing.T) {
 	// Create a test hive with the IPMasqAgent cell but disabled
 	testHive := hive.New(
 		Cell,
-		cell.Provide(func() *slog.Logger {
-			return slog.Default()
-		}),
 		cell.Provide(func() *metrics.Registry {
 			return metrics.NewRegistry(metrics.RegistryParams{
 				Logger:       slog.Default(),
@@ -101,9 +95,6 @@ func TestIPMasqAgentCellDependencyInjection(t *testing.T) {
 	// Create a test hive that captures the IPMasqAgent result
 	testHive := hive.New(
 		Cell,
-		cell.Provide(func() *slog.Logger {
-			return slog.Default()
-		}),
 		cell.Provide(func() *metrics.Registry {
 			return metrics.NewRegistry(metrics.RegistryParams{
 				Logger:       slog.Default(),
