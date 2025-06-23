@@ -54,23 +54,22 @@ func newIPMasqAgentCell(params ipMasqAgentParams) (ipMasqAgentResult, error) {
 }
 
 func registerIPMasqAgentLifecycle(
-	lc cell.Lifecycle,
 	params ipMasqAgentParams,
-	result ipMasqAgentResult,
+	agent *IPMasqAgent,
 ) {
-	if result.IPMasqAgent == nil {
+	if agent == nil {
 		return
 	}
 
-	lc.Append(cell.Hook{
+	params.Lifecycle.Append(cell.Hook{
 		OnStart: func(cell.HookContext) error {
 			params.Logger.Info("Starting IP masquerade agent")
-			result.IPMasqAgent.Start()
+			agent.Start()
 			return nil
 		},
 		OnStop: func(cell.HookContext) error {
 			params.Logger.Info("Stopping IP masquerade agent")
-			result.IPMasqAgent.Stop()
+			agent.Stop()
 			return nil
 		},
 	})
