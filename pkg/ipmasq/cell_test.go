@@ -5,8 +5,11 @@ package ipmasq
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"testing"
 
+	upstreamHive "github.com/cilium/hive"
 	"github.com/cilium/hive/cell"
 	"github.com/cilium/hive/hivetest"
 	"github.com/stretchr/testify/assert"
@@ -14,6 +17,7 @@ import (
 
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/metrics"
+	"github.com/cilium/cilium/pkg/metrics/metric"
 	"github.com/cilium/cilium/pkg/option"
 )
 
@@ -21,8 +25,18 @@ func TestIPMasqAgentCell(t *testing.T) {
 	// Create a test hive with the IPMasqAgent cell
 	testHive := hive.New(
 		Cell,
+		cell.Provide(func() *slog.Logger {
+			return slog.Default()
+		}),
 		cell.Provide(func() *metrics.Registry {
-			return metrics.NewRegistry(metrics.RegistryParams{})
+			return metrics.NewRegistry(metrics.RegistryParams{
+				Logger:       slog.Default(),
+				Shutdowner:   &noOpShutdowner{},
+				Lifecycle:    &noOpLifecycle{},
+				AutoMetrics:  []metric.WithMetadata{},
+				Config:       metrics.RegistryConfig{},
+				DaemonConfig: &option.DaemonConfig{},
+			})
 		}),
 		cell.Provide(func() *option.DaemonConfig {
 			// Create a minimal config for testing
@@ -48,8 +62,18 @@ func TestIPMasqAgentCellDisabled(t *testing.T) {
 	// Create a test hive with the IPMasqAgent cell but disabled
 	testHive := hive.New(
 		Cell,
+		cell.Provide(func() *slog.Logger {
+			return slog.Default()
+		}),
 		cell.Provide(func() *metrics.Registry {
-			return metrics.NewRegistry(metrics.RegistryParams{})
+			return metrics.NewRegistry(metrics.RegistryParams{
+				Logger:       slog.Default(),
+				Shutdowner:   &noOpShutdowner{},
+				Lifecycle:    &noOpLifecycle{},
+				AutoMetrics:  []metric.WithMetadata{},
+				Config:       metrics.RegistryConfig{},
+				DaemonConfig: &option.DaemonConfig{},
+			})
 		}),
 		cell.Provide(func() *option.DaemonConfig {
 			// Create a minimal config for testing with IPMasqAgent disabled
@@ -76,8 +100,18 @@ func TestIPMasqAgentCellDependencyInjection(t *testing.T) {
 	// Create a test hive that captures the IPMasqAgent result
 	testHive := hive.New(
 		Cell,
+		cell.Provide(func() *slog.Logger {
+			return slog.Default()
+		}),
 		cell.Provide(func() *metrics.Registry {
-			return metrics.NewRegistry(metrics.RegistryParams{})
+			return metrics.NewRegistry(metrics.RegistryParams{
+				Logger:       slog.Default(),
+				Shutdowner:   &noOpShutdowner{},
+				Lifecycle:    &noOpLifecycle{},
+				AutoMetrics:  []metric.WithMetadata{},
+				Config:       metrics.RegistryConfig{},
+				DaemonConfig: &option.DaemonConfig{},
+			})
 		}),
 		cell.Provide(func() *option.DaemonConfig {
 			// Create a minimal config for testing
@@ -104,3 +138,23 @@ func TestIPMasqAgentCellDependencyInjection(t *testing.T) {
 	err = testHive.Stop(tlog, ctx)
 	require.NoError(t, err)
 }
+
+// noOpShutdowner is a no-op implementation of hive.Shutdowner for testing
+type noOpShutdowner struct{}
+
+func (n *noOpShutdowner) Shutdown(opts ...upstreamHive.ShutdownOption) {}
+
+// noOpLifecycle is a no-op implementation of cell.Lifecycle for testing
+type noOpLifecycle struct{}
+
+func (n *noOpLifecycle) Append(hook cell.HookInterface) {}
+
+func (n *noOpLifecycle) Start(log *slog.Logger, ctx context.Context) error {
+	return nil
+}
+
+func (n *noOpLifecycle) Stop(log *slog.Logger, ctx context.Context) error {
+	return nil
+}
+
+func (n *noOpLifecycle) PrintHooks(w io.Writer) {}
