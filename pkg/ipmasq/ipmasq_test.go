@@ -143,10 +143,7 @@ func setUpTest(tb testing.TB) *IPMasqTestSuite {
 	require.NoError(tb, err)
 	i.configFilePath = configFile.Name()
 
-	agent, err := newIPMasqAgent(i.configFilePath, i.ipMasqMap)
-	require.NoError(tb, err)
-	i.ipMasqAgent = agent
-
+	i.ipMasqAgent = NewIPMasqAgent(i.configFilePath, i.ipMasqMap)
 	tb.Cleanup(func() {
 		i.ipMasqAgent.Stop()
 		os.Remove(i.configFilePath)
@@ -165,7 +162,8 @@ func TestUpdateIPv4(t *testing.T) {
 
 	i.ipMasqMap.ipv4Enabled = true
 	i.ipMasqMap.ipv6Enabled = false
-	i.ipMasqAgent.Start()
+	err := i.ipMasqAgent.Start()
+	require.NoError(t, err)
 	i.writeConfig(t, "nonMasqueradeCIDRs:\n- 1.1.1.1/32\n- 2.2.2.2/16")
 	time.Sleep(300 * time.Millisecond)
 
@@ -214,7 +212,7 @@ func TestUpdateIPv4(t *testing.T) {
 	require.True(t, ok)
 
 	// Delete file, should remove the CIDRs and add default nonMasq CIDRs
-	err := os.Remove(i.configFilePath)
+	err = os.Remove(i.configFilePath)
 	require.NoError(t, err)
 	time.Sleep(300 * time.Millisecond)
 	ipnets = i.ipMasqMap.dumpToSet()
@@ -232,7 +230,8 @@ func TestUpdateIPv6(t *testing.T) {
 
 	i.ipMasqMap.ipv4Enabled = false
 	i.ipMasqMap.ipv6Enabled = true
-	i.ipMasqAgent.Start()
+	err := i.ipMasqAgent.Start()
+	require.NoError(t, err)
 	i.writeConfig(t, "nonMasqueradeCIDRs:\n- 1:1:1:1::/64\n- 2:2::/32")
 	time.Sleep(300 * time.Millisecond)
 
@@ -279,7 +278,7 @@ func TestUpdateIPv6(t *testing.T) {
 	require.True(t, ok)
 
 	// Delete file, should remove the CIDRs and add default nonMasq CIDRs
-	err := os.Remove(i.configFilePath)
+	err = os.Remove(i.configFilePath)
 	require.NoError(t, err)
 	time.Sleep(300 * time.Millisecond)
 	ipnets = i.ipMasqMap.dumpToSet()
@@ -292,7 +291,8 @@ func TestUpdate(t *testing.T) {
 	i := setUpTest(t)
 	i.ipMasqMap.ipv4Enabled = true
 	i.ipMasqMap.ipv6Enabled = true
-	i.ipMasqAgent.Start()
+	err := i.ipMasqAgent.Start()
+	require.NoError(t, err)
 	i.writeConfig(t, "nonMasqueradeCIDRs:\n- 1.1.1.1/32\n- 2:2::/32")
 	time.Sleep(300 * time.Millisecond)
 
@@ -347,7 +347,7 @@ func TestUpdate(t *testing.T) {
 	require.True(t, ok)
 
 	// Delete file, should remove the CIDRs and add default nonMasq CIDRs
-	err := os.Remove(i.configFilePath)
+	err = os.Remove(i.configFilePath)
 	require.NoError(t, err)
 	time.Sleep(300 * time.Millisecond)
 	ipnets = i.ipMasqMap.dumpToSet()
@@ -364,7 +364,8 @@ func TestRestoreIPv4(t *testing.T) {
 	i := setUpTest(t)
 	i.ipMasqMap.ipv4Enabled = true
 	i.ipMasqMap.ipv6Enabled = false
-	i.ipMasqAgent.Start()
+	err = i.ipMasqAgent.Start()
+	require.NoError(t, err)
 	// Check that stale entry is removed from the map after restore
 	i.ipMasqAgent.Stop()
 
@@ -374,9 +375,9 @@ func TestRestoreIPv4(t *testing.T) {
 	i.ipMasqMap.cidrsIPv4[cidr.String()] = cidr
 	i.writeConfig(t, "nonMasqueradeCIDRs:\n- 4.4.0.0/16")
 
-	i.ipMasqAgent, err = newIPMasqAgent(i.configFilePath, i.ipMasqMap)
+	i.ipMasqAgent = NewIPMasqAgent(i.configFilePath, i.ipMasqMap)
+	err = i.ipMasqAgent.Start()
 	require.NoError(t, err)
-	i.ipMasqAgent.Start()
 	time.Sleep(300 * time.Millisecond)
 
 	ipnets := i.ipMasqMap.dumpToSet()
@@ -396,9 +397,9 @@ func TestRestoreIPv4(t *testing.T) {
 	}
 	i.ipMasqAgent.ipMasqMap = i.ipMasqMap
 	i.writeConfig(t, "nonMasqueradeCIDRs:\n- 3.3.0.0/16\nmasqLinkLocal: true")
-	i.ipMasqAgent, err = newIPMasqAgent(i.configFilePath, i.ipMasqMap)
+	i.ipMasqAgent = NewIPMasqAgent(i.configFilePath, i.ipMasqMap)
+	err = i.ipMasqAgent.Start()
 	require.NoError(t, err)
-	i.ipMasqAgent.Start()
 
 	ipnets = i.ipMasqMap.dumpToSet()
 	require.Len(t, ipnets, 1)
@@ -412,7 +413,8 @@ func TestRestoreIPv6(t *testing.T) {
 	i := setUpTest(t)
 	i.ipMasqMap.ipv4Enabled = false
 	i.ipMasqMap.ipv6Enabled = true
-	i.ipMasqAgent.Start()
+	err = i.ipMasqAgent.Start()
+	require.NoError(t, err)
 	// Check that stale entry is removed from the map after restore
 	i.ipMasqAgent.Stop()
 
@@ -422,9 +424,9 @@ func TestRestoreIPv6(t *testing.T) {
 	i.ipMasqMap.cidrsIPv6[cidr.String()] = cidr
 	i.writeConfig(t, "nonMasqueradeCIDRs:\n- 4:4::/32")
 
-	i.ipMasqAgent, err = newIPMasqAgent(i.configFilePath, i.ipMasqMap)
+	i.ipMasqAgent = NewIPMasqAgent(i.configFilePath, i.ipMasqMap)
+	err = i.ipMasqAgent.Start()
 	require.NoError(t, err)
-	i.ipMasqAgent.Start()
 	time.Sleep(300 * time.Millisecond)
 
 	ipnets := i.ipMasqMap.dumpToSet()
@@ -444,9 +446,9 @@ func TestRestoreIPv6(t *testing.T) {
 	}
 	i.ipMasqAgent.ipMasqMap = i.ipMasqMap
 	i.writeConfig(t, "nonMasqueradeCIDRs:\n- 3:3::/96\nmasqLinkLocalIPv6: true")
-	i.ipMasqAgent, err = newIPMasqAgent(i.configFilePath, i.ipMasqMap)
+	i.ipMasqAgent = NewIPMasqAgent(i.configFilePath, i.ipMasqMap)
+	err = i.ipMasqAgent.Start()
 	require.NoError(t, err)
-	i.ipMasqAgent.Start()
 
 	ipnets = i.ipMasqMap.dumpToSet()
 	require.Len(t, ipnets, 1)
@@ -460,7 +462,8 @@ func TestRestore(t *testing.T) {
 	i := setUpTest(t)
 	i.ipMasqMap.ipv4Enabled = true
 	i.ipMasqMap.ipv6Enabled = true
-	i.ipMasqAgent.Start()
+	err = i.ipMasqAgent.Start()
+	require.NoError(t, err)
 	// Check that stale entry is removed from the map after restore
 	i.ipMasqAgent.Stop()
 
@@ -474,9 +477,9 @@ func TestRestore(t *testing.T) {
 	i.ipMasqMap.cidrsIPv4[cidr.String()] = cidr
 	i.writeConfig(t, "nonMasqueradeCIDRs:\n- 4.4.0.0/16\n- 4:4::/32")
 
-	i.ipMasqAgent, err = newIPMasqAgent(i.configFilePath, i.ipMasqMap)
+	i.ipMasqAgent = NewIPMasqAgent(i.configFilePath, i.ipMasqMap)
+	err = i.ipMasqAgent.Start()
 	require.NoError(t, err)
-	i.ipMasqAgent.Start()
 	time.Sleep(300 * time.Millisecond)
 
 	ipnets := i.ipMasqMap.dumpToSet()
@@ -501,9 +504,9 @@ func TestRestore(t *testing.T) {
 	}
 	i.ipMasqAgent.ipMasqMap = i.ipMasqMap
 	i.writeConfig(t, "nonMasqueradeCIDRs:\n- 3.3.0.0/16\n- 3:3:3:3::/96\nmasqLinkLocal: true\nmasqLinkLocalIPv6: true")
-	i.ipMasqAgent, err = newIPMasqAgent(i.configFilePath, i.ipMasqMap)
+	i.ipMasqAgent = NewIPMasqAgent(i.configFilePath, i.ipMasqMap)
+	err = i.ipMasqAgent.Start()
 	require.NoError(t, err)
-	i.ipMasqAgent.Start()
 
 	ipnets = i.ipMasqMap.dumpToSet()
 	require.Len(t, ipnets, 2)

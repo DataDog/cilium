@@ -681,17 +681,11 @@ func InitGlobalFlags(cmd *cobra.Command, vp *viper.Viper) {
 	flags.Bool(option.EnableMasqueradeRouteSource, false, "Masquerade packets to the source IP provided from the routing layer rather than interface address")
 	option.BindEnv(vp, option.EnableMasqueradeRouteSource)
 
-	flags.Bool(option.EnableIPMasqAgent, false, "Enable BPF ip-masq-agent")
-	option.BindEnv(vp, option.EnableIPMasqAgent)
-
 	flags.Bool(option.EnableIPv4EgressGateway, false, "Enable egress gateway for IPv4")
 	option.BindEnv(vp, option.EnableIPv4EgressGateway)
 
 	flags.Bool(option.EnableEnvoyConfig, false, "Enable Envoy Config CRDs")
 	option.BindEnv(vp, option.EnableEnvoyConfig)
-
-	flags.String(option.IPMasqAgentConfigPath, "/etc/config/ip-masq-agent", "ip-masq-agent configuration file path")
-	option.BindEnv(vp, option.IPMasqAgentConfigPath)
 
 	flags.Bool(option.InstallIptRules, true, "Install base iptables rules for cilium to mainly interact with kube-proxy (and masquerading)")
 	flags.MarkHidden(option.InstallIptRules)
@@ -1631,6 +1625,7 @@ type daemonParams struct {
 	Hubble              hubblecell.HubbleIntegration
 	LRPManager          *redirectpolicy.Manager
 	MaglevConfig        maglev.Config
+	IPMasqAgent         *ipmasq.IPMasqAgent
 }
 
 func newDaemonPromise(params daemonParams) promise.Promise[*Daemon] {
@@ -1803,15 +1798,7 @@ func startDaemon(d *Daemon, restoredEndpoints *endpointRestoreState, cleaner *da
 			}
 		}
 	}
-
-	if option.Config.EnableIPMasqAgent {
-		ipmasqAgent, err := ipmasq.NewIPMasqAgent(option.Config.IPMasqAgentConfigPath)
-		if err != nil {
-			return fmt.Errorf("failed to create ipmasq agent: %w", err)
-		}
-		ipmasqAgent.Start()
-	}
-
+	
 	go func() {
 		if d.endpointRestoreComplete != nil {
 			select {
