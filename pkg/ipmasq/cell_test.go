@@ -4,6 +4,7 @@
 package ipmasq
 
 import (
+	"context"
 	"testing"
 
 	"github.com/cilium/hive/cell"
@@ -11,13 +12,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/metrics"
 	"github.com/cilium/cilium/pkg/option"
 )
 
 func TestIPMasqAgentCell(t *testing.T) {
 	// Create a test hive with the IPMasqAgent cell
-	testHive := cell.New(
+	testHive := hive.New(
 		Cell,
 		cell.Provide(func() *metrics.Registry {
 			return metrics.NewRegistry(metrics.RegistryParams{})
@@ -32,18 +34,19 @@ func TestIPMasqAgentCell(t *testing.T) {
 	)
 
 	// Start the hive
-	ctx := hivetest.Context(t)
-	err := testHive.Start(ctx)
+	ctx := context.Background()
+	tlog := hivetest.Logger(t)
+	err := testHive.Start(tlog, ctx)
 	require.NoError(t, err)
 
 	// Stop the hive
-	err = testHive.Stop(ctx)
+	err = testHive.Stop(tlog, ctx)
 	require.NoError(t, err)
 }
 
 func TestIPMasqAgentCellDisabled(t *testing.T) {
 	// Create a test hive with the IPMasqAgent cell but disabled
-	testHive := cell.New(
+	testHive := hive.New(
 		Cell,
 		cell.Provide(func() *metrics.Registry {
 			return metrics.NewRegistry(metrics.RegistryParams{})
@@ -57,12 +60,13 @@ func TestIPMasqAgentCellDisabled(t *testing.T) {
 	)
 
 	// Start the hive
-	ctx := hivetest.Context(t)
-	err := testHive.Start(ctx)
+	ctx := context.Background()
+	tlog := hivetest.Logger(t)
+	err := testHive.Start(tlog, ctx)
 	require.NoError(t, err)
 
 	// Stop the hive
-	err = testHive.Stop(ctx)
+	err = testHive.Stop(tlog, ctx)
 	require.NoError(t, err)
 }
 
@@ -70,7 +74,7 @@ func TestIPMasqAgentCellDependencyInjection(t *testing.T) {
 	var agent *IPMasqAgent
 
 	// Create a test hive that captures the IPMasqAgent
-	testHive := cell.New(
+	testHive := hive.New(
 		Cell,
 		cell.Provide(func() *metrics.Registry {
 			return metrics.NewRegistry(metrics.RegistryParams{})
@@ -88,14 +92,15 @@ func TestIPMasqAgentCellDependencyInjection(t *testing.T) {
 	)
 
 	// Start the hive
-	ctx := hivetest.Context(t)
-	err := testHive.Start(ctx)
+	ctx := context.Background()
+	tlog := hivetest.Logger(t)
+	err := testHive.Start(tlog, ctx)
 	require.NoError(t, err)
 
 	// Verify that the agent was created
 	assert.NotNil(t, agent)
 
 	// Stop the hive
-	err = testHive.Stop(ctx)
+	err = testHive.Stop(tlog, ctx)
 	require.NoError(t, err)
 }
