@@ -71,9 +71,9 @@ func TestIPMasqAgentCellDisabled(t *testing.T) {
 }
 
 func TestIPMasqAgentCellDependencyInjection(t *testing.T) {
-	var agent *IPMasqAgent
+	var result ipMasqAgentResult
 
-	// Create a test hive that captures the IPMasqAgent
+	// Create a test hive that captures the IPMasqAgent result
 	testHive := hive.New(
 		Cell,
 		cell.Provide(func() *metrics.Registry {
@@ -86,8 +86,8 @@ func TestIPMasqAgentCellDependencyInjection(t *testing.T) {
 			cfg.IPMasqAgentConfigPath = "/tmp/test-ipmasq-config"
 			return cfg
 		}),
-		cell.Invoke(func(a *IPMasqAgent) {
-			agent = a
+		cell.Invoke(func(r ipMasqAgentResult) {
+			result = r
 		}),
 	)
 
@@ -98,7 +98,7 @@ func TestIPMasqAgentCellDependencyInjection(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify that the agent was created
-	assert.NotNil(t, agent)
+	assert.NotNil(t, result.IPMasqAgent)
 
 	// Stop the hive
 	err = testHive.Stop(tlog, ctx)
