@@ -46,9 +46,6 @@ func TestIPMasqAgentCell(t *testing.T) {
 			cfg.IPMasqAgentConfigPath = "/tmp/test-ipmasq-config"
 			return cfg
 		}),
-		cell.Provide(func() cell.Lifecycle {
-			return &noOpLifecycle{}
-		}),
 		cell.Provide(func() job.Group {
 			return &noOpJobGroup{}
 		}),
@@ -87,9 +84,6 @@ func TestIPMasqAgentCellDisabled(t *testing.T) {
 			cfg := &option.DaemonConfig{}
 			cfg.EnableIPMasqAgent = false
 			return cfg
-		}),
-		cell.Provide(func() cell.Lifecycle {
-			return &noOpLifecycle{}
 		}),
 		cell.Provide(func() job.Group {
 			return &noOpJobGroup{}
@@ -132,9 +126,6 @@ func TestIPMasqAgentCellDependencyInjection(t *testing.T) {
 			cfg.EnableIPMasqAgent = true
 			cfg.IPMasqAgentConfigPath = "/tmp/test-ipmasq-config"
 			return cfg
-		}),
-		cell.Provide(func() cell.Lifecycle {
-			return &noOpLifecycle{}
 		}),
 		cell.Provide(func() job.Group {
 			return &noOpJobGroup{}
