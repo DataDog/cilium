@@ -128,7 +128,7 @@ branch-pipeline:
     )
 
     # Trigger a CI pipeline for each branch
-    for BRANCH in $BRANCHES; do
+    for BRANCH in "${BRANCHES[@]}"; do
       curl --request POST \
         --form token="${CI_JOB_TOKEN}" \
         --form ref="$BRANCH" \
