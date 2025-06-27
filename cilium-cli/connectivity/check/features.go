@@ -371,11 +371,11 @@ func (ct *ConnectivityTest) detectFeatures(ctx context.Context) error {
 		// Extract pod-specific features
 		err = ct.extractFeaturesFromRuntimeConfig(ctx, ciliumPod, features)
 		if err != nil {
-			return err
+			continue
 		}
 		err = ct.extractFeaturesFromCiliumStatus(ctx, ciliumPod, features)
 		if err != nil {
-			return err
+			continue
 		}
 		err = ct.extractFeaturesFromUname(ctx, ciliumPod, features)
 		if err != nil {
@@ -392,6 +392,7 @@ func (ct *ConnectivityTest) detectFeatures(ctx context.Context) error {
 			ct.Features = features
 			initialized = true
 		}
+		break
 	}
 
 	ct.ClusterNameLocal = cmp.Or(cm.Data["cluster-name"], "default")
