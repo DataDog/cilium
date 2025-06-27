@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/signal"
 	"runtime"
@@ -56,14 +57,24 @@ var _ Logger = (*Action)(nil)
 // user-specified writer.
 //
 
+const useSlog = true
+
 // Header prints a newline followed by a formatted message.
 func (ct *ConnectivityTest) Header(a ...any) {
+	if useSlog {
+		slog.Info(fmt.Sprint(a...))
+		return
+	}
 	fmt.Fprintln(ct.params.Writer, "")
 	fmt.Fprintln(ct.params.Writer, a...)
 }
 
 // Headerf prints a newline followed by a formatted message.
 func (ct *ConnectivityTest) Headerf(format string, a ...any) {
+	if useSlog {
+		slog.Info(fmt.Sprintf(format, a...))
+		return
+	}
 	fmt.Fprintf(ct.params.Writer, "\n"+format+"\n", a...)
 }
 
@@ -76,6 +87,10 @@ func (ct *ConnectivityTest) Timestamp() {
 
 // Log logs a message.
 func (ct *ConnectivityTest) Log(a ...any) {
+	if useSlog {
+		slog.Info(fmt.Sprint(a...))
+		return
+	}
 	ct.Timestamp()
 	fmt.Fprintln(ct.params.Writer, a...)
 }
@@ -93,6 +108,8 @@ func init() {
 	defaultTestOwners = defaultScenario{
 		ScenarioBase: NewScenarioBase(),
 	}
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+
 }
 
 type defaultScenario struct {
@@ -128,6 +145,10 @@ func (ct *ConnectivityTest) LogOwners(scenarios ...codeowners.Scenario) {
 
 // Logf logs a formatted message.
 func (ct *ConnectivityTest) Logf(format string, a ...any) {
+	if useSlog {
+		slog.Info(fmt.Sprintf(format, a...))
+		return
+	}
 	ct.Timestamp()
 	fmt.Fprintf(ct.params.Writer, format+"\n", a...)
 }
@@ -135,6 +156,10 @@ func (ct *ConnectivityTest) Logf(format string, a ...any) {
 // Debug logs a debug message.
 func (ct *ConnectivityTest) Debug(a ...any) {
 	if ct.debug() {
+		if useSlog {
+			slog.Debug(fmt.Sprint(a...))
+			return
+		}
 		ct.Timestamp()
 		fmt.Fprint(ct.params.Writer, debug+" ")
 		fmt.Fprintln(ct.params.Writer, a...)
@@ -144,6 +169,10 @@ func (ct *ConnectivityTest) Debug(a ...any) {
 // Debugf logs a formatted debug message.
 func (ct *ConnectivityTest) Debugf(format string, a ...any) {
 	if ct.debug() {
+		if useSlog {
+			slog.Debug(fmt.Sprintf(format, a...))
+			return
+		}
 		ct.Timestamp()
 		fmt.Fprint(ct.params.Writer, debug+" ")
 		fmt.Fprintf(ct.params.Writer, format+"\n", a...)
@@ -152,6 +181,10 @@ func (ct *ConnectivityTest) Debugf(format string, a ...any) {
 
 // Info logs an informational message.
 func (ct *ConnectivityTest) Info(a ...any) {
+	if useSlog {
+		slog.Info(fmt.Sprint(a...))
+		return
+	}
 	ct.Timestamp()
 	fmt.Fprint(ct.params.Writer, info+" ")
 	fmt.Fprintln(ct.params.Writer, a...)
@@ -159,6 +192,10 @@ func (ct *ConnectivityTest) Info(a ...any) {
 
 // Infof logs a formatted informational message.
 func (ct *ConnectivityTest) Infof(format string, a ...any) {
+	if useSlog {
+		slog.Info(fmt.Sprintf(format, a...))
+		return
+	}
 	ct.Timestamp()
 	fmt.Fprint(ct.params.Writer, info+" ")
 	fmt.Fprintf(ct.params.Writer, format+"\n", a...)
@@ -166,6 +203,10 @@ func (ct *ConnectivityTest) Infof(format string, a ...any) {
 
 // Warn logs a warning message.
 func (ct *ConnectivityTest) Warn(a ...any) {
+	if useSlog {
+		slog.Info(fmt.Sprint(a...))
+		return
+	}
 	ct.Timestamp()
 	fmt.Fprint(ct.params.Writer, warn+" ")
 	fmt.Fprintln(ct.params.Writer, a...)
@@ -173,6 +214,10 @@ func (ct *ConnectivityTest) Warn(a ...any) {
 
 // Warnf logs a formatted warning message.
 func (ct *ConnectivityTest) Warnf(format string, a ...any) {
+	if useSlog {
+		slog.Info(fmt.Sprintf(format, a...))
+		return
+	}
 	ct.Timestamp()
 	fmt.Fprint(ct.params.Writer, warn+" ")
 	fmt.Fprintf(ct.params.Writer, format+"\n", a...)
@@ -180,6 +225,10 @@ func (ct *ConnectivityTest) Warnf(format string, a ...any) {
 
 // Fail logs a failure message.
 func (ct *ConnectivityTest) Fail(a ...any) {
+	if useSlog {
+		slog.Error(fmt.Sprint(a...))
+		return
+	}
 	ct.Timestamp()
 	fmt.Fprint(ct.params.Writer, fail+" ")
 	fmt.Fprintln(ct.params.Writer, a...)
@@ -187,6 +236,10 @@ func (ct *ConnectivityTest) Fail(a ...any) {
 
 // Failf logs a formatted failure message.
 func (ct *ConnectivityTest) Failf(format string, a ...any) {
+	if useSlog {
+		slog.Error(fmt.Sprintf(format, a...))
+		return
+	}
 	ct.Timestamp()
 	fmt.Fprint(ct.params.Writer, fail+" ")
 	fmt.Fprintf(ct.params.Writer, format+"\n", a...)
@@ -194,6 +247,10 @@ func (ct *ConnectivityTest) Failf(format string, a ...any) {
 
 // Fatal logs an error.
 func (ct *ConnectivityTest) Fatal(a ...any) {
+	if useSlog {
+		slog.Error(fmt.Sprint(a...))
+		return
+	}
 	ct.Timestamp()
 	fmt.Fprint(ct.params.Writer, fatal+" ")
 	fmt.Fprintln(ct.params.Writer, a...)
@@ -201,6 +258,10 @@ func (ct *ConnectivityTest) Fatal(a ...any) {
 
 // Fatalf logs a formatted error.
 func (ct *ConnectivityTest) Fatalf(format string, a ...any) {
+	if useSlog {
+		slog.Error(fmt.Sprintf(format, a...))
+		return
+	}
 	ct.Timestamp()
 	fmt.Fprint(ct.params.Writer, fatal+" ")
 	fmt.Fprintf(ct.params.Writer, format+"\n", a...)
@@ -217,6 +278,10 @@ func (ct *ConnectivityTest) Fatalf(format string, a ...any) {
 // If the internal log buffer is nil, write to user-specified writer instead.
 // Prefix is an optional prefix to the message.
 func (t *Test) log(prefix string, a ...any) {
+	if useSlog {
+		slog.Info(testPrefix + prefix + " " + fmt.Sprint(a...))
+		return
+	}
 	t.logMu.RLock()
 	defer t.logMu.RUnlock()
 
@@ -244,6 +309,10 @@ func (t *Test) log(prefix string, a ...any) {
 // internal buffer. If the internal log buffer is nil, write to user-specified
 // writer instead.
 func (t *Test) logf(format string, a ...any) {
+	if useSlog {
+		slog.Info(testPrefix + fmt.Sprintf(format, a...))
+		return
+	}
 	t.logMu.RLock()
 	defer t.logMu.RUnlock()
 
@@ -284,16 +353,28 @@ func (t *Test) flush() {
 
 // Log logs a message.
 func (t *Test) Log(a ...any) {
+	if useSlog {
+		slog.Info(fmt.Sprint(a...))
+		return
+	}
 	t.log("", a...)
 }
 
 // Logf logs a formatted message.
 func (t *Test) Logf(format string, a ...any) {
+	if useSlog {
+		slog.Info(fmt.Sprintf(format, a...))
+		return
+	}
 	t.logf(format, a...)
 }
 
 // Debug logs a debug message.
 func (t *Test) Debug(a ...any) {
+	if useSlog {
+		slog.Debug(fmt.Sprint(a...))
+		return
+	}
 	if t.ctx.debug() {
 		t.log(debug, a...)
 	}
@@ -301,6 +382,10 @@ func (t *Test) Debug(a ...any) {
 
 // Debugf logs a formatted debug message.
 func (t *Test) Debugf(format string, a ...any) {
+	if useSlog {
+		slog.Debug(fmt.Sprintf(format, a...))
+		return
+	}
 	if t.ctx.debug() {
 		t.logf(debug+" "+format, a...)
 	}
@@ -308,11 +393,19 @@ func (t *Test) Debugf(format string, a ...any) {
 
 // Info logs an informational message.
 func (t *Test) Info(a ...any) {
+	if useSlog {
+		slog.Info(fmt.Sprint(a...))
+		return
+	}
 	t.log(info, a...)
 }
 
 // Infof logs a formatted informational message.
 func (t *Test) Infof(format string, a ...any) {
+	if useSlog {
+		slog.Info(fmt.Sprintf(format, a...))
+		return
+	}
 	t.logf(info+" "+format, a...)
 }
 
@@ -344,6 +437,11 @@ func (t *Test) failCommon() {
 // Flushes the Test's internal log buffer. Any further logs against the Test
 // will go directly to the user-specified writer.
 func (t *Test) Fail(a ...any) {
+	if useSlog {
+		slog.Error(fmt.Sprint(a...))
+		t.failed = true
+		return
+	}
 	t.log(fail, a...)
 	t.failCommon()
 }
@@ -353,6 +451,11 @@ func (t *Test) Fail(a ...any) {
 // Flushes the Test's internal log buffer. Any further logs against the Test
 // will go directly to the user-specified writer.
 func (t *Test) Failf(format string, a ...any) {
+	if useSlog {
+		slog.Error(fmt.Sprintf(format, a...))
+		t.failed = true
+		return
+	}
 	t.logf(fail+" "+format, a...)
 	t.failCommon()
 }
@@ -360,6 +463,12 @@ func (t *Test) Failf(format string, a ...any) {
 // Fatal marks the test as failed, logs an error and exits the
 // calling goroutine.
 func (t *Test) Fatal(a ...any) {
+	if useSlog {
+		slog.Error(fmt.Sprint(a...))
+		t.failed = true
+		runtime.Goexit()
+		return
+	}
 	t.log(fatal, a...)
 	t.failCommon()
 	runtime.Goexit()
@@ -368,6 +477,12 @@ func (t *Test) Fatal(a ...any) {
 // Fatalf marks the test as failed, logs a formatted error and exits the
 // calling goroutine.
 func (t *Test) Fatalf(format string, a ...any) {
+	if useSlog {
+		slog.Error(fmt.Sprintf(format, a...))
+		t.failed = true
+		runtime.Goexit()
+		return
+	}
 	t.logf(fatal+" "+format, a...)
 	t.failCommon()
 	runtime.Goexit()

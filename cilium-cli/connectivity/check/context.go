@@ -518,7 +518,7 @@ func (ct *ConnectivityTest) Cleanup() {
 
 // skip marks the Test as skipped.
 func (ct *ConnectivityTest) skip(t *Test, index int, reason string) {
-	ct.logger.Printf(t, "[=] [%s] Skipping test [%s] [%d/%d] (%s)\n", ct.params.TestNamespace, t.Name(), index, len(t.ctx.tests), reason)
+	ct.Infof("[=] [%s] Skipping test [%s] [%d/%d] (%s)\n", ct.params.TestNamespace, t.Name(), index, len(t.ctx.tests), reason)
 	t.skipped = true
 }
 
