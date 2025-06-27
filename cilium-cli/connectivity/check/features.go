@@ -55,6 +55,8 @@ type DaemonConfigForFeatDetection struct {
 func (ct *ConnectivityTest) extractFeaturesFromRuntimeConfig(ctx context.Context, ciliumPod Pod, result features.Set) error {
 	namespace := ciliumPod.Pod.Namespace
 
+	ct.Debugf("Extracting features from runtime config for pod %s", ciliumPod.NameWithoutNamespace())
+
 	stdout, err := ciliumPod.K8sClient.ExecInPod(ctx, namespace, ciliumPod.Pod.Name,
 		defaults.AgentContainerName, []string{"cat", "/var/run/cilium/state/agent-runtime-config.json"})
 	if err != nil {
@@ -324,6 +326,7 @@ func (ct *ConnectivityTest) detectFeatures(ctx context.Context) error {
 		return fmt.Errorf("ConfigMap %q does not contain any configuration", defaults.ConfigMapName)
 	}
 	for _, ciliumPod := range ct.ciliumPods {
+		ct.Debugf("Detecting features for cilium pod %s", ciliumPod.NameWithoutNamespace())
 		features := features.Set{}
 
 		// If unsure from which source to retrieve the information from,
@@ -333,12 +336,12 @@ func (ct *ConnectivityTest) detectFeatures(ctx context.Context) error {
 		features.ExtractFromConfigMap(cm)
 		err = ct.extractFeaturesFromRuntimeConfig(ctx, ciliumPod, features)
 		if err != nil {
-			return err
+			continue
 		}
 		features.ExtractFromNodes(ct.nodesWithoutCilium)
 		err = ct.extractFeaturesFromCiliumStatus(ctx, ciliumPod, features)
 		if err != nil {
-			return err
+			continue
 		}
 		err = ct.extractFeaturesFromClusterRole(ctx, ciliumPod.K8sClient, features)
 		if err != nil {
@@ -364,6 +367,7 @@ func (ct *ConnectivityTest) detectFeatures(ctx context.Context) error {
 			ct.Features = features
 			initialized = true
 		}
+		break
 	}
 
 	ct.ClusterNameLocal = cmp.Or(cm.Data["cluster-name"], "default")
