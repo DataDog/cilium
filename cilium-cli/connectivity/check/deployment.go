@@ -847,18 +847,6 @@ func (ct *ConnectivityTest) deploy(ctx context.Context) error {
 			Labels:      map[string]string{"other": "echo"},
 			Annotations: ct.params.DeploymentAnnotations.Match(echoSameNodeDeploymentName),
 			Affinity: &corev1.Affinity{
-				PodAffinity: &corev1.PodAffinity{
-					RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{
-						{
-							LabelSelector: &metav1.LabelSelector{
-								MatchExpressions: []metav1.LabelSelectorRequirement{
-									{Key: "name", Operator: metav1.LabelSelectorOpIn, Values: []string{clientDeploymentName}},
-								},
-							},
-							TopologyKey: corev1.LabelHostname,
-						},
-					},
-				},
 				NodeAffinity: ct.maybeNodeToNodeEncryptionAffinity(),
 			},
 			Tolerations:    ct.params.GetTolerations(),
