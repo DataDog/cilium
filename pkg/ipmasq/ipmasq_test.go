@@ -144,10 +144,14 @@ func setUpTest(tb testing.TB) *IPMasqTestSuite {
 	i.configFilePath = configFile.Name()
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 	agent, err := newIPMasqAgent(i.configFilePath, i.ipMasqMap)
 =======
 	agent := newIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
 >>>>>>> abac20cde2 (test)
+=======
+	agent := NewIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
+>>>>>>> 4b7e496ba6 (add maps)
 	require.NoError(tb, err)
 	i.ipMasqAgent = agent
 
@@ -383,9 +387,13 @@ func TestRestoreIPv4(t *testing.T) {
 	i.writeConfig(t, "nonMasqueradeCIDRs:\n- 4.4.0.0/16")
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 	i.ipMasqAgent, err = newIPMasqAgent(i.configFilePath, i.ipMasqMap)
 =======
 	i.ipMasqAgent = newIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
+=======
+	i.ipMasqAgent = NewIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
+>>>>>>> 4b7e496ba6 (add maps)
 	err = i.ipMasqAgent.Start()
 >>>>>>> abac20cde2 (test)
 	require.NoError(t, err)
@@ -409,9 +417,13 @@ func TestRestoreIPv4(t *testing.T) {
 	i.ipMasqAgent.ipMasqMap = i.ipMasqMap
 	i.writeConfig(t, "nonMasqueradeCIDRs:\n- 3.3.0.0/16\nmasqLinkLocal: true")
 <<<<<<< HEAD
+<<<<<<< HEAD
 	i.ipMasqAgent, err = newIPMasqAgent(i.configFilePath, i.ipMasqMap)
 =======
 	i.ipMasqAgent = newIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
+=======
+	i.ipMasqAgent = NewIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
+>>>>>>> 4b7e496ba6 (add maps)
 	err = i.ipMasqAgent.Start()
 >>>>>>> abac20cde2 (test)
 	require.NoError(t, err)
@@ -440,9 +452,13 @@ func TestRestoreIPv6(t *testing.T) {
 	i.writeConfig(t, "nonMasqueradeCIDRs:\n- 4:4::/32")
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 	i.ipMasqAgent, err = newIPMasqAgent(i.configFilePath, i.ipMasqMap)
 =======
 	i.ipMasqAgent = newIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
+=======
+	i.ipMasqAgent = NewIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
+>>>>>>> 4b7e496ba6 (add maps)
 	err = i.ipMasqAgent.Start()
 >>>>>>> abac20cde2 (test)
 	require.NoError(t, err)
@@ -466,9 +482,13 @@ func TestRestoreIPv6(t *testing.T) {
 	i.ipMasqAgent.ipMasqMap = i.ipMasqMap
 	i.writeConfig(t, "nonMasqueradeCIDRs:\n- 3:3::/96\nmasqLinkLocalIPv6: true")
 <<<<<<< HEAD
+<<<<<<< HEAD
 	i.ipMasqAgent, err = newIPMasqAgent(i.configFilePath, i.ipMasqMap)
 =======
 	i.ipMasqAgent = newIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
+=======
+	i.ipMasqAgent = NewIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
+>>>>>>> 4b7e496ba6 (add maps)
 	err = i.ipMasqAgent.Start()
 >>>>>>> abac20cde2 (test)
 	require.NoError(t, err)
@@ -501,9 +521,13 @@ func TestRestore(t *testing.T) {
 	i.writeConfig(t, "nonMasqueradeCIDRs:\n- 4.4.0.0/16\n- 4:4::/32")
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 	i.ipMasqAgent, err = newIPMasqAgent(i.configFilePath, i.ipMasqMap)
 =======
 	i.ipMasqAgent = newIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
+=======
+	i.ipMasqAgent = NewIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
+>>>>>>> 4b7e496ba6 (add maps)
 	err = i.ipMasqAgent.Start()
 >>>>>>> abac20cde2 (test)
 	require.NoError(t, err)
@@ -532,9 +556,13 @@ func TestRestore(t *testing.T) {
 	i.ipMasqAgent.ipMasqMap = i.ipMasqMap
 	i.writeConfig(t, "nonMasqueradeCIDRs:\n- 3.3.0.0/16\n- 3:3:3:3::/96\nmasqLinkLocal: true\nmasqLinkLocalIPv6: true")
 <<<<<<< HEAD
+<<<<<<< HEAD
 	i.ipMasqAgent, err = newIPMasqAgent(i.configFilePath, i.ipMasqMap)
 =======
 	i.ipMasqAgent = newIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
+=======
+	i.ipMasqAgent = NewIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
+>>>>>>> 4b7e496ba6 (add maps)
 	err = i.ipMasqAgent.Start()
 >>>>>>> abac20cde2 (test)
 	require.NoError(t, err)

@@ -16,7 +16,6 @@ import (
 
 	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/logging/logfields"
-	"github.com/cilium/cilium/pkg/maps/ipmasq"
 )
 
 var (
@@ -98,11 +97,7 @@ type IPMasqAgent struct {
 	handlerFinished        chan struct{}
 }
 
-func NewIPMasqAgent(configPath string) *IPMasqAgent {
-	return newIPMasqAgent(configPath, &ipmasq.IPMasqBPFMap{})
-}
-
-func newIPMasqAgent(configPath string, ipMasqMap IPMasqMap) *IPMasqAgent {
+func NewIPMasqAgent(configPath string, ipMasqMap IPMasqMap) *IPMasqAgent {
 	a := &IPMasqAgent{
 		configPath:             configPath,
 		nonMasqCIDRsFromConfig: map[string]netip.Prefix{},

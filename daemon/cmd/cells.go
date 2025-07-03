@@ -51,6 +51,7 @@ import (
 	loadbalancer_experimental "github.com/cilium/cilium/pkg/loadbalancer/experimental"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/maglev"
+	ipmasqmaps "github.com/cilium/cilium/pkg/maps/ipmasq"
 	"github.com/cilium/cilium/pkg/maps/metricsmap"
 	natStats "github.com/cilium/cilium/pkg/maps/nat/stats"
 	"github.com/cilium/cilium/pkg/maps/ratelimitmap"
@@ -247,6 +248,9 @@ var (
 
 		// ServiceCache holds the list of known services correlated with the matching endpoints.
 		k8s.ServiceCacheCell,
+
+		// Provides the BPF ip-masq-agent maps
+		ipmasqmaps.Cell,
 
 		// Provides the BPF ip-masq-agent implementation, which is responsible for managing IP masquerading rules
 		ipmasq.Cell,
