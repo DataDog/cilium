@@ -25,18 +25,18 @@ type ipMasqMapsParams struct {
 }
 
 func newIPMasqMaps(p ipMasqMapsParams) bpf.MapOut[*IPMasqBPFMap] {
-	m := &IPMasqBPFMap{MetricsRegistry: p.MetricsRegistry}
+	m := &IPMasqBPFMap{}
 
 	p.Lifecycle.Append(cell.Hook{
 		OnStart: func(cell.HookContext) error {
 			if option.Config.EnableIPMasqAgent {
 				if option.Config.EnableIPv4Masquerade {
-					if err := IPMasq4Map(p.MetricsRegistry).OpenOrCreate(); err != nil {
+					if err := IPMasq4Map().OpenOrCreate(); err != nil {
 						return fmt.Errorf("initializing IPv4 masquerading map: %w", err)
 					}
 				}
 				if option.Config.EnableIPv6Masquerade {
-					if err := IPMasq6Map(p.MetricsRegistry).OpenOrCreate(); err != nil {
+					if err := IPMasq6Map().OpenOrCreate(); err != nil {
 						return fmt.Errorf("initializing IPv6 masquerading map: %w", err)
 					}
 				}
