@@ -17,8 +17,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 
 	"github.com/cilium/cilium/pkg/logging/logfields"
-	"github.com/cilium/cilium/pkg/maps/ipmasq"
-	"github.com/cilium/cilium/pkg/metrics"
 )
 
 var (
@@ -99,11 +97,7 @@ type IPMasqAgent struct {
 	handlerFinished        chan struct{}
 }
 
-func NewIPMasqAgent(logger *slog.Logger, reg *metrics.Registry, configPath string) *IPMasqAgent {
-	return newIPMasqAgent(logger, configPath, &ipmasq.IPMasqBPFMap{MetricsRegistry: reg})
-}
-
-func newIPMasqAgent(logger *slog.Logger, configPath string, ipMasqMap IPMasqMap) *IPMasqAgent {
+func NewIPMasqAgent(logger *slog.Logger, configPath string, ipMasqMap IPMasqMap) *IPMasqAgent {
 	a := &IPMasqAgent{
 		logger:                 logger,
 		configPath:             configPath,

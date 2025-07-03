@@ -5,14 +5,13 @@ package cell
 
 import (
 	"fmt"
-	"github.com/cilium/cilium/pkg/ipmasq"
-	"github.com/cilium/cilium/pkg/option"
 	"log/slog"
 
-	"github.com/cilium/hive/cell"
-	"github.com/cilium/hive/job"
+	"github.com/cilium/cilium/pkg/ipmasq"
+	ipmasqmaps "github.com/cilium/cilium/pkg/maps/ipmasq"
+	"github.com/cilium/cilium/pkg/option"
 
-	"github.com/cilium/cilium/pkg/metrics"
+	"github.com/cilium/hive/cell"
 )
 
 var Cell = cell.Module(
@@ -27,11 +26,10 @@ var Cell = cell.Module(
 type ipMasqAgentParams struct {
 	cell.In
 
-	Logger          *slog.Logger
-	Lifecycle       cell.Lifecycle
-	JobGroup        job.Group
-	MetricsRegistry *metrics.Registry
-	Config          Config
+	Logger    *slog.Logger
+	Lifecycle cell.Lifecycle
+	Config    Config
+	IPMasqMap *ipmasqmaps.IPMasqBPFMap
 }
 
 type ipMasqAgentOut struct {
@@ -41,13 +39,11 @@ type ipMasqAgentOut struct {
 }
 
 func newIPMasqAgentCell(params ipMasqAgentParams) (ipMasqAgentOut, error) {
-	cfg := params.Config
-
 	if !option.Config.EnableIPMasqAgent {
 		return ipMasqAgentOut{}, nil
 	}
 
-	agent := ipmasq.NewIPMasqAgent(params.Logger, params.MetricsRegistry, cfg.IPMasqAgentConfigPath)
+	agent := ipmasq.NewIPMasqAgent(params.Logger, params.Config.IPMasqAgentConfigPath, params.IPMasqMap)
 
 	return ipMasqAgentOut{
 		IPMasqAgent: agent,

@@ -57,6 +57,7 @@ import (
 	loadbalancer_cell "github.com/cilium/cilium/pkg/loadbalancer/cell"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/maglev"
+	ipmasqmaps "github.com/cilium/cilium/pkg/maps/ipmasq"
 	"github.com/cilium/cilium/pkg/maps/metricsmap"
 	natStats "github.com/cilium/cilium/pkg/maps/nat/stats"
 	"github.com/cilium/cilium/pkg/maps/ratelimitmap"
@@ -253,6 +254,9 @@ var (
 
 		// Egress Gateway allows originating traffic from specific IPv4 addresses.
 		egressgateway.Cell,
+
+		// Provides the BPF ip-masq-agent maps
+		ipmasqmaps.Cell,
 
 		// Provides the BPF ip-masq-agent implementation, which is responsible for managing IP masquerading rules
 		ipmasq.Cell,

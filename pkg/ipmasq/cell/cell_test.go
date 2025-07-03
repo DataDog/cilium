@@ -5,19 +5,20 @@ package cell
 
 import (
 	"context"
-	"github.com/cilium/cilium/pkg/ipmasq"
 	"io"
 	"log/slog"
 	"testing"
 
+	"github.com/cilium/cilium/pkg/ipmasq"
+
 	upstreamHive "github.com/cilium/hive"
 	"github.com/cilium/hive/cell"
 	"github.com/cilium/hive/hivetest"
-	"github.com/cilium/hive/job"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/cilium/cilium/pkg/hive"
+	ipmasqmaps "github.com/cilium/cilium/pkg/maps/ipmasq"
 	"github.com/cilium/cilium/pkg/metrics"
 	"github.com/cilium/cilium/pkg/metrics/metric"
 	"github.com/cilium/cilium/pkg/option"
@@ -28,6 +29,7 @@ func TestIPMasqAgentCell(t *testing.T) {
 	var agent *ipmasq.IPMasqAgent
 
 	testHive := hive.New(
+		ipmasqmaps.Cell,
 		Cell,
 		cell.Provide(func() *metrics.Registry {
 			return metrics.NewRegistry(metrics.RegistryParams{
@@ -67,6 +69,7 @@ func TestIPMasqAgentCellDisabled(t *testing.T) {
 	var agent *ipmasq.IPMasqAgent
 
 	testHive := hive.New(
+		ipmasqmaps.Cell,
 		Cell,
 		cell.Provide(func() *metrics.Registry {
 			return metrics.NewRegistry(metrics.RegistryParams{
@@ -111,14 +114,3 @@ func (n *noOpLifecycle) Stop(*slog.Logger, context.Context) error {
 	return nil
 }
 func (n *noOpLifecycle) PrintHooks(io.Writer) {}
-
-type noOpJobGroup struct{}
-
-func (n *noOpJobGroup) Add(...job.Job) {}
-func (n *noOpJobGroup) Scoped(string) job.ScopedGroup {
-	return &noOpScopedGroup{}
-}
-
-type noOpScopedGroup struct{}
-
-func (n *noOpScopedGroup) Add(...job.Job) {}
