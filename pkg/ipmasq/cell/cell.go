@@ -47,7 +47,7 @@ func newIPMasqAgentCell(params ipMasqAgentParams) (ipMasqAgentOut, error) {
 		return ipMasqAgentOut{}, nil
 	}
 
-	agent := ipmasq.NewIPMasqAgent(params.Logger, params.MetricsRegistry, cfg.IPMasqAgentConfigPath)
+	agent := ipmasq.NewIPMasqAgent(cfg.IPMasqAgentConfigPath)
 
 	return ipMasqAgentOut{
 		IPMasqAgent: agent,
