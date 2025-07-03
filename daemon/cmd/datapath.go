@@ -26,11 +26,7 @@ import (
 	"github.com/cilium/cilium/pkg/maps/encrypt"
 	"github.com/cilium/cilium/pkg/maps/fragmap"
 	ipcachemap "github.com/cilium/cilium/pkg/maps/ipcache"
-<<<<<<< HEAD
-	"github.com/cilium/cilium/pkg/maps/ipmasq"
 	"github.com/cilium/cilium/pkg/maps/lbmap"
-=======
->>>>>>> 4b7e496ba6 (add maps)
 	"github.com/cilium/cilium/pkg/maps/lxcmap"
 	"github.com/cilium/cilium/pkg/maps/metricsmap"
 	"github.com/cilium/cilium/pkg/maps/nat"
