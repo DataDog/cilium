@@ -41,6 +41,7 @@ import (
 	"github.com/cilium/cilium/pkg/identity/identitymanager"
 	ipamcell "github.com/cilium/cilium/pkg/ipam/cell"
 	ipcache "github.com/cilium/cilium/pkg/ipcache/cell"
+	"github.com/cilium/cilium/pkg/ipmasq"
 	"github.com/cilium/cilium/pkg/k8s"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
 	k8sSynced "github.com/cilium/cilium/pkg/k8s/synced"
@@ -246,6 +247,9 @@ var (
 
 		// ServiceCache holds the list of known services correlated with the matching endpoints.
 		k8s.ServiceCacheCell,
+
+		// IPMasqAgent provides the ip-masq-agent functionality for managing masquerade rules.
+		ipmasq.Cell,
 
 		// Provides PolicyRepository (List of policy rules)
 		policy.Cell,
