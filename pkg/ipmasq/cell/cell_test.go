@@ -5,6 +5,7 @@ package cell
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -33,15 +34,18 @@ func TestIPMasqAgentCell(t *testing.T) {
 		}),
 	)
 
-	// Override configuration for the cell under test.
+	configFile, err := os.CreateTemp("", "ipmasq-test")
+	require.NoError(t, err)
+
 	hive.AddConfigOverride(testHive, func(cfg *Config) {
 		cfg.EnableIPMasqAgent = true
+		cfg.IPMasqAgentConfigPath = configFile.Name()
 	})
 
 	// Start the hive
 	ctx := context.Background()
 	tlog := hivetest.Logger(t)
-	err := testHive.Start(tlog, ctx)
+	err = testHive.Start(tlog, ctx)
 	require.NoError(t, err)
 
 	// Verify that the agent was successfully created
@@ -50,6 +54,7 @@ func TestIPMasqAgentCell(t *testing.T) {
 	// Stop the hive
 	err = testHive.Stop(tlog, ctx)
 	require.NoError(t, err)
+	os.Remove(configFile.Name())
 }
 
 func TestIPMasqAgentCellDisabled(t *testing.T) {
