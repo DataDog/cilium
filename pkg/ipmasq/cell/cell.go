@@ -8,6 +8,7 @@ import (
 	"log/slog"
 
 	"github.com/cilium/cilium/pkg/ipmasq"
+	ipmasqmap "github.com/cilium/cilium/pkg/maps/ipmasq"
 
 	"github.com/cilium/hive/cell"
 )
@@ -26,7 +27,7 @@ type ipMasqAgentParams struct {
 	Logger    *slog.Logger
 	Lifecycle cell.Lifecycle
 	Config    Config
-	IPMasqMap *ipmasq.IPMasqMap
+	IPMasqMap *ipmasqmap.IPMasqBPFMap
 }
 
 func newIPMasqAgentCell(params ipMasqAgentParams) (*ipmasq.IPMasqAgent, error) {
@@ -34,7 +35,7 @@ func newIPMasqAgentCell(params ipMasqAgentParams) (*ipmasq.IPMasqAgent, error) {
 		return nil, nil
 	}
 
-	agent := ipmasq.NewIPMasqAgent(params.Config.IPMasqAgentConfigPath, *params.IPMasqMap)
+	agent := ipmasq.NewIPMasqAgent(params.Config.IPMasqAgentConfigPath, params.IPMasqMap)
 
 	// Register lifecycle hooks for the agent
 	params.Lifecycle.Append(cell.Hook{
