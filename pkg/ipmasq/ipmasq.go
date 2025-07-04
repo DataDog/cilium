@@ -97,27 +97,27 @@ type IPMasqAgent struct {
 	handlerFinished        chan struct{}
 }
 
-func NewIPMasqAgent(logger *slog.Logger, configPath string, ipMasqMap IPMasqMap) (*IPMasqAgent, error) {
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create fsnotify watcher: %w", err)
-	}
-
+func NewIPMasqAgent(logger *slog.Logger, configPath string, ipMasqMap IPMasqMap) *IPMasqAgent {
 	a := &IPMasqAgent{
 		logger:                 logger,
 		configPath:             configPath,
 		nonMasqCIDRsFromConfig: map[string]netip.Prefix{},
 		nonMasqCIDRsInMap:      map[string]netip.Prefix{},
 		ipMasqMap:              ipMasqMap,
-		watcher:                watcher,
 	}
 
-	return a, nil
+	return a
 }
 
 // Start starts the ip-masq-agent goroutine which tracks the config file and
 // updates the BPF map accordingly.
 func (a *IPMasqAgent) Start() error {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return fmt.Errorf("failed to create fsnotify watcher: %w", err)
+	}
+	a.watcher = watcher
+
 	configDir := filepath.Dir(a.configPath)
 	// The directory of the config should exist at this time, otherwise
 	// the watcher will fail to add

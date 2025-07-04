@@ -5,6 +5,7 @@ package cell
 
 import (
 	"context"
+	"net/netip"
 	"os"
 	"testing"
 
@@ -16,18 +17,27 @@ import (
 
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/ipmasq"
-	ipmasqmaps "github.com/cilium/cilium/pkg/maps/ipmasq"
 	"github.com/cilium/cilium/pkg/metrics"
 	"github.com/cilium/cilium/pkg/option"
 )
+
+// dummyMap implements ipmasq.IPMasqMap with no-op behavior.
+type dummyMap struct{}
+
+func (d *dummyMap) Update(netip.Prefix) error     { return nil }
+func (d *dummyMap) Delete(netip.Prefix) error     { return nil }
+func (d *dummyMap) Dump() ([]netip.Prefix, error) { return nil, nil }
 
 func TestIPMasqAgentCell(t *testing.T) {
 	var agent *ipmasq.IPMasqAgent
 
 	testHive := hive.New(
-		ipmasqmaps.Cell,
-		metrics.Cell,
+		// Needed for the metrics.Cell
 		cell.Provide(func() *option.DaemonConfig { return &option.DaemonConfig{} }),
+		// Needed for the IPMasqBPFMap
+		metrics.Cell,
+		// Provide a dummy IPMasq map to avoid touching real BPF maps.
+		cell.Provide(func() ipmasq.IPMasqMap { return &dummyMap{} }),
 		Cell,
 		cell.Invoke(func(a *ipmasq.IPMasqAgent) {
 			agent = a
@@ -61,9 +71,12 @@ func TestIPMasqAgentCellDisabled(t *testing.T) {
 	var agent *ipmasq.IPMasqAgent
 
 	testHive := hive.New(
-		ipmasqmaps.Cell,
-		metrics.Cell,
+		// Needed for the metrics.Cell
 		cell.Provide(func() *option.DaemonConfig { return &option.DaemonConfig{} }),
+		// Needed for the IPMasqBPFMap
+		metrics.Cell,
+		// Provide a dummy IPMasq map to avoid touching real BPF maps.
+		cell.Provide(func() ipmasq.IPMasqMap { return &dummyMap{} }),
 		Cell,
 		cell.Invoke(func(a *ipmasq.IPMasqAgent) {
 			agent = a
