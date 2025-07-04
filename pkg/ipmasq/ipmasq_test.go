@@ -145,6 +145,7 @@ func setUpTest(tb testing.TB) *IPMasqTestSuite {
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 	agent, err := newIPMasqAgent(i.configFilePath, i.ipMasqMap)
 =======
 	agent := newIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
@@ -154,6 +155,9 @@ func setUpTest(tb testing.TB) *IPMasqTestSuite {
 >>>>>>> 4b7e496ba6 (add maps)
 	require.NoError(tb, err)
 	i.ipMasqAgent = agent
+=======
+	i.ipMasqAgent = NewIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
+>>>>>>> c0a552d8b2 (Updates)
 
 	tb.Cleanup(func() {
 		i.ipMasqAgent.Stop()
