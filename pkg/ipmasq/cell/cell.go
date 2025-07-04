@@ -26,7 +26,7 @@ type ipMasqAgentParams struct {
 	Logger    *slog.Logger
 	Lifecycle cell.Lifecycle
 	Config    Config
-	IPMasqMap ipmasq.IPMasqMap
+	IPMasqMap *ipmasq.IPMasqMap
 }
 
 func newIPMasqAgentCell(params ipMasqAgentParams) (*ipmasq.IPMasqAgent, error) {
@@ -34,7 +34,7 @@ func newIPMasqAgentCell(params ipMasqAgentParams) (*ipmasq.IPMasqAgent, error) {
 		return nil, nil
 	}
 
-	agent := ipmasq.NewIPMasqAgent(params.Config.IPMasqAgentConfigPath, params.IPMasqMap)
+	agent := ipmasq.NewIPMasqAgent(params.Config.IPMasqAgentConfigPath, *params.IPMasqMap)
 
 	// Register lifecycle hooks for the agent
 	params.Lifecycle.Append(cell.Hook{
