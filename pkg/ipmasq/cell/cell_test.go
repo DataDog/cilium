@@ -5,49 +5,37 @@ package cell
 
 import (
 	"context"
-	"io"
-	"log/slog"
 	"testing"
 
-	"github.com/cilium/cilium/pkg/ipmasq"
-
-	upstreamHive "github.com/cilium/hive"
-	"github.com/cilium/hive/cell"
-	"github.com/cilium/hive/hivetest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/cilium/hive/cell"
+	"github.com/cilium/hive/hivetest"
+
 	"github.com/cilium/cilium/pkg/hive"
+	"github.com/cilium/cilium/pkg/ipmasq"
 	ipmasqmaps "github.com/cilium/cilium/pkg/maps/ipmasq"
 	"github.com/cilium/cilium/pkg/metrics"
-	"github.com/cilium/cilium/pkg/metrics/metric"
 	"github.com/cilium/cilium/pkg/option"
 )
 
 func TestIPMasqAgentCell(t *testing.T) {
-	option.Config.EnableIPMasqAgent = true
 	var agent *ipmasq.IPMasqAgent
 
 	testHive := hive.New(
 		ipmasqmaps.Cell,
+		metrics.Cell,
+		cell.Provide(func() *option.DaemonConfig { return &option.DaemonConfig{} }),
 		Cell,
-		cell.Provide(func() *metrics.Registry {
-			return metrics.NewRegistry(metrics.RegistryParams{
-				Logger:       slog.Default(),
-				Shutdowner:   &noOpShutdowner{},
-				Lifecycle:    &noOpLifecycle{},
-				AutoMetrics:  []metric.WithMetadata{},
-				Config:       metrics.RegistryConfig{},
-				DaemonConfig: &option.DaemonConfig{},
-			})
-		}),
 		cell.Invoke(func(a *ipmasq.IPMasqAgent) {
 			agent = a
 		}),
 	)
 
+	// Override configuration for the cell under test.
 	hive.AddConfigOverride(testHive, func(cfg *Config) {
-		cfg.IPMasqAgentConfigPath = "/tmp/test-ipmasq-config"
+		cfg.EnableIPMasqAgent = true
 	})
 
 	// Start the hive
@@ -65,26 +53,22 @@ func TestIPMasqAgentCell(t *testing.T) {
 }
 
 func TestIPMasqAgentCellDisabled(t *testing.T) {
-	option.Config.EnableIPMasqAgent = false
 	var agent *ipmasq.IPMasqAgent
 
 	testHive := hive.New(
 		ipmasqmaps.Cell,
+		metrics.Cell,
+		cell.Provide(func() *option.DaemonConfig { return &option.DaemonConfig{} }),
 		Cell,
-		cell.Provide(func() *metrics.Registry {
-			return metrics.NewRegistry(metrics.RegistryParams{
-				Logger:       slog.Default(),
-				Shutdowner:   &noOpShutdowner{},
-				Lifecycle:    &noOpLifecycle{},
-				AutoMetrics:  []metric.WithMetadata{},
-				Config:       metrics.RegistryConfig{},
-				DaemonConfig: &option.DaemonConfig{},
-			})
-		}),
 		cell.Invoke(func(a *ipmasq.IPMasqAgent) {
 			agent = a
 		}),
 	)
+
+	// Disable via config
+	hive.AddConfigOverride(testHive, func(cfg *Config) {
+		cfg.EnableIPMasqAgent = false
+	})
 
 	// Start the hive
 	ctx := context.Background()
@@ -99,18 +83,3 @@ func TestIPMasqAgentCellDisabled(t *testing.T) {
 	err = testHive.Stop(tlog, ctx)
 	require.NoError(t, err)
 }
-
-type noOpShutdowner struct{}
-
-func (n *noOpShutdowner) Shutdown(...upstreamHive.ShutdownOption) {}
-
-type noOpLifecycle struct{}
-
-func (n *noOpLifecycle) Append(cell.HookInterface) {}
-func (n *noOpLifecycle) Start(*slog.Logger, context.Context) error {
-	return nil
-}
-func (n *noOpLifecycle) Stop(*slog.Logger, context.Context) error {
-	return nil
-}
-func (n *noOpLifecycle) PrintHooks(io.Writer) {}

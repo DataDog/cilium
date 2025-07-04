@@ -145,7 +145,7 @@ func setUpTest(tb testing.TB) *IPMasqTestSuite {
 	require.NoError(tb, err)
 	i.configFilePath = configFile.Name()
 
-	agent := NewIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
+	agent, err := NewIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
 	require.NoError(tb, err)
 	i.ipMasqAgent = agent
 
@@ -381,7 +381,8 @@ func TestRestoreIPv4(t *testing.T) {
 	i.ipMasqMap.cidrsIPv4[cidr.String()] = cidr
 	i.writeConfig(t, "nonMasqueradeCIDRs:\n- 4.4.0.0/16")
 
-	i.ipMasqAgent = NewIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
+	i.ipMasqAgent, err = NewIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
+	require.NoError(t, err)
 	err = i.ipMasqAgent.Start()
 	require.NoError(t, err)
 	time.Sleep(300 * time.Millisecond)
@@ -403,7 +404,8 @@ func TestRestoreIPv4(t *testing.T) {
 	}
 	i.ipMasqAgent.ipMasqMap = i.ipMasqMap
 	i.writeConfig(t, "nonMasqueradeCIDRs:\n- 3.3.0.0/16\nmasqLinkLocal: true")
-	i.ipMasqAgent = NewIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
+	i.ipMasqAgent, err = NewIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
+	require.NoError(t, err)
 	err = i.ipMasqAgent.Start()
 	require.NoError(t, err)
 
@@ -431,7 +433,8 @@ func TestRestoreIPv6(t *testing.T) {
 	i.ipMasqMap.cidrsIPv6[cidr.String()] = cidr
 	i.writeConfig(t, "nonMasqueradeCIDRs:\n- 4:4::/32")
 
-	i.ipMasqAgent = NewIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
+	i.ipMasqAgent, err = NewIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
+	require.NoError(t, err)
 	err = i.ipMasqAgent.Start()
 	require.NoError(t, err)
 	time.Sleep(300 * time.Millisecond)
@@ -453,7 +456,8 @@ func TestRestoreIPv6(t *testing.T) {
 	}
 	i.ipMasqAgent.ipMasqMap = i.ipMasqMap
 	i.writeConfig(t, "nonMasqueradeCIDRs:\n- 3:3::/96\nmasqLinkLocalIPv6: true")
-	i.ipMasqAgent = NewIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
+	i.ipMasqAgent, err = NewIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
+	require.NoError(t, err)
 	err = i.ipMasqAgent.Start()
 	require.NoError(t, err)
 
@@ -485,7 +489,8 @@ func TestRestore(t *testing.T) {
 	i.ipMasqMap.cidrsIPv4[cidr.String()] = cidr
 	i.writeConfig(t, "nonMasqueradeCIDRs:\n- 4.4.0.0/16\n- 4:4::/32")
 
-	i.ipMasqAgent = NewIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
+	i.ipMasqAgent, err = NewIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
+	require.NoError(t, err)
 	err = i.ipMasqAgent.Start()
 	require.NoError(t, err)
 	time.Sleep(300 * time.Millisecond)
@@ -512,7 +517,8 @@ func TestRestore(t *testing.T) {
 	}
 	i.ipMasqAgent.ipMasqMap = i.ipMasqMap
 	i.writeConfig(t, "nonMasqueradeCIDRs:\n- 3.3.0.0/16\n- 3:3:3:3::/96\nmasqLinkLocal: true\nmasqLinkLocalIPv6: true")
-	i.ipMasqAgent = NewIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
+	i.ipMasqAgent, err = NewIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
+	require.NoError(t, err)
 	err = i.ipMasqAgent.Start()
 	require.NoError(t, err)
 
