@@ -120,8 +120,8 @@ func (a *IPMasqAgent) Start() error {
 	configDir := filepath.Dir(a.configPath)
 	// The directory of the config should exist at this time, otherwise
 	// the watcher will fail to add
-	if err := watcher.Add(configDir); err != nil {
-		watcher.Close()
+	if err := a.watcher.Add(configDir); err != nil {
+		a.watcher.Close()
 		return fmt.Errorf("failed to add %q dir to fsnotify watcher: %w", configDir, err)
 	}
 
