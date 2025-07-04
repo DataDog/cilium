@@ -34,10 +34,7 @@ func newIPMasqAgentCell(params ipMasqAgentParams) (*ipmasq.IPMasqAgent, error) {
 		return nil, nil
 	}
 
-	agent, err := ipmasq.NewIPMasqAgent(params.Logger, params.Config.IPMasqAgentConfigPath, params.IPMasqMap)
-	if err != nil {
-		return nil, err
-	}
+	agent := ipmasq.NewIPMasqAgent(params.Logger, params.Config.IPMasqAgentConfigPath, params.IPMasqMap)
 
 	// Register lifecycle hooks for the agent
 	params.Lifecycle.Append(cell.Hook{
