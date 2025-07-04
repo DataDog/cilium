@@ -9,7 +9,6 @@ import (
 
 	"github.com/cilium/cilium/pkg/ipmasq"
 	ipmasqmaps "github.com/cilium/cilium/pkg/maps/ipmasq"
-	"github.com/cilium/cilium/pkg/option"
 
 	"github.com/cilium/hive/cell"
 )
@@ -19,7 +18,6 @@ var Cell = cell.Module(
 	"BPF ip-masq-agent implementation",
 
 	cell.Provide(newIPMasqAgentCell),
-	cell.Invoke(registerIPMasqAgentLifecycle),
 	cell.Config(defaultConfig),
 )
 
@@ -32,37 +30,17 @@ type ipMasqAgentParams struct {
 	IPMasqMap *ipmasqmaps.IPMasqBPFMap
 }
 
-type ipMasqAgentOut struct {
-	cell.Out
-
-	IPMasqAgent *ipmasq.IPMasqAgent
-}
-
-func newIPMasqAgentCell(params ipMasqAgentParams) (ipMasqAgentOut, error) {
-	if !option.Config.EnableIPMasqAgent {
-		return ipMasqAgentOut{}, nil
+func newIPMasqAgentCell(params ipMasqAgentParams) (*ipmasq.IPMasqAgent, error) {
+	if !params.Config.EnableIPMasqAgent {
+		return nil, nil
 	}
 
 	agent := ipmasq.NewIPMasqAgent(params.Logger, params.Config.IPMasqAgentConfigPath, params.IPMasqMap)
 
-	return ipMasqAgentOut{
-		IPMasqAgent: agent,
-	}, nil
-}
-
-func registerIPMasqAgentLifecycle(
-	params ipMasqAgentParams,
-	agent *ipmasq.IPMasqAgent,
-) {
-	if agent == nil {
-		return
-	}
-
 	params.Lifecycle.Append(cell.Hook{
 		OnStart: func(cell.HookContext) error {
 			params.Logger.Info("Starting ip-masq-agent")
-			err := agent.Start()
-			if err != nil {
+			if err := agent.Start(); err != nil {
 				return fmt.Errorf("failed to start ip-masq-agent: %w", err)
 			}
 			return nil
@@ -73,4 +51,6 @@ func registerIPMasqAgentLifecycle(
 			return nil
 		},
 	})
+
+	return agent, nil
 }

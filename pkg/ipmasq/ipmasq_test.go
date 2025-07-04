@@ -145,9 +145,7 @@ func setUpTest(tb testing.TB) *IPMasqTestSuite {
 	require.NoError(tb, err)
 	i.configFilePath = configFile.Name()
 
-	agent := NewIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
-	require.NoError(tb, err)
-	i.ipMasqAgent = agent
+	i.ipMasqAgent = NewIPMasqAgent(logger, i.configFilePath, i.ipMasqMap)
 
 	tb.Cleanup(func() {
 		i.ipMasqAgent.Stop()
