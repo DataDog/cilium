@@ -6,6 +6,7 @@ package ciliumendpointslice
 import (
 	"context"
 	"fmt"
+	"github.com/prometheus/client_golang/prometheus"
 	"time"
 
 	"github.com/cilium/hive/cell"
@@ -325,31 +326,41 @@ func (c *Controller) processNextWorkItem() bool {
 	} else {
 		c.metrics.CiliumEndpointSliceQueueDelay.WithLabelValues(LabelQueueStandard).Observe(queueDelay)
 	}
+
+	isRetried := c.handleErr(queue, err, key)
 	if err != nil {
-		c.metrics.CiliumEndpointSliceSyncTotal.WithLabelValues(LabelValueOutcomeFail).Inc()
+		labels := prometheus.Labels{LabelOutcome: LabelValueOutcomeFail}
+		if isRetried {
+			labels[LabelFailureType] = LabelFailureTypeTransient
+		} else {
+			labels[LabelFailureType] = LabelFailureTypeFatal
+		}
+		c.metrics.CiliumEndpointSliceSyncTotal.With(labels).Inc()
 	} else {
 		c.metrics.CiliumEndpointSliceSyncTotal.WithLabelValues(LabelValueOutcomeSuccess).Inc()
 	}
 
-	c.handleErr(queue, err, key)
-
 	return true
 }
 
-func (c *Controller) handleErr(queue workqueue.TypedRateLimitingInterface[CESKey], err error, key CESKey) {
+func (c *Controller) handleErr(queue workqueue.TypedRateLimitingInterface[CESKey], err error, key CESKey) (retry bool) {
 	if err == nil {
 		queue.Forget(key)
-		return
+		return false
 	}
 
 	if queue.NumRequeues(key) < maxRetries {
+		c.logger.Warn("Error processing CES, retrying",
+			logfields.CESName, key.string(),
+			logfields.Error, err,
+			logfields.Attempt, queue.NumRequeues(key)+1)
 		time.AfterFunc(c.rateLimiter.When(key), func() {
 			c.cond.L.Lock()
 			defer c.cond.L.Unlock()
 			queue.Add(key)
 			c.cond.Signal()
 		})
-		return
+		return true
 	}
 
 	// Drop the CES from queue, we maxed out retries.
@@ -357,4 +368,5 @@ func (c *Controller) handleErr(queue workqueue.TypedRateLimitingInterface[CESKey
 		logfields.CESName, key.string(),
 		logfields.Error, err)
 	queue.Forget(key)
+	return false
 }
