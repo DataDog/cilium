@@ -347,7 +347,7 @@ func (c *Controller) processNextWorkItem() bool {
 		}
 		c.metrics.CiliumEndpointSliceSyncTotal.With(labels).Inc()
 	} else {
-		c.metrics.CiliumEndpointSliceSyncTotal.WithLabelValues(LabelValueOutcomeSuccess).Inc()
+		c.metrics.CiliumEndpointSliceSyncTotal.WithLabelValues(LabelValueOutcomeSuccess, "").Inc()
 	}
 
 	return true
