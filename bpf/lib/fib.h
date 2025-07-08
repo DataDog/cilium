@@ -10,6 +10,17 @@
 #include "neigh.h"
 #include "l3.h"
 
+/*
+ * Configure default flags for bpf_fib_lookup().
+ * Set ENABLE_FIB_LOOKUP_OUTPUT at compile time (e.g. via
+ * -DENABLE_FIB_LOOKUP_OUTPUT=1) to enable BPF_FIB_LOOKUP_OUTPUT.
+ */
+#if defined(ENABLE_FIB_LOOKUP_OUTPUT)
+#define FIB_LOOKUP_OUTPUT_FLAG BPF_FIB_LOOKUP_OUTPUT
+#else
+#define FIB_LOOKUP_OUTPUT_FLAG 0
+#endif
+
 static __always_inline int
 add_l2_hdr(struct __ctx_buff *ctx __maybe_unused)
 {
@@ -183,7 +194,7 @@ fib_redirect(struct __ctx_buff *ctx, const bool needs_l2_check,
 	if (!is_defined(ENABLE_SKIP_FIB) || !neigh_resolver_available()) {
 		int ret;
 
-		ret = (int)fib_lookup(ctx, &fib_params->l, sizeof(fib_params->l), 0);
+		ret = (int)fib_lookup(ctx, &fib_params->l, sizeof(fib_params->l), FIB_LOOKUP_OUTPUT_FLAG);
 		switch (ret) {
 		case BPF_FIB_LKUP_RET_SUCCESS:
 		case BPF_FIB_LKUP_RET_NO_NEIGH:
@@ -239,7 +250,7 @@ fib_redirect_v6(struct __ctx_buff *ctx, int l3_off,
 	if (!is_defined(ENABLE_SKIP_FIB) || !neigh_resolver_available()) {
 		int fib_result;
 
-		fib_result = fib_lookup_v6(ctx, &fib_params, &ip6->saddr, &ip6->daddr, 0);
+		fib_result = fib_lookup_v6(ctx, &fib_params, &ip6->saddr, &ip6->daddr, FIB_LOOKUP_OUTPUT_FLAG);
 		switch (fib_result) {
 		case BPF_FIB_LKUP_RET_SUCCESS:
 		case BPF_FIB_LKUP_RET_NO_NEIGH:
@@ -299,7 +310,7 @@ fib_redirect_v4(struct __ctx_buff *ctx, int l3_off,
 	if (!is_defined(ENABLE_SKIP_FIB) || !neigh_resolver_available()) {
 		int fib_result;
 
-		fib_result = fib_lookup_v4(ctx, &fib_params, ip4->saddr, ip4->daddr, 0);
+		fib_result = fib_lookup_v4(ctx, &fib_params, ip4->saddr, ip4->daddr, FIB_LOOKUP_OUTPUT_FLAG);
 		switch (fib_result) {
 		case BPF_FIB_LKUP_RET_SUCCESS:
 		case BPF_FIB_LKUP_RET_NO_NEIGH:
