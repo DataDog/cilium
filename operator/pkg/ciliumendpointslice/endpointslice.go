@@ -6,8 +6,9 @@ package ciliumendpointslice
 import (
 	"context"
 	"fmt"
-	"github.com/prometheus/client_golang/prometheus"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/cilium/hive/cell"
 	"github.com/cilium/hive/job"
@@ -62,12 +63,21 @@ func (c *Controller) initializeQueue() {
 
 	// Single rateLimiter controls the number of processed events in both queues.
 	c.rateLimiter = workqueue.NewTypedItemExponentialFailureRateLimiter[CESKey](defaultSyncBackOff, maxSyncBackOff)
+	mqProvider := newWorkqueueMetricsProvider(c.metrics)
+
 	c.fastQueue = workqueue.NewTypedRateLimitingQueueWithConfig(
 		c.rateLimiter,
-		workqueue.TypedRateLimitingQueueConfig[CESKey]{Name: "cilium_endpoint_slice"})
+		workqueue.TypedRateLimitingQueueConfig[CESKey]{
+			Name:            "cilium_endpoint_slice_fast",
+			MetricsProvider: mqProvider,
+		})
+
 	c.standardQueue = workqueue.NewTypedRateLimitingQueueWithConfig(
 		c.rateLimiter,
-		workqueue.TypedRateLimitingQueueConfig[CESKey]{Name: "cilium_endpoint_slice"})
+		workqueue.TypedRateLimitingQueueConfig[CESKey]{
+			Name:            "cilium_endpoint_slice_standard",
+			MetricsProvider: mqProvider,
+		})
 }
 
 func (c *Controller) onEndpointUpdate(cep *cilium_api_v2.CiliumEndpoint) {
