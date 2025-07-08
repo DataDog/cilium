@@ -8,37 +8,37 @@ import "k8s.io/client-go/util/workqueue"
 // cesWorkqueueMetricsProvider implements workqueue.MetricsProvider backed by the
 // Metrics instance created for the CiliumEndpointSlice controller.
 type cesWorkqueueMetricsProvider struct {
-	m *Metrics
+	metrics *Metrics
 }
 
-func newWorkqueueMetricsProvider(m *Metrics) workqueue.MetricsProvider {
-	return &cesWorkqueueMetricsProvider{m: m}
+func newWorkqueueMetricsProvider(metrics *Metrics) workqueue.MetricsProvider {
+	return &cesWorkqueueMetricsProvider{metrics: metrics}
 }
 
 func (p *cesWorkqueueMetricsProvider) NewDepthMetric(name string) workqueue.GaugeMetric {
-	return p.m.WorkQueueDepth.WithLabelValues(name)
+	return p.metrics.WorkQueueDepth.WithLabelValues(name)
 }
 
 func (p *cesWorkqueueMetricsProvider) NewAddsMetric(name string) workqueue.CounterMetric {
-	return p.m.WorkQueueAddsTotal.WithLabelValues(name)
+	return p.metrics.WorkQueueAddsTotal.WithLabelValues(name)
 }
 
 func (p *cesWorkqueueMetricsProvider) NewLatencyMetric(name string) workqueue.HistogramMetric {
-	return p.m.WorkQueueLatency.WithLabelValues(name)
+	return p.metrics.WorkQueueLatency.WithLabelValues(name)
 }
 
 func (p *cesWorkqueueMetricsProvider) NewWorkDurationMetric(name string) workqueue.HistogramMetric {
-	return p.m.WorkQueueDuration.WithLabelValues(name)
+	return p.metrics.WorkQueueDuration.WithLabelValues(name)
 }
 
 func (p *cesWorkqueueMetricsProvider) NewUnfinishedWorkSecondsMetric(name string) workqueue.SettableGaugeMetric {
-	return p.m.WorkQueueUnfinishedWork.WithLabelValues(name)
+	return p.metrics.WorkQueueUnfinishedWork.WithLabelValues(name)
 }
 
 func (p *cesWorkqueueMetricsProvider) NewLongestRunningProcessorSecondsMetric(name string) workqueue.SettableGaugeMetric {
-	return p.m.WorkQueueLongestRunningProcessor.WithLabelValues(name)
+	return p.metrics.WorkQueueLongestRunningProcessor.WithLabelValues(name)
 }
 
 func (p *cesWorkqueueMetricsProvider) NewRetriesMetric(name string) workqueue.CounterMetric {
-	return p.m.WorkQueueRetries.WithLabelValues(name)
+	return p.metrics.WorkQueueRetries.WithLabelValues(name)
 }

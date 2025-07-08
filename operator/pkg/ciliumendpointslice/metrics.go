@@ -63,7 +63,7 @@ func NewMetrics() *Metrics {
 			Namespace: metrics.CiliumOperatorNamespace,
 			Name:      "number_of_cep_changes_per_ces",
 			Help:      "The number of changed CEPs in each CES update",
-			Buckets:   []float64{1, 10, 25, 50, 100, 200, 500, 1000},
+			Buckets:   []float64{1, 5, 10, 25, 50, 100, 200, 500, 1000},
 		}, []string{LabelOpcode}),
 
 		CiliumEndpointSliceSyncTotal: metric.NewCounterVec(metric.CounterOpts{
@@ -80,50 +80,49 @@ func NewMetrics() *Metrics {
 		}, []string{LabelQueue}),
 
 		// Workqueue metrics:
-
 		WorkQueueDepth: metric.NewGaugeVec(metric.GaugeOpts{
 			Namespace: metrics.CiliumOperatorNamespace,
-			Name:      "workqueue_depth",
-			Help:      "Current depth of CES workqueue.",
-		}, []string{"queue_name"}),
+			Name:      "ces_workqueue_depth",
+			Help:      "Current depth of CES workqueues",
+		}, []string{LabelQueue}),
 
 		WorkQueueAddsTotal: metric.NewCounterVec(metric.CounterOpts{
 			Namespace: metrics.CiliumOperatorNamespace,
-			Name:      "workqueue_adds_total",
-			Help:      "Total number of adds handled by CES workqueue.",
-		}, []string{"queue_name"}),
+			Name:      "ces_workqueue_adds_total",
+			Help:      "Total number of adds handled by CES workqueues",
+		}, []string{LabelQueue}),
 
 		WorkQueueLatency: metric.NewHistogramVec(metric.HistogramOpts{
 			Namespace: metrics.CiliumOperatorNamespace,
-			Name:      "workqueue_queue_duration_seconds",
-			Help:      "How long in seconds an item stays in CES workqueue before being requested.",
+			Name:      "ces_workqueue_queue_duration_seconds",
+			Help:      "How long in seconds an item stays in CES workqueues before being requested",
 			Buckets:   prometheus.ExponentialBuckets(10e-9, 10, 10),
-		}, []string{"queue_name"}),
+		}, []string{LabelQueue}),
 
 		WorkQueueDuration: metric.NewHistogramVec(metric.HistogramOpts{
 			Namespace: metrics.CiliumOperatorNamespace,
-			Name:      "workqueue_work_duration_seconds",
-			Help:      "How long in seconds processing an item from CES workqueue takes.",
+			Name:      "ces_workqueue_work_duration_seconds",
+			Help:      "How long in seconds processing an item from CES workqueues takes",
 			Buckets:   prometheus.ExponentialBuckets(10e-9, 10, 10),
-		}, []string{"queue_name"}),
+		}, []string{LabelQueue}),
 
 		WorkQueueUnfinishedWork: metric.NewGaugeVec(metric.GaugeOpts{
 			Namespace: metrics.CiliumOperatorNamespace,
-			Name:      "workqueue_unfinished_work_seconds",
-			Help:      "How many seconds of work has been done that is in progress and hasn't been observed by work_duration.",
-		}, []string{"queue_name"}),
+			Name:      "ces_workqueue_unfinished_work_seconds",
+			Help:      "How many seconds of work has been done that is in progress and hasn't been observed by work_duration",
+		}, []string{LabelQueue}),
 
 		WorkQueueLongestRunningProcessor: metric.NewGaugeVec(metric.GaugeOpts{
 			Namespace: metrics.CiliumOperatorNamespace,
-			Name:      "workqueue_longest_running_processor_seconds",
-			Help:      "How many seconds has the longest running processor for CES workqueue been running.",
-		}, []string{"queue_name"}),
+			Name:      "ces_workqueue_longest_running_processor_seconds",
+			Help:      "How many seconds has the longest running processor for CES workqueues been running.",
+		}, []string{LabelQueue}),
 
 		WorkQueueRetries: metric.NewCounterVec(metric.CounterOpts{
 			Namespace: metrics.CiliumOperatorNamespace,
-			Name:      "workqueue_retries_total",
-			Help:      "Total number of retries handled by CES workqueue.",
-		}, []string{"queue_name"}),
+			Name:      "ces_workqueue_retries_total",
+			Help:      "Total number of retries handled by CES workqueues",
+		}, []string{LabelQueue}),
 	}
 }
 
@@ -143,7 +142,7 @@ type Metrics struct {
 	// CES insert in the workqueue and removal from workqueue.
 	CiliumEndpointSliceQueueDelay metric.Vec[metric.Observer] //metric.Histogram
 
-	// Generic workqueue metrics scoped for CES controller
+	// Workqueue metrics
 	WorkQueueDepth                   metric.Vec[metric.Gauge]
 	WorkQueueAddsTotal               metric.Vec[metric.Counter]
 	WorkQueueLatency                 metric.Vec[metric.Observer]
