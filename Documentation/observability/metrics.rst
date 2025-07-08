@@ -786,14 +786,21 @@ the Cilium Helm chart. The special names "all" and "none" are supported.
 CiliumEndpointSlices (CES)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-============================================== ================================ ========================================================
-Name                                           Labels                           Description
-============================================== ================================ ========================================================
-``number_of_ceps_per_ces``                                                      The number of CEPs batched in a CES
-``number_of_cep_changes_per_ces``              ``opcode``                       The number of changed CEPs in each CES update
-``ces_sync_total``                             ``outcome``                      The number of completed CES syncs by outcome
-``ces_queueing_delay_seconds``                                                  CiliumEndpointSlice queueing delay in seconds
-============================================== ================================ ========================================================
+====================================================== ================================ ========================================================
+Name                                                   Labels                           Description
+====================================================== ================================ ========================================================
+``number_of_ceps_per_ces``                                                              The number of CEPs batched in a CES
+``number_of_cep_changes_per_ces``                      ``opcode``                       The number of changed CEPs in each CES update
+``ces_sync_total``                                     ``outcome``, ``failure_type``    The number of completed CES syncs by outcome
+``ces_queueing_delay_seconds``                         ``queue``                        CiliumEndpointSlice queueing delay in seconds
+``ces_workqueue_depth``                                ``queue``                        Current depth of CES workqueues
+``ces_workqueue_adds_total``                           ``queue``                        Total number of adds handled by CES workqueues
+``ces_workqueue_queue_duration_seconds``               ``queue``                        How long in seconds an item stays in CES workqueues before being requested
+``ces_workqueue_work_duration_seconds``                ``queue``                        How long in seconds processing an item from CES workqueues takes
+``ces_workqueue_unfinished_work_seconds``              ``queue``                        How many seconds of work has been done that is in progress and hasn't been observed by work_duration
+``ces_workqueue_longest_running_processor_seconds``    ``queue``                        How many seconds has the longest running processor for CES workqueues been running
+``ces_workqueue_retries_total``                        ``queue``                        Total number of retries handled by CES workqueues
+====================================================== ================================ ========================================================
 
 Unmanaged Pods
 ~~~~~~~~~~~~~~

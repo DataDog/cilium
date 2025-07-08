@@ -115,7 +115,7 @@ func NewMetrics() *Metrics {
 		WorkQueueLongestRunningProcessor: metric.NewGaugeVec(metric.GaugeOpts{
 			Namespace: metrics.CiliumOperatorNamespace,
 			Name:      "ces_workqueue_longest_running_processor_seconds",
-			Help:      "How many seconds has the longest running processor for CES workqueues been running.",
+			Help:      "How many seconds has the longest running processor for CES workqueues been running",
 		}, []string{LabelQueue}),
 
 		WorkQueueRetries: metric.NewCounterVec(metric.CounterOpts{
