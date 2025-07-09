@@ -4,8 +4,6 @@
 package workqueuemetrics
 
 import (
-	"github.com/prometheus/client_golang/prometheus"
-
 	"github.com/cilium/cilium/pkg/metrics"
 	"github.com/cilium/cilium/pkg/metrics/metric"
 )
@@ -33,14 +31,14 @@ func NewMetrics() *Metrics {
 			Namespace: metrics.CiliumOperatorNamespace,
 			Name:      "workqueue_queue_duration_seconds",
 			Help:      "Duration in seconds an item stays in workqueue prior to request",
-			Buckets:   prometheus.ExponentialBuckets(10e-9, 10, 10),
+			Buckets:   []float64{.01, .05, .1, .5, 1, 5, 10, 30, 60},
 		}, []string{LabelQueueName}),
 
 		WorkQueueDuration: metric.NewHistogramVec(metric.HistogramOpts{
 			Namespace: metrics.CiliumOperatorNamespace,
 			Name:      "workqueue_work_duration_seconds",
 			Help:      "Duration in seconds to process an item from workqueue",
-			Buckets:   prometheus.ExponentialBuckets(10e-9, 10, 10),
+			Buckets:   []float64{.01, .05, .1, .5, 1, 5, 10, 30, 60},
 		}, []string{LabelQueueName}),
 
 		WorkQueueUnfinishedWork: metric.NewGaugeVec(metric.GaugeOpts{
