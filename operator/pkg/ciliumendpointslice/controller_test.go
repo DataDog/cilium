@@ -26,6 +26,8 @@ import (
 	"github.com/cilium/cilium/pkg/k8s/resource"
 	"github.com/cilium/cilium/pkg/metrics"
 	"github.com/cilium/cilium/pkg/testutils"
+
+	"k8s.io/client-go/util/workqueue"
 )
 
 func TestRegisterController(t *testing.T) {
@@ -55,6 +57,7 @@ func TestRegisterController(t *testing.T) {
 			return jr.NewGroup(h, lc)
 		}),
 		metrics.Metric(NewMetrics),
+		cell.Provide(func() workqueue.MetricsProvider { return tu.NoOpWorkqueueMetricsProvider{} }),
 		cell.Invoke(func(p params) error {
 			registerController(p)
 			return nil
@@ -112,6 +115,7 @@ func TestNotRegisterControllerWithCESDisabled(t *testing.T) {
 			return jr.NewGroup(h, lc)
 		}),
 		metrics.Metric(NewMetrics),
+		cell.Provide(func() workqueue.MetricsProvider { return tu.NoOpWorkqueueMetricsProvider{} }),
 		cell.Invoke(func(p params) error {
 			registerController(p)
 			return nil
