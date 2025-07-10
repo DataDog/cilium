@@ -3,6 +3,7 @@
 
 ARG CILIUM_BUILDER_IMAGE=quay.io/cilium/cilium-builder:59552dd9e11725d8098d97ecfaa61e97c749f77e@sha256:0968cf0af63f7ea57f8568e90d6e4fc44dd738cbc2639ec8534d7ffff9302bcf
 ARG CILIUM_RUNTIME_IMAGE=quay.io/cilium/cilium-runtime:a2c92145f56baa6f834364a35798f920e62ef8f9@sha256:c3807adb28dabfc5e899e3128eb6eeab83489e9c50b19a40739bd9ce3da96c0c
+ARG BASE_IMAGE=registry.ddbuild.io/images/base/gbi-distroless-nossl-root-fips:release
 #
 # cilium-envoy from github.com/cilium/proxy
 #
@@ -61,23 +62,23 @@ RUN set -xe && \
     export D=/tmp/debug/${TARGETOS}/${TARGETARCH} && \
     cd /tmp/install/${TARGETOS}/${TARGETARCH} && \
     find . -type f \
-      -executable \
-      -exec sh -c \
-        'filename=$(basename ${0}) && \
-         objcopy --only-keep-debug ${0} ${0}.debug && \
-         if ! echo "$MODIFIERS" | grep "NOSTRIP=1" ; then objcopy --strip-all ${0} && (cd $(dirname ${0}) && objcopy --add-gnu-debuglink=${filename}.debug ${filename}) ; fi && \
-         mkdir -p $(dirname ${D}/${0}) && \
-         mv -v ${0}.debug ${D}/${0}.debug' \
-      {} \;
+    -executable \
+    -exec sh -c \
+    'filename=$(basename ${0}) && \
+    objcopy --only-keep-debug ${0} ${0}.debug && \
+    if ! echo "$MODIFIERS" | grep "NOSTRIP=1" ; then objcopy --strip-all ${0} && (cd $(dirname ${0}) && objcopy --add-gnu-debuglink=${filename}.debug ${filename}) ; fi && \
+    mkdir -p $(dirname ${D}/${0}) && \
+    mv -v ${0}.debug ${D}/${0}.debug' \
+    {} \;
 
 # Check debug symbols are present
 RUN for f in $(find /tmp/debug -type f -name '*.debug') ; do readelf -S ${f} | grep -q \\.symtab || \
     (echo Debug symbols are missing in ${f} - possibly due to incorrect build parameters && false); done
 
 COPY images/cilium/init-container.sh \
-     plugins/cilium-cni/install-plugin.sh \
-     plugins/cilium-cni/cni-uninstall.sh \
-       /tmp/install/${TARGETOS}/${TARGETARCH}
+    plugins/cilium-cni/install-plugin.sh \
+    plugins/cilium-cni/cni-uninstall.sh \
+    /tmp/install/${TARGETOS}/${TARGETARCH}
 
 #
 # Cilium runtime install.
@@ -89,7 +90,7 @@ COPY images/cilium/init-container.sh \
 # built while allowing the new versions to make changes that are not
 # backwards compatible.
 #
-FROM ${CILIUM_RUNTIME_IMAGE} AS release
+FROM ${BASE_IMAGE} AS release
 # TARGETOS is an automatic platform ARG enabled by Docker BuildKit.
 ARG TARGETOS
 # TARGETARCH is an automatic platform ARG enabled by Docker BuildKit.
