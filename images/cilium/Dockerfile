@@ -61,23 +61,23 @@ RUN set -xe && \
     export D=/tmp/debug/${TARGETOS}/${TARGETARCH} && \
     cd /tmp/install/${TARGETOS}/${TARGETARCH} && \
     find . -type f \
-      -executable \
-      -exec sh -c \
-        'filename=$(basename ${0}) && \
-         objcopy --only-keep-debug ${0} ${0}.debug && \
-         if ! echo "$MODIFIERS" | grep "NOSTRIP=1" ; then objcopy --strip-all ${0} && (cd $(dirname ${0}) && objcopy --add-gnu-debuglink=${filename}.debug ${filename}) ; fi && \
-         mkdir -p $(dirname ${D}/${0}) && \
-         mv -v ${0}.debug ${D}/${0}.debug' \
-      {} \;
+    -executable \
+    -exec sh -c \
+    'filename=$(basename ${0}) && \
+    objcopy --only-keep-debug ${0} ${0}.debug && \
+    if ! echo "$MODIFIERS" | grep "NOSTRIP=1" ; then objcopy --strip-all ${0} && (cd $(dirname ${0}) && objcopy --add-gnu-debuglink=${filename}.debug ${filename}) ; fi && \
+    mkdir -p $(dirname ${D}/${0}) && \
+    mv -v ${0}.debug ${D}/${0}.debug' \
+    {} \;
 
 # Check debug symbols are present
 RUN for f in $(find /tmp/debug -type f -name '*.debug') ; do readelf -S ${f} | grep -q \\.symtab || \
     (echo Debug symbols are missing in ${f} - possibly due to incorrect build parameters && false); done
 
 COPY images/cilium/init-container.sh \
-     plugins/cilium-cni/install-plugin.sh \
-     plugins/cilium-cni/cni-uninstall.sh \
-       /tmp/install/${TARGETOS}/${TARGETARCH}
+    plugins/cilium-cni/install-plugin.sh \
+    plugins/cilium-cni/cni-uninstall.sh \
+    /tmp/install/${TARGETOS}/${TARGETARCH}
 
 #
 # Cilium runtime install.
@@ -95,7 +95,7 @@ ARG TARGETOS
 # TARGETARCH is an automatic platform ARG enabled by Docker BuildKit.
 ARG TARGETARCH
 LABEL maintainer="maintainer@cilium.io"
-RUN echo ". /etc/profile.d/bash_completion.sh" >> /etc/bash.bashrc
+# RUN echo ". /etc/profile.d/bash_completion.sh" >> /etc/bash.bashrc
 COPY --from=cilium-envoy /usr/lib/libcilium.so /usr/lib/libcilium.so
 COPY --from=cilium-envoy /usr/bin/cilium-envoy /usr/bin/cilium-envoy-starter /usr/bin/
 # When used within the Cilium container, Hubble CLI should target the
