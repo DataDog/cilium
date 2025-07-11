@@ -2181,10 +2181,12 @@ int tail_ipv4_to_endpoint(struct __ctx_buff *ctx)
 	}
 
 	cilium_dbg(ctx, DBG_LOCAL_DELIVERY, LXC_ID, SECLABEL_IPV4);
+	cilium_dbg(ctx, DBG_REDIRECT, 0x8008, 0); // DEBUG: RIGHT after local delivery message
 
 #ifdef LOCAL_DELIVERY_METRICS
 	update_metrics(ctx_full_len(ctx), METRIC_INGRESS, REASON_FORWARDED);
 #endif
+	cilium_dbg(ctx, DBG_REDIRECT, 0x8009, 0); // DEBUG: After metrics update
 
 	cilium_dbg(ctx, DBG_REDIRECT, 0x8005, 0); // DEBUG: About to call ipv4_policy
 	ret = ipv4_policy(ctx, ip4, THIS_INTERFACE_IFINDEX, src_sec_identity,
