@@ -451,7 +451,7 @@ not_esp:
 			set_identity_mark(ctx, *identity, MARK_MAGIC_EGW_DONE);
 
 			/* to-netdev@bpf_host handles SNAT, so no need to do it here. */
-			cilium_dbg(ctx, DBG_REDIRECT, 0x6001, egress_ifindex); // DEBUG: OVERLAY egress gateway redirect
+			cilium_dbg(ctx, DBG_REDIRECT, 0x6001, 0); // DEBUG: OVERLAY egress gateway redirect
 			ret = egress_gw_fib_lookup_and_redirect(ctx, snat_addr,
 								daddr, egress_ifindex,
 								ext_err);
@@ -535,7 +535,7 @@ int tail_handle_arp(struct __ctx_buff *ctx)
 	if (unlikely(ret != 0))
 		return send_drop_notify_error(ctx, UNKNOWN_ID, ret, CTX_ACT_DROP, METRIC_EGRESS);
 	if (info->tunnel_endpoint) {
-		cilium_dbg(ctx, DBG_REDIRECT, 0x6002, info->tunnel_endpoint); // DEBUG: OVERLAY VTEP redirect
+		cilium_dbg(ctx, DBG_REDIRECT, 0x6002, 0); // DEBUG: OVERLAY VTEP redirect
 		ret = __encap_and_redirect_with_nodeid(ctx, UNKNOWN_ID, info->tunnel_endpoint,
 						       LOCAL_NODE_ID, WORLD_IPV4_ID,
 						       WORLD_IPV4_ID, &trace);
