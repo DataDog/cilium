@@ -884,9 +884,6 @@ static __always_inline int handle_ipv4_from_lxc(struct __ctx_buff *ctx, __u32 *d
 {
 	struct ct_state *ct_state, ct_state_new = {};
 	struct ipv4_ct_tuple *tuple;
-	
-	/* DEBUG: Entering main IPv4 handler */
-	cilium_dbg(ctx, DBG_REDIRECT, 0x9002, 0);
 #ifdef ENABLE_ROUTING
 	union macaddr router_mac = THIS_INTERFACE_MAC;
 #endif
@@ -910,6 +907,9 @@ static __always_inline int handle_ipv4_from_lxc(struct __ctx_buff *ctx, __u32 *d
 	bool from_l7lb = false;
 	__u32 cluster_id = 0;
 	void *ct_map, *ct_related_map = NULL;
+
+	/* DEBUG: Entering main IPv4 handler */
+	cilium_dbg(ctx, DBG_REDIRECT, 0x9002, 0);
 
 	if (!revalidate_data(ctx, &data, &data_end, &ip4))
 		return DROP_INVALID;
