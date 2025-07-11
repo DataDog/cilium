@@ -886,7 +886,7 @@ static __always_inline int handle_ipv4_from_lxc(struct __ctx_buff *ctx, __u32 *d
 	struct ipv4_ct_tuple *tuple;
 	
 	/* DEBUG: Entering main IPv4 handler */
-	cilium_dbg(ctx, DBG_GENERIC, 0x9002, 0);
+	cilium_dbg(ctx, DBG_REDIRECT, 0x9002, 0);
 #ifdef ENABLE_ROUTING
 	union macaddr router_mac = THIS_INTERFACE_MAC;
 #endif
@@ -1016,7 +1016,7 @@ static __always_inline int handle_ipv4_from_lxc(struct __ctx_buff *ctx, __u32 *d
 					  TRACE_IFINDEX_UNKNOWN, trace.reason,
 					  trace.monitor);
 			/* Stack will do a socket match and deliver locally. */
-			cilium_dbg(ctx, DBG_GENERIC, 0x4001, 0); // DEBUG: IPv4 proxy redirect path
+			cilium_dbg(ctx, DBG_REDIRECT, 0x4001, 0); // DEBUG: IPv4 proxy redirect path
 			return ctx_redirect_to_proxy4(ctx, tuple, 0, false);
 		}
 		/* proxy_port remains 0 in this case */
@@ -1131,7 +1131,7 @@ ct_recreate4:
 		send_trace_notify(ctx, TRACE_TO_PROXY, SECLABEL_IPV4, UNKNOWN_ID,
 				  bpf_ntohs(proxy_port), TRACE_IFINDEX_UNKNOWN,
 				  trace.reason, trace.monitor);
-		cilium_dbg(ctx, DBG_GENERIC, 0x4002, proxy_port); // DEBUG: IPv4 L7 proxy redirect
+		cilium_dbg(ctx, DBG_REDIRECT, 0x4002, proxy_port); // DEBUG: IPv4 L7 proxy redirect
 		return ctx_redirect_to_proxy4(ctx, tuple, proxy_port, false);
 	}
 
@@ -1222,7 +1222,7 @@ ct_recreate4:
 			goto skip_vtep;
 
 		if (vtep->vtep_mac && vtep->tunnel_endpoint) {
-			cilium_dbg(ctx, DBG_GENERIC, 0x4003, vtep->tunnel_endpoint); // DEBUG: VTEP redirect
+			cilium_dbg(ctx, DBG_REDIRECT, 0x4003, vtep->tunnel_endpoint); // DEBUG: VTEP redirect
 			if (eth_store_daddr(ctx, (__u8 *)&vtep->vtep_mac, 0) < 0)
 				return DROP_WRITE_ERROR;
 			return __encap_and_redirect_with_nodeid(ctx, 0, vtep->tunnel_endpoint,
@@ -1271,11 +1271,11 @@ skip_vtep:
 		}
 #endif
 
-		cilium_dbg(ctx, DBG_GENERIC, 0x4004, tunnel_endpoint); // DEBUG: IPv4 tunnel redirect attempt
+		cilium_dbg(ctx, DBG_REDIRECT, 0x4004, tunnel_endpoint); // DEBUG: IPv4 tunnel redirect attempt
 		ret = encap_and_redirect_lxc(ctx, tunnel_endpoint, ip4->saddr,
 					     ip4->daddr, encrypt_key, &key,
 					     SECLABEL_IPV4, *dst_sec_identity, &trace);
-		cilium_dbg(ctx, DBG_GENERIC, 0x4005, ret); // DEBUG: IPv4 tunnel redirect result
+		cilium_dbg(ctx, DBG_REDIRECT, 0x4005, ret); // DEBUG: IPv4 tunnel redirect result
 		switch (ret) {
 		case CTX_ACT_OK:
 			/* IPsec, pass up to stack for XFRM processing. */
@@ -1297,9 +1297,9 @@ skip_vtep:
 	if (is_defined(ENABLE_HOST_ROUTING)) {
 		int oif = 0;
 
-		cilium_dbg(ctx, DBG_GENERIC, 0x4006, 0); // DEBUG: IPv4 FIB redirect attempt
+		cilium_dbg(ctx, DBG_REDIRECT, 0x4006, 0); // DEBUG: IPv4 FIB redirect attempt
 		ret = fib_redirect_v4(ctx, ETH_HLEN, ip4, false, false, ext_err, &oif);
-		cilium_dbg(ctx, DBG_GENERIC, 0x4007, ret); // DEBUG: IPv4 FIB redirect result
+		cilium_dbg(ctx, DBG_REDIRECT, 0x4007, ret); // DEBUG: IPv4 FIB redirect result
 		if (fib_ok(ret))
 			send_trace_notify(ctx, TRACE_TO_NETWORK, SECLABEL_IPV4,
 					  *dst_sec_identity, TRACE_EP_ID_UNKNOWN, oif,
@@ -1314,7 +1314,7 @@ to_host:
 #endif
 #ifdef ENABLE_ROUTING
 	if (is_defined(ENABLE_HOST_FIREWALL) && *dst_sec_identity == HOST_ID) {
-		cilium_dbg(ctx, DBG_GENERIC, 0x4008, HOST_ID); // DEBUG: IPv4 host redirect
+		cilium_dbg(ctx, DBG_REDIRECT, 0x4008, HOST_ID); // DEBUG: IPv4 host redirect
 		send_trace_notify(ctx, TRACE_TO_HOST, SECLABEL_IPV4, HOST_ID,
 				  TRACE_EP_ID_UNKNOWN,
 				  HOST_IFINDEX, trace.reason, trace.monitor);
@@ -1446,7 +1446,7 @@ int tail_handle_ipv4(struct __ctx_buff *ctx)
 {
 	__s8 ext_err = 0;
 	/* DEBUG: IPv4 tail call reached */
-	cilium_dbg(ctx, DBG_GENERIC, 0x9003, 0);
+	cilium_dbg(ctx, DBG_REDIRECT, 0x9003, 0);
 	int ret = __tail_handle_ipv4(ctx, &ext_err);
 
 	if (IS_ERR(ret))
@@ -1504,7 +1504,7 @@ int cil_from_container(struct __ctx_buff *ctx)
 	bpf_clear_meta(ctx);
 	
 	/* DEBUG: Packet entering from container */
-	cilium_dbg(ctx, DBG_GENERIC, 0x9000, 0);
+	cilium_dbg(ctx, DBG_REDIRECT, 0x9000, 0);
 
 	/* Workaround for GH-18311 where veth driver might have recorded
 	 * veth's RX queue mapping instead of leaving it at 0. This can
@@ -1536,7 +1536,7 @@ int cil_from_container(struct __ctx_buff *ctx)
 #ifdef ENABLE_IPV4
 	case bpf_htons(ETH_P_IP):
 		/* DEBUG: IPv4 packet from container */
-		cilium_dbg(ctx, DBG_GENERIC, 0x9001, 0);
+		cilium_dbg(ctx, DBG_REDIRECT, 0x9001, 0);
 		edt_set_aggregate(ctx, LXC_ID);
 		ret = tail_call_internal(ctx, CILIUM_CALL_IPV4_FROM_LXC, &ext_err);
 		sec_label = SECLABEL_IPV4;
@@ -2082,7 +2082,7 @@ int tail_ipv4_policy(struct __ctx_buff *ctx)
 		if (from_tunnel)
 			ctx_change_type(ctx, PACKET_HOST);
 
-		cilium_dbg(ctx, DBG_GENERIC, 0x4009, proxy_port); // DEBUG: IPv4 policy proxy redirect
+		cilium_dbg(ctx, DBG_REDIRECT, 0x4009, proxy_port); // DEBUG: IPv4 policy proxy redirect
 		ret = ctx_redirect_to_proxy4(ctx, &tuple, proxy_port, from_host);
 		proxy_redirect = true;
 		break;
@@ -2103,7 +2103,7 @@ int tail_ipv4_policy(struct __ctx_buff *ctx)
 #endif /* !ENABLE_ROUTING && !ENABLE_NODEPORT */
 
 		if (do_redirect) {
-			cilium_dbg(ctx, DBG_GENERIC, 0x4010, THIS_INTERFACE_IFINDEX); // DEBUG: IPv4 redirect_ep
+			cilium_dbg(ctx, DBG_REDIRECT, 0x4010, THIS_INTERFACE_IFINDEX); // DEBUG: IPv4 redirect_ep
 			ret = redirect_ep(ctx, THIS_INTERFACE_IFINDEX, from_host,
 					  from_tunnel);
 		}
@@ -2195,7 +2195,7 @@ int tail_ipv4_to_endpoint(struct __ctx_buff *ctx)
 			goto out;
 		}
 
-		cilium_dbg(ctx, DBG_GENERIC, 0x4011, proxy_port); // DEBUG: IPv4 endpoint proxy redirect
+		cilium_dbg(ctx, DBG_REDIRECT, 0x4011, proxy_port); // DEBUG: IPv4 endpoint proxy redirect
 		ret = ctx_redirect_to_proxy_hairpin_ipv4(ctx, ip4, proxy_port);
 		ctx->mark = ctx_load_meta(ctx, CB_PROXY_MAGIC);
 		proxy_redirect = true;

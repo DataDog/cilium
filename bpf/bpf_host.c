@@ -379,7 +379,7 @@ handle_ipv6_cont(struct __ctx_buff *ctx, __u32 secctx, const bool from_host,
 		goto skip_tunnel;
 
 	if (info && info->tunnel_endpoint != 0) {
-		cilium_dbg(ctx, DBG_GENERIC, 0x5002, info->tunnel_endpoint); // DEBUG: HOST tunnel redirect
+		cilium_dbg(ctx, DBG_REDIRECT, 0x5002, info->tunnel_endpoint); // DEBUG: HOST tunnel redirect
 		return encap_and_redirect_with_nodeid(ctx, info->tunnel_endpoint,
 						      encrypt_key, secctx, info->sec_identity,
 						      &trace);
@@ -824,7 +824,7 @@ handle_ipv4_cont(struct __ctx_buff *ctx, __u32 secctx, const bool from_host,
 			goto skip_vtep;
 
 		if (vtep->vtep_mac && vtep->tunnel_endpoint) {
-			cilium_dbg(ctx, DBG_GENERIC, 0x5001, vtep->tunnel_endpoint); // DEBUG: HOST VTEP redirect
+			cilium_dbg(ctx, DBG_REDIRECT, 0x5001, vtep->tunnel_endpoint); // DEBUG: HOST VTEP redirect
 			if (eth_store_daddr(ctx, (__u8 *)&vtep->vtep_mac, 0) < 0)
 				return DROP_WRITE_ERROR;
 			return __encap_and_redirect_with_nodeid(ctx, 0, vtep->tunnel_endpoint,
@@ -848,7 +848,7 @@ skip_vtep:
 		goto skip_tunnel;
 
 	if (info && info->tunnel_endpoint != 0) {
-		cilium_dbg(ctx, DBG_GENERIC, 0x5002, info->tunnel_endpoint); // DEBUG: HOST tunnel redirect
+		cilium_dbg(ctx, DBG_REDIRECT, 0x5002, info->tunnel_endpoint); // DEBUG: HOST tunnel redirect
 		return encap_and_redirect_with_nodeid(ctx, info->tunnel_endpoint,
 						      encrypt_key, secctx, info->sec_identity,
 						      &trace);
@@ -860,7 +860,7 @@ skip_vtep:
 		key.family = ENDPOINT_KEY_IPV4;
 
 		cilium_dbg(ctx, DBG_NETDEV_ENCAP4, key.ip4, secctx);
-		cilium_dbg(ctx, DBG_GENERIC, 0x5003, key.ip4); // DEBUG: HOST netdev encap redirect
+		cilium_dbg(ctx, DBG_REDIRECT, 0x5003, key.ip4); // DEBUG: HOST netdev encap redirect
 		ret = encap_and_redirect_netdev(ctx, &key, encrypt_key, secctx, &trace);
 		if (ret != DROP_NO_TUNNEL_ENDPOINT)
 			return ret;
@@ -1051,7 +1051,7 @@ do_netdev_encrypt_encap(struct __ctx_buff *ctx, __be16 proto, __u32 src_id)
 
 	ctx->mark = 0;
 	bpf_clear_meta(ctx);
-	cilium_dbg(ctx, DBG_GENERIC, 0x5004, ep->tunnel_endpoint); // DEBUG: HOST encrypt encap redirect
+	cilium_dbg(ctx, DBG_REDIRECT, 0x5004, ep->tunnel_endpoint); // DEBUG: HOST encrypt encap redirect
 	return encap_and_redirect_with_nodeid(ctx, ep->tunnel_endpoint, 0,
 					      src_id, 0, &trace);
 }
@@ -1707,7 +1707,7 @@ int cil_to_host(struct __ctx_buff *ctx)
 		traced = true;
 
 		ctx_store_meta(ctx, CB_PROXY_MAGIC, 0);
-		cilium_dbg(ctx, DBG_GENERIC, 0x5005, port); // DEBUG: HOST proxy redirect
+		cilium_dbg(ctx, DBG_REDIRECT, 0x5005, port); // DEBUG: HOST proxy redirect
 		ret = ctx_redirect_to_proxy_first(ctx, port);
 		goto out;
 	}

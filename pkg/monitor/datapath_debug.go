@@ -101,6 +101,7 @@ const (
 	DbgSkLookup6
 	DbgSkAssign
 	DbgL7LB
+	DbgRedirect
 )
 
 // must be in sync with <bpf/lib/conntrack.h>
@@ -405,6 +406,23 @@ func (n *DebugMsg) Message(linkMonitor getters.LinkGetter) string {
 		return fmt.Sprintf("Socket assign: %s", skAssignInfo(n))
 	case DbgL7LB:
 		return fmt.Sprintf("L7 LB from %s to %s: proxy port %d", ip4Str(n.Arg1), ip4Str(n.Arg2), n.Arg3)
+	case DbgRedirect:
+		code := n.Arg1
+		value := n.Arg2
+
+		// Decode redirect codes
+		switch {
+		case code >= 0x9000 && code <= 0x9999:
+			return fmt.Sprintf("Flow trace: code=%#x", code)
+		case code >= 0x4000 && code <= 0x4999:
+			return fmt.Sprintf("LXC redirect: code=%#x value=%#x", code, value)
+		case code >= 0x5000 && code <= 0x5999:
+			return fmt.Sprintf("HOST redirect: code=%#x value=%#x", code, value)
+		case code >= 0x6000 && code <= 0x6999:
+			return fmt.Sprintf("OVERLAY redirect: code=%#x value=%#x", code, value)
+		default:
+			return fmt.Sprintf("REDIRECT: code=%#x value=%#x", code, value)
+		}
 	default:
 		return fmt.Sprintf("Unknown message type=%d arg1=%d arg2=%d", n.SubType, n.Arg1, n.Arg2)
 	}

@@ -122,6 +122,9 @@ enum {
 				 * arg2: daddr (last 4 bytes for IPv6)
 				 * arg3: proxy port (in host byte order)
 				 */
+	DBG_REDIRECT,		/* arg1: redirect code (0x4xxx, 0x5xxx, 0x6xxx, 0x9xxx)
+				 * arg2: context value (tunnel_endpoint, proxy_port, etc.)
+				 */
 	DBG_SKIP_POLICY,	/**/
 };
 
