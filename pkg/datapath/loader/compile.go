@@ -190,9 +190,6 @@ func compile(ctx context.Context, prog *progInfo, dir *directoryInfo) (string, e
 	compileArgs = append(compileArgs, standardCFlags...)
 	compileArgs = append(compileArgs, fmt.Sprintf("-D__NR_CPUS__=%d", possibleCPUs))
 	compileArgs = append(compileArgs, "-mcpu="+getBPFCPU())
-	// Always enable DEBUG for redirect debugging
-	compileArgs = append(compileArgs, "-DDEBUG=1")
-	compileArgs = append(compileArgs, "-DSKIP_DEBUG=0")
 	compileArgs = append(compileArgs,
 		"-c", path.Join(dir.Library, prog.Source),
 		"-o", "-", // Always output to stdout

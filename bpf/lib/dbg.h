@@ -145,11 +145,8 @@ enum {
 #define EVENT_SOURCE 0
 #endif
 
-#ifdef DEBUG
+/* Always include debug functionality */
 #include "events.h"
-#endif
-
-#ifdef DEBUG
 #include "common.h"
 #include "utils.h"
 
@@ -235,34 +232,3 @@ static __always_inline void cilium_dbg_capture(struct __ctx_buff *ctx, __u8 type
 {
 	cilium_dbg_capture2(ctx, type, arg1, 0);
 }
-#else
-# define printk(fmt, ...)					\
-		do { } while (0)
-
-static __always_inline
-void cilium_dbg(struct __ctx_buff *ctx __maybe_unused, __u8 type __maybe_unused,
-		__u32 arg1 __maybe_unused, __u32 arg2 __maybe_unused)
-{
-}
-
-static __always_inline
-void cilium_dbg3(struct __ctx_buff *ctx __maybe_unused,
-		 __u8 type __maybe_unused, __u32 arg1 __maybe_unused,
-		 __u32 arg2 __maybe_unused, __u32 arg3 __maybe_unused)
-{
-}
-
-static __always_inline
-void cilium_dbg_capture(struct __ctx_buff *ctx __maybe_unused,
-			__u8 type __maybe_unused, __u32 arg1 __maybe_unused)
-{
-}
-
-static __always_inline
-void cilium_dbg_capture2(struct __ctx_buff *ctx __maybe_unused,
-			 __u8 type __maybe_unused, __u32 arg1 __maybe_unused,
-			 __u32 arg2 __maybe_unused)
-{
-}
-
-#endif
