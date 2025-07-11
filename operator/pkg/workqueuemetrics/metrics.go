@@ -4,6 +4,8 @@
 package workqueuemetrics
 
 import (
+	"k8s.io/client-go/util/workqueue"
+
 	"github.com/cilium/cilium/pkg/metrics"
 	"github.com/cilium/cilium/pkg/metrics/metric"
 )
@@ -69,4 +71,34 @@ type Metrics struct {
 	WorkQueueUnfinishedWork          metric.Vec[metric.Gauge]
 	WorkQueueLongestRunningProcessor metric.Vec[metric.Gauge]
 	WorkQueueRetries                 metric.Vec[metric.Counter]
+}
+
+// MetricsProvider interface implementation
+
+func (m *Metrics) NewDepthMetric(queueName string) workqueue.GaugeMetric {
+	return m.WorkQueueDepth.WithLabelValues(queueName)
+}
+
+func (m *Metrics) NewAddsMetric(queueName string) workqueue.CounterMetric {
+	return m.WorkQueueAddsTotal.WithLabelValues(queueName)
+}
+
+func (m *Metrics) NewLatencyMetric(queueName string) workqueue.HistogramMetric {
+	return m.WorkQueueLatency.WithLabelValues(queueName)
+}
+
+func (m *Metrics) NewWorkDurationMetric(queueName string) workqueue.HistogramMetric {
+	return m.WorkQueueDuration.WithLabelValues(queueName)
+}
+
+func (m *Metrics) NewUnfinishedWorkSecondsMetric(queueName string) workqueue.SettableGaugeMetric {
+	return m.WorkQueueUnfinishedWork.WithLabelValues(queueName)
+}
+
+func (m *Metrics) NewLongestRunningProcessorSecondsMetric(queueName string) workqueue.SettableGaugeMetric {
+	return m.WorkQueueLongestRunningProcessor.WithLabelValues(queueName)
+}
+
+func (m *Metrics) NewRetriesMetric(queueName string) workqueue.CounterMetric {
+	return m.WorkQueueRetries.WithLabelValues(queueName)
 }
