@@ -160,9 +160,11 @@ static __always_inline int ipv4_local_delivery(struct __ctx_buff *ctx, int l3_of
 	cilium_dbg(ctx, DBG_LOCAL_DELIVERY, ep->lxc_id, seclabel);
 
 	ret = ipv4_l3(ctx, l3_off, (__u8 *) &router_mac, (__u8 *) &lxc_mac, ip4);
+	cilium_dbg(ctx, DBG_REDIRECT, 0x8003, ret); // DEBUG: ipv4_l3 result
 	if (ret != CTX_ACT_OK)
 		return ret;
 
+	cilium_dbg(ctx, DBG_REDIRECT, 0x8004, 0); // DEBUG: About to call l3_local_delivery
 	return l3_local_delivery(ctx, seclabel, magic, ep, direction, from_host,
 				 from_tunnel, cluster_id);
 }
