@@ -2368,6 +2368,9 @@ int cil_to_container(struct __ctx_buff *ctx)
 
 	bpf_clear_meta(ctx);
 
+	/* DEBUG: cil_to_container entry point */
+	cilium_dbg(ctx, DBG_GENERIC, 0xBBBB, 0x2222);
+
 	magic = inherit_identity_from_host(ctx, &identity);
 	if (magic == MARK_MAGIC_PROXY_INGRESS || magic == MARK_MAGIC_PROXY_EGRESS)
 		trace = TRACE_FROM_PROXY;

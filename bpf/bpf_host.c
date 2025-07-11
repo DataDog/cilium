@@ -1118,6 +1118,9 @@ do_netdev(struct __ctx_buff *ctx, __u16 proto, __u32 __maybe_unused identity,
 
 	bpf_clear_meta(ctx);
 
+	/* DEBUG: cil_from_netdev entry point */
+	cilium_dbg(ctx, DBG_GENERIC, 0xCCCC, 0x3333);
+
 	switch (proto) {
 # if defined ENABLE_ARP_PASSTHROUGH || defined ENABLE_ARP_RESPONDER || \
      defined ENABLE_L2_ANNOUNCEMENTS
@@ -1348,6 +1351,9 @@ int cil_from_host(struct __ctx_buff *ctx)
 	 */
 	edt_set_aggregate(ctx, 0);
 
+	/* DEBUG: cil_from_host entry point */
+	cilium_dbg(ctx, DBG_GENERIC, 0xDDDD, 0x4444);
+
 	if (!validate_ethertype(ctx, &proto)) {
 		__u32 dst_sec_identity = UNKNOWN_ID;
 		__u32 src_sec_identity = HOST_ID;
@@ -1419,6 +1425,9 @@ int cil_to_netdev(struct __ctx_buff *ctx __maybe_unused)
 	__s8 ext_err = 0;
 
 	bpf_clear_meta(ctx);
+
+	/* DEBUG: cil_to_netdev entry point */
+	cilium_dbg(ctx, DBG_GENERIC, 0xEEEE, 0x5555);
 
 	if (magic == MARK_MAGIC_HOST || magic == MARK_MAGIC_OVERLAY || ctx_mark_is_wireguard(ctx))
 		src_sec_identity = HOST_ID;
@@ -1687,6 +1696,9 @@ int cil_to_host(struct __ctx_buff *ctx)
 	bool traced = false;
 	__u32 src_id = 0;
 	__s8 ext_err = 0;
+
+	/* DEBUG: cil_to_host entry point */
+	cilium_dbg(ctx, DBG_GENERIC, 0xFFFF, 0x6666);
 
 	/* Prefer ctx->mark when it is set to one of the expected values.
 	 * Also see https://github.com/cilium/cilium/issues/36329.
