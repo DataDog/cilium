@@ -82,6 +82,7 @@ l3_local_delivery(struct __ctx_buff *ctx, __u32 seclabel,
  */
 #if defined(USE_BPF_PROG_FOR_INGRESS_POLICY) && \
     !defined(ENABLE_HOST_ROUTING)
+	cilium_dbg(ctx, DBG_REDIRECT, 0x8002, ep->ifindex); // DEBUG: Direct redirect path
 	set_identity_mark(ctx, seclabel, magic);
 
 # if !defined(ENABLE_NODEPORT)
@@ -102,6 +103,7 @@ l3_local_delivery(struct __ctx_buff *ctx, __u32 seclabel,
 #else
 
 	/* Jumps to destination pod's BPF program to enforce ingress policies. */
+	cilium_dbg(ctx, DBG_REDIRECT, 0x8001, ep->lxc_id); // DEBUG: About to tail call causing loop!
 	ctx_store_meta(ctx, CB_SRC_LABEL, seclabel);
 	ctx_store_meta(ctx, CB_DELIVERY_REDIRECT, 1);
 	ctx_store_meta(ctx, CB_FROM_HOST, from_host ? 1 : 0);
