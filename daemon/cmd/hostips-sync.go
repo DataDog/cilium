@@ -146,7 +146,7 @@ func (s *syncHostIPs) sync(addrs iter.Seq2[tables.NodeAddress, statedb.Revision]
 			continue
 		}
 		if option.Config.IsExcludedLocalAddress(ip) {
-			continue
+			addIdentity(ip, nil, identity.ReservedIdentityUnmanaged, labels.LabelUnmanaged)
 		}
 		addIdentity(ip, nil, identity.ReservedIdentityHost, labels.LabelHost)
 	}

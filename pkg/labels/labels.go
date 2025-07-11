@@ -106,6 +106,8 @@ var (
 	// on IDNameKubeAPIServer.
 	LabelKubeAPIServer = Labels{IDNameKubeAPIServer: NewLabel(IDNameKubeAPIServer, "", LabelSourceReserved)}
 
+	LabelUnmanaged = Labels{IDNameUnmanaged: NewLabel(IDNameUnmanaged, "", LabelSourceReserved)}
+
 	LabelKubeAPIServerExt = Labels{
 		IDNameKubeAPIServer: NewLabel(IDNameKubeAPIServer, "", LabelSourceReserved),
 		IDNameWorld:         NewLabel(IDNameWorld, "", LabelSourceReserved),
