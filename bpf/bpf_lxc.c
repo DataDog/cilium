@@ -884,6 +884,9 @@ static __always_inline int handle_ipv4_from_lxc(struct __ctx_buff *ctx, __u32 *d
 {
 	struct ct_state *ct_state, ct_state_new = {};
 	struct ipv4_ct_tuple *tuple;
+	
+	/* DEBUG: Entering main IPv4 handler */
+	cilium_dbg(ctx, DBG_GENERIC, 0x9002, 0);
 #ifdef ENABLE_ROUTING
 	union macaddr router_mac = THIS_INTERFACE_MAC;
 #endif
@@ -1442,6 +1445,8 @@ __section_tail(CILIUM_MAP_CALLS, CILIUM_CALL_IPV4_FROM_LXC)
 int tail_handle_ipv4(struct __ctx_buff *ctx)
 {
 	__s8 ext_err = 0;
+	/* DEBUG: IPv4 tail call reached */
+	cilium_dbg(ctx, DBG_GENERIC, 0x9003, 0);
 	int ret = __tail_handle_ipv4(ctx, &ext_err);
 
 	if (IS_ERR(ret))
@@ -1497,6 +1502,9 @@ int cil_from_container(struct __ctx_buff *ctx)
 	int ret;
 
 	bpf_clear_meta(ctx);
+	
+	/* DEBUG: Packet entering from container */
+	cilium_dbg(ctx, DBG_GENERIC, 0x9000, 0);
 
 	/* Workaround for GH-18311 where veth driver might have recorded
 	 * veth's RX queue mapping instead of leaving it at 0. This can
@@ -1527,6 +1535,8 @@ int cil_from_container(struct __ctx_buff *ctx)
 #endif /* ENABLE_IPV6 */
 #ifdef ENABLE_IPV4
 	case bpf_htons(ETH_P_IP):
+		/* DEBUG: IPv4 packet from container */
+		cilium_dbg(ctx, DBG_GENERIC, 0x9001, 0);
 		edt_set_aggregate(ctx, LXC_ID);
 		ret = tail_call_internal(ctx, CILIUM_CALL_IPV4_FROM_LXC, &ext_err);
 		sec_label = SECLABEL_IPV4;
