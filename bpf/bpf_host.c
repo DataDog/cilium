@@ -689,6 +689,9 @@ static __always_inline int
 handle_ipv4_cont(struct __ctx_buff *ctx, __u32 secctx, const bool from_host,
 		 __s8 *ext_err __maybe_unused)
 {
+	/* DEBUG: Entering handle_ipv4_cont where redirects happen */
+	cilium_dbg(ctx, DBG_REDIRECT, 0x7777, from_host ? 1 : 0);
+	
 	struct trace_ctx __maybe_unused trace = {
 		.reason = TRACE_REASON_UNKNOWN,
 		.monitor = TRACE_PAYLOAD_LEN,

@@ -749,6 +749,7 @@ to_host:
 		send_trace_notify(ctx, TRACE_TO_HOST, SECLABEL_IPV6, HOST_ID,
 				  TRACE_EP_ID_UNKNOWN,
 				  HOST_IFINDEX, trace.reason, trace.monitor);
+		cilium_dbg(ctx, DBG_REDIRECT, 0x4013, HOST_IFINDEX); // DEBUG: redirect to host
 		return ctx_redirect(ctx, HOST_IFINDEX, BPF_F_INGRESS);
 	}
 #endif
@@ -2104,6 +2105,7 @@ int tail_ipv4_policy(struct __ctx_buff *ctx)
 			cilium_dbg(ctx, DBG_REDIRECT, 0x4010, 0);
 			ret = redirect_ep(ctx, THIS_INTERFACE_IFINDEX, from_host,
 					  from_tunnel);
+			cilium_dbg(ctx, DBG_REDIRECT, 0x4012, ret); // DEBUG: redirect_ep result
 		}
 		break;
 	default:
@@ -2372,6 +2374,9 @@ int cil_to_container(struct __ctx_buff *ctx)
 	cilium_dbg(ctx, DBG_GENERIC, 0xBBBB, 0x2222);
 
 	magic = inherit_identity_from_host(ctx, &identity);
+	
+	/* DEBUG: After inheriting identity, about to process protocol */
+	cilium_dbg(ctx, DBG_REDIRECT, 0x4014, magic);
 	if (magic == MARK_MAGIC_PROXY_INGRESS || magic == MARK_MAGIC_PROXY_EGRESS)
 		trace = TRACE_FROM_PROXY;
 #if defined(ENABLE_L7_LB)
@@ -2438,6 +2443,8 @@ int cil_to_container(struct __ctx_buff *ctx)
 #ifdef ENABLE_IPV4
 	case bpf_htons(ETH_P_IP):
 		sec_label = SECLABEL_IPV4;
+		/* DEBUG: IPv4 case in cil_to_container */
+		cilium_dbg(ctx, DBG_REDIRECT, 0x4015, 0);
 # ifdef ENABLE_HIGH_SCALE_IPCACHE
 	if (identity_is_world_ipv4(identity)) {
 		struct endpoint_info *ep;

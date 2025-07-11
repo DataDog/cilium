@@ -616,8 +616,6 @@ __ct_lookup6(const void *map, struct ipv6_ct_tuple *tuple, struct __ctx_buff *ct
 out:
 	cilium_dbg(ctx, DBG_CT_VERDICT, ret,
 		   ct_state ? ct_state->rev_nat_index : 0);
-	/* DEBUG: Test our debug mechanism right after working conntrack debug */
-	cilium_dbg(ctx, DBG_REDIRECT, 0x8888, 0x9999);
 	return ret;
 }
 
