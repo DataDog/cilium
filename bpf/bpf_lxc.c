@@ -2186,8 +2186,10 @@ int tail_ipv4_to_endpoint(struct __ctx_buff *ctx)
 	update_metrics(ctx_full_len(ctx), METRIC_INGRESS, REASON_FORWARDED);
 #endif
 
+	cilium_dbg(ctx, DBG_REDIRECT, 0x8005, 0); // DEBUG: About to call ipv4_policy
 	ret = ipv4_policy(ctx, ip4, THIS_INTERFACE_IFINDEX, src_sec_identity,
 			  NULL, &ext_err, &proxy_port, false);
+	cilium_dbg(ctx, DBG_REDIRECT, 0x8006, ret); // DEBUG: ipv4_policy result
 	switch (ret) {
 	case POLICY_ACT_PROXY_REDIRECT:
 		if (!revalidate_data(ctx, &data, &data_end, &ip4)) {
@@ -2206,6 +2208,7 @@ int tail_ipv4_to_endpoint(struct __ctx_buff *ctx)
 		break;
 	}
 out:
+	cilium_dbg(ctx, DBG_REDIRECT, 0x8007, ret); // DEBUG: tail_ipv4_to_endpoint final result
 	if (IS_ERR(ret))
 		return send_drop_notify_ext(ctx, src_sec_identity, SECLABEL_IPV4, LXC_ID,
 					ret, ext_err, CTX_ACT_DROP, METRIC_INGRESS);
