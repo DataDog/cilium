@@ -2351,14 +2351,6 @@
       },
       "type": "object"
     },
-    "externalIPs": {
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        }
-      },
-      "type": "object"
-    },
     "externalWorkloads": {
       "properties": {
         "enabled": {
