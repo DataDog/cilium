@@ -261,7 +261,10 @@ func (c *Client) describeNetworkInterfaces(ctx context.Context, subnets ipamType
 		})
 	}
 	paginator := ec2.NewDescribeNetworkInterfacesPaginator(c.ec2Client, input)
+	page := 0
 	for paginator.HasMorePages() {
+		page++
+		log.Infof("[A] describeNetworkInterfaces: start page %d", page)
 		c.limiter.Limit(ctx, DescribeNetworkInterfaces)
 		sinceStart := spanstat.Start()
 		output, err := paginator.NextPage(ctx)
@@ -270,7 +273,9 @@ func (c *Client) describeNetworkInterfaces(ctx context.Context, subnets ipamType
 			return nil, err
 		}
 		result = append(result, output.NetworkInterfaces...)
+		log.Infof("[A] describeNetworkInterfaces: page %d, %d results", page, len(output.NetworkInterfaces))
 	}
+	log.Infof("[A] describeNetworkInterfaces: finished (%d pages), %d ENIs", page, len(result))
 	return result, nil
 }
 
