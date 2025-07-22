@@ -250,18 +250,23 @@ func (c *Client) describeNetworkInterfaces(ctx context.Context, subnets ipamType
 	if operatorOption.Config.AWSPaginationEnabled {
 		input.MaxResults = aws.Int32(defaults.ENIMaxResultsPerApiCall)
 	}
+	subnetsIDs := make([]string, 0, len(subnets))
+	for id, sub := range subnets {
+		subnetsIDs = append(subnetsIDs, id)
+		log.Infof("[A] describeNetworkInterfaces: subnet %#v", *sub)
+	}
+	log.Infof("[A] describeNetworkInterfaces: subnets %v", subnetsIDs)
 	if len(c.subnetsFilters) > 0 {
-		subnetsIDs := make([]string, 0, len(subnets))
-		for id := range subnets {
-			subnetsIDs = append(subnetsIDs, id)
-		}
 		input.Filters = append(input.Filters, ec2_types.Filter{
 			Name:   aws.String("subnet-id"),
 			Values: subnetsIDs,
 		})
 	}
 	paginator := ec2.NewDescribeNetworkInterfacesPaginator(c.ec2Client, input)
+	page := 0
 	for paginator.HasMorePages() {
+		page++
+		log.Infof("[A] describeNetworkInterfaces: start page %d", page)
 		c.limiter.Limit(ctx, DescribeNetworkInterfaces)
 		sinceStart := spanstat.Start()
 		output, err := paginator.NextPage(ctx)
@@ -270,7 +275,9 @@ func (c *Client) describeNetworkInterfaces(ctx context.Context, subnets ipamType
 			return nil, err
 		}
 		result = append(result, output.NetworkInterfaces...)
+		log.Infof("[A] describeNetworkInterfaces: page %d, %d results", page, len(output.NetworkInterfaces))
 	}
+	log.Infof("[A] describeNetworkInterfaces: finished (%d pages), %d ENIs", page, len(result))
 	return result, nil
 }
 
