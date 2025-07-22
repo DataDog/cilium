@@ -207,7 +207,7 @@ func (c *Client) GetDetachedNetworkInterfaces(ctx context.Context, tags ipamType
 		Filters: append(NewTagsFilter(tags), c.subnetsFilters...),
 	}
 	if operatorOption.Config.AWSPaginationEnabled {
-		input.MaxResults = aws.Int32(maxResults)
+		input.MaxResults = aws.Int32(defaults.ENIMaxResultsPerApiCall)
 	}
 
 	input.Filters = append(input.Filters, ec2_types.Filter{
@@ -215,20 +215,28 @@ func (c *Client) GetDetachedNetworkInterfaces(ctx context.Context, tags ipamType
 		Values: []string{"available"},
 	})
 
+	log.Infof("GetDetachedNetworkInterfaces: start")
 	paginator := ec2.NewDescribeNetworkInterfacesPaginator(c.ec2Client, input)
+	page := 0
 	for paginator.HasMorePages() {
+		page++
+		log.Infof("GetDetachedNetworkInterfaces: page %d", page)
 		c.limiter.Limit(ctx, DescribeNetworkInterfaces)
 		sinceStart := spanstat.Start()
 		output, err := paginator.NextPage(ctx)
+		log.Infof("GetDetachedNetworkInterfaces: page %d, %d results", page, len(output.NetworkInterfaces))
+		for _, eni := range output.NetworkInterfaces {
+			log.Infof("GetDetachedNetworkInterfaces: ENI %s, status %s", aws.ToString(eni.NetworkInterfaceId), eni.Status)
+		}
 		c.metricsAPI.ObserveAPICall(DescribeNetworkInterfaces, deriveStatus(err), sinceStart.Seconds())
 		if err != nil {
 			return nil, err
 		}
 		for _, eni := range output.NetworkInterfaces {
+			if len(result) >= int(maxResults) {
+				return result, nil
+			}
 			result = append(result, aws.ToString(eni.NetworkInterfaceId))
-		}
-		if len(result) >= int(maxResults) {
-			break
 		}
 	}
 	return result, nil
