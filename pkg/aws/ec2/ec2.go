@@ -203,11 +203,17 @@ func DetectEKSClusterName(ctx context.Context, cfg aws.Config) (string, error) {
 
 func (c *Client) GetDetachedNetworkInterfaces(ctx context.Context, tags ipamTypes.Tags, maxResults int32) ([]string, error) {
 	result := make([]string, 0, int(maxResults))
+	log.Infof("GetDetachedNetworkInterfaces: subnetsFilters is %v", c.subnetsFilters)
 	input := &ec2.DescribeNetworkInterfacesInput{
-		Filters: append(NewTagsFilter(tags), c.subnetsFilters...),
+		Filters: NewTagsFilter(tags),
+	}
+	for _, subnetFilter := range c.subnetsFilters {
+		if aws.ToString(subnetFilter.Name) == "subnet-id" {
+			input.Filters = append(input.Filters, subnetFilter)
+		}
 	}
 	if operatorOption.Config.AWSPaginationEnabled {
-		input.MaxResults = aws.Int32(maxResults)
+		input.MaxResults = aws.Int32(defaults.ENIMaxResultsPerApiCall)
 	}
 
 	input.Filters = append(input.Filters, ec2_types.Filter{
@@ -215,22 +221,32 @@ func (c *Client) GetDetachedNetworkInterfaces(ctx context.Context, tags ipamType
 		Values: []string{"available"},
 	})
 
+	log.Infof("GetDetachedNetworkInterfaces: start")
+	for _, filter := range input.Filters {
+		log.Infof("GetDetachedNetworkInterfaces: input filter %s: %v", aws.ToString(filter.Name), filter.Values)
+	}
 	paginator := ec2.NewDescribeNetworkInterfacesPaginator(c.ec2Client, input)
+	page := 0
 	for paginator.HasMorePages() {
+		page++
+		log.Infof("GetDetachedNetworkInterfaces: page %d", page)
 		c.limiter.Limit(ctx, DescribeNetworkInterfaces)
 		sinceStart := spanstat.Start()
 		output, err := paginator.NextPage(ctx)
+		log.Infof("GetDetachedNetworkInterfaces: page %d, %d results, err: %v", page, len(output.NetworkInterfaces), err)
 		c.metricsAPI.ObserveAPICall(DescribeNetworkInterfaces, deriveStatus(err), sinceStart.Seconds())
 		if err != nil {
 			return nil, err
 		}
 		for _, eni := range output.NetworkInterfaces {
+			log.Infof("GetDetachedNetworkInterfaces: ENI %s, status %s", aws.ToString(eni.NetworkInterfaceId), eni.Status)
+			if len(result) >= int(maxResults) {
+				return result, nil
+			}
 			result = append(result, aws.ToString(eni.NetworkInterfaceId))
 		}
-		if len(result) >= int(maxResults) {
-			break
-		}
 	}
+	log.Infof("GetDetachedNetworkInterfaces: finished (%d pages)", page)
 	return result, nil
 }
 
