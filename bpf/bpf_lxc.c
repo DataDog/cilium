@@ -949,7 +949,7 @@ static __always_inline int handle_ipv4_from_lxc(struct __ctx_buff *ctx, __u32 *d
 	ct_status = (enum ct_status)ret;
 	trace.reason = (enum trace_reason)ret;
 	l4_off = ct_buffer->l4_off;
-
+	cilium_dbg(ctx, DBG_GENERIC, 0, ct_status);
 	/* Apply network policy: */
 	switch (ct_status) {
 	case CT_NEW:
@@ -972,6 +972,7 @@ static __always_inline int handle_ipv4_from_lxc(struct __ctx_buff *ctx, __u32 *d
 		 * want to execute the conntrack logic so that replies can be correctly
 		 * matched.
 		 */
+		cilium_dbg(ctx, DBG_GENERIC, 1, 0);
 		if (hairpin_flow)
 			break;
 
@@ -982,7 +983,7 @@ static __always_inline int handle_ipv4_from_lxc(struct __ctx_buff *ctx, __u32 *d
 		verdict = policy_can_egress4(ctx, &POLICY_MAP, tuple, l4_off, SECLABEL_IPV4,
 					     *dst_sec_identity, &policy_match_type, &audited,
 					     ext_err, &proxy_port);
-
+		cilium_dbg(ctx, DBG_GENERIC, 2, 0);
 		if (verdict == DROP_POLICY_AUTH_REQUIRED) {
 			auth_type = (__u8)*ext_err;
 			verdict = auth_lookup(ctx, SECLABEL_IPV4, *dst_sec_identity,
@@ -1054,8 +1055,10 @@ ct_recreate4:
 
 	case CT_ESTABLISHED:
 		/* Did we end up at a stale non-service entry? Recreate if so. */
-		if (unlikely(ct_state->rev_nat_index != ct_state_new.rev_nat_index))
+		if (unlikely(ct_state->rev_nat_index != ct_state_new.rev_nat_index)) {
+			cilium_dbg(ctx, DBG_GENERIC, 3, 0);;
 			goto ct_recreate4;
+		}
 
 		/* Recreate the CT entry if the proxy_redirect flag is stale.
 		 * Otherwise, the return packet will be erroneously redirected (or not)
@@ -1067,9 +1070,12 @@ ct_recreate4:
 		 * if the packet hits a closing stale entry, ct_lookup returns CT_NEW and
 		 * caller recreates the entry.
 		 */
+		cilium_dbg(ctx, DBG_GENERIC, 4, 0);
 		ct_state_new.proxy_redirect = proxy_port > 0;
-		if (unlikely(ct_state->proxy_redirect != ct_state_new.proxy_redirect))
+		if (unlikely(ct_state->proxy_redirect != ct_state_new.proxy_redirect)) {
+			cilium_dbg(ctx, DBG_GENERIC, 5, 0);
 			goto ct_recreate4;
+		}
 		break;
 
 	case CT_RELATED:
@@ -1180,20 +1186,24 @@ ct_recreate4:
 		 *  - The destination IP address belongs to endpoint itself.
 		 */
 		ep = __lookup_ip4_endpoint(daddr);
+		cilium_dbg(ctx, DBG_GENERIC, 6, 0);
 		if (ep) {
 #if defined(ENABLE_HOST_ROUTING) || defined(ENABLE_ROUTING)
 			if (ep->flags & ENDPOINT_MASK_HOST_DELIVERY) {
 				if (is_defined(ENABLE_ROUTING)) {
 # ifdef HOST_IFINDEX
+					cilium_dbg(ctx, DBG_GENERIC, 7, 0);
 					goto to_host;
 # endif
 					return DROP_HOST_UNREACHABLE;
 				}
+				cilium_dbg(ctx, DBG_GENERIC, 8, 0);
 				goto pass_to_stack;
 			}
 #endif /* ENABLE_HOST_ROUTING || ENABLE_ROUTING */
 
 			/* If the packet is from L7 LB it is coming from the host */
+			cilium_dbg(ctx, DBG_GENERIC, 9, 0);
 			return ipv4_local_delivery(ctx, ETH_HLEN, SECLABEL_IPV4,
 						   MARK_MAGIC_IDENTITY, ip4,
 						   ep, METRIC_EGRESS, from_l7lb,
@@ -1290,6 +1300,9 @@ skip_vtep:
 		int oif = 0;
 
 		ret = fib_redirect_v4(ctx, ETH_HLEN, ip4, false, false, ext_err, &oif);
+
+		cilium_dbg(ctx, DBG_GENERIC, 10, ret);
+
 		if (fib_ok(ret))
 			send_trace_notify(ctx, TRACE_TO_NETWORK, SECLABEL_IPV4,
 					  *dst_sec_identity, TRACE_EP_ID_UNKNOWN, oif,
@@ -1304,6 +1317,7 @@ to_host:
 #endif
 #ifdef ENABLE_ROUTING
 	if (is_defined(ENABLE_HOST_FIREWALL) && *dst_sec_identity == HOST_ID) {
+		cilium_dbg(ctx, DBG_GENERIC, 11, 0);
 		send_trace_notify(ctx, TRACE_TO_HOST, SECLABEL_IPV4, HOST_ID,
 				  TRACE_EP_ID_UNKNOWN,
 				  HOST_IFINDEX, trace.reason, trace.monitor);
@@ -1314,6 +1328,7 @@ to_host:
 pass_to_stack:
 #ifdef ENABLE_ROUTING
 	ret = ipv4_l3(ctx, ETH_HLEN, NULL, (__u8 *)&router_mac.addr, ip4);
+	cilium_dbg(ctx, DBG_GENERIC, 12, 0);
 	if (unlikely(ret != CTX_ACT_OK))
 		return ret;
 #endif
@@ -1357,7 +1372,7 @@ int tail_handle_ipv4_cont(struct __ctx_buff *ctx)
 	__s8 ext_err = 0;
 
 	int ret = handle_ipv4_from_lxc(ctx, &dst_sec_identity, &ext_err);
-
+	cilium_dbg(ctx, DBG_GENERIC, 13, 0);
 	if (IS_ERR(ret))
 		return send_drop_notify_ext(ctx, SECLABEL_IPV4, dst_sec_identity,
 					    TRACE_EP_ID_UNKNOWN, ret, ext_err,

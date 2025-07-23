@@ -306,6 +306,9 @@ fib_redirect_v4(struct __ctx_buff *ctx, int l3_off,
 			break;
 		default:
 			*ext_err = (__s8)fib_result;
+
+			cilium_dbg(ctx, DBG_GENERIC, 14, fib_result);
+			cilium_dbg(ctx, DBG_GENERIC, 15, *ext_err);
 			return DROP_NO_FIB;
 		}
 
