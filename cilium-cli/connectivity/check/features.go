@@ -12,16 +12,15 @@ import (
 	"strings"
 
 	"github.com/blang/semver/v4"
-	corev1 "k8s.io/api/core/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"github.com/cilium/cilium/api/v1/models"
 	"github.com/cilium/cilium/cilium-cli/defaults"
 	"github.com/cilium/cilium/cilium-cli/internal/helm"
 	"github.com/cilium/cilium/cilium-cli/k8s"
 	"github.com/cilium/cilium/cilium-cli/utils/features"
+	slimcorev1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func parseBoolStatus(s string) bool {
@@ -387,12 +386,12 @@ func (ct *ConnectivityTest) ForceDisableFeature(feature features.Feature) {
 	ct.Features[feature] = features.Status{Enabled: false}
 }
 
-func canNodeRunCilium(node *corev1.Node) bool {
+func canNodeRunCilium(node *slimcorev1.Node) bool {
 	val, ok := node.ObjectMeta.Labels["cilium.io/no-schedule"]
 	return !ok || val == "false"
 }
 
-func isControlPlane(node *corev1.Node) bool {
+func isControlPlane(node *slimcorev1.Node) bool {
 	if node != nil {
 		_, ok := node.Labels["node-role.kubernetes.io/control-plane"]
 		return ok
