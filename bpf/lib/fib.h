@@ -196,7 +196,10 @@ out_send:
 	} else {
 		bpf_printk("FIB: redirecting to oif=%d\n", *oif);
 	}
-	return (int)ctx_redirect(ctx, *oif, 0);
+	bpf_printk("FIB: calling ctx_redirect(ctx, %d, 0)\n", *oif);
+	int redirect_result = (int)ctx_redirect(ctx, *oif, 0);
+	bpf_printk("FIB: ctx_redirect returned %d\n", redirect_result);
+	return redirect_result;
 }
 
 static __always_inline int
