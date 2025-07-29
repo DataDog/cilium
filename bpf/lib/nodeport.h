@@ -658,6 +658,7 @@ int tail_nodeport_ipv6_dsr(struct __ctx_buff *ctx)
 	if (!IS_ERR(ret)) {
 		if (ret == CTX_ACT_REDIRECT && oif) {
 			cilium_capture_out(ctx);
+			bpf_printk("NODEPORT_REDIRECT: ifindex=%d src=nodeport.h line=661\n", oif);
 			return ctx_redirect(ctx, oif, 0);
 		}
 
@@ -1025,8 +1026,8 @@ int tail_nodeport_nat_ingress_ipv6(struct __ctx_buff *ctx)
 	if (IS_ERR(ret)) {
 		if (ret == NAT_PUNT_TO_STACK ||
 		    /* DROP_NAT_NO_MAPPING is unwanted behavior in a
-		     * rev-SNAT context. Let's continue to passing it
-		     * up to the host and revisiting this later if
+		     * rev-SNAT context. Let's continue to passing it up
+		     * to the host and revisiting this later if
 		     * needed.
 		     */
 		    ret == DROP_NAT_NO_MAPPING) {
@@ -1168,6 +1169,7 @@ int tail_nodeport_nat_egress_ipv6(struct __ctx_buff *ctx)
 
 		if (ret == CTX_ACT_REDIRECT && oif) {
 			cilium_capture_out(ctx);
+			bpf_printk("NODEPORT_REDIRECT: ifindex=%d src=nodeport.h line=661\n", oif);
 			return ctx_redirect(ctx, oif, 0);
 		}
 
@@ -1380,10 +1382,15 @@ static __always_inline int nodeport_lb6(struct __ctx_buff *ctx,
 
 	svc = lb6_lookup_service(&key, false);
 	if (svc) {
+		bpf_printk("NODEPORT_LB6: found service, calling nodeport_svc_lb6\n");
 		return nodeport_svc_lb6(ctx, &tuple, svc, &key, ip6, l3_off,
 					l4_off, src_sec_identity, punt_to_stack,
 					ext_err);
 	} else {
+		bpf_printk("NODEPORT_LB6: no service found, continuing\n");
+		goto skip_service_lookup;
+	}
+
 skip_service_lookup:
 #ifdef ENABLE_NAT_46X64_GATEWAY
 		if (is_v4_in_v6_rfc8215((union v6addr *)&ip6->daddr)) {
@@ -1927,8 +1934,8 @@ static __always_inline int dsr_reply_icmp4(struct __ctx_buff *ctx,
 	if (ctx_store_bytes(ctx, off + sizeof(ip), &icmp,
 			    sizeof(icmp), 0) < 0)
 		goto drop_err;
-	if (ctx_store_bytes(ctx, off + sizeof(ip) + sizeof(icmp),
-			    &inner_ip_hdr, sizeof(inner_ip_hdr), 0) < 0)
+	if (ctx_store_bytes(ctx, off + sizeof(ip) + sizeof(icmp), &inner_ip_hdr,
+			    sizeof(inner_ip_hdr), 0) < 0)
 		goto drop_err;
 	if (ctx_store_bytes(ctx, off + sizeof(ip) + sizeof(icmp)
 			    + sizeof(inner_ip_hdr) + l4_dport_offset,
@@ -2399,7 +2406,6 @@ int tail_nodeport_nat_egress_ipv4(struct __ctx_buff *ctx)
 	};
 	int ret, l4_off, oif = 0;
 	void *data, *data_end;
-	bool has_l4_header;
 	struct iphdr *ip4;
 	__s8 ext_err = 0;
 	__u32 dst_sec_identity __maybe_unused = 0;
@@ -2486,6 +2492,7 @@ int tail_nodeport_nat_egress_ipv4(struct __ctx_buff *ctx)
 
 		if (ret == CTX_ACT_REDIRECT && oif) {
 			cilium_capture_out(ctx);
+			bpf_printk("NODEPORT_REDIRECT: ifindex=%d src=nodeport.h line=1979\n", oif);
 			return ctx_redirect(ctx, oif, 0);
 		}
 	}
@@ -2526,6 +2533,9 @@ static __always_inline int nodeport_svc_lb4(struct __ctx_buff *ctx,
 	bool backend_local;
 	__u32 monitor = 0;
 	int ret;
+
+	bpf_printk("NODEPORT_SVC_LB4: handling service src=0x%x dst=0x%x\n", 
+	       bpf_ntohl(ip4->saddr), bpf_ntohl(ip4->daddr));
 
 	if (!lb4_src_range_ok(svc, ip4->saddr))
 		return DROP_NOT_IN_SRC_RANGE;
@@ -2696,6 +2706,9 @@ static __always_inline int nodeport_lb4(struct __ctx_buff *ctx,
 	struct lb4_key key = {};
 	int ret, l4_off;
 
+	bpf_printk("NODEPORT_LB4: processing IPv4 src=0x%x dst=0x%x\n", 
+	       bpf_ntohl(ip4->saddr), bpf_ntohl(ip4->daddr));
+
 	cilium_capture_in(ctx);
 
 	ret = lb4_extract_tuple(ctx, ip4, l3_off, &l4_off, &tuple);
@@ -2715,10 +2728,15 @@ static __always_inline int nodeport_lb4(struct __ctx_buff *ctx,
 
 	svc = lb4_lookup_service(&key, false);
 	if (svc) {
+		bpf_printk("NODEPORT_LB4: found service, calling nodeport_svc_lb4\n");
 		return nodeport_svc_lb4(ctx, &tuple, svc, &key, ip4, l3_off,
 					has_l4_header, l4_off,
 					src_sec_identity, punt_to_stack, ext_err);
 	} else {
+		bpf_printk("NODEPORT_LB4: no service found, continuing\n");
+		goto skip_service_lookup;
+	}
+
 skip_service_lookup:
 #ifdef ENABLE_NAT_46X64_GATEWAY
 		if (ip4->daddr != IPV4_DIRECT_ROUTING)
