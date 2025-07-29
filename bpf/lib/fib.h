@@ -11,6 +11,14 @@
 #include "l3.h"
 #include "dbg.h"
 
+static long (*bpf_trace_printk)(const char *fmt, __u32 fmt_size, ...) = (void *) 6;
+#define bpf_printk(fmt, ...)				\
+({							\
+	static const char ____fmt[] = fmt;				\
+	bpf_trace_printk(____fmt, sizeof(____fmt),	\
+			 ##__VA_ARGS__);		\
+})
+
 static __always_inline int
 add_l2_hdr(struct __ctx_buff *ctx __maybe_unused)
 {
@@ -93,11 +101,11 @@ fib_do_redirect(struct __ctx_buff *ctx, const bool needs_l2_check,
 	 */
 	if (fib_params) {
 		if (fib_params->l.family == AF_INET) {
-			printk("FIB: IPv4 src=0x%x dst=0x%x fib_result=%d, orig_oif=%d, fib_ifindex=%d\n", 
+			bpf_printk("FIB: IPv4 src=0x%x dst=0x%x fib_result=%d, orig_oif=%d, fib_ifindex=%d\n", 
 			       bpf_ntohl(fib_params->l.ipv4_src), bpf_ntohl(fib_params->l.ipv4_dst),
 			       fib_result, *oif, fib_params->l.ifindex);
 		} else {
-			printk("FIB: fib_result=%d, orig_oif=%d, fib_ifindex=%d\n", 
+			bpf_printk("FIB: fib_result=%d, orig_oif=%d, fib_ifindex=%d\n", 
 			       fib_result, *oif, fib_params->l.ifindex);
 		}
 		if (fib_result == BPF_FIB_LKUP_RET_NO_NEIGH &&
@@ -108,13 +116,13 @@ fib_do_redirect(struct __ctx_buff *ctx, const bool needs_l2_check,
 			 * necessary.
 			 * no-op
 			 */
-			printk("FIB: using fallback oif=%d\n", *oif);
+			bpf_printk("FIB: using fallback oif=%d\n", *oif);
 		} else {
-			printk("FIB: using fib lookup oif=%d\n", fib_params->l.ifindex);
+			bpf_printk("FIB: using fib lookup oif=%d\n", fib_params->l.ifindex);
 			*oif = fib_params->l.ifindex;
 		}
 	} else {
-		printk("FIB: no fib_params, using oif=%d\n", *oif);
+		bpf_printk("FIB: no fib_params, using oif=%d\n", *oif);
 	}
 
 	/* determine if we need to append layer 2 header */
@@ -182,10 +190,10 @@ fib_do_redirect(struct __ctx_buff *ctx, const bool needs_l2_check,
 	};
 out_send:
 	if (fib_params && fib_params->l.family == AF_INET) {
-		printk("FIB: redirecting IPv4 src=0x%x dst=0x%x to oif=%d\n", 
+		bpf_printk("FIB: redirecting IPv4 src=0x%x dst=0x%x to oif=%d\n", 
 		       bpf_ntohl(fib_params->l.ipv4_src), bpf_ntohl(fib_params->l.ipv4_dst), *oif);
 	} else {
-		printk("FIB: redirecting to oif=%d\n", *oif);
+		bpf_printk("FIB: redirecting to oif=%d\n", *oif);
 	}
 	return (int)ctx_redirect(ctx, *oif, 0);
 }
@@ -197,7 +205,7 @@ fib_redirect(struct __ctx_buff *ctx, const bool needs_l2_check,
 {
 #ifdef ENABLE_SKIP_FIB
 	*oif = DIRECT_ROUTING_DEV_IFINDEX;
-	printk("FIB: SKIP_FIB enabled, using oif=%d\n", *oif);
+	bpf_printk("FIB: SKIP_FIB enabled, using oif=%d\n", *oif);
 #endif
 
 	if (!is_defined(ENABLE_SKIP_FIB) || !neigh_resolver_available()) {
@@ -244,9 +252,7 @@ fib_lookup_v6(struct __ctx_buff *ctx, struct bpf_fib_lookup_padded *fib_params,
 	ipv6_addr_copy((union v6addr *)&fib_params->l.ipv6_dst,
 		       (union v6addr *)ipv6_dst);
 
-	printk("FIB: IPv6 lookup input_ifindex=%d\n", input_ifindex);
 	ret = (int)fib_lookup(ctx, &fib_params->l, sizeof(fib_params->l), flags);
-	printk("FIB: IPv6 lookup ret=%d, output_ifindex=%d\n", ret, fib_params->l.ifindex);
 	
 	return ret;
 };
@@ -261,7 +267,6 @@ fib_redirect_v6(struct __ctx_buff *ctx, int l3_off,
 
 #ifdef ENABLE_SKIP_FIB
 	*oif = DIRECT_ROUTING_DEV_IFINDEX;
-	printk("FIB: IPv6 SKIP_FIB enabled, using oif=%d\n", *oif);
 #endif
 
 	if (!is_defined(ENABLE_SKIP_FIB) || !neigh_resolver_available()) {
@@ -312,9 +317,9 @@ fib_lookup_v4(struct __ctx_buff *ctx, struct bpf_fib_lookup_padded *fib_params,
 	fib_params->l.ipv4_src	= ipv4_src;
 	fib_params->l.ipv4_dst	= ipv4_dst;
 
-	printk("FIB: IPv4 lookup src=0x%x dst=0x%x input_ifindex=%d\n", bpf_ntohl(ipv4_src), bpf_ntohl(ipv4_dst), input_ifindex);
+	bpf_printk("FIB: IPv4 lookup src=0x%x dst=0x%x input_ifindex=%d\n", bpf_ntohl(ipv4_src), bpf_ntohl(ipv4_dst), input_ifindex);
 	ret = (int)fib_lookup(ctx, &fib_params->l, sizeof(fib_params->l), flags);
-	printk("FIB: IPv4 lookup src=0x%x dst=0x%x ret=%d, output_ifindex=%d\n", bpf_ntohl(ipv4_src), bpf_ntohl(ipv4_dst), ret, fib_params->l.ifindex);
+	bpf_printk("FIB: IPv4 lookup src=0x%x dst=0x%x ret=%d, output_ifindex=%d\n", bpf_ntohl(ipv4_src), bpf_ntohl(ipv4_dst), ret, fib_params->l.ifindex);
 
 	return ret;
 }
@@ -329,11 +334,11 @@ fib_redirect_v4(struct __ctx_buff *ctx, int l3_off,
 
 #ifdef ENABLE_SKIP_FIB
 	*oif = DIRECT_ROUTING_DEV_IFINDEX;
-	printk("FIB: IPv4 SKIP_FIB enabled, using oif=%d\n", *oif);
+	bpf_printk("FIB: IPv4 SKIP_FIB enabled, using oif=%d\n", *oif);
 #endif
 
 	if (ip4) {
-		printk("FIB: IPv4 redirect called src=0x%x dst=0x%x\n", 
+		bpf_printk("FIB: IPv4 redirect called src=0x%x dst=0x%x\n", 
 		       bpf_ntohl(ip4->saddr), bpf_ntohl(ip4->daddr));
 	}
 
