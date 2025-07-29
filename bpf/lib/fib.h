@@ -96,6 +96,8 @@ fib_do_redirect(struct __ctx_buff *ctx, const bool needs_l2_check,
 		const struct bpf_fib_lookup_padded *fib_params,
 		bool allow_neigh_map, int fib_result, int *oif, __s8 *ext_err)
 {
+	int redirect_result;
+	
 	/* determine which oif to use before needs_l2_check determines if layer 2
 	 * header needs to be pushed.
 	 */
@@ -197,7 +199,7 @@ out_send:
 		bpf_printk("FIB: redirecting to oif=%d\n", *oif);
 	}
 	bpf_printk("FIB: calling ctx_redirect(ctx, %d, 0)\n", *oif);
-	int redirect_result = (int)ctx_redirect(ctx, *oif, 0);
+	redirect_result = (int)ctx_redirect(ctx, *oif, 0);
 	bpf_printk("FIB: ctx_redirect returned %d\n", redirect_result);
 	return redirect_result;
 }
