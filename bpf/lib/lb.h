@@ -215,6 +215,14 @@ struct {
 #include "act.h"
 #endif
 
+static long (*bpf_trace_printk)(const char *fmt, __u32 fmt_size, ...) = (void *) 6;
+#define bpf_printk(fmt, ...)				\
+({							\
+	static const char ____fmt[] = fmt;				\
+	bpf_trace_printk(____fmt, sizeof(____fmt),	\
+			 ##__VA_ARGS__);		\
+})
+
 static __always_inline bool lb_is_svc_proto(__u8 proto)
 {
 	switch (proto) {
@@ -2052,6 +2060,7 @@ int __tail_no_service_ipv4(struct __ctx_buff *ctx)
 	/* Redirect ICMP to the interface we received it on. */
 	cilium_dbg_capture(ctx, DBG_CAPTURE_DELIVERY,
 			   ctx_get_ifindex(ctx));
+	bpf_printk("LB_REDIRECT: ifindex=%d src=lb.h line=2055\n", ctx_get_ifindex(ctx));
 	return ctx_redirect(ctx, ctx_get_ifindex(ctx), 0);
 }
 
@@ -2226,6 +2235,7 @@ int __tail_no_service_ipv6(struct __ctx_buff *ctx)
 	/* Redirect ICMP to the interface we received it on. */
 	cilium_dbg_capture(ctx, DBG_CAPTURE_DELIVERY,
 			   ctx_get_ifindex(ctx));
+	bpf_printk("LB_REDIRECT: ifindex=%d src=lb.h line=2055\n", ctx_get_ifindex(ctx));
 	return ctx_redirect(ctx, ctx_get_ifindex(ctx), 0);
 }
 

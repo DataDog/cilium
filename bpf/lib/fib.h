@@ -199,8 +199,9 @@ out_send:
 		bpf_printk("FIB: redirecting to oif=%d\n", *oif);
 	}
 	bpf_printk("FIB: calling ctx_redirect(ctx, %d, 0)\n", *oif);
+	bpf_printk("FIB_REDIRECT: ifindex=%d src=fib.h line=201\n", *oif);
 	redirect_result = (int)ctx_redirect(ctx, *oif, 0);
-	bpf_printk("FIB: ctx_redirect returned %d\n", redirect_result);
+	bpf_printk("FIB_REDIRECT: returned %d\n", redirect_result);
 	return redirect_result;
 }
 
