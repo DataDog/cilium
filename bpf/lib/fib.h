@@ -101,9 +101,10 @@ fib_do_redirect(struct __ctx_buff *ctx, const bool needs_l2_check,
 	 */
 	if (fib_params) {
 		if (fib_params->l.family == AF_INET) {
-			bpf_printk("FIB: IPv4 src=0x%x dst=0x%x fib_result=%d, orig_oif=%d, fib_ifindex=%d\n", 
+			bpf_printk("FIB: IPv4 src=0x%x dst=0x%x fib_result=%d\n", 
 			       bpf_ntohl(fib_params->l.ipv4_src), bpf_ntohl(fib_params->l.ipv4_dst),
-			       fib_result, *oif, fib_params->l.ifindex);
+			       fib_result);
+			bpf_printk("FIB: orig_oif=%d, fib_ifindex=%d\n", *oif, fib_params->l.ifindex);
 		} else {
 			bpf_printk("FIB: fib_result=%d, orig_oif=%d, fib_ifindex=%d\n", 
 			       fib_result, *oif, fib_params->l.ifindex);
@@ -319,7 +320,8 @@ fib_lookup_v4(struct __ctx_buff *ctx, struct bpf_fib_lookup_padded *fib_params,
 
 	bpf_printk("FIB: IPv4 lookup src=0x%x dst=0x%x input_ifindex=%d\n", bpf_ntohl(ipv4_src), bpf_ntohl(ipv4_dst), input_ifindex);
 	ret = (int)fib_lookup(ctx, &fib_params->l, sizeof(fib_params->l), flags);
-	bpf_printk("FIB: IPv4 lookup src=0x%x dst=0x%x ret=%d, output_ifindex=%d\n", bpf_ntohl(ipv4_src), bpf_ntohl(ipv4_dst), ret, fib_params->l.ifindex);
+	bpf_printk("FIB: IPv4 lookup src=0x%x dst=0x%x ret=%d\n", bpf_ntohl(ipv4_src), bpf_ntohl(ipv4_dst), ret);
+	bpf_printk("FIB: output_ifindex=%d\n", fib_params->l.ifindex);
 
 	return ret;
 }
