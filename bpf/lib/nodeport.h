@@ -1387,10 +1387,6 @@ static __always_inline int nodeport_lb6(struct __ctx_buff *ctx,
 					l4_off, src_sec_identity, punt_to_stack,
 					ext_err);
 	} else {
-		bpf_printk("NODEPORT_LB6: no service found, continuing\n");
-		goto skip_service_lookup;
-	}
-
 skip_service_lookup:
 #ifdef ENABLE_NAT_46X64_GATEWAY
 		if (is_v4_in_v6_rfc8215((union v6addr *)&ip6->daddr)) {
@@ -2734,10 +2730,6 @@ static __always_inline int nodeport_lb4(struct __ctx_buff *ctx,
 					has_l4_header, l4_off,
 					src_sec_identity, punt_to_stack, ext_err);
 	} else {
-		bpf_printk("NODEPORT_LB4: no service found, continuing\n");
-		goto skip_service_lookup;
-	}
-
 skip_service_lookup:
 #ifdef ENABLE_NAT_46X64_GATEWAY
 		if (ip4->daddr != IPV4_DIRECT_ROUTING)
