@@ -16,6 +16,7 @@
 #include "mono.h"
 #include "config.h"
 #include "tunnel.h"
+#include "fib.h"
 
 #include "source_info.h"
 
@@ -1257,6 +1258,8 @@ static __always_inline int redirect_ep(struct __ctx_buff *ctx __maybe_unused,
 				       bool needs_backlog __maybe_unused,
 				       bool from_tunnel)
 {
+	int redirect_ret;
+
 	/* Going via CPU backlog queue (aka needs_backlog) is required
 	 * whenever we cannot do a fast ingress -> ingress switch but
 	 * instead need an ingress -> egress netns traversal or vice
@@ -1277,7 +1280,7 @@ static __always_inline int redirect_ep(struct __ctx_buff *ctx __maybe_unused,
 	    ctx_get_ingress_ifindex(ctx) == 0) {
 
         bpf_printk("common 1278: Redirecting to ifindex=%d\n", ifindex);
-		int redirect_ret = (int)ctx_redirect(ctx, ifindex, 0);
+		redirect_ret = (int)ctx_redirect(ctx, ifindex, 0);
 		bpf_printk("common 1278: Redirect returned: %d\n", redirect_ret);
 		return redirect_ret;
 	}
@@ -1290,7 +1293,7 @@ static __always_inline int redirect_ep(struct __ctx_buff *ctx __maybe_unused,
 	
 
     bpf_printk("common 1288: Redirecting to ifindex=%d\n", ifindex);
-	int redirect_ret = ctx_redirect_peer(ctx, ifindex, 0);
+	redirect_ret = ctx_redirect_peer(ctx, ifindex, 0);
 	bpf_printk("common 1288: Redirect returned: %d\n", redirect_ret);
 	return redirect_ret;
 }
