@@ -1,0 +1,161 @@
+#!/usr/local/bin/bpftrace
+#include <linux/skbuff.h>
+#include <net/sock.h>
+#include <linux/netdevice.h>
+#include <uapi/linux/ip.h>
+#include <uapi/linux/udp.h>
+#include <uapi/linux/tcp.h>
+
+kprobe:skb_do_redirect
+{
+    $skb = (struct sk_buff *)arg0;
+    
+    printf("\n=== skb_do_redirect ===\n");
+    printf("Function: %s\n", probe);
+    printf("SKB: %p\n", $skb);
+    
+    if ($skb != 0) {
+        $dev = (struct net_device *)$skb->dev;
+        printf("SKB details: len=%d, data_len=%d\n", $skb->len, $skb->data_len);
+    
+        if ($skb->network_header > 0 && $skb->head != 0) {
+            $iph = ((struct iphdr *) ($skb->head + $skb->network_header));
+            if ($iph != 0) {
+                $daddr = ntop($iph->daddr);
+                $saddr = ntop($iph->saddr);
+                printf("Packet: %s -> %s (proto=%d)\n", $saddr, $daddr, $iph->protocol);
+            }
+        }
+        
+        if ($dev != 0) {
+            printf("Current dev: %s (ifindex=%d)\n", $dev->name, $dev->ifindex);
+        }
+        
+        printf("Arguments: arg0=%p, arg1=%p, arg2=%p\n", arg0, arg1, arg2);
+    }
+    printf("=====================================\n");
+}
+
+kprobe:__bpf_redirect
+{
+    $skb = (struct sk_buff *)arg0;
+    $target_dev = (struct net_device *)arg1;
+    $flags = arg2;
+    
+    printf("\n=== __bpf_redirect ===\n");
+    printf("Function: %s\n", probe);
+    printf("SKB: %p\n", $skb);
+    printf("Target device: %p\n", $target_dev);
+    printf("Flags: 0x%x\n", $flags);
+    
+    if ($skb != 0) {
+        $current_dev = (struct net_device *)$skb->dev;
+        
+        if ($current_dev != 0) {
+            printf("Current dev: %s (ifindex=%d)\n", $current_dev->name, $current_dev->ifindex);
+        }
+        
+        if ($target_dev != 0) {
+            printf("Target dev: %s (ifindex=%d, tx_queues=%d)\n", 
+                   $target_dev->name, $target_dev->ifindex, $target_dev->real_num_tx_queues);
+        }
+        
+        if ($skb->network_header > 0 && $skb->head != 0) {
+            $iph = ((struct iphdr *) ($skb->head + $skb->network_header));
+            if ($iph != 0) {
+                $daddr = ntop($iph->daddr);
+                $saddr = ntop($iph->saddr);
+                printf("Packet: %s -> %s (proto=%d, len=%d)\n", 
+                       $saddr, $daddr, $iph->protocol, $skb->len);
+            }
+        }
+    }
+    printf("=====================================\n");
+}
+
+kprobe:__bpf_redirect_no_mac
+{
+    $skb = (struct sk_buff *)arg0;
+    $target_dev = (struct net_device *)arg1;
+    $flags = arg2;
+    
+    printf("\n=== __bpf_redirect_no_mac ===\n");
+    printf("Function: %s\n", probe);
+    printf("SKB: %p\n", $skb);
+    printf("Target device: %p\n", $target_dev);
+    printf("Flags: 0x%x\n", $flags);
+    
+    if ($skb != 0 && $target_dev != 0) {
+        $current_dev = (struct net_device *)$skb->dev;
+        
+        if ($current_dev != 0) {
+            printf("Redirect: %s -> %s (no MAC header)\n", 
+                   $current_dev->name, $target_dev->name);
+        } else {
+            printf("Redirect: unknown -> %s (no MAC header)\n", $target_dev->name);
+        }
+        printf("Target ifindex: %d\n", $target_dev->ifindex);
+        
+        // Extract packet info
+        if ($skb->network_header > 0 && $skb->head != 0) {
+            $iph = ((struct iphdr *) ($skb->head + $skb->network_header));
+            if ($iph != 0) {
+                $daddr = ntop($iph->daddr);
+                $saddr = ntop($iph->saddr);
+                printf("Packet: %s -> %s (proto=%d)\n", $saddr, $daddr, $iph->protocol);
+            }
+        }
+    }
+    printf("=====================================\n");
+}
+
+
+kprobe:bpf_redirect
+{
+    printf("\n=== bpf_redirect (helper) ===\n");
+    printf("Function: %s\n", probe);
+    printf("Arguments: arg0=%p (ifindex=%d), arg1=%p (flags=%d)\n", arg0, arg0, arg1, arg1);
+
+    $ifindex = arg0;
+    $flags = arg1;
+    
+    printf("Target ifindex: %d\n", $ifindex);
+    printf("Flags: 0x%x\n", $flags);
+    printf("=====================================\n");
+}
+
+
+// Additional hook for dev_get_by_index_rcu to see target device lookups
+kprobe:dev_get_by_index_rcu
+{
+    $net = (struct net *)arg0;
+    $ifindex = arg1;
+    
+    printf("\n=== dev_get_by_index_rcu ===\n");
+    if ($net != 0) {
+        printf("Looking up device with ifindex: %d (net: %p)\n", $ifindex, $net);
+        
+        $ns_inum = $net->ns.inum;
+        @init_net_addr = kaddr("init_net");
+        
+        if (@init_net_addr != 0 && $net == @init_net_addr) {
+            printf("Network namespace: init_net (default, inum: %u)\n", $ns_inum);
+        } else {
+            printf("Network namespace: custom (inum: %u, ptr: %p)\n", $ns_inum, $net);
+        }
+    } else {
+        printf("Looking up device with ifindex: %d (net: NULL)\n", $ifindex);
+    }
+    printf("=====================================\n");
+}
+
+kretprobe:dev_get_by_index_rcu
+{
+    $dev = (struct net_device *)retval;
+    if ($dev != 0) {
+        printf("\n=== Target Device Found ===\n");
+        printf("Device: %s (ifindex=%d)\n", $dev->name, $dev->ifindex);
+        printf("TX queues: %d\n", $dev->real_num_tx_queues);
+        printf("=====================================\n");
+    }
+}
