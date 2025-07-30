@@ -1307,7 +1307,11 @@ to_host:
 		send_trace_notify(ctx, TRACE_TO_HOST, SECLABEL_IPV4, HOST_ID,
 				  TRACE_EP_ID_UNKNOWN,
 				  HOST_IFINDEX, trace.reason, trace.monitor);
-		return ctx_redirect(ctx, HOST_IFINDEX, BPF_F_INGRESS);
+		bpf_printk("bpf_lxc 1310: Redirecting IPv4 src=0x%x dst=0x%x to ifindex=%d\n",
+			   bpf_ntohl(ip4->saddr), bpf_ntohl(ip4->daddr), HOST_IFINDEX);
+		int redirect_ret = ctx_redirect(ctx, HOST_IFINDEX, BPF_F_INGRESS);
+		bpf_printk("bpf_lxc 1310: Redirect returned: %d\n", redirect_ret);
+		return redirect_ret;
 	}
 #endif
 

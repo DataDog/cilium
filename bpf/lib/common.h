@@ -1275,7 +1275,18 @@ static __always_inline int redirect_ep(struct __ctx_buff *ctx __maybe_unused,
 	 */
 	if (needs_backlog || !is_defined(ENABLE_HOST_ROUTING) ||
 	    ctx_get_ingress_ifindex(ctx) == 0) {
-		return (int)ctx_redirect(ctx, ifindex, 0);
+		void *data, *data_end;
+		struct iphdr *ip4;
+		
+		if (revalidate_data(ctx, &data, &data_end, &ip4)) {
+			bpf_printk("common 1278: Redirecting IPv4 src=0x%x dst=0x%x to ifindex=%d\n",
+				bpf_ntohl(ip4->saddr), bpf_ntohl(ip4->daddr), ifindex);
+		} else {
+			bpf_printk("common 1278: Redirecting to ifindex=%d (failed to parse IP header)\n", ifindex);
+		}
+		int redirect_ret = (int)ctx_redirect(ctx, ifindex, 0);
+		bpf_printk("common 1278: Redirect returned: %d\n", redirect_ret);
+		return redirect_ret;
 	}
 
 	/* When coming from overlay, we need to set packet type
@@ -1283,8 +1294,19 @@ static __always_inline int redirect_ep(struct __ctx_buff *ctx __maybe_unused,
 	 */
 	if (from_tunnel)
 		ctx_change_type(ctx, PACKET_HOST);
-
-	return ctx_redirect_peer(ctx, ifindex, 0);
+	
+	void *data, *data_end;
+	struct iphdr *ip4;
+	
+	if (revalidate_data(ctx, &data, &data_end, &ip4)) {
+		bpf_printk("common 1288: Redirecting IPv4 src=0x%x dst=0x%x to ifindex=%d\n",
+			bpf_ntohl(ip4->saddr), bpf_ntohl(ip4->daddr), ifindex);
+	} else {
+		bpf_printk("common 1288: Redirecting to ifindex=%d (failed to parse IP header)\n", ifindex);
+	}
+	int redirect_ret = ctx_redirect_peer(ctx, ifindex, 0);
+	bpf_printk("common 1288: Redirect returned: %d\n", redirect_ret);
+	return redirect_ret;
 }
 
 static __always_inline __u64 ctx_adjust_hroom_flags(void)

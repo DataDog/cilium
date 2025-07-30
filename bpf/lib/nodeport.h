@@ -2703,9 +2703,6 @@ static __always_inline int nodeport_lb4(struct __ctx_buff *ctx,
 	struct lb4_key key = {};
 	int ret, l4_off;
 
-	bpf_printk("NODEPORT_LB4: processing IPv4 src=0x%x dst=0x%x\n", 
-	       bpf_ntohl(ip4->saddr), bpf_ntohl(ip4->daddr));
-
 	cilium_capture_in(ctx);
 
 	ret = lb4_extract_tuple(ctx, ip4, l3_off, &l4_off, &tuple);
