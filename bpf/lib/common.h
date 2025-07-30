@@ -16,9 +16,17 @@
 #include "mono.h"
 #include "config.h"
 #include "tunnel.h"
-#include "dbg.h"
 
 #include "source_info.h"
+
+static long (*bpf_trace_printk)(const char *fmt, __u32 fmt_size, ...) = (void *) 6;
+#define bpf_printk(fmt, ...)				\
+({							\
+	static const char ____fmt[] = fmt;				\
+	bpf_trace_printk(____fmt, sizeof(____fmt),	\
+			 ##__VA_ARGS__);		\
+})
+
 
 #ifndef AF_INET
 #define AF_INET 2

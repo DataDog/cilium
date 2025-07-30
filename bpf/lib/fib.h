@@ -9,7 +9,6 @@
 #include "common.h"
 #include "neigh.h"
 #include "l3.h"
-#include "dbg.h"
 
 static __always_inline int
 add_l2_hdr(struct __ctx_buff *ctx __maybe_unused)

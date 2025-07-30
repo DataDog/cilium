@@ -25,8 +25,6 @@
 #include "host_firewall.h"
 #include "stubs.h"
 #include "proxy_hairpin.h"
-#include "fib.h"
-#include "dbg.h"
 #include "srv6.h"
 
 #define nodeport_nat_egress_ipv4_hook(ctx, ip4, info, tuple, l4_off, ext_err) CTX_ACT_OK
