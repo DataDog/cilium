@@ -1937,6 +1937,7 @@ static __always_inline int dsr_reply_icmp4(struct __ctx_buff *ctx,
 			    &dport, sizeof(dport), 0) < 0)
 		goto drop_err;
 
+	bpf_printk("NODEPORT_REDIRECT: ifindex=%d src=nodeport.h line=1940\n", ctx_get_ifindex(ctx));
 	return ctx_redirect(ctx, ctx_get_ifindex(ctx), 0);
 drop_err:
 #endif
@@ -1976,6 +1977,7 @@ int tail_nodeport_ipv4_dsr(struct __ctx_buff *ctx)
 	if (!IS_ERR(ret)) {
 		if (ret == CTX_ACT_REDIRECT && oif) {
 			cilium_capture_out(ctx);
+			bpf_printk("NODEPORT_REDIRECT: ifindex=%d src=nodeport.h line=1979\n", oif);
 			return ctx_redirect(ctx, oif, 0);
 		}
 	}
@@ -2230,8 +2232,10 @@ redirect:
 		if (IS_ERR(ret))
 			return ret;
 
-		if (ret == CTX_ACT_REDIRECT && ifindex)
+		if (ret == CTX_ACT_REDIRECT && ifindex) {
+			bpf_printk("NODEPORT_REDIRECT: ifindex=%d src=nodeport.h line=2234\n", ifindex);
 			return ctx_redirect(ctx, ifindex, 0);
+		}
 
 		fib_params.l.ipv4_src = IPV4_DIRECT_ROUTING;
 		fib_params.l.ipv4_dst = tunnel_endpoint;
@@ -2553,6 +2557,7 @@ static __always_inline int nodeport_svc_lb4(struct __ctx_buff *ctx,
 				  THIS_INTERFACE_IFINDEX, TRACE_REASON_POLICY, monitor);
 
 #  if defined(ENABLE_TPROXY)
+		bpf_printk("NODEPORT_REDIRECT: proxy_port=%d src=nodeport.h line=2556\n", proxy_port);
 		return ctx_redirect_to_proxy_hairpin_ipv4(ctx, ip4, proxy_port);
 #  else
 		/* Pass the packet straight to the proxy, without redirecting via

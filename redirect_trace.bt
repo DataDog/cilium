@@ -17,13 +17,74 @@ struct bpf_redirect_info {
     __u32 kern_flags;
 };
 
+// Track BPF program execution
+kprobe:__bpf_prog_run*
+{
+    $prog = (struct bpf_prog *)arg0;
+    if ($prog != 0) {
+        printf("\n=== BPF Program Execution ===\n");
+        printf("Time: %lu, CPU: %d, PID: %d (%s)\n", nsecs, cpu, pid, comm);
+        printf("BPF Program: %p\n", $prog);
+        printf("Function: %s\n", probe);
+        printf("Arguments: prog=%p, ctx=%p\n", arg0, arg1);
+        printf("=====================================\n");
+    }
+}
+
+// Track TC (traffic control) BPF program execution
+kprobe:tcf_bpf_act
+{
+    printf("\n=== TC BPF Program ===\n");
+    printf("Time: %lu, CPU: %d, PID: %d (%s)\n", nsecs, cpu, pid, comm);
+    printf("Function: %s\n", probe);
+    printf("SKB: %p\n", arg0);
+    printf("=====================================\n");
+}
+
+// Track BPF redirect map operations
+kprobe:xdp_do_redirect
+{
+    $dev = (struct net_device *)arg0;
+    $prog = (struct bpf_prog *)arg1;
+    
+    printf("\n=== XDP Redirect ===\n");
+    printf("Time: %lu, CPU: %d, PID: %d (%s)\n", nsecs, cpu, pid, comm);
+    printf("Device: %s (ifindex=%d)\n", $dev->name, $dev->ifindex);
+    printf("BPF Program: %p\n", $prog);
+    printf("=====================================\n");
+}
+
+// Enhanced bpf_redirect to show more context
+kprobe:bpf_redirect
+{
+    printf("\n=== bpf_redirect (helper) ===\n");
+    printf("Time: %lu, CPU: %d, PID: %d (%s)\n", nsecs, cpu, pid, comm);
+    printf("Function: %s\n", probe);
+    printf("Arguments: arg0=%p (ifindex=%d), arg1=%p (flags=%d)\n", arg0, arg0, arg1, arg1);
+
+    $ifindex = arg0;
+    $flags = arg1;
+    
+    printf("Target ifindex: %d\n", $ifindex);
+    printf("Flags: 0x%x\n", $flags);
+    
+    // Print call stack to see what's calling bpf_redirect
+    printf("Call stack:\n");
+    printf("%s", kstack);
+    printf("=====================================\n");
+}
+
 kprobe:skb_do_redirect
 {
     $skb = (struct sk_buff *)arg0;
     
+    // Track this SKB across redirects
+    @skb_redirect_count[$skb]++;
+    
     printf("\n=== skb_do_redirect ===\n");
+    printf("Time: %lu, CPU: %d, PID: %d (%s)\n", nsecs, cpu, pid, comm);
     printf("Function: %s\n", probe);
-    printf("SKB: %p\n", $skb);
+    printf("SKB: %p (redirect #%d)\n", $skb, @skb_redirect_count[$skb]);
     
     // Try to access per-CPU bpf_redirect_info
     @has_ri_symbol = kaddr("bpf_redirect_info");
@@ -62,6 +123,8 @@ kprobe:skb_do_redirect
         
         printf("Arguments: arg0=%p, arg1=%p, arg2=%p\n", arg0, arg1, arg2);
     }
+    printf("Call stack:\n");
+    printf("%s", kstack);
     printf("=====================================\n");
 }
 
@@ -72,6 +135,7 @@ kprobe:__bpf_redirect
     $flags = arg2;
     
     printf("\n=== __bpf_redirect ===\n");
+    printf("Time: %lu, CPU: %d, PID: %d (%s)\n", nsecs, cpu, pid, comm);
     printf("Function: %s\n", probe);
     printf("SKB: %p\n", $skb);
     printf("Target device: %p\n", $target_dev);
@@ -104,60 +168,6 @@ kprobe:__bpf_redirect
     }
     printf("=====================================\n");
 }
-
-kprobe:__bpf_redirect_no_mac
-{
-    $skb = (struct sk_buff *)arg0;
-    $target_dev = (struct net_device *)arg1;
-    $flags = arg2;
-    
-    printf("\n=== __bpf_redirect_no_mac ===\n");
-    printf("Function: %s\n", probe);
-    printf("SKB: %p\n", $skb);
-    printf("Target device: %p\n", $target_dev);
-    printf("Flags: 0x%x\n", $flags);
-    
-    if ($skb != 0 && $target_dev != 0) {
-        $current_dev = (struct net_device *)$skb->dev;
-        
-        if ($current_dev != 0) {
-            printf("Redirect: %s -> %s (no MAC header)\n", 
-                   $current_dev->name, $target_dev->name);
-        } else {
-            printf("Redirect: unknown -> %s (no MAC header)\n", $target_dev->name);
-        }
-        printf("Target ifindex: %d\n", $target_dev->ifindex);
-        
-        // Extract packet info
-        if ($skb->network_header > 0 && $skb->head != 0) {
-            $iph = ((struct iphdr *) ($skb->head + $skb->network_header));
-            if ($iph != 0) {
-                $daddr = ntop($iph->daddr);
-                $saddr = ntop($iph->saddr);
-                printf("Packet: %s -> %s (proto=%d)\n", $saddr, $daddr, $iph->protocol);
-            }
-        }
-    }
-    printf("=====================================\n");
-}
-
-
-kprobe:bpf_redirect
-{
-    printf("\n=== bpf_redirect (helper) ===\n");
-    printf("Function: %s\n", probe);
-    printf("Arguments: arg0=%p (ifindex=%d), arg1=%p (flags=%d)\n", arg0, arg0, arg1, arg1);
-    
-    // arg0 is typically the target ifindex
-    // arg1 is typically the flags
-    $ifindex = arg0;
-    $flags = arg1;
-    
-    printf("Target ifindex: %d\n", $ifindex);
-    printf("Flags: 0x%x\n", $flags);
-    printf("=====================================\n");
-}
-
 
 // Additional hook for dev_get_by_index_rcu to see target device lookups
 kprobe:dev_get_by_index_rcu
