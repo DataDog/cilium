@@ -1901,6 +1901,16 @@ snat_v6_has_v4_match_rfc8215(const struct ipv4_ct_tuple *tuple4)
 }
 
 static __always_inline bool
+snat_v6_has_v4_match(const struct ipv4_ct_tuple *tuple4)
+{
+	struct ipv6_ct_tuple tuple6;
+
+	memset(&tuple6, 0, sizeof(tuple6));
+	build_v4_in_v6(&tuple6.saddr, tuple4->saddr);
+	return __snat_v6_has_v4_complete(&tuple6, tuple4);
+}
+#else
+static __always_inline bool
 snat_v6_has_v4_match(const struct ipv4_ct_tuple *tuple4 __maybe_unused)
 {
 	return false;
