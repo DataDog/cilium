@@ -372,12 +372,24 @@ static __always_inline int nodeport_snat_fwd_ipv4(struct __ctx_buff *ctx,
 						   fib_ret, fib_params.l.ifindex);
 
 					if (fib_ret == BPF_FIB_LKUP_RET_SUCCESS || fib_ret == BPF_FIB_LKUP_RET_NO_NEIGH) {
-						/* Use fib_do_redirect to handle the complexities properly */
-						bpf_printk("nodeport_snat_fwd_ipv4: using fib_do_redirect to ifindex=%d", oif);
-						return fib_do_redirect(ctx, true, &fib_params, false, fib_ret, &oif, &ext_err);
+						/* Force redirect to parent interface but use FIB lookup next hop info */
+						if (fib_params.l.ifindex == ep->parent_ifindex) {
+							/* FIB result matches our target interface, use normal redirect */
+							bpf_printk("nodeport_snat_fwd_ipv4: FIB result matches target interface");
+							return fib_do_redirect(ctx, true, &fib_params, false, fib_ret, &oif, &ext_err);
+						} else {
+							/* FIB wants different interface, but we have next hop info, force to target interface */
+							bpf_printk("nodeport_snat_fwd_ipv4: FIB wants ifindex=%d, forcing to ifindex=%d with next hop info", 
+								   fib_params.l.ifindex, ep->parent_ifindex);
+							bpf_printk("nodeport_snat_fwd_ipv4: next hop: %pI4", fib_params.l.ipv4_dst);
+							struct bpf_redir_neigh nh_params;
+							nh_params.nh_family = AF_INET;
+							nh_params.ipv4_nh = fib_params.l.ipv4_dst;
+							return redirect_neigh(ep->parent_ifindex, &nh_params, sizeof(nh_params), 0);
+						}
 					} else {
 						bpf_printk("nodeport_snat_fwd_ipv4: FIB lookup failed ret=%d, fallback to redirect_neigh", fib_ret);
-						/* FIB lookup failed, use redirect_neigh as fallback */
+						/* FIB lookup failed, use redirect_neigh without next hop (kernel will resolve) */
 						return redirect_neigh(ep->parent_ifindex, NULL, 0, 0);
 					}
 				} else {
