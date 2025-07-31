@@ -264,6 +264,7 @@ do_decrypt(struct __ctx_buff *ctx, __u16 proto)
 #ifdef ENABLE_ENDPOINT_ROUTES
 	return CTX_ACT_OK;
 #else
+	bpf_printk("ctx_redirect: ifindex=%d src=encrypt.h line=267\n", CILIUM_IFINDEX);
 	return ctx_redirect(ctx, CILIUM_IFINDEX, 0);
 #endif /* ENABLE_ROUTING */
 }
@@ -451,6 +452,7 @@ overlay_encrypt:
 	if (eth_store_daddr(ctx, (const __u8 *)&dst_mac, 0) != 0)
 		return DROP_WRITE_ERROR;
 
+	bpf_printk("ctx_redirect: ifindex=%d src=encrypt.h line=454\n", HOST_IFINDEX);
 	ret = ctx_redirect(ctx, HOST_IFINDEX, BPF_F_INGRESS);
 	if (ret != CTX_ACT_REDIRECT)
 		return DROP_INVALID;
@@ -529,6 +531,7 @@ encrypt_overlay_and_redirect(struct __ctx_buff *ctx)
 		return DROP_INVALID;
 
 	/* redirect to ingress side of ifindex so the packet has xfrm applied */
+	bpf_printk("ctx_redirect: ifindex=%d src=encrypt.h line=532\n", ctx->ifindex);
 	ret = ctx_redirect(ctx, ctx->ifindex, BPF_F_INGRESS);
 	if (ret != CTX_ACT_REDIRECT)
 		return DROP_INVALID;

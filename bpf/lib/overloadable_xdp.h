@@ -259,6 +259,7 @@ ctx_set_encap_info(struct xdp_md *ctx, __u32 src_ip, __be16 src_port,
 
 	eth->h_proto = bpf_htons(ETH_P_IP);
 
+	bpf_printk("ctx_set_encap_info: xdp_redirect src=overloadable_xdp.h line=262\n");
 	return CTX_ACT_REDIRECT;
 }
 

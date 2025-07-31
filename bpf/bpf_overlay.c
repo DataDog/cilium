@@ -164,6 +164,7 @@ not_esp:
 		if (ret != CTX_ACT_OK)
 			return ret;
 
+        bpf_printk("ctx_redirect: ifindex=%d src=bpf_overlay.c line=168\n", HOST_IFINDEX);
 		cilium_dbg_capture(ctx, DBG_CAPTURE_DELIVERY, HOST_IFINDEX);
 		return ctx_redirect(ctx, HOST_IFINDEX, 0);
 	}
@@ -201,7 +202,7 @@ static __always_inline int ipv4_host_delivery(struct __ctx_buff *ctx, struct iph
 			      (__u8 *)&host_mac.addr, ip4);
 		if (ret != CTX_ACT_OK)
 			return ret;
-
+        bpf_printk("ctx_redirect: ifindex=%d src=bpf_overlay.c line=206\n", HOST_IFINDEX);
 		cilium_dbg_capture(ctx, DBG_CAPTURE_DELIVERY, HOST_IFINDEX);
 		return ctx_redirect(ctx, HOST_IFINDEX, 0);
 	}

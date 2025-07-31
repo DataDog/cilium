@@ -555,6 +555,7 @@ static __always_inline int handle_ipv6_from_lxc(struct __ctx_buff *ctx, __u32 *d
 					  TRACE_IFINDEX_UNKNOWN, trace.reason,
 					  trace.monitor);
 			/* Stack will do a socket match and deliver locally. */
+			bpf_printk("Redirect to proxy 6: proxy_redirect src=bpf_lxc.c line=558\n");
 			return ctx_redirect_to_proxy6(ctx, tuple, 0, false);
 		}
 		/* proxy_port remains 0 in this case */
@@ -640,6 +641,7 @@ ct_recreate6:
 		send_trace_notify(ctx, TRACE_TO_PROXY, SECLABEL_IPV6, UNKNOWN_ID,
 				  bpf_ntohs(proxy_port), TRACE_IFINDEX_UNKNOWN,
 				  trace.reason, trace.monitor);
+		bpf_printk("ctx_redirect_to_proxy6: proxy_port=%d src=bpf_lxc.c line=642\n", proxy_port);
 		return ctx_redirect_to_proxy6(ctx, tuple, proxy_port, false);
 	}
 
@@ -746,10 +748,11 @@ to_host:
 #endif
 #ifdef ENABLE_ROUTING
 	if (is_defined(ENABLE_HOST_FIREWALL) && *dst_sec_identity == HOST_ID) {
-		send_trace_notify(ctx, TRACE_TO_HOST, SECLABEL_IPV6, HOST_ID,
-				  TRACE_EP_ID_UNKNOWN,
-				  HOST_IFINDEX, trace.reason, trace.monitor);
-		return ctx_redirect(ctx, HOST_IFINDEX, BPF_F_INGRESS);
+			send_trace_notify(ctx, TRACE_TO_HOST, SECLABEL_IPV6, HOST_ID,
+			  TRACE_EP_ID_UNKNOWN,
+			  HOST_IFINDEX, trace.reason, trace.monitor);
+	bpf_printk("ctx_redirect: ifindex=%d src=bpf_lxc.c line=752\n", HOST_IFINDEX);
+	return ctx_redirect(ctx, HOST_IFINDEX, BPF_F_INGRESS);
 	}
 #endif
 
@@ -1013,6 +1016,7 @@ static __always_inline int handle_ipv4_from_lxc(struct __ctx_buff *ctx, __u32 *d
 					  TRACE_IFINDEX_UNKNOWN, trace.reason,
 					  trace.monitor);
 			/* Stack will do a socket match and deliver locally. */
+			bpf_printk("ctx_redirect_to_proxy4: proxy_redirect src=bpf_lxc.c line=1015\n");
 			return ctx_redirect_to_proxy4(ctx, tuple, 0, false);
 		}
 		/* proxy_port remains 0 in this case */
@@ -1127,6 +1131,7 @@ ct_recreate4:
 		send_trace_notify(ctx, TRACE_TO_PROXY, SECLABEL_IPV4, UNKNOWN_ID,
 				  bpf_ntohs(proxy_port), TRACE_IFINDEX_UNKNOWN,
 				  trace.reason, trace.monitor);
+		bpf_printk("ctx_redirect_to_proxy4: proxy_port=%d src=bpf_lxc.c line=1129\n", proxy_port);
 		return ctx_redirect_to_proxy4(ctx, tuple, proxy_port, false);
 	}
 
@@ -1716,6 +1721,7 @@ int tail_ipv6_policy(struct __ctx_buff *ctx)
 		if (from_tunnel)
 			ctx_change_type(ctx, PACKET_HOST);
 
+        bpf_printk("ctx_redirect_to_proxy6: proxy_port=%d src=bpf_lxc.c line=1724\n", proxy_port);
 		ret = ctx_redirect_to_proxy6(ctx, &tuple, proxy_port, from_host);
 		proxy_redirect = true;
 		break;
@@ -1820,6 +1826,7 @@ int tail_ipv6_to_endpoint(struct __ctx_buff *ctx)
 			  NULL, &ext_err, &proxy_port, false);
 	switch (ret) {
 	case POLICY_ACT_PROXY_REDIRECT:
+		bpf_printk("ctx_redirect_to_proxy_hairpin_ipv6: proxy_port=%d src=bpf_lxc.c line=1822\n", proxy_port);
 		ret = ctx_redirect_to_proxy_hairpin_ipv6(ctx, proxy_port);
 		ctx->mark = ctx_load_meta(ctx, CB_PROXY_MAGIC);
 		proxy_redirect = true;
@@ -2068,6 +2075,7 @@ int tail_ipv4_policy(struct __ctx_buff *ctx)
 		if (from_tunnel)
 			ctx_change_type(ctx, PACKET_HOST);
 
+		bpf_printk("ctx_redirect_to_proxy4: proxy_port=%d src=bpf_lxc.c line=2070\n", proxy_port);
 		ret = ctx_redirect_to_proxy4(ctx, &tuple, proxy_port, from_host);
 		proxy_redirect = true;
 		break;
@@ -2178,6 +2186,7 @@ int tail_ipv4_to_endpoint(struct __ctx_buff *ctx)
 			goto out;
 		}
 
+		bpf_printk("ctx_redirect_to_proxy_hairpin_ipv4: proxy_port=%d src=bpf_lxc.c line=2180\n", proxy_port);
 		ret = ctx_redirect_to_proxy_hairpin_ipv4(ctx, ip4, proxy_port);
 		ctx->mark = ctx_load_meta(ctx, CB_PROXY_MAGIC);
 		proxy_redirect = true;

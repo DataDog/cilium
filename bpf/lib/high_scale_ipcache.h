@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "common.h"
 #include "ipv4.h"
 #include "l4.h"
 #include "maps.h"
@@ -131,6 +132,7 @@ decapsulate_overlay(struct __ctx_buff *ctx, __u32 *src_id)
 	if (ctx_adjust_hroom(ctx, -shrink, BPF_ADJ_ROOM_MAC, ctx_adjust_hroom_flags()))
 		return DROP_INVALID;
 
+	bpf_printk("ctx_redirect: ifindex=%d src=high_scale_ipcache.h line=133\n", ENCAP_IFINDEX);
 	return ctx_redirect(ctx, ENCAP_IFINDEX, BPF_F_INGRESS);
 }
 #endif /* ENABLE_HIGH_SCALE_IPCACHE */

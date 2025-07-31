@@ -57,6 +57,7 @@ ctx_redirect_to_proxy_hairpin(struct __ctx_buff *ctx, struct iphdr *ip4,
 	 * ctx_redirect_to_proxy_first().
 	 */
 
+	bpf_printk("ctx_redirect_to_proxy_hairpin: ifindex=%d src=proxy_hairpin.h line=59\n", HOST_IFINDEX);
 	return ctx_redirect(ctx, HOST_IFINDEX, 0);
 }
 

@@ -384,6 +384,7 @@ ctx_redirect_to_proxy_host_egress(struct __ctx_buff *ctx, __be16 proxy_port)
 	if (eth_store_daddr(ctx, (__u8 *)&mac, 0) < 0)
 		return DROP_WRITE_ERROR;
 
+	bpf_printk("ctx_redirect_to_proxy_host_egress: ifindex=%d src=proxy.h line=386\n", CILIUM_IFINDEX);
 	return ctx_redirect(ctx, CILIUM_IFINDEX, BPF_F_INGRESS);
 }
 

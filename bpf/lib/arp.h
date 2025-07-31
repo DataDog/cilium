@@ -82,6 +82,7 @@ arp_respond(struct __ctx_buff *ctx, union macaddr *smac, __be32 sip,
 
 	cilium_dbg_capture(ctx, DBG_CAPTURE_DELIVERY,
 			   ctx_get_ifindex(ctx));
+	bpf_printk("ARP_REDIRECT: ifindex=%d src=arp.h line=84\n", ctx_get_ifindex(ctx));
 	return ctx_redirect(ctx, ctx_get_ifindex(ctx), direction);
 
 error:

@@ -112,6 +112,7 @@ egress_gw_request_needs_redirect(struct ipv4_ct_tuple *rtuple __maybe_unused,
 	}
 
 	*gateway_ip = egress_gw_policy->gateway_ip;
+	bpf_printk("egw redirect: policy_redirect src=egress_gateway.h line=115\n");
 	return CTX_ACT_REDIRECT;
 #else
 	return CTX_ACT_OK;

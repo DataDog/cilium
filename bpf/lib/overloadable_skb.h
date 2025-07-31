@@ -162,6 +162,7 @@ redirect_self(const struct __sk_buff *ctx)
 	/* Looping back the packet into the originating netns. We xmit into the
 	 * hosts' veth device such that we end up on ingress in the peer.
 	 */
+	bpf_printk("redirect_self: ifindex=%d src=overloadable_skb.h line=165\n", ctx->ifindex);
 	return (int)ctx_redirect(ctx, ctx->ifindex, 0);
 }
 
@@ -325,6 +326,7 @@ ctx_set_encap_info(struct __sk_buff *ctx, __u32 src_ip,
 			return DROP_WRITE_ERROR;
 	}
 
+	bpf_printk("ctx_set_encap_info: skb_encap_redirect src=overloadable_skb.h line=329\n");
 	return CTX_ACT_REDIRECT;
 }
 #endif /* HAVE_ENCAP */
