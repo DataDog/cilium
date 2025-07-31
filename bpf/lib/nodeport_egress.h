@@ -357,21 +357,22 @@ static __always_inline int nodeport_snat_fwd_ipv4(struct __ctx_buff *ctx,
 					struct bpf_fib_lookup_padded fib_params = {};
 					int fib_ret;
 
-					/* Perform FIB lookup from the parent interface to find the correct gateway */
+					/* Perform FIB lookup for egress routing to find the correct gateway */
 					fib_params.l.family = AF_INET;
-					fib_params.l.ifindex = ep->parent_ifindex;
-					fib_params.l.ipv4_src = tuple.saddr;  /* Source is our endpoint */
-					fib_params.l.ipv4_dst = tuple.daddr;  /* Destination is the client */
+					fib_params.l.ifindex = ep->parent_ifindex;  /* Target interface for lookup */
+					fib_params.l.ipv4_src = tuple.saddr;       /* Source is our endpoint */
+					fib_params.l.ipv4_dst = tuple.daddr;       /* Destination is the client */
 
-					fib_ret = (int)fib_lookup(ctx, &fib_params.l, sizeof(fib_params.l), 0);
-					bpf_printk("nodeport_snat_fwd_ipv4: FIB lookup ret=%d, gateway=0x%x", 
-						   fib_ret, bpf_ntohl(fib_params.l.ipv4_src));
+					/* Use OUTPUT flag for egress FIB lookup */
+					fib_ret = (int)fib_lookup(ctx, &fib_params.l, sizeof(fib_params.l), BPF_FIB_LOOKUP_OUTPUT);
+					bpf_printk("nodeport_snat_fwd_ipv4: FIB lookup ret=%d, gateway=%pI4", 
+						   fib_ret, &fib_params.l.ipv4_dst);
 
 					if (fib_ret == BPF_FIB_LKUP_RET_SUCCESS) {
 						/* FIB found the route, use the MACs it resolved */
-						if (eth_store_daddr(ctx, fib_params.l.dmac, 0) < 0)
+						if (eth_store_daddr_aligned(ctx, fib_params.l.dmac, 0) < 0)
 							return DROP_WRITE_ERROR;
-						if (eth_store_saddr(ctx, fib_params.l.smac, 0) < 0)
+						if (eth_store_saddr_aligned(ctx, fib_params.l.smac, 0) < 0)
 							return DROP_WRITE_ERROR;
 						bpf_printk("nodeport_snat_fwd_ipv4: using FIB resolved MACs, redirecting to ifindex=%d", ep->parent_ifindex);
 						return ctx_redirect(ctx, ep->parent_ifindex, 0);
