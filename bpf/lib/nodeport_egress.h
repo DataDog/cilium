@@ -381,10 +381,20 @@ static __always_inline int nodeport_snat_fwd_ipv4(struct __ctx_buff *ctx,
 							/* FIB wants different interface, but we have next hop info, force to target interface */
 							bpf_printk("nodeport_snat_fwd_ipv4: FIB wants ifindex=%d, forcing to ifindex=%d with next hop info", 
 								   fib_params.l.ifindex, ep->parent_ifindex);
-							bpf_printk("nodeport_snat_fwd_ipv4: next hop: %pI4", fib_params.l.ipv4_dst);
+							bpf_printk("nodeport_snat_fwd_ipv4: next hop: %pI4", &fib_params.l.ipv4_dst);
+							
 							struct bpf_redir_neigh nh_params;
 							nh_params.nh_family = AF_INET;
-							nh_params.ipv4_nh = fib_params.l.ipv4_dst;
+							
+							/* If FIB returned a gateway (non-zero), use it. Otherwise use destination (direct route) */
+							if (fib_params.l.ipv4_dst != 0) {
+								nh_params.ipv4_nh = fib_params.l.ipv4_dst;
+								bpf_printk("nodeport_snat_fwd_ipv4: using FIB gateway %pI4", &nh_params.ipv4_nh);
+							} else {
+								nh_params.ipv4_nh = tuple.daddr;
+								bpf_printk("nodeport_snat_fwd_ipv4: direct route, using destination %pI4", &nh_params.ipv4_nh);
+							}
+							
 							return redirect_neigh(ep->parent_ifindex, &nh_params, sizeof(nh_params), 0);
 						}
 					} else {
