@@ -611,8 +611,8 @@ snat_v4_needs_masquerade(struct __ctx_buff *ctx __maybe_unused,
 			 * initiated the connection, so no need to SNAT the
 			 * reply.
 			 */
-			if (ct_is_reply4(get_ct_map4(tuple), tuple))
-				return NAT_PUNT_TO_STACK;
+			// if (ct_is_reply4(get_ct_map4(tuple), tuple))
+			//	return NAT_PUNT_TO_STACK;
 
 			/* SNAT code has its own port extraction logic: */
 			tuple->dport = 0;
