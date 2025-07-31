@@ -636,8 +636,8 @@ snat_v4_needs_masquerade(struct __ctx_buff *ctx __maybe_unused,
 			 */
 			if (ct_is_reply4(get_ct_map4(tuple), tuple)) {
 				bpf_printk("snat_v4_needs_masquerade: REPLY TRAFFIC DETECTED");
-				bpf_printk("snat_v4_needs_masquerade: --> MODIFIED, not punting to stack (NO SNAT)");
-				// return NAT_PUNT_TO_STACK;
+				bpf_printk("snat_v4_needs_masquerade: punting to stack (NO SNAT)");
+				return NAT_PUNT_TO_STACK;
 			}
 
 			bpf_printk("snat_v4_needs_masquerade: not reply traffic, continuing SNAT logic");
