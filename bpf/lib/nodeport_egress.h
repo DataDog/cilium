@@ -347,6 +347,7 @@ static __always_inline int nodeport_snat_fwd_ipv4(struct __ctx_buff *ctx,
 				/* For EKS we don't have to rewrite the dmac. Once we require a 5.10
 				 * kernel, this can turn into bpf_redirect_neigh() for robustness.
 				 */
+				 bpf_printk("nodeport_snat_fwd_ipv4: ifindex=%d src=nodeport_egress.h line=350\n", ep->parent_ifindex);
 				return ctx_redirect(ctx, ep->parent_ifindex, 0);
 			}
 		}
@@ -670,6 +671,7 @@ lb_handle_health(struct __ctx_buff *ctx __maybe_unused, __be16 proto)
 		if (ret != 0)
 			return ret;
 		ctx->mark |= MARK_MAGIC_HEALTH_IPIP_DONE;
+		bpf_printk("lb_handle_health: ifindex=%d src=nodeport_egress.h line=673\n", ENCAP4_IFINDEX);
 		return ctx_redirect(ctx, ENCAP4_IFINDEX, 0);
 	}
 #endif
