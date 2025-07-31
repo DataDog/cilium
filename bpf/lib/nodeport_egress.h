@@ -356,35 +356,22 @@ static __always_inline int nodeport_snat_fwd_ipv4(struct __ctx_buff *ctx,
 				if (neigh_resolver_available()) {
 					struct bpf_fib_lookup_padded fib_params = {};
 					int fib_ret;
+					int oif = ep->parent_ifindex;
+					__s8 ext_err = 0;
 
-					/* Perform FIB lookup for egress routing to find the correct gateway */
-					fib_params.l.family = AF_INET;
-					fib_params.l.ifindex = ep->parent_ifindex;  /* Target interface for lookup */
-					fib_params.l.ipv4_src = tuple.saddr;       /* Source is our endpoint */
-					fib_params.l.ipv4_dst = tuple.daddr;       /* Destination is the client */
+					/* Use standard FIB lookup pattern from current interface */
+					fib_ret = fib_lookup_v4(ctx, &fib_params, tuple.saddr, tuple.daddr, 0);
+					bpf_printk("nodeport_snat_fwd_ipv4: FIB lookup ret=%d, output_ifindex=%d", 
+						   fib_ret, fib_params.l.ifindex);
 
-					/* Use OUTPUT flag for egress FIB lookup */
-					fib_ret = (int)fib_lookup(ctx, &fib_params.l, sizeof(fib_params.l), BPF_FIB_LOOKUP_OUTPUT);
-					bpf_printk("nodeport_snat_fwd_ipv4: FIB lookup ret=%d, gateway=%pI4", 
-						   fib_ret, &fib_params.l.ipv4_dst);
-
-					if (fib_ret == BPF_FIB_LKUP_RET_SUCCESS) {
-						/* FIB found the route, use the MACs it resolved */
-						if (eth_store_daddr_aligned(ctx, fib_params.l.dmac, 0) < 0)
-							return DROP_WRITE_ERROR;
-						if (eth_store_saddr_aligned(ctx, fib_params.l.smac, 0) < 0)
-							return DROP_WRITE_ERROR;
-						bpf_printk("nodeport_snat_fwd_ipv4: using FIB resolved MACs, redirecting to ifindex=%d", ep->parent_ifindex);
-						return ctx_redirect(ctx, ep->parent_ifindex, 0);
-					} else if (fib_ret == BPF_FIB_LKUP_RET_NO_NEIGH) {
-						/* Need neighbor resolution, but redirect to the parent interface
-						 * and let it resolve the next hop (usually the gateway) */
-						bpf_printk("nodeport_snat_fwd_ipv4: using redirect_neigh to parent ifindex=%d", ep->parent_ifindex);
-						return redirect_neigh(ep->parent_ifindex, NULL, 0, 0);
+					if (fib_ret == BPF_FIB_LKUP_RET_SUCCESS || fib_ret == BPF_FIB_LKUP_RET_NO_NEIGH) {
+						/* Use fib_do_redirect to handle the complexities properly */
+						bpf_printk("nodeport_snat_fwd_ipv4: using fib_do_redirect to ifindex=%d", oif);
+						return fib_do_redirect(ctx, true, &fib_params, false, fib_ret, &oif, &ext_err);
 					} else {
-						bpf_printk("nodeport_snat_fwd_ipv4: FIB lookup failed, fallback to normal redirect");
-						/* Fallback to simple redirect */
-						return ctx_redirect(ctx, ep->parent_ifindex, 0);
+						bpf_printk("nodeport_snat_fwd_ipv4: FIB lookup failed ret=%d, fallback to redirect_neigh", fib_ret);
+						/* FIB lookup failed, use redirect_neigh as fallback */
+						return redirect_neigh(ep->parent_ifindex, NULL, 0, 0);
 					}
 				} else {
 					/* Fallback for older kernels - works only for same L2 network */
