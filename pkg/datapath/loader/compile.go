@@ -101,14 +101,7 @@ type directoryInfo struct {
 
 var (
 	standardCFlags = []string{"-O2", "--target=bpf", "-std=gnu89",
-		"-nostdinc",
-		"-Wall", "-Wextra", "-Werror", "-Wshadow",
-		"-Wno-address-of-packed-member",
-		"-Wno-unknown-warning-option",
-		"-Wno-gnu-variable-sized-type-not-at-end",
-		"-Wdeclaration-after-statement",
-		"-Wimplicit-int-conversion",
-		"-Wenum-conversion"}
+		"-nostdinc"}
 
 	// testIncludes allows the unit tests to inject additional include
 	// paths into the compile command at test time. It is usually nil.

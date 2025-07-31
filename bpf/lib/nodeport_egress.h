@@ -317,21 +317,37 @@ static __always_inline int nodeport_snat_fwd_ipv4(struct __ctx_buff *ctx,
 	snat_v4_init_tuple(ip4, NAT_DIR_EGRESS, &tuple);
 	l4_off = ETH_HLEN + ipv4_hdrlen(ip4);
 
+	bpf_printk("nodeport_snat_fwd_ipv4: saddr=%pI4 daddr=%pI4", &tuple.saddr, &tuple.daddr);
+	bpf_printk("nodeport_snat_fwd_ipv4: sport=%d dport=%d", bpf_ntohs(tuple.sport), bpf_ntohs(tuple.dport));
+
 	if (lb_is_svc_proto(tuple.nexthdr) &&
-	    nodeport_has_nat_conflict_ipv4(ip4, &target))
+	    nodeport_has_nat_conflict_ipv4(ip4, &target)) {
+		bpf_printk("nodeport_snat_fwd_ipv4: NAT conflict detected, applying SNAT");
 		goto apply_snat;
+	}
 
 	ret = snat_v4_needs_masquerade(ctx, &tuple, ip4, l4_off, &target);
-	if (IS_ERR(ret))
+	if (IS_ERR(ret)) {
+		bpf_printk("nodeport_snat_fwd_ipv4: snat_v4_needs_masquerade failed: %d", ret);
 		goto out;
+	}
+
+	if (ret == NAT_NEEDED) {
+		bpf_printk("nodeport_snat_fwd_ipv4: masquerading is NEEDED");
+	} else {
+		bpf_printk("nodeport_snat_fwd_ipv4: masquerading NOT needed, ret=%d", ret);
+	}
 
 #if defined(ENABLE_EGRESS_GATEWAY_COMMON) && defined(IS_BPF_HOST)
 	if (target.egress_gateway) {
 		/* Stay on the desired egress interface: */
-		if (target.ifindex && target.ifindex == THIS_INTERFACE_IFINDEX)
+		if (target.ifindex && target.ifindex == THIS_INTERFACE_IFINDEX) {
+			bpf_printk("nodeport_snat_fwd_ipv4: egress gateway on correct interface");
 			goto apply_snat;
+		}
 
 		/* Send packet to the correct egress interface, and SNAT it there. */
+		bpf_printk("nodeport_snat_fwd_ipv4: redirecting to egress gw ifindex=%d", target.ifindex);
 		ret = egress_gw_fib_lookup_and_redirect(ctx, target.addr,
 							tuple.daddr, target.ifindex,
 							ext_err);
@@ -347,8 +363,12 @@ apply_snat:
 	*saddr = tuple.saddr;
 	ret = snat_v4_nat(ctx, &tuple, ip4, l4_off, ipv4_has_l4_header(ip4),
 			  &target, trace, ext_err);
-	if (IS_ERR(ret))
+	if (IS_ERR(ret)) {
+		bpf_printk("nodeport_snat_fwd_ipv4: snat_v4_nat failed: %d", ret);
 		goto out;
+	}
+
+	bpf_printk("nodeport_snat_fwd_ipv4: SNAT applied successfully");
 
 	/* If multiple netdevs process an outgoing packet, then this packets will
 	 * be handled multiple times by the "to-netdev" section. This can lead
@@ -362,8 +382,10 @@ apply_snat:
 		ctx_snat_done_set(ctx);
 
 out:
-	if (ret == NAT_PUNT_TO_STACK)
+	if (ret == NAT_PUNT_TO_STACK) {
+		bpf_printk("nodeport_snat_fwd_ipv4: punting to stack");
 		ret = CTX_ACT_OK;
+	}
 
 	return ret;
 }
@@ -417,14 +439,17 @@ nodeport_rev_dnat_fwd_ipv4(struct __ctx_buff *ctx, bool *snat_done,
 	if (!revalidate_data(ctx, &data, &data_end, &ip4))
 		return DROP_INVALID;
 
+	bpf_printk("nodeport_rev_dnat_fwd_ipv4: saddr=%pI4 daddr=%pI4", &ip4->saddr, &ip4->daddr);
+
 	has_l4_header = ipv4_has_l4_header(ip4);
 	is_fragment = ipv4_is_fragment(ip4);
 
-	ret = lb4_extract_tuple(ctx, ip4, ETH_HLEN, &l4_off, &tuple);
+	ret = lb4_extract_tuple(ctx, ip4, l3_off, &l4_off, &tuple);
 	if (ret < 0) {
-		/* If it's not a SVC protocol, we don't need to check for RevDNAT: */
-		if (ret == DROP_UNSUPP_SERVICE_PROTO || ret == DROP_UNKNOWN_L4)
+		if (ret == DROP_UNSUPP_SERVICE_PROTO || ret == DROP_UNKNOWN_L4) {
+			bpf_printk("nodeport_rev_dnat_fwd_ipv4: not service protocol, skipping");
 			return CTX_ACT_OK;
+        }
 		return ret;
 	}
 
@@ -448,14 +473,15 @@ nodeport_rev_dnat_fwd_ipv4(struct __ctx_buff *ctx, bool *snat_done,
 	if (ret != CTX_ACT_OK)
 		return ret;
 
-skip_fib:
-#endif
+	bpf_printk("nodeport_rev_dnat_fwd_ipv4: tuple saddr=%pI4 daddr=%pI4", &tuple.saddr, &tuple.daddr);
+	bpf_printk("nodeport_rev_dnat_fwd_ipv4: sport=%d dport=%d", bpf_ntohs(tuple.sport), bpf_ntohs(tuple.dport));
 
 	/* Cache is_fragment in advance, nodeport_fib_lookup_and_redirect may invalidate ip4. */
 	ret = ct_lazy_lookup4(get_ct_map4(&tuple), &tuple, ctx, is_fragment,
 			      l4_off, has_l4_header, CT_INGRESS, SCOPE_REVERSE,
-			      CT_ENTRY_NODEPORT | CT_ENTRY_DSR,
-			      &ct_state, &monitor);
+			      CT_ENTRY_NODEPORT, &ct_state, &monitor);
+
+	bpf_printk("nodeport_rev_dnat_fwd_ipv4: CT lookup result: %d", ret);
 
 	/* nodeport_rev_dnat_get_info_ipv4() just checked that such a
 	 * CT entry exists:
@@ -470,28 +496,9 @@ skip_fib:
 			return ret;
 
 		*snat_done = true;
-
-#ifdef ENABLE_DSR
- #if defined(ENABLE_HIGH_SCALE_IPCACHE) &&				\
-     defined(IS_BPF_OVERLAY) &&						\
-     DSR_ENCAP_MODE == DSR_ENCAP_GENEVE
-		/* For HS IPCache, we also need to revDNAT the OuterSrcIP: */
-		if (ct_state.dsr_internal) {
-			struct bpf_tunnel_key key;
-
-			if (ctx_get_tunnel_key(ctx, &key, sizeof(key), 0) < 0)
-				return DROP_NO_TUNNEL_KEY;
-
-			/* kernel returns addresses in flipped locations: */
-			key.remote_ipv4 = key.local_ipv4;
-			key.local_ipv4 = bpf_ntohl(nat_info->address);
-
-			if (ctx_set_tunnel_key(ctx, &key, sizeof(key),
-					       BPF_F_ZERO_CSUM_TX) < 0)
-				return DROP_WRITE_ERROR;
-		}
- #endif
-#endif
+		bpf_printk("nodeport_rev_dnat_fwd_ipv4: marked SNAT as done");
+	} else {
+		bpf_printk("nodeport_rev_dnat_fwd_ipv4: not reply packet, CT=%d", ret);
 	}
 
 	return CTX_ACT_OK;

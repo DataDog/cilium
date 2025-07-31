@@ -374,16 +374,23 @@ snat_v4_rev_nat_handle_mapping(struct __ctx_buff *ctx,
 {
 	void *map;
 
+	bpf_printk("snat_v4_rev_nat_handle_mapping: saddr=%pI4 daddr=%pI4", &tuple->saddr, &tuple->daddr);
+	bpf_printk("snat_v4_rev_nat_handle_mapping: sport=%d dport=%d", bpf_ntohs(tuple->sport), bpf_ntohs(tuple->dport));
+
 	map = get_cluster_snat_map_v4(target->cluster_id);
-	if (!map)
+	if (!map) {
+		bpf_printk("snat_v4_rev_nat_handle_mapping: no SNAT map found");
 		return DROP_SNAT_NO_MAP_FOUND;
+	}
 
 	*state = __snat_lookup(map, tuple);
+	bpf_printk("snat_v4_rev_nat_handle_mapping: SNAT lookup result: %p", *state);
 
 	if (*state && (*state)->common.needs_ct) {
 		struct ipv4_ct_tuple tuple_revsnat;
 		int ret;
 
+		bpf_printk("snat_v4_rev_nat_handle_mapping: state found, needs CT lookup");
 		memcpy(&tuple_revsnat, tuple, sizeof(tuple_revsnat));
 		tuple_revsnat.daddr = (*state)->to_daddr;
 		tuple_revsnat.dport = (*state)->to_dport;
@@ -397,15 +404,21 @@ snat_v4_rev_nat_handle_mapping(struct __ctx_buff *ctx,
 				      ctx, ipv4_is_fragment(ip4), off, has_l4_header,
 				      CT_INGRESS, SCOPE_REVERSE, CT_ENTRY_ANY,
 				      NULL, &trace->monitor);
-		if (ret < 0)
+		if (ret < 0) {
+			bpf_printk("snat_v4_rev_nat_handle_mapping: CT lookup failed %d", ret);
 			return ret;
+		}
 
+		bpf_printk("snat_v4_rev_nat_handle_mapping: CT lookup successful");
 		trace->reason = (enum trace_reason)ret;
 	}
 
-	if (*state)
+	if (*state) {
+		bpf_printk("snat_v4_rev_nat_handle_mapping: reverse NAT mapping FOUND");
 		return 0;
+	}
 
+	bpf_printk("snat_v4_rev_nat_handle_mapping: NO mapping - DROP_NAT_NO_MAPPING");
 	return DROP_NAT_NO_MAPPING;
 }
 
@@ -564,11 +577,18 @@ snat_v4_needs_masquerade(struct __ctx_buff *ctx __maybe_unused,
 	struct remote_endpoint_info *remote_ep __maybe_unused;
 	int ret;
 
+	bpf_printk("snat_v4_needs_masquerade: saddr=%pI4 daddr=%pI4", &tuple->saddr, &tuple->daddr);
+	bpf_printk("snat_v4_needs_masquerade: sport=%d dport=%d", bpf_ntohs(tuple->sport), bpf_ntohs(tuple->dport));
+
 	ret = snat_v4_needs_masquerade_hook(ctx, target);
-	if (IS_ERR(ret))
+	if (IS_ERR(ret)) {
+		bpf_printk("snat_v4_needs_masquerade: hook returned error %d", ret);
 		return ret;
-	if (ret)
+	}
+	if (ret) {
+		bpf_printk("snat_v4_needs_masquerade: hook says NAT_NEEDED");
 		return NAT_NEEDED;
+	}
 
 #if defined(TUNNEL_MODE) && defined(IS_BPF_OVERLAY)
 # if defined(ENABLE_CLUSTER_AWARE_ADDRESSING) && defined(ENABLE_INTER_CLUSTER_SNAT)
@@ -576,7 +596,7 @@ snat_v4_needs_masquerade(struct __ctx_buff *ctx __maybe_unused,
 	    target->cluster_id != CLUSTER_ID) {
 		target->addr = IPV4_INTER_CLUSTER_SNAT;
 		target->from_local_endpoint = true;
-
+		bpf_printk("snat_v4_needs_masquerade: inter-cluster SNAT needed");
 		return NAT_NEEDED;
 	}
 # endif
@@ -586,11 +606,12 @@ snat_v4_needs_masquerade(struct __ctx_buff *ctx __maybe_unused,
 	if (tuple->saddr == IPV4_MASQUERADE) {
 		target->addr = IPV4_MASQUERADE;
 		target->needs_ct = true;
-
+		bpf_printk("snat_v4_needs_masquerade: source is masquerade IP, NAT_NEEDED");
 		return NAT_NEEDED;
 	}
 
 	local_ep = __lookup_ip4_endpoint(tuple->saddr);
+	bpf_printk("snat_v4_needs_masquerade: local_ep lookup result: %p", local_ep);
 
 	/* Check if this packet belongs to reply traffic coming from a
 	 * local endpoint.
@@ -603,17 +624,23 @@ snat_v4_needs_masquerade(struct __ctx_buff *ctx __maybe_unused,
 		int err;
 
 		target->from_local_endpoint = true;
+		bpf_printk("snat_v4_needs_masquerade: local endpoint found, extracting ports");
 
 		err = ct_extract_ports4(ctx, ip4, l4_off, CT_EGRESS, tuple, NULL);
+		bpf_printk("snat_v4_needs_masquerade: ct_extract_ports4 returned %d", err);
 		switch (err) {
 		case 0:
 			/* If the packet is a reply it means that outside has
 			 * initiated the connection, so no need to SNAT the
 			 * reply.
 			 */
-			// if (ct_is_reply4(get_ct_map4(tuple), tuple))
-			//	return NAT_PUNT_TO_STACK;
+			if (ct_is_reply4(get_ct_map4(tuple), tuple)) {
+				bpf_printk("snat_v4_needs_masquerade: REPLY TRAFFIC DETECTED");
+				bpf_printk("snat_v4_needs_masquerade: punting to stack (NO SNAT)");
+				return NAT_PUNT_TO_STACK;
+			}
 
+			bpf_printk("snat_v4_needs_masquerade: not reply traffic, continuing SNAT logic");
 			/* SNAT code has its own port extraction logic: */
 			tuple->dport = 0;
 			tuple->sport = 0;
@@ -621,8 +648,10 @@ snat_v4_needs_masquerade(struct __ctx_buff *ctx __maybe_unused,
 			break;
 		case DROP_CT_UNKNOWN_PROTO:
 			/* tolerate L4 protocols not supported by CT: */
+			bpf_printk("snat_v4_needs_masquerade: unknown protocol, tolerating");
 			break;
 		default:
+			bpf_printk("snat_v4_needs_masquerade: ct_extract_ports4 error %d", err);
 			return err;
 		}
 	}
@@ -636,14 +665,17 @@ snat_v4_needs_masquerade(struct __ctx_buff *ctx __maybe_unused,
 #if defined(ENABLE_EGRESS_GATEWAY_COMMON)
 	if (egress_gw_snat_needed_hook(tuple->saddr, tuple->daddr, &target->addr,
 				       &target->ifindex)) {
-		if (target->addr == EGRESS_GATEWAY_NO_EGRESS_IP)
+		if (target->addr == EGRESS_GATEWAY_NO_EGRESS_IP) {
+			bpf_printk("snat_v4_needs_masquerade: egress gateway no IP");
 			return DROP_NO_EGRESS_IP;
+		}
 
 		target->egress_gateway = true;
 		/* If the endpoint is local, then the connection is already tracked. */
 		if (!local_ep)
 			target->needs_ct = true;
 
+		bpf_printk("snat_v4_needs_masquerade: egress gateway SNAT needed");
 		return NAT_NEEDED;
 	}
 #endif
@@ -653,13 +685,17 @@ snat_v4_needs_masquerade(struct __ctx_buff *ctx __maybe_unused,
 	 * (ipv4-native-routing-cidr if specified, otherwise local pod CIDR).
 	 */
 	if (ipv4_is_in_subnet(tuple->daddr, IPV4_SNAT_EXCLUSION_DST_CIDR,
-			      IPV4_SNAT_EXCLUSION_DST_CIDR_LEN))
+			      IPV4_SNAT_EXCLUSION_DST_CIDR_LEN)) {
+		bpf_printk("snat_v4_needs_masquerade: dst in exclusion CIDR, punting");
 		return NAT_PUNT_TO_STACK;
+	}
 #endif
 
 	/* if this is a localhost endpoint, no SNAT is needed */
-	if (local_ep && (local_ep->flags & ENDPOINT_F_HOST))
+	if (local_ep && (local_ep->flags & ENDPOINT_F_HOST)) {
+		bpf_printk("snat_v4_needs_masquerade: localhost endpoint, no SNAT");
 		return NAT_PUNT_TO_STACK;
+	}
 
 #ifdef ENABLE_IP_MASQ_AGENT_IPV4
 	{
@@ -670,13 +706,16 @@ snat_v4_needs_masquerade(struct __ctx_buff *ctx __maybe_unused,
 
 		pfx.lpm.prefixlen = 32;
 		memcpy(pfx.lpm.data, &tuple->daddr, sizeof(pfx.addr));
-		if (map_lookup_elem(&IP_MASQ_AGENT_IPV4, &pfx))
+		if (map_lookup_elem(&IP_MASQ_AGENT_IPV4, &pfx)) {
+			bpf_printk("snat_v4_needs_masquerade: masq-agent exclusion, punting");
 			return NAT_PUNT_TO_STACK;
+		}
 	}
 #endif
 
 	remote_ep = lookup_ip4_remote_endpoint(tuple->daddr, 0);
 	if (remote_ep) {
+		bpf_printk("snat_v4_needs_masquerade: remote endpoint found for dst");
 		/* In the tunnel mode, a packet from a local ep
 		 * to a remote node is not encap'd, and is sent
 		 * via a native dev. Therefore, such packet has
@@ -688,17 +727,21 @@ snat_v4_needs_masquerade(struct __ctx_buff *ctx __maybe_unused,
 		 */
 
 		if (!is_defined(TUNNEL_MODE) || remote_ep->flag_skip_tunnel) {
-			if (identity_is_remote_node(remote_ep->sec_identity))
+			if (identity_is_remote_node(remote_ep->sec_identity)) {
+				bpf_printk("snat_v4_needs_masquerade: remote node, punting");
 				return NAT_PUNT_TO_STACK;
+			}
 		}
 
 		if (local_ep) {
 			target->addr = IPV4_MASQUERADE;
+			bpf_printk("snat_v4_needs_masquerade: local->remote endpoint, NAT_NEEDED");
 			return NAT_NEEDED;
 		}
 	}
 #endif /*ENABLE_MASQUERADE_IPV4 && IS_BPF_HOST */
 
+	bpf_printk("snat_v4_needs_masquerade: no masquerading needed, punting");
 	return NAT_PUNT_TO_STACK;
 }
 
@@ -975,6 +1018,8 @@ snat_v4_rev_nat(struct __ctx_buff *ctx, const struct ipv4_nat_target *target,
 		return DROP_INVALID;
 
 	snat_v4_init_tuple(ip4, NAT_DIR_INGRESS, &tuple);
+	bpf_printk("snat_v4_rev_nat: saddr=%pI4 daddr=%pI4", &tuple.saddr, &tuple.daddr);
+	bpf_printk("snat_v4_rev_nat: sport=%d dport=%d proto=%d", bpf_ntohs(tuple.sport), bpf_ntohs(tuple.dport), tuple.nexthdr);
 
 	off = ((void *)ip4 - data) + ipv4_hdrlen(ip4);
 	switch (tuple.nexthdr) {
@@ -985,11 +1030,14 @@ snat_v4_rev_nat(struct __ctx_buff *ctx, const struct ipv4_nat_target *target,
 #endif  /* ENABLE_SCTP */
 		ret = ipv4_load_l4_ports(ctx, ip4, (int)off, CT_INGRESS,
 					 &tuple.dport, &has_l4_header);
-		if (ret < 0)
+		if (ret < 0) {
+			bpf_printk("snat_v4_rev_nat: failed to load L4 ports, ret=%d", ret);
 			return ret;
+		}
 
 		ipv4_ct_tuple_swap_ports(&tuple);
 		port_off = TCP_DPORT_OFF;
+		bpf_printk("snat_v4_rev_nat: TCP/UDP/SCTP packet, ports loaded");
 		break;
 	case IPPROTO_ICMP:
 		if (ctx_load_bytes(ctx, (__u32)off, &icmphdr, sizeof(icmphdr)) < 0)
@@ -999,10 +1047,13 @@ snat_v4_rev_nat(struct __ctx_buff *ctx, const struct ipv4_nat_target *target,
 			tuple.dport = icmphdr.un.echo.id;
 			tuple.sport = 0;
 			port_off = offsetof(struct icmphdr, un.echo.id);
+			bpf_printk("snat_v4_rev_nat: ICMP echo reply");
 			break;
 		case ICMP_DEST_UNREACH:
-			if (icmphdr.code > NR_ICMP_UNREACH)
+			if (icmphdr.code > NR_ICMP_UNREACH) {
+				bpf_printk("snat_v4_rev_nat: ICMP dest unreach invalid, punting");
 				return NAT_PUNT_TO_STACK;
+			}
 
 			goto rev_nat_icmp_v4;
 		case ICMP_TIME_EXCEEDED:
@@ -1011,35 +1062,47 @@ snat_v4_rev_nat(struct __ctx_buff *ctx, const struct ipv4_nat_target *target,
 			case ICMP_EXC_FRAGTIME:
 				break;
 			default:
+				bpf_printk("snat_v4_rev_nat: ICMP time exceeded invalid, punting");
 				return NAT_PUNT_TO_STACK;
 			}
 
 rev_nat_icmp_v4:
 			inner_l3_off = off + sizeof(struct icmphdr);
+			bpf_printk("snat_v4_rev_nat: handling ICMP error message");
 
 			ret = snat_v4_rev_nat_handle_icmp_error(ctx, inner_l3_off, &state);
-			if (IS_ERR(ret))
+			if (IS_ERR(ret)) {
+				bpf_printk("snat_v4_rev_nat: ICMP error handling failed, ret=%d", ret);
 				return ret;
+			}
 
 			has_l4_header = true;
 			goto rewrite;
 		default:
+			bpf_printk("snat_v4_rev_nat: unsupported ICMP type %d, punting", icmphdr.type);
 			return NAT_PUNT_TO_STACK;
 		}
 		break;
 	default:
+		bpf_printk("snat_v4_rev_nat: unsupported protocol %d, punting", tuple.nexthdr);
 		return NAT_PUNT_TO_STACK;
 	};
 
-	if (snat_v4_rev_nat_can_skip(target, &tuple))
+	if (snat_v4_rev_nat_can_skip(target, &tuple)) {
+		bpf_printk("snat_v4_rev_nat: can skip reverse NAT, punting");
 		return NAT_PUNT_TO_STACK;
+	}
 	ret = snat_v4_rev_nat_handle_mapping(ctx, &tuple, has_l4_header, &state,
 					     ip4, (__u32)off, target, trace);
-	if (ret < 0)
+	if (ret < 0) {
+		bpf_printk("snat_v4_rev_nat: handle_mapping failed, ret=%d", ret);
 		return ret;
+	}
 
 	/* Skip port rewrite for ICMP_DEST_UNREACH by passing old_port == new_port == 0. */
 	to_dport = state->to_dport;
+	bpf_printk("snat_v4_rev_nat: rewriting headers new_daddr=%pI4", &state->to_daddr);
+	bpf_printk("snat_v4_rev_nat: new_dport=%d", bpf_ntohs(to_dport));
 
 rewrite:
 	return snat_v4_rewrite_headers(ctx, tuple.nexthdr, ETH_HLEN, has_l4_header, (int)off,
@@ -1837,16 +1900,6 @@ snat_v6_has_v4_match_rfc8215(const struct ipv4_ct_tuple *tuple4)
 	return __snat_v6_has_v4_complete(&tuple6, tuple4);
 }
 
-static __always_inline bool
-snat_v6_has_v4_match(const struct ipv4_ct_tuple *tuple4)
-{
-	struct ipv6_ct_tuple tuple6;
-
-	memset(&tuple6, 0, sizeof(tuple6));
-	build_v4_in_v6(&tuple6.saddr, tuple4->saddr);
-	return __snat_v6_has_v4_complete(&tuple6, tuple4);
-}
-#else
 static __always_inline bool
 snat_v6_has_v4_match(const struct ipv4_ct_tuple *tuple4 __maybe_unused)
 {
