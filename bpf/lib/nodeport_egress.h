@@ -344,16 +344,24 @@ static __always_inline int nodeport_snat_fwd_ipv4(struct __ctx_buff *ctx,
 				 * in EKS.
 				 */
 				union macaddr smac = NATIVE_DEV_MAC_BY_IFINDEX(ep->parent_ifindex);
-				bpf_printk("nodeport_snat_fwd_ipv4: parent MAC=%pM parent_ifindex=%d", smac.addr, ep->parent_ifindex);
 
 				if (eth_store_saddr_aligned(ctx, smac.addr, 0) < 0)
 					return DROP_WRITE_ERROR;
+				bpf_printk("nodeport_snat_fwd_ipv4: parent MAC=%pM parent_ifindex=%d", smac.addr, ep->parent_ifindex);
 
-				/* For EKS we don't have to rewrite the dmac. Once we require a 5.10
-				 * kernel, this can turn into bpf_redirect_neigh() for robustness.
+				/* Check if we can use neighbor resolution for robustness.
+				 * redirect_neigh() automatically handles L2 address resolution
+				 * for different subnets, unlike ctx_redirect() which assumes
+				 * same L2 network.
 				 */
-				 bpf_printk("nodeport_snat_fwd_ipv4: redirecting to ifindex=%d", ep->parent_ifindex);
-				return ctx_redirect(ctx, ep->parent_ifindex, 0);
+				if (neigh_resolver_available()) {
+					bpf_printk("nodeport_snat_fwd_ipv4: using redirect_neigh to ifindex=%d", ep->parent_ifindex);
+					return redirect_neigh(ep->parent_ifindex, NULL, 0, 0);
+				} else {
+					/* Fallback for older kernels - works only for same L2 network */
+					bpf_printk("nodeport_snat_fwd_ipv4: fallback redirect to ifindex=%d", ep->parent_ifindex);
+					return ctx_redirect(ctx, ep->parent_ifindex, 0);
+				}
 			}
 		}
 	}
