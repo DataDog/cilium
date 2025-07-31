@@ -1702,6 +1702,7 @@ int cil_to_host(struct __ctx_buff *ctx)
 		traced = true;
 
 		ctx_store_meta(ctx, CB_PROXY_MAGIC, 0);
+		bpf_printk("NODEPORT_REDIRECT: proxy_port=%d src=bpf_host.c line=1705\n", port);
 		ret = ctx_redirect_to_proxy_first(ctx, port);
 		goto out;
 	}

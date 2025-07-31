@@ -438,6 +438,7 @@ __ipv4_host_policy_egress(struct __ctx_buff *ctx, bool is_host_id __maybe_unused
 		send_trace_notify(ctx, TRACE_TO_PROXY, SECLABEL_IPV4, UNKNOWN_ID,
 				  bpf_ntohs(proxy_port), TRACE_IFINDEX_UNKNOWN,
 				  trace->reason, trace->monitor);
+		bpf_printk("NODEPORT_REDIRECT: proxy_port=%d src=host_firewall.h line=441\n", proxy_port);
 		return ctx_redirect_to_proxy_host_egress(ctx, proxy_port);
 	}
 

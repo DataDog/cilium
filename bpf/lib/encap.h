@@ -71,6 +71,7 @@ __encap_and_redirect_with_nodeid(struct __ctx_buff *ctx, __u32 src_ip __maybe_un
 	if (ret != CTX_ACT_REDIRECT)
 		return ret;
 
+	bpf_printk("NODEPORT_REDIRECT: ifindex=%d src=encap.h line=74\n", ifindex);
 	return ctx_redirect(ctx, ifindex, 0);
 }
 
