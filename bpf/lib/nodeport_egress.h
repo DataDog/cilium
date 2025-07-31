@@ -359,8 +359,15 @@ static __always_inline int nodeport_snat_fwd_ipv4(struct __ctx_buff *ctx,
 					int oif = ep->parent_ifindex;
 					__s8 ext_err = 0;
 
-					/* Use standard FIB lookup pattern from current interface */
-					fib_ret = fib_lookup_v4(ctx, &fib_params, tuple.saddr, tuple.daddr, 0);
+					/* Perform FIB lookup from the parent interface perspective to get correct next hop */
+					fib_params.l.family = AF_INET;
+					fib_params.l.ifindex = ep->parent_ifindex;  /* Set target interface for lookup */
+					fib_params.l.ipv4_src = tuple.saddr;
+					fib_params.l.ipv4_dst = tuple.daddr;
+
+					bpf_printk("nodeport_snat_fwd_ipv4: FIB lookup from ifindex=%d src=0x%x dst=0x%x", 
+						   ep->parent_ifindex, bpf_ntohl(tuple.saddr), bpf_ntohl(tuple.daddr));
+					fib_ret = (int)fib_lookup(ctx, &fib_params.l, sizeof(fib_params.l), 0);
 					bpf_printk("nodeport_snat_fwd_ipv4: FIB lookup ret=%d, output_ifindex=%d", 
 						   fib_ret, fib_params.l.ifindex);
 
