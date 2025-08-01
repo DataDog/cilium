@@ -349,65 +349,16 @@ static __always_inline int nodeport_snat_fwd_ipv4(struct __ctx_buff *ctx,
 					return DROP_WRITE_ERROR;
 				bpf_printk("nodeport_snat_fwd_ipv4: parent MAC=%pM parent_ifindex=%d", smac.addr, ep->parent_ifindex);
 
-				/* For multi-L2 ENI setups, we need to redirect to the parent interface
-				 * but use the correct gateway for that interface, not try to resolve
-				 * the final destination directly (which may be off-subnet).
+				/* Set destination MAC address manually */
+				union macaddr dmac = { .addr = {0x12, 0xaa, 0xa0, 0x29, 0x48, 0xe9} };
+				if (eth_store_daddr_aligned(ctx, dmac.addr, 0) < 0)
+					return DROP_WRITE_ERROR;
+				bpf_printk("nodeport_snat_fwd_ipv4: destination MAC set successfully to %pM", dmac.addr);
+
+				/* For EKS we don't have to rewrite the dmac. Once we require a 5.10
+				 * kernel, this can turn into bpf_redirect_neigh() for robustness.
 				 */
-				if (neigh_resolver_available()) {
-					struct bpf_fib_lookup_padded fib_params = {};
-					int fib_ret;
-					int oif = ep->parent_ifindex;
-					__s8 ext_err = 0;
-
-					/* Perform FIB lookup from the parent interface perspective to get correct next hop */
-					fib_params.l.family = AF_INET;
-					fib_params.l.ifindex = ep->parent_ifindex;  /* Set target interface for lookup */
-					fib_params.l.ipv4_src = tuple.saddr;
-					fib_params.l.ipv4_dst = tuple.daddr;
-
-					bpf_printk("nodeport_snat_fwd_ipv4: FIB lookup from ifindex=%d src=0x%x dst=0x%x", 
-						   ep->parent_ifindex, bpf_ntohl(tuple.saddr), bpf_ntohl(tuple.daddr));
-					fib_ret = (int)fib_lookup(ctx, &fib_params.l, sizeof(fib_params.l), 0);
-					bpf_printk("nodeport_snat_fwd_ipv4: FIB lookup ret=%d, output_ifindex=%d", 
-						   fib_ret, fib_params.l.ifindex);
-
-					if (fib_ret == BPF_FIB_LKUP_RET_SUCCESS || fib_ret == BPF_FIB_LKUP_RET_NO_NEIGH) {
-						/* Force redirect to parent interface but use FIB lookup next hop info */
-						if (fib_params.l.ifindex == ep->parent_ifindex) {
-							/* FIB result matches our target interface, use normal redirect */
-							bpf_printk("nodeport_snat_fwd_ipv4: FIB result matches target interface");
-							return fib_do_redirect(ctx, true, &fib_params, false, fib_ret, &oif, &ext_err);
-						} else {
-							/* FIB wants different interface, but we have next hop info, force to target interface */
-							bpf_printk("nodeport_snat_fwd_ipv4: FIB wants ifindex=%d, forcing to ifindex=%d with next hop info", 
-								   fib_params.l.ifindex, ep->parent_ifindex);
-							bpf_printk("nodeport_snat_fwd_ipv4: next hop: %pI4", &fib_params.l.ipv4_dst);
-							
-							struct bpf_redir_neigh nh_params;
-							nh_params.nh_family = AF_INET;
-							
-							/* If FIB returned a gateway (non-zero), use it. Otherwise use destination (direct route) */
-							if (fib_params.l.ipv4_dst != 0) {
-								nh_params.ipv4_nh = fib_params.l.ipv4_dst;
-								bpf_printk("nodeport_snat_fwd_ipv4: using FIB gateway %pI4", &nh_params.ipv4_nh);
-							} else {
-								nh_params.ipv4_nh = tuple.daddr;
-								bpf_printk("nodeport_snat_fwd_ipv4: direct route, using destination %pI4", &nh_params.ipv4_nh);
-							}
-							
-							return redirect_neigh(ep->parent_ifindex, &nh_params, sizeof(nh_params), 0);
-						}
-					} else {
-						bpf_printk("nodeport_snat_fwd_ipv4: FIB lookup failed ret=%d, fallback to redirect_neigh", fib_ret);
-						/* FIB lookup failed, use redirect_neigh without next hop (kernel will resolve) */
-						return redirect_neigh(ep->parent_ifindex, NULL, 0, 0);
-					}
-				} else {
-					/* Fallback for older kernels - works only for same L2 network */
-					bpf_printk("nodeport_snat_fwd_ipv4: fallback redirect to ifindex=%d", ep->parent_ifindex);
-					return ctx_redirect(ctx, ep->parent_ifindex, 0);
-				}
-
+				return ctx_redirect(ctx, ep->parent_ifindex, 0);
 			}
 		}
 	}
