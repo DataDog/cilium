@@ -344,10 +344,14 @@ static __always_inline int nodeport_snat_fwd_ipv4(struct __ctx_buff *ctx,
 				if (eth_store_saddr_aligned(ctx, smac.addr, 0) < 0)
 					return DROP_WRITE_ERROR;
 
-				/* Use bpf_redirect_neigh() for proper neighbor resolution
+				/* Use redirect_neigh() for proper neighbor resolution
 				 * instead of assuming L2 connectivity.
 				 */
-				return bpf_redirect_neigh(ep->parent_ifindex, 0);
+				if (neigh_resolver_available())
+					return redirect_neigh(ep->parent_ifindex, NULL, 0, 0);
+				
+				/* Fall back to ctx_redirect for older kernels */
+				return ctx_redirect(ctx, ep->parent_ifindex, 0);
 			}
 		}
 	}
