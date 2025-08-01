@@ -317,8 +317,6 @@ static __always_inline int nodeport_snat_fwd_ipv4(struct __ctx_buff *ctx,
 	snat_v4_init_tuple(ip4, NAT_DIR_EGRESS, &tuple);
 	l4_off = ETH_HLEN + ipv4_hdrlen(ip4);
 
-    bpf_printk("nodeport_snat_fwd_ipv4: saddr=%pI4 daddr=%pI4", &tuple.saddr, &tuple.daddr);
-    bpf_printk("nodeport_snat_fwd_ipv4: sport=%d dport=%d", bpf_ntohs(tuple.sport), bpf_ntohs(tuple.dport));
 	if (is_defined(IS_BPF_HOST) && is_defined(ENABLE_MASQUERADE_IPV4)) {
 		struct endpoint_info *ep;
 
@@ -335,8 +333,6 @@ static __always_inline int nodeport_snat_fwd_ipv4(struct __ctx_buff *ctx,
 
 			if (ret != DROP_CT_UNKNOWN_PROTO &&
 			    ct_is_reply4(get_ct_map4(&tuple), &tuple)) {
-			    bpf_printk("nodeport_snat_fwd_ipv4: REPLY DETECTED! Rewriting with parent MAC: saddr=%pI4 daddr=%pI4", &tuple.saddr, &tuple.daddr);
-
 				/* Look up the parent interface's MAC address and set it as the
 				 * source MAC address of the packet. We will assume the destination
 				 * MAC address is still correct. This assumption only holds if the
@@ -347,50 +343,37 @@ static __always_inline int nodeport_snat_fwd_ipv4(struct __ctx_buff *ctx,
 
 				if (eth_store_saddr_aligned(ctx, smac.addr, 0) < 0)
 					return DROP_WRITE_ERROR;
-				bpf_printk("nodeport_snat_fwd_ipv4: parent MAC=%pM parent_ifindex=%d", smac.addr, ep->parent_ifindex);
 
-				/* Set destination MAC address manually */
-				union macaddr dmac = { .addr = {0x12, 0xaa, 0xa0, 0x29, 0x48, 0xe9} };
-				if (eth_store_daddr_aligned(ctx, dmac.addr, 0) < 0)
-					return DROP_WRITE_ERROR;
-				bpf_printk("nodeport_snat_fwd_ipv4: destination MAC set successfully to %pM", dmac.addr);
-
-				/* For EKS we don't have to rewrite the dmac. Once we require a 5.10
-				 * kernel, this can turn into bpf_redirect_neigh() for robustness.
+				/* Use bpf_redirect_neigh() for proper neighbor resolution
+				 * instead of assuming L2 connectivity.
 				 */
-				return ctx_redirect(ctx, ep->parent_ifindex, 0);
+				return bpf_redirect_neigh(ep->parent_ifindex, 0);
 			}
 		}
 	}
 
 	if (lb_is_svc_proto(tuple.nexthdr) &&
 	    nodeport_has_nat_conflict_ipv4(ip4, &target)) {
-		bpf_printk("nodeport_snat_fwd_ipv4: NAT conflict detected, applying SNAT");
 		goto apply_snat;
 	}
 
 	ret = snat_v4_needs_masquerade(ctx, &tuple, ip4, l4_off, &target);
 	if (IS_ERR(ret)) {
-		bpf_printk("nodeport_snat_fwd_ipv4: snat_v4_needs_masquerade failed: %d", ret);
 		goto out;
 	}
 
 	if (ret == NAT_NEEDED) {
-		bpf_printk("nodeport_snat_fwd_ipv4: masquerading is NEEDED");
 	} else {
-		bpf_printk("nodeport_snat_fwd_ipv4: masquerading NOT needed, ret=%d", ret);
 	}
 
 #if defined(ENABLE_EGRESS_GATEWAY_COMMON) && defined(IS_BPF_HOST)
 	if (target.egress_gateway) {
 		/* Stay on the desired egress interface: */
 		if (target.ifindex && target.ifindex == THIS_INTERFACE_IFINDEX) {
-			bpf_printk("nodeport_snat_fwd_ipv4: egress gateway on correct interface");
 			goto apply_snat;
 		}
 
 		/* Send packet to the correct egress interface, and SNAT it there. */
-		bpf_printk("nodeport_snat_fwd_ipv4: redirecting to egress gw ifindex=%d", target.ifindex);
 		ret = egress_gw_fib_lookup_and_redirect(ctx, target.addr,
 							tuple.daddr, target.ifindex,
 							ext_err);
@@ -407,11 +390,8 @@ apply_snat:
 	ret = snat_v4_nat(ctx, &tuple, ip4, l4_off, ipv4_has_l4_header(ip4),
 			  &target, trace, ext_err);
 	if (IS_ERR(ret)) {
-		bpf_printk("nodeport_snat_fwd_ipv4: snat_v4_nat failed: %d", ret);
 		goto out;
 	}
-
-	bpf_printk("nodeport_snat_fwd_ipv4: SNAT applied successfully");
 
 	/* If multiple netdevs process an outgoing packet, then this packets will
 	 * be handled multiple times by the "to-netdev" section. This can lead
@@ -426,7 +406,6 @@ apply_snat:
 
 out:
 	if (ret == NAT_PUNT_TO_STACK) {
-		bpf_printk("nodeport_snat_fwd_ipv4: punting to stack");
 		ret = CTX_ACT_OK;
 	}
 
@@ -482,17 +461,13 @@ nodeport_rev_dnat_fwd_ipv4(struct __ctx_buff *ctx, bool *snat_done,
 	if (!revalidate_data(ctx, &data, &data_end, &ip4))
 		return DROP_INVALID;
 
-	bpf_printk("nodeport_rev_dnat_fwd_ipv4: saddr=%pI4 daddr=%pI4", &ip4->saddr, &ip4->daddr);
-
 	has_l4_header = ipv4_has_l4_header(ip4);
 	is_fragment = ipv4_is_fragment(ip4);
 
 	ret = lb4_extract_tuple(ctx, ip4, ETH_HLEN, &l4_off, &tuple);
 	if (ret < 0) {
-		if (ret == DROP_UNSUPP_SERVICE_PROTO || ret == DROP_UNKNOWN_L4) {
-			bpf_printk("nodeport_rev_dnat_fwd_ipv4: not service protocol, skipping");
+		if (ret == DROP_UNSUPP_SERVICE_PROTO || ret == DROP_UNKNOWN_L4)
 			return CTX_ACT_OK;
-        }
 		return ret;
 	}
 
@@ -519,15 +494,11 @@ nodeport_rev_dnat_fwd_ipv4(struct __ctx_buff *ctx, bool *snat_done,
 skip_fib:
 #endif
 
-    bpf_printk("nodeport_rev_dnat_fwd_ipv4: tuple saddr=%pI4 daddr=%pI4", &tuple.saddr, &tuple.daddr);
-    bpf_printk("nodeport_rev_dnat_fwd_ipv4: sport=%d dport=%d", bpf_ntohs(tuple.sport), bpf_ntohs(tuple.dport));
 	/* Cache is_fragment in advance, nodeport_fib_lookup_and_redirect may invalidate ip4. */
 	ret = ct_lazy_lookup4(get_ct_map4(&tuple), &tuple, ctx, is_fragment,
 			      l4_off, has_l4_header, CT_INGRESS, SCOPE_REVERSE,
 			      CT_ENTRY_NODEPORT | CT_ENTRY_DSR,
 			      &ct_state, &monitor);
-
-    bpf_printk("nodeport_rev_dnat_fwd_ipv4: CT lookup result: %d", ret);
 
 	/* nodeport_rev_dnat_get_info_ipv4() just checked that such a
 	 * CT entry exists:
