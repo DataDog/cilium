@@ -317,45 +317,6 @@ static __always_inline int nodeport_snat_fwd_ipv4(struct __ctx_buff *ctx,
 	snat_v4_init_tuple(ip4, NAT_DIR_EGRESS, &tuple);
 	l4_off = ETH_HLEN + ipv4_hdrlen(ip4);
 
-	if (is_defined(IS_BPF_HOST) && is_defined(ENABLE_MASQUERADE_IPV4)) {
-		struct endpoint_info *ep;
-
-		ep = __lookup_ip4_endpoint(ip4->saddr);
-		if (ep && ep->parent_ifindex && ep->parent_ifindex != THIS_INTERFACE_IFINDEX) {
-			/* This packet came from an endpoint with a parent interface and
-			 * it is currently not egressing on its parent interface.
-			 * Check if its a reply packet, if it is, redirect it to the
-			 * parent interface.
-			 */
-			ret = ct_extract_ports4(ctx, ip4, l4_off, CT_EGRESS, &tuple, NULL);
-			if (ret < 0 && ret != DROP_CT_UNKNOWN_PROTO)
-				return ret;
-
-			if (ret != DROP_CT_UNKNOWN_PROTO &&
-			    ct_is_reply4(get_ct_map4(&tuple), &tuple)) {
-				/* Look up the parent interface's MAC address and set it as the
-				 * source MAC address of the packet. We will assume the destination
-				 * MAC address is still correct. This assumption only holds if the
-				 * current and parent interfaces are on the same L2 network such as
-				 * in EKS.
-				 */
-				union macaddr smac = NATIVE_DEV_MAC_BY_IFINDEX(ep->parent_ifindex);
-
-				if (eth_store_saddr_aligned(ctx, smac.addr, 0) < 0)
-					return DROP_WRITE_ERROR;
-
-				/* Use redirect_neigh() for proper neighbor resolution
-				 * instead of assuming L2 connectivity.
-				 */
-				if (neigh_resolver_available())
-					return redirect_neigh(ep->parent_ifindex, NULL, 0, 0);
-				
-				/* Fall back to ctx_redirect for older kernels */
-				return ctx_redirect(ctx, ep->parent_ifindex, 0);
-			}
-		}
-	}
-
 	if (lb_is_svc_proto(tuple.nexthdr) &&
 	    nodeport_has_nat_conflict_ipv4(ip4, &target)) {
 		goto apply_snat;
