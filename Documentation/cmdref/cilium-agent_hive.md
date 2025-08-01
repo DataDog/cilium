@@ -47,6 +47,7 @@ cilium-agent hive [flags]
       --enable-hubble-open-metrics                                Enable exporting hubble metrics in OpenMetrics format
       --enable-hubble-recorder-api                                Enable the Hubble recorder API (default true)
       --enable-ingress-controller                                 Enables Envoy secret sync for Ingress controller related TLS secrets
+      --enable-ip-masq-agent                                      Enable BPF ip-masq-agent
       --enable-ipv4-big-tcp                                       Enable IPv4 BIG TCP option which increases device's maximum GRO/GSO limits for IPv4
       --enable-ipv6-big-tcp                                       Enable IPv6 BIG TCP option which increases device's maximum GRO/GSO limits for IPv6
       --enable-k8s                                                Enable the k8s clientset (default true)
@@ -118,6 +119,7 @@ cilium-agent hive [flags]
       --hubble-tls-key-file string                                Path to the private key file for the Hubble server. The file must contain PEM encoded data.
       --ignore-flags-drift-checker strings                        Ignores specified flags during drift checking
       --ingress-secrets-namespace string                          IngressSecretsNamespace is the namespace having tls secrets used by CEC, originating from Ingress controller
+      --ip-masq-agent-config-path string                          ip-masq-agent configuration file path (default "/etc/config/ip-masq-agent")
       --iptables-lock-timeout duration                            Time to pass to each iptables invocation to wait for xtables lock acquisition (default 5s)
       --iptables-random-fully                                     Set iptables flag random-fully on masquerading rules
       --k8s-api-server string                                     Kubernetes API server URL

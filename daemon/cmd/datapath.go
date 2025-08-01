@@ -26,7 +26,6 @@ import (
 	"github.com/cilium/cilium/pkg/maps/encrypt"
 	"github.com/cilium/cilium/pkg/maps/fragmap"
 	ipcachemap "github.com/cilium/cilium/pkg/maps/ipcache"
-	"github.com/cilium/cilium/pkg/maps/ipmasq"
 	"github.com/cilium/cilium/pkg/maps/lbmap"
 	"github.com/cilium/cilium/pkg/maps/lxcmap"
 	"github.com/cilium/cilium/pkg/maps/metricsmap"
@@ -238,19 +237,6 @@ func (d *Daemon) initMaps() error {
 	if option.Config.EnableIPv4FragmentsTracking {
 		if err := fragmap.InitMap(option.Config.FragmentsMapEntries); err != nil {
 			return fmt.Errorf("initializing fragments map: %w", err)
-		}
-	}
-
-	if option.Config.EnableIPMasqAgent {
-		if option.Config.EnableIPv4Masquerade {
-			if err := ipmasq.IPMasq4Map().OpenOrCreate(); err != nil {
-				return fmt.Errorf("initializing IPv4 masquerading map: %w", err)
-			}
-		}
-		if option.Config.EnableIPv6Masquerade {
-			if err := ipmasq.IPMasq6Map().OpenOrCreate(); err != nil {
-				return fmt.Errorf("initializing IPv6 masquerading map: %w", err)
-			}
 		}
 	}
 

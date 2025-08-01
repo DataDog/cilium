@@ -12,6 +12,7 @@ import (
 	"github.com/cilium/cilium/pkg/datapath/linux/sysctl"
 	"github.com/cilium/cilium/pkg/datapath/types"
 	ipamOption "github.com/cilium/cilium/pkg/ipam/option"
+	"github.com/cilium/cilium/pkg/ipmasq"
 	"github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/logging/logfields"
@@ -79,6 +80,7 @@ func NewIPAM(
 	clientset client.Clientset,
 	metadata Metadata,
 	sysctl sysctl.Sysctl,
+	ipMasqAgent *ipmasq.IPMasqAgent,
 ) *IPAM {
 	return &IPAM{
 		nodeAddressing:   nodeAddressing,
@@ -95,6 +97,7 @@ func NewIPAM(
 		nodeDiscovery:  nodeDiscovery,
 		metadata:       metadata,
 		sysctl:         sysctl,
+		ipMasqAgent:    ipMasqAgent,
 	}
 }
 
@@ -129,11 +132,11 @@ func (ipam *IPAM) ConfigureAllocator() {
 	case ipamOption.IPAMCRD, ipamOption.IPAMENI, ipamOption.IPAMAzure, ipamOption.IPAMAlibabaCloud:
 		log.Info("Initializing CRD-based IPAM")
 		if ipam.config.IPv6Enabled() {
-			ipam.IPv6Allocator = newCRDAllocator(IPv6, ipam.config, ipam.nodeDiscovery, ipam.localNodeStore, ipam.clientset, ipam.k8sEventReg, ipam.mtuConfig, ipam.sysctl)
+			ipam.IPv6Allocator = newCRDAllocator(IPv6, ipam.config, ipam.nodeDiscovery, ipam.localNodeStore, ipam.clientset, ipam.k8sEventReg, ipam.mtuConfig, ipam.sysctl, ipam.ipMasqAgent)
 		}
 
 		if ipam.config.IPv4Enabled() {
-			ipam.IPv4Allocator = newCRDAllocator(IPv4, ipam.config, ipam.nodeDiscovery, ipam.localNodeStore, ipam.clientset, ipam.k8sEventReg, ipam.mtuConfig, ipam.sysctl)
+			ipam.IPv4Allocator = newCRDAllocator(IPv4, ipam.config, ipam.nodeDiscovery, ipam.localNodeStore, ipam.clientset, ipam.k8sEventReg, ipam.mtuConfig, ipam.sysctl, ipam.ipMasqAgent)
 		}
 	case ipamOption.IPAMDelegatedPlugin:
 		log.Info("Initializing no-op IPAM since we're using a CNI delegated plugin")
