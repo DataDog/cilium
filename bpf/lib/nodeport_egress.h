@@ -317,6 +317,89 @@ static __always_inline int nodeport_snat_fwd_ipv4(struct __ctx_buff *ctx,
 	snat_v4_init_tuple(ip4, NAT_DIR_EGRESS, &tuple);
 	l4_off = ETH_HLEN + ipv4_hdrlen(ip4);
 
+	if (is_defined(IS_BPF_HOST) && is_defined(ENABLE_MASQUERADE_IPV4)) {
+		struct endpoint_info *ep;
+
+		ep = __lookup_ip4_endpoint(ip4->saddr);
+		if (ep && ep->parent_ifindex && ep->parent_ifindex != THIS_INTERFACE_IFINDEX) {
+			/* This packet came from an endpoint with a parent interface and
+			 * it is currently not egressing on its parent interface.
+			 * Check if its a reply packet, if it is, redirect it to the
+			 * parent interface.
+			 */
+			ret = ct_extract_ports4(ctx, ip4, l4_off, CT_EGRESS, &tuple, NULL);
+			if (ret < 0 && ret != DROP_CT_UNKNOWN_PROTO)
+				return ret;
+
+			if (ret != DROP_CT_UNKNOWN_PROTO &&
+			    ct_is_reply4(get_ct_map4(&tuple), &tuple)) {
+				/* Perform FIB lookup to resolve the correct destination MAC
+				 * and next-hop when the parent interface is on a different network.
+				 */
+				struct bpf_fib_lookup_padded fib_params = {};
+				int fib_ret;
+
+				bpf_printk("nodeport: reply redirect parent_ifindex=%d current_ifindex=%d", 
+					   ep->parent_ifindex, THIS_INTERFACE_IFINDEX);
+
+				fib_params.l.family = AF_INET;
+				fib_params.l.l4_protocol = ip4->protocol;
+				fib_params.l.tot_len = bpf_ntohs(ip4->tot_len);
+				fib_params.l.tos = ip4->tos;
+				fib_params.l.ipv4_src = ip4->saddr;
+				fib_params.l.ipv4_dst = ip4->daddr;
+				/* Force lookup as if the packet originated on the parent interface */
+				fib_params.l.ifindex = ep->parent_ifindex;
+
+				fib_ret = (int)fib_lookup(ctx, &fib_params.l, sizeof(fib_params.l),
+							  BPF_FIB_LOOKUP_DIRECT);
+				bpf_printk("nodeport: FIB lookup result=%d output_ifindex=%d", 
+					   fib_ret, fib_params.l.ifindex);
+
+				switch (fib_ret) {
+				case BPF_FIB_LKUP_RET_SUCCESS:
+					/* FIB lookup successful, redirect with proper L2 headers */
+					{
+						int oif = ep->parent_ifindex;
+						bpf_printk("nodeport: FIB success, redirecting to ifindex=%d", oif);
+						ret = fib_do_redirect(ctx, true, &fib_params, true, fib_ret,
+								      &oif, ext_err);
+						return ret;
+					}
+
+				case BPF_FIB_LKUP_RET_NO_NEIGH:
+					/* No neighbor entry, but we can still redirect if we have
+					 * neighbor resolution capability */
+					if (neigh_resolver_available()) {
+						int oif = ep->parent_ifindex;
+						bpf_printk("nodeport: FIB no neigh, using neigh resolver ifindex=%d", oif);
+						ret = fib_do_redirect(ctx, true, &fib_params, true, fib_ret,
+								      &oif, ext_err);
+						return ret;
+					}
+					bpf_printk("nodeport: FIB no neigh, no resolver, fallback");
+					/* Fall through to legacy behavior if no neighbor resolution */
+					break;
+
+				default:
+					bpf_printk("nodeport: FIB lookup failed ret=%d, fallback", fib_ret);
+					/* FIB lookup failed, fall through to legacy behavior */
+					break;
+				}
+
+				/* Fallback to legacy behavior for same L2 network assumption */
+				bpf_printk("nodeport: using legacy L2 redirect to ifindex=%d", ep->parent_ifindex);
+				union macaddr smac = NATIVE_DEV_MAC_BY_IFINDEX(ep->parent_ifindex);
+
+				if (eth_store_saddr_aligned(ctx, smac.addr, 0) < 0)
+					return DROP_WRITE_ERROR;
+				
+				/* Fall back to ctx_redirect for older kernels */
+				return ctx_redirect(ctx, ep->parent_ifindex, 0);
+			}
+		}
+	}
+
 	if (lb_is_svc_proto(tuple.nexthdr) &&
 	    nodeport_has_nat_conflict_ipv4(ip4, &target)) {
 		goto apply_snat;
