@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
@@ -588,6 +589,7 @@ func (c *Client) GetVpcs(ctx context.Context) (ipamTypes.VirtualNetworkMap, erro
 	}
 
 	// Second pass: add CIDRs from peered VPCs
+	startTime := time.Now()
 	peeringConnections, err := c.describeVpcPeeringConnections(ctx)
 	if err != nil {
 		return nil, err
@@ -635,6 +637,9 @@ func (c *Client) GetVpcs(ctx context.Context) (ipamTypes.VirtualNetworkMap, erro
 			}
 		}
 	}
+
+	elapsed := time.Since(startTime)
+	log.Infof("VPC peering connections processing took %d milliseconds", elapsed.Milliseconds())
 
 	return vpcs, nil
 }
