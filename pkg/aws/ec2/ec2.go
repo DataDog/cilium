@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -23,6 +24,7 @@ import (
 	"github.com/cilium/cilium/pkg/aws/types"
 	"github.com/cilium/cilium/pkg/cidr"
 	"github.com/cilium/cilium/pkg/defaults"
+	"github.com/cilium/cilium/pkg/ip"
 	ipPkg "github.com/cilium/cilium/pkg/ip"
 	ipamOption "github.com/cilium/cilium/pkg/ipam/option"
 	ipamTypes "github.com/cilium/cilium/pkg/ipam/types"
@@ -588,7 +590,7 @@ func (c *Client) GetVpcs(ctx context.Context) (ipamTypes.VirtualNetworkMap, erro
 		vpcs[vpc.ID] = vpc
 	}
 
-	// Second pass: add CIDRs from peered VPCs
+	// Second pass: add IPv4 CIDRs from peered VPCs
 	startTime := time.Now()
 	peeringConnections, err := c.describeVpcPeeringConnections(ctx)
 	if err != nil {
@@ -638,10 +640,40 @@ func (c *Client) GetVpcs(ctx context.Context) (ipamTypes.VirtualNetworkMap, erro
 		}
 	}
 
+	// Coalesce peered CIDRs for each VPC
+	for _, vpc := range vpcs {
+		if len(vpc.PeeredCIDRs) > 1 {
+			vpc.PeeredCIDRs = coalesceCIDRStrings(vpc.PeeredCIDRs)
+		}
+	}
+
 	elapsed := time.Since(startTime)
 	log.Infof("VPC peering connections processing took %d milliseconds", elapsed.Milliseconds())
 
 	return vpcs, nil
+}
+
+// coalesceCIDRStrings coalesces IPv4 CIDR strings
+func coalesceCIDRStrings(cidrStrings []string) []string {
+	var cidrs []*net.IPNet
+	for _, cidrStr := range cidrStrings {
+		_, ipnet, err := net.ParseCIDR(cidrStr)
+		if err == nil {
+			cidrs = append(cidrs, ipnet)
+		}
+	}
+
+	if len(cidrs) == 0 {
+		return cidrStrings
+	}
+
+	ipv4CIDRs, _ := ip.CoalesceCIDRs(cidrs)
+
+	result := make([]string, len(ipv4CIDRs))
+	for i, cidr := range ipv4CIDRs {
+		result[i] = cidr.String()
+	}
+	return result
 }
 
 // describeSubnets lists all subnets
