@@ -6,7 +6,6 @@ package excludedlocalmap
 import (
 	"fmt"
 	"net"
-	"sync"
 
 	"github.com/cilium/ebpf"
 
@@ -21,25 +20,29 @@ const (
 	MaxEntries = 64
 )
 
-var (
-	// excludedLocalMap represents the BPF map for excluded local addresses
-	excludedLocalMap     *bpf.Map
-	excludedLocalMapOnce sync.Once
-)
+// ExcludedLocalMap manages excluded local addresses
+type ExcludedLocalMap struct {
+	bpfMap *bpf.Map
+}
 
-// ExcludedLocalMap returns the excluded local addresses BPF map
-func ExcludedLocalMap() *bpf.Map {
-	excludedLocalMapOnce.Do(func() {
-		excludedLocalMap = bpf.NewMap(MapName,
-			ebpf.Hash,
-			&ExcludedLocalKey{},
-			&ExcludedLocalValue{},
-			MaxEntries,
-			0,
-		).WithCache().WithPressureMetric().
-			WithEvents(option.Config.GetEventBufferConfig(MapName))
-	})
-	return excludedLocalMap
+func (m *ExcludedLocalMap) init() error {
+	m.bpfMap = bpf.NewMap(MapName,
+		ebpf.Hash,
+		&ExcludedLocalKey{},
+		&ExcludedLocalValue{},
+		MaxEntries,
+		0,
+	).WithCache().WithPressureMetric().
+		WithEvents(option.Config.GetEventBufferConfig(MapName))
+
+	return nil
+}
+
+func (m *ExcludedLocalMap) close() error {
+	if m.bpfMap != nil {
+		return m.bpfMap.Close()
+	}
+	return nil
 }
 
 // ExcludedLocalKey represents the key for the excluded local addresses map
@@ -70,21 +73,15 @@ func (v *ExcludedLocalValue) String() string {
 	return fmt.Sprintf("flag=%d", v.Flag)
 }
 
-// AddEntry adds an excluded local address to the map
-func AddEntry(ip net.IP) error {
-	key := NewExcludedLocalKey(ip)
-	value := &ExcludedLocalValue{Flag: 1}
-	return ExcludedLocalMap().Update(key, value)
-}
-
 // SyncEntry checks if an excluded local address exists in the map and adds one if needed.
 // Returns boolean indicating if a new entry was added and an error.
-func SyncEntry(ip net.IP) (bool, error) {
+func (m *ExcludedLocalMap) SyncEntry(ip net.IP) (bool, error) {
 	key := NewExcludedLocalKey(ip)
-	_, err := ExcludedLocalMap().Lookup(key)
+	_, err := m.bpfMap.Lookup(key)
 	if err != nil {
 		// Entry doesn't exist, add it
-		err = AddEntry(ip)
+		value := &ExcludedLocalValue{Flag: 1}
+		err = m.bpfMap.Update(key, value)
 		if err == nil {
 			return true, nil
 		}
@@ -93,32 +90,32 @@ func SyncEntry(ip net.IP) (bool, error) {
 }
 
 // DeleteEntry deletes a single map entry
-func DeleteEntry(ip net.IP) error {
+func (m *ExcludedLocalMap) DeleteEntry(ip net.IP) error {
 	key := NewExcludedLocalKey(ip)
-	return ExcludedLocalMap().Delete(key)
+	return m.bpfMap.Delete(key)
 }
 
 // DumpToMap dumps the contents of the excluded local addresses map into a map and returns it
-func DumpToMap() (map[string]ExcludedLocalValue, error) {
-	m := map[string]ExcludedLocalValue{}
+func (m *ExcludedLocalMap) DumpToMap() (map[string]ExcludedLocalValue, error) {
+	result := map[string]ExcludedLocalValue{}
 	callback := func(key bpf.MapKey, value bpf.MapValue) {
 		if info, ok := value.(*ExcludedLocalValue); ok {
 			if excludedKey, ok := key.(*ExcludedLocalKey); ok {
-				m[excludedKey.ToIP().String()] = *info
+				result[excludedKey.ToIP().String()] = *info
 			}
 		}
 	}
 
-	if err := ExcludedLocalMap().DumpWithCallback(callback); err != nil {
+	if err := m.bpfMap.DumpWithCallback(callback); err != nil {
 		return nil, fmt.Errorf("unable to read BPF excluded local addresses list: %w", err)
 	}
 
-	return m, nil
+	return result, nil
 }
 
 // Exists checks if an IP address exists in the excluded local addresses map
-func Exists(ip net.IP) bool {
+func (m *ExcludedLocalMap) Exists(ip net.IP) bool {
 	key := NewExcludedLocalKey(ip)
-	_, err := ExcludedLocalMap().Lookup(key)
+	_, err := m.bpfMap.Lookup(key)
 	return err == nil
 }

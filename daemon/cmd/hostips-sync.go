@@ -35,12 +35,13 @@ const syncHostIPsInterval = time.Minute
 type syncHostIPsParams struct {
 	cell.In
 
-	Jobs          job.Registry
-	Health        cell.Health
-	DB            *statedb.DB
-	Config        *option.DaemonConfig
-	NodeAddresses statedb.Table[tables.NodeAddress]
-	IPCache       *ipcache.IPCache
+	Jobs             job.Registry
+	Health           cell.Health
+	DB               *statedb.DB
+	Config           *option.DaemonConfig
+	NodeAddresses    statedb.Table[tables.NodeAddress]
+	IPCache          *ipcache.IPCache
+	ExcludedLocalMap *excludedlocalmap.ExcludedLocalMap
 }
 
 type syncHostIPs struct {
@@ -139,7 +140,7 @@ func (s *syncHostIPs) sync(addrs iter.Seq2[tables.NodeAddress, statedb.Revision]
 	}
 
 	// Get existing excluded local addresses for cleanup
-	existingExcludedAddrs, err := excludedlocalmap.DumpToMap()
+	existingExcludedAddrs, err := s.params.ExcludedLocalMap.DumpToMap()
 	if err != nil {
 		return fmt.Errorf("dump excluded local addresses map: %w", err)
 	}
@@ -155,7 +156,7 @@ func (s *syncHostIPs) sync(addrs iter.Seq2[tables.NodeAddress, statedb.Revision]
 		if option.Config.IsExcludedLocalAddress(ip) {
 			// Add excluded local address to the excluded local addresses map
 			// so BPF can still recognize it as local for routing decisions
-			added, err := excludedlocalmap.SyncEntry(ip)
+			added, err := s.params.ExcludedLocalMap.SyncEntry(net.IP(ip))
 			if err != nil {
 				log.WithError(err).WithField(logfields.IPAddr, ip).Error("Unable to add excluded local address to map")
 			} else if added {
@@ -236,7 +237,7 @@ func (s *syncHostIPs) sync(addrs iter.Seq2[tables.NodeAddress, statedb.Revision]
 	// Clean up obsolete excluded local addresses
 	for excludedIP := range existingExcludedAddrs {
 		if ip := net.ParseIP(excludedIP); ip != nil {
-			if err := excludedlocalmap.DeleteEntry(ip); err != nil {
+			if err := s.params.ExcludedLocalMap.DeleteEntry(ip); err != nil {
 				return fmt.Errorf("unable to delete obsolete excluded local address: %w", err)
 			} else {
 				log.Debugf("Removed outdated excluded local address %s from map", excludedIP)
