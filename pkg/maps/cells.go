@@ -14,6 +14,7 @@ import (
 	"github.com/cilium/cilium/pkg/maps/configmap"
 	"github.com/cilium/cilium/pkg/maps/ctmap/gc"
 	"github.com/cilium/cilium/pkg/maps/egressmap"
+	"github.com/cilium/cilium/pkg/maps/excludedlocalmap"
 	"github.com/cilium/cilium/pkg/maps/l2respondermap"
 	"github.com/cilium/cilium/pkg/maps/multicast"
 	"github.com/cilium/cilium/pkg/maps/nat"
@@ -41,6 +42,9 @@ var Cell = cell.Module(
 
 	// Provides access to egressgateway specific maps.
 	egressmap.Cell,
+
+	// Provides the map which stores excluded local addresses
+	excludedlocalmap.Cell,
 
 	// Provides signalmap for datapath signals
 	signalmap.Cell,

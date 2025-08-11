@@ -19,6 +19,15 @@ struct {
 } ENDPOINTS_MAP __section_maps_btf;
 
 struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__type(key, struct endpoint_key);
+	__type(value, __u8);
+	__uint(pinning, LIBBPF_PIN_BY_NAME);
+	__uint(max_entries, EXCLUDED_LOCAL_ADDRS_MAP_SIZE);
+	__uint(map_flags, CONDITIONAL_PREALLOC);
+} EXCLUDED_LOCAL_ADDRS_MAP __section_maps_btf;
+
+struct {
 	__uint(type, BPF_MAP_TYPE_PERCPU_HASH);
 	__type(key, struct metrics_key);
 	__type(value, struct metrics_value);
