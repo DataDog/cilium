@@ -95,3 +95,39 @@ ipcache_lookup4(const void *map, __be32 addr, __u32 prefix, __u32 cluster_id)
 	ipcache_lookup6(&IPCACHE_MAP, addr, V6_CACHE_KEY_LEN, cluster_id)
 #define lookup_ip4_remote_endpoint(addr, cluster_id) \
 	ipcache_lookup4(&IPCACHE_MAP, addr, V4_CACHE_KEY_LEN, cluster_id)
+
+/* Excluded local address lookup functions */
+static __always_inline __maybe_unused __u8 *
+__lookup_ip6_excluded_local(const union v6addr *ip6)
+{
+	struct endpoint_key key = {};
+
+	key.ip6 = *ip6;
+	key.family = ENDPOINT_KEY_IPV6;
+
+	return map_lookup_elem(&EXCLUDED_LOCAL_ADDRS_MAP, &key);
+}
+
+static __always_inline __maybe_unused __u8 *
+__lookup_ip4_excluded_local(__u32 ip)
+{
+	struct endpoint_key key = {};
+
+	key.ip4 = ip;
+	key.family = ENDPOINT_KEY_IPV4;
+
+	return map_lookup_elem(&EXCLUDED_LOCAL_ADDRS_MAP, &key);
+}
+
+/* Convenience functions that return true/false for easier use */
+static __always_inline __maybe_unused bool
+is_excluded_local_ip6(const union v6addr *ip6)
+{
+	return __lookup_ip6_excluded_local(ip6) != NULL;
+}
+
+static __always_inline __maybe_unused bool
+is_excluded_local_ip4(__u32 ip)
+{
+	return __lookup_ip4_excluded_local(ip) != NULL;
+}

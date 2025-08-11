@@ -22,6 +22,7 @@ import (
 	ipcachetypes "github.com/cilium/cilium/pkg/ipcache/types"
 	"github.com/cilium/cilium/pkg/labels"
 	"github.com/cilium/cilium/pkg/logging/logfields"
+	"github.com/cilium/cilium/pkg/maps/excludedlocalmap"
 	"github.com/cilium/cilium/pkg/maps/lxcmap"
 	"github.com/cilium/cilium/pkg/metrics"
 	"github.com/cilium/cilium/pkg/option"
@@ -137,6 +138,12 @@ func (s *syncHostIPs) sync(addrs iter.Seq2[tables.NodeAddress, statedb.Revision]
 		})
 	}
 
+	// Get existing excluded local addresses for cleanup
+	existingExcludedAddrs, err := excludedlocalmap.DumpToMap()
+	if err != nil {
+		return fmt.Errorf("dump excluded local addresses map: %w", err)
+	}
+
 	for addr := range addrs {
 		if addr.DeviceName == tables.WildcardDeviceName {
 			continue
@@ -146,6 +153,16 @@ func (s *syncHostIPs) sync(addrs iter.Seq2[tables.NodeAddress, statedb.Revision]
 			continue
 		}
 		if option.Config.IsExcludedLocalAddress(ip) {
+			// Add excluded local address to the excluded local addresses map
+			// so BPF can still recognize it as local for routing decisions
+			added, err := excludedlocalmap.SyncEntry(ip)
+			if err != nil {
+				log.WithError(err).WithField(logfields.IPAddr, ip).Error("Unable to add excluded local address to map")
+			} else if added {
+				log.WithField(logfields.IPAddr, ip).Debug("Added excluded local address to map")
+			}
+			// Remove from tracking map so it won't be cleaned up
+			delete(existingExcludedAddrs, net.IP(ip).String())
 			continue
 		}
 		addIdentity(ip, nil, identity.ReservedIdentityHost, labels.LabelHost)
@@ -213,6 +230,17 @@ func (s *syncHostIPs) sync(addrs iter.Seq2[tables.NodeAddress, statedb.Revision]
 				log.Debugf("Removed outdated host IP %s from endpoint map", hostIP)
 			}
 			s.params.IPCache.RemoveLabels(ippkg.IPToNetPrefix(ip), labels.LabelHost, daemonResourceID)
+		}
+	}
+
+	// Clean up obsolete excluded local addresses
+	for excludedIP := range existingExcludedAddrs {
+		if ip := net.ParseIP(excludedIP); ip != nil {
+			if err := excludedlocalmap.DeleteEntry(ip); err != nil {
+				return fmt.Errorf("unable to delete obsolete excluded local address: %w", err)
+			} else {
+				log.Debugf("Removed outdated excluded local address %s from map", excludedIP)
+			}
 		}
 	}
 
