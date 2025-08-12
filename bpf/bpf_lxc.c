@@ -1287,14 +1287,14 @@ skip_vtep:
 #endif /* TUNNEL_MODE || ENABLE_HIGH_SCALE_IPCACHE */
 
 	if (is_defined(ENABLE_HOST_ROUTING)) {
+		int oif = 0;
+
 		/* Check if this is an excluded local address that still needs
 		 * local delivery. If so, don't attempt FIB redirect as it will fail.
 		 */
-		if (is_excluded_local_ip4(daddr)) {
+		if (is_excluded_local_ip4(ip4->daddr)) {
 			goto pass_to_stack;
 		}
-
-		int oif = 0;
 
 		ret = fib_redirect_v4(ctx, ETH_HLEN, ip4, false, false, ext_err, &oif);
 		if (fib_ok(ret))
