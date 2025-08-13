@@ -54,9 +54,10 @@ type ciliumNodeSynchronizer struct {
 
 	k8sCiliumNodesCacheSynced    chan struct{}
 	ciliumNodeManagerQueueSynced chan struct{}
+	workqueueMetricsProvider     workqueue.MetricsProvider
 }
 
-func newCiliumNodeSynchronizer(clientset k8sClient.Clientset, nodeManager allocator.NodeEventHandler, withKVStore bool) *ciliumNodeSynchronizer {
+func newCiliumNodeSynchronizer(clientset k8sClient.Clientset, nodeManager allocator.NodeEventHandler, withKVStore bool, workqueueMetricsProvider workqueue.MetricsProvider) *ciliumNodeSynchronizer {
 	return &ciliumNodeSynchronizer{
 		clientset:   clientset,
 		nodeManager: nodeManager,
@@ -64,6 +65,7 @@ func newCiliumNodeSynchronizer(clientset k8sClient.Clientset, nodeManager alloca
 
 		k8sCiliumNodesCacheSynced:    make(chan struct{}),
 		ciliumNodeManagerQueueSynced: make(chan struct{}),
+		workqueueMetricsProvider:     workqueueMetricsProvider,
 	}
 }
 
@@ -75,11 +77,23 @@ func (s *ciliumNodeSynchronizer) Start(ctx context.Context, wg *sync.WaitGroup, 
 		kvStoreSyncHandler     func(key string) error
 		connectedToKVStore     = make(chan struct{})
 
-		resourceEventHandler   = cache.ResourceEventHandlerFuncs{}
-		ciliumNodeManagerQueue = workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
-		kvStoreQueue           = workqueue.NewRateLimitingQueue(
-			workqueue.NewItemExponentialFailureRateLimiter(1*time.Second, 120*time.Second),
-		)
+		resourceEventHandler = cache.ResourceEventHandlerFuncs{}
+	)
+
+	var ciliumNodeManagerQueueConfig = workqueue.RateLimitingQueueConfig{
+		Name: "node_manager",
+	}
+	var kvStoreQueueConfig = workqueue.RateLimitingQueueConfig{
+		Name: "kvstore",
+	}
+
+	ciliumNodeManagerQueueConfig.MetricsProvider = s.workqueueMetricsProvider
+	kvStoreQueueConfig.MetricsProvider = s.workqueueMetricsProvider
+
+	var ciliumNodeManagerQueue = workqueue.NewRateLimitingQueueWithConfig(workqueue.DefaultControllerRateLimiter(), ciliumNodeManagerQueueConfig)
+	var kvStoreQueue = workqueue.NewRateLimitingQueueWithConfig(
+		workqueue.NewItemExponentialFailureRateLimiter(1*time.Second, 120*time.Second),
+		kvStoreQueueConfig,
 	)
 
 	// KVStore is enabled -> we will run the event handler to sync objects into
