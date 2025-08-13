@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/pprof"
+	"runtime"
 	"strconv"
 
 	"github.com/cilium/hive/cell"
@@ -113,6 +114,9 @@ func (s *server) Start(ctx cell.HookContext) error {
 			s.logger.WithError(err).Error("server stopped unexpectedly")
 		}
 	}()
+	runtime.SetBlockProfileRate(1)
+	runtime.SetMutexProfileFraction(1)
+
 	s.logger.Info("Started pprof server")
 
 	return nil

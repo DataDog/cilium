@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
+	"k8s.io/client-go/util/workqueue"
 
 	operatorApi "github.com/cilium/cilium/api/v1/operator/server"
 	troubleshoot "github.com/cilium/cilium/cilium-dbg/cmd/troubleshoot"
@@ -511,18 +512,19 @@ var legacyCell = cell.Module(
 	metrics.Metric(NewUnmanagedPodsMetric),
 )
 
-func registerLegacyOnLeader(lc cell.Lifecycle, clientset k8sClient.Clientset, resources operatorK8s.Resources, factory store.Factory, svcResolver *dial.ServiceResolver, cfgMCSAPI cmoperator.MCSAPIConfig, metrics *UnmanagedPodsMetric, logger *slog.Logger) {
+func registerLegacyOnLeader(lc cell.Lifecycle, clientset k8sClient.Clientset, resources operatorK8s.Resources, factory store.Factory, svcResolver *dial.ServiceResolver, cfgMCSAPI cmoperator.MCSAPIConfig, metrics *UnmanagedPodsMetric, logger *slog.Logger, workqueueMetricsProvider workqueue.MetricsProvider) {
 	ctx, cancel := context.WithCancel(context.Background())
 	legacy := &legacyOnLeader{
-		ctx:          ctx,
-		cancel:       cancel,
-		clientset:    clientset,
-		resources:    resources,
-		storeFactory: factory,
-		svcResolver:  svcResolver,
-		cfgMCSAPI:    cfgMCSAPI,
-		metrics:      metrics,
-		logger:       logger,
+		ctx:                      ctx,
+		cancel:                   cancel,
+		clientset:                clientset,
+		resources:                resources,
+		storeFactory:             factory,
+		svcResolver:              svcResolver,
+		cfgMCSAPI:                cfgMCSAPI,
+		metrics:                  metrics,
+		logger:                   logger,
+		workqueueMetricsProvider: workqueueMetricsProvider,
 	}
 	lc.Append(cell.Hook{
 		OnStart: legacy.onStart,
@@ -531,15 +533,16 @@ func registerLegacyOnLeader(lc cell.Lifecycle, clientset k8sClient.Clientset, re
 }
 
 type legacyOnLeader struct {
-	ctx          context.Context
-	cancel       context.CancelFunc
-	clientset    k8sClient.Clientset
-	wg           sync.WaitGroup
-	resources    operatorK8s.Resources
-	storeFactory store.Factory
-	svcResolver  *dial.ServiceResolver
-	cfgMCSAPI    cmoperator.MCSAPIConfig
-	metrics      *UnmanagedPodsMetric
+	ctx                      context.Context
+	cancel                   context.CancelFunc
+	clientset                k8sClient.Clientset
+	wg                       sync.WaitGroup
+	resources                operatorK8s.Resources
+	storeFactory             store.Factory
+	svcResolver              *dial.ServiceResolver
+	cfgMCSAPI                cmoperator.MCSAPIConfig
+	metrics                  *UnmanagedPodsMetric
+	workqueueMetricsProvider workqueue.MetricsProvider
 
 	logger *slog.Logger
 }
@@ -688,7 +691,7 @@ func (legacy *legacyOnLeader) onStart(_ cell.HookContext) error {
 			watcherLogger)
 	}
 
-	ciliumNodeSynchronizer := newCiliumNodeSynchronizer(legacy.clientset, nodeManager, withKVStore)
+	ciliumNodeSynchronizer := newCiliumNodeSynchronizer(legacy.clientset, nodeManager, withKVStore, legacy.workqueueMetricsProvider)
 
 	if legacy.clientset.IsEnabled() {
 		// ciliumNodeSynchronizer uses operatorWatchers.PodStore for IPAM surge
