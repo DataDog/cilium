@@ -115,7 +115,7 @@ func (s *server) Start(ctx cell.HookContext) error {
 		}
 	}()
 	runtime.SetBlockProfileRate(1)
-	runtime.SetMutexProfileFraction(100)
+	runtime.SetMutexProfileFraction(1)
 
 	s.logger.Info("Started pprof server")
 
