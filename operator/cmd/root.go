@@ -91,9 +91,11 @@ var (
 		pprof.Cell,
 		cell.ProvidePrivate(func(cfg operatorPprofConfig) pprof.Config {
 			return pprof.Config{
-				Pprof:        cfg.OperatorPprof,
-				PprofAddress: cfg.OperatorPprofAddress,
-				PprofPort:    cfg.OperatorPprofPort,
+				Pprof:                     cfg.OperatorPprof,
+				PprofAddress:              cfg.OperatorPprofAddress,
+				PprofPort:                 cfg.OperatorPprofPort,
+				PprofMutexProfileFraction: cfg.OperatorPprofMutexProfileFraction,
+				PprofBlockProfileRate:     cfg.OperatorPprofBlockProfileRate,
 			}
 		}),
 		cell.Config(operatorPprofConfig{
