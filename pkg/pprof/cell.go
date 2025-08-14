@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/pprof"
+	"runtime"
 	"strconv"
 
 	"github.com/cilium/hive/cell"
@@ -24,6 +25,16 @@ const (
 
 	// PprofPort is the flag to set the port that pprof listens on
 	PprofPort = "pprof-port"
+
+	// PprofMutexProfileFraction is the flag to enable mutex contention profiling and set the fraction of sampled events.
+	// Set to 1 to sample all events.
+	// This setting can have performance overhead in production.
+	PprofMutexProfileFraction = "pprof-mutex-profile-fraction"
+
+	// PprofBlockProfileRate is the flag to enable goroutine blocking profiling and set the rate of sampled events in nanoseconds.
+	// Set to 1 to sample all events.
+	// This setting can have performance overhead in production.
+	PprofBlockProfileRate = "pprof-block-profile-rate"
 )
 
 type Server interface {
@@ -50,20 +61,34 @@ var Cell = cell.Module(
 
 // Config contains the configuration for the pprof cell.
 type Config struct {
-	Pprof        bool
-	PprofAddress string
-	PprofPort    uint16
+	Pprof                     bool
+	PprofAddress              string
+	PprofPort                 uint16
+	PprofMutexProfileFraction int
+	PprofBlockProfileRate     int
 }
 
 func (def Config) Flags(flags *pflag.FlagSet) {
 	flags.Bool(Pprof, def.Pprof, "Enable serving pprof debugging API")
 	flags.String(PprofAddress, def.PprofAddress, "Address that pprof listens on")
 	flags.Uint16(PprofPort, def.PprofPort, "Port that pprof listens on")
+	flags.Int(PprofMutexProfileFraction, def.PprofMutexProfileFraction, "Enable mutex contention profiling and set the fraction of sampled events (set to 1 to sample all events)")
+	flags.Int(PprofBlockProfileRate, def.PprofBlockProfileRate, "Enable goroutine blocking profiling and set the rate of sampled events in nanoseconds (set to 1 to sample all events)")
 }
 
 func newServer(lc cell.Lifecycle, log logrus.FieldLogger, cfg Config) Server {
 	if !cfg.Pprof {
 		return nil
+	}
+
+	// Configure runtime profiling settings
+	if cfg.PprofMutexProfileFraction > 0 {
+		runtime.SetMutexProfileFraction(cfg.PprofMutexProfileFraction)
+		log.WithField("fraction", cfg.PprofMutexProfileFraction).Info("Enabled mutex contention profiling")
+	}
+	if cfg.PprofBlockProfileRate > 0 {
+		runtime.SetBlockProfileRate(cfg.PprofBlockProfileRate)
+		log.WithField("rate", cfg.PprofBlockProfileRate).Info("Enabled goroutine block profiling")
 	}
 
 	srv := &server{
