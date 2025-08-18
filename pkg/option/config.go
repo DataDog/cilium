@@ -520,6 +520,16 @@ const (
 	// without any backends
 	ServiceNoBackendResponseDrop = "drop"
 
+	// PolicyDenyResponse is the name of the option to pick how to handle traffic denied by policy.
+	// Valid options are 'drop' and 'reject'.
+	PolicyDenyResponse = "policy-deny-response"
+
+	// PolicyDenyResponseReject is the name of the option to reject traffic denied by policy.
+	PolicyDenyResponseReject = "reject"
+
+	// PolicyDenyResponseDrop is the name of the option to drop traffic denied by policy.
+	PolicyDenyResponseDrop = "drop"
+
 	// MaxInternalTimerDelay sets a maximum on all periodic timers in
 	// the agent in order to flush out timer-related bugs in the agent.
 	MaxInternalTimerDelay = "max-internal-timer-delay"
@@ -2234,6 +2244,9 @@ type DaemonConfig struct {
 	// ServiceNoBackendResponse determines how we handle traffic to a service with no backends.
 	ServiceNoBackendResponse string
 
+	// PolicyDenyResponse determines how we handle traffic denied by policy.
+	PolicyDenyResponse string
+
 	// EnableNodeSelectorLabels enables use of the node label based identity
 	EnableNodeSelectorLabels bool
 
@@ -3016,6 +3029,15 @@ func (c *DaemonConfig) Populate(vp *viper.Viper) {
 		c.ServiceNoBackendResponse = defaults.ServiceNoBackendResponse
 	default:
 		log.Fatalf("Invalid value for --%s: %s (must be 'reject' or 'drop')", ServiceNoBackendResponse, c.ServiceNoBackendResponse)
+	}
+
+	c.PolicyDenyResponse = vp.GetString(PolicyDenyResponse)
+	switch c.PolicyDenyResponse {
+	case PolicyDenyResponseReject, PolicyDenyResponseDrop:
+	case "":
+		c.PolicyDenyResponse = defaults.PolicyDenyResponse
+	default:
+		log.Fatalf("Invalid value for --%s: %s (must be 'reject' or 'drop')", PolicyDenyResponse, c.PolicyDenyResponse)
 	}
 
 	c.populateLoadBalancerSettings(vp)
