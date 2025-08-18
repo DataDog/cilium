@@ -528,6 +528,9 @@ const (
 	// ServiceNoBackendResponse is the default response for services without backends
 	ServiceNoBackendResponse = "reject"
 
+	// PolicyDenyResponse is the default response for policy denials
+	PolicyDenyResponse = "drop"
+
 	// Use the CiliumInternalIPs (vs. NodeInternalIPs) for IPsec encapsulation.
 	UseCiliumInternalIPForIPsec = false
 
