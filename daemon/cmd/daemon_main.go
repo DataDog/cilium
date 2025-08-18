@@ -630,6 +630,10 @@ func InitGlobalFlags(logger *slog.Logger, cmd *cobra.Command, vp *viper.Viper) {
 	option.BindEnv(vp, option.ServiceNoBackendResponse)
 
 	flags.Int(option.TracePayloadlen, defaults.TracePayloadLen, "Length of payload to capture when tracing native packets.")
+
+	flags.String(option.PolicyDenyResponse, defaults.PolicyDenyResponse, "What happens where there is a policy packet drop")
+	option.BindEnv(vp, option.PolicyDenyResponse)
+
 	option.BindEnv(vp, option.TracePayloadlen)
 
 	flags.Int(option.TracePayloadlenOverlay, defaults.TracePayloadLenOverlay, "Length of payload to capture when tracing overlay packets.")
