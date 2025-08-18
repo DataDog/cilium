@@ -28,7 +28,7 @@ require (
 	github.com/cilium/linters v0.1.0
 	github.com/cilium/lumberjack/v2 v2.4.1
 	github.com/cilium/proxy v0.0.0-20250526114940-b80199397e8a
-	github.com/cilium/statedb v0.4.0
+	github.com/cilium/statedb v0.4.5
 	github.com/cilium/stream v0.0.0-20241203114243-53c3e5d79744
 	github.com/cilium/workerpool v1.2.0
 	github.com/containernetworking/cni v1.2.3
@@ -64,6 +64,7 @@ require (
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/go-immutable-radix/v2 v2.1.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
+	github.com/hmarr/codeowners v1.2.1
 	github.com/jeremywohl/flatten v1.0.1
 	github.com/json-iterator/go v1.1.12
 	github.com/kevinburke/ssh_config v1.2.0
@@ -258,6 +259,7 @@ require (
 	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/dig v1.17.1 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
+	go.yaml.in/yaml/v3 v3.0.3 // indirect
 	golang.org/x/exp v0.0.0-20240808152545-0cdaa3abc0fa // indirect
 	golang.org/x/oauth2 v0.27.0 // indirect
 	golang.org/x/text v0.24.0 // indirect
@@ -281,3 +283,7 @@ require (
 // Using private fork of controller-tools. See commit msg for more context
 // as to why we are using a private fork.
 replace sigs.k8s.io/controller-tools => github.com/cilium/controller-tools v0.16.5-1
+
+// Using private fork of gobgp. See commit msg for more context as to why we
+// are using a private fork.
+replace github.com/osrg/gobgp/v3 => github.com/cilium/gobgp/v3 v3.0.0-20250717193620-26a4abb75464

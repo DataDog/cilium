@@ -120,6 +120,8 @@ github.com/cilium/endpointslice-controller v0.0.0-20240409203012-75cb5d61db1b h1
 github.com/cilium/endpointslice-controller v0.0.0-20240409203012-75cb5d61db1b/go.mod h1:izWO5C3waDVkh/nt++nNyozXyJAPL6tfFpJSMtzVnwQ=
 github.com/cilium/fake v0.6.1 h1:cLkNx1nkF0b0pPW79JaQxaI5oG2/rBzRKpp0YUg1fTA=
 github.com/cilium/fake v0.6.1/go.mod h1:V9lCbbcsnSf3vB6sdOP7Q0bsUUJ/jyHPZxnFAw5nPUc=
+github.com/cilium/gobgp/v3 v3.0.0-20250717193620-26a4abb75464 h1:lQMPil6k4HhTG3PJXxKsNFzjqPHOnu55uQg+1rhl0VE=
+github.com/cilium/gobgp/v3 v3.0.0-20250717193620-26a4abb75464/go.mod h1:kVHVFy1/fyZHJ8P32+ctvPeJogn9qKwa1YCeMRXXrP0=
 github.com/cilium/hive v0.0.0-20250522145610-0734675df148 h1:0zljF9fNEJ36/OyifWahfcizUcs+X9OMSvEv58+wo5g=
 github.com/cilium/hive v0.0.0-20250522145610-0734675df148/go.mod h1:pI2GJ1n3SLKIQVFrKF7W6A6gb6BQkZ+3Hp4PAEo5SuI=
 github.com/cilium/linters v0.1.0 h1:ABdLyPBtF+X6oTlTE0AAJbkuo2s1OYaEsP2jb9+7BGY=
@@ -128,8 +130,8 @@ github.com/cilium/lumberjack/v2 v2.4.1 h1:tU92KFJmLQ4Uls5vTgok5b5RbfxpawRia7L14y
 github.com/cilium/lumberjack/v2 v2.4.1/go.mod h1:yfbtPGmg4i//5oEqzaMxDqSWqgfZFmMoV70Mc2k6v0A=
 github.com/cilium/proxy v0.0.0-20250526114940-b80199397e8a h1:5pJ6eaVk/y1C8cBMpfUWMuHa+qTefq2jqcNf0et0mGk=
 github.com/cilium/proxy v0.0.0-20250526114940-b80199397e8a/go.mod h1:Bs5kHQ+FYHLrAkEaTQpbwblJIv6NfU2Tsuo+wCkN+9s=
-github.com/cilium/statedb v0.4.0 h1:DfKqsWQIswFSbVZL/rY7vDiegQeEMyo4QzYn2h+Dpyo=
-github.com/cilium/statedb v0.4.0/go.mod h1:97Tuc0pVTQuiy0go9TTuNQWF8mF3LkTy1Lw/k4Ja5k4=
+github.com/cilium/statedb v0.4.5 h1:WP1xbkAdDup0wOkhRZUJG/Wh4+ZLAOgl7yIIxJ3vIEo=
+github.com/cilium/statedb v0.4.5/go.mod h1:DlxX9OQi/nM8oumUuz8VjxXUtVRiEfbfo8Ri1YWNCGI=
 github.com/cilium/stream v0.0.0-20241203114243-53c3e5d79744 h1:f+CgYUy2YyZ2EX31QSqf3vwFiJJQSAMIQLn4d3QQYno=
 github.com/cilium/stream v0.0.0-20241203114243-53c3e5d79744/go.mod h1:/e83AwqvNKpyg4n3C41qmnmj1x2G9DwzI+jb7GkF4lI=
 github.com/cilium/workerpool v1.2.0 h1:Wc2iOPTvCgWKQXeq4L5tnx4QFEI+z5q1+bSpSS0cnAY=
@@ -357,6 +359,8 @@ github.com/hashicorp/hcl v1.0.1-vault-5 h1:kI3hhbbyzr4dldA8UdTb7ZlVVlI2DACdCfz31
 github.com/hashicorp/hcl v1.0.1-vault-5/go.mod h1:XYhtn6ijBSAj6n4YqAaf7RBPS4I06AItNorpy+MoQNM=
 github.com/hexops/gotextdiff v1.0.3 h1:gitA9+qJrrTCsiCl7+kh75nPqQt1cx4ZkudSTLoUqJM=
 github.com/hexops/gotextdiff v1.0.3/go.mod h1:pSWU5MAI3yDq+fZBTazCSJysOMbxWL1BSow5/V2vxeg=
+github.com/hmarr/codeowners v1.2.1 h1:+9yndrwG0UVP1GkLBEQMSbSUNeLpbrbL924SRthA/9k=
+github.com/hmarr/codeowners v1.2.1/go.mod h1:KPlR1p/B4owPjwfNIBueWlOP4CmqlQFX9b6nANG6j40=
 github.com/hpcloud/tail v1.0.0/go.mod h1:ab1qPbhIpdTxEkNHXyeSf5vhxWSCs/tWer42PpOxQnU=
 github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2s0bqwp9tc8=
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
@@ -483,8 +487,6 @@ github.com/opencontainers/image-spec v1.1.0 h1:8SG7/vwALn54lVB/0yZ/MMwhFrPYtpEHQ
 github.com/opencontainers/image-spec v1.1.0/go.mod h1:W4s4sFTMaBeK1BQLXbG4AdM2szdn85PY75RI83NrTrM=
 github.com/opentracing/opentracing-go v1.2.1-0.20220228012449-10b1cf09e00b h1:FfH+VrHHk6Lxt9HdVS0PXzSXFyS2NbZKXv33FYPol0A=
 github.com/opentracing/opentracing-go v1.2.1-0.20220228012449-10b1cf09e00b/go.mod h1:AC62GU6hc0BrNm+9RK9VSiwa/EUe1bkIeFORAMcHvJU=
-github.com/osrg/gobgp/v3 v3.35.0 h1:8HQyCCoByAJyXiSzTFBl77wuOyVdDXozPdXX+tjYyHQ=
-github.com/osrg/gobgp/v3 v3.35.0/go.mod h1:l2nPaHaLmIoKbFxMUzKon/h6c9BTzCp5zJI9Dhnrx5c=
 github.com/pelletier/go-toml v1.9.5 h1:4yBQzkHv+7BHq2PQUZF3Mx0IYxG7LsP222s7Agd3ve8=
 github.com/pelletier/go-toml v1.9.5/go.mod h1:u1nR/EPcESfeI/szUZKdtJ0xRNbUoANCkoOuaOx1Y+c=
 github.com/pelletier/go-toml/v2 v2.2.2 h1:aYUidT7k73Pcl9nb2gScu7NSrKCSHIDE89b3+6Wq+LM=
@@ -639,6 +641,8 @@ go.uber.org/multierr v1.11.0 h1:blXXJkSxSSfBVBlC76pxqeO+LN3aDfLQo+309xJstO0=
 go.uber.org/multierr v1.11.0/go.mod h1:20+QtiLqy0Nd6FdQB9TLXag12DsQkrbs3htMFfDN80Y=
 go.uber.org/zap v1.27.0 h1:aJMhYGrd5QSmlpLMr2MftRKl7t8J8PTZPA732ud/XR8=
 go.uber.org/zap v1.27.0/go.mod h1:GB2qFLM7cTU87MWRP2mPIjqfIDnGu+VIO4V/SdhGo2E=
+go.yaml.in/yaml/v3 v3.0.3 h1:bXOww4E/J3f66rav3pX3m8w6jDE4knZjGOw8b5Y6iNE=
+go.yaml.in/yaml/v3 v3.0.3/go.mod h1:tBHosrYAkRZjRAOREWbDnBXUf08JOwYq++0QNwQiWzI=
 go4.org/netipx v0.0.0-20231129151722-fdeea329fbba h1:0b9z3AuHCjxk0x/opv64kcgZLBseWJUpBw5I82+2U4M=
 go4.org/netipx v0.0.0-20231129151722-fdeea329fbba/go.mod h1:PLyyIXexvUFg3Owu6p/WfdlivPbZJsZdgWZlrGope/Y=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=

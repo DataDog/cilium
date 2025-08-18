@@ -286,8 +286,8 @@ github.com/cilium/lumberjack/v2
 ## explicit; go 1.23.0
 github.com/cilium/proxy/go/cilium/api
 github.com/cilium/proxy/pkg/policy/api/kafka
-# github.com/cilium/statedb v0.4.0
-## explicit; go 1.23
+# github.com/cilium/statedb v0.4.5
+## explicit; go 1.24
 github.com/cilium/statedb
 github.com/cilium/statedb/index
 github.com/cilium/statedb/internal
@@ -923,6 +923,9 @@ github.com/hashicorp/hcl/hcl/token
 github.com/hashicorp/hcl/json/parser
 github.com/hashicorp/hcl/json/scanner
 github.com/hashicorp/hcl/json/token
+# github.com/hmarr/codeowners v1.2.1
+## explicit; go 1.18
+github.com/hmarr/codeowners
 # github.com/inconshreveable/mousetrap v1.1.0
 ## explicit; go 1.18
 github.com/inconshreveable/mousetrap
@@ -1107,8 +1110,8 @@ github.com/opencontainers/image-spec/specs-go/v1
 github.com/opentracing/opentracing-go
 github.com/opentracing/opentracing-go/ext
 github.com/opentracing/opentracing-go/log
-# github.com/osrg/gobgp/v3 v3.35.0
-## explicit; go 1.22.7
+# github.com/osrg/gobgp/v3 v3.35.0 => github.com/cilium/gobgp/v3 v3.0.0-20250717193620-26a4abb75464
+## explicit; go 1.23.0
 github.com/osrg/gobgp/v3/api
 github.com/osrg/gobgp/v3/internal/pkg/table
 github.com/osrg/gobgp/v3/internal/pkg/version
@@ -1407,6 +1410,9 @@ go.uber.org/zap/internal/pool
 go.uber.org/zap/internal/stacktrace
 go.uber.org/zap/zapcore
 go.uber.org/zap/zapgrpc
+# go.yaml.in/yaml/v3 v3.0.3
+## explicit; go 1.22
+go.yaml.in/yaml/v3
 # go4.org/netipx v0.0.0-20231129151722-fdeea329fbba
 ## explicit; go 1.18
 go4.org/netipx
@@ -2503,3 +2509,4 @@ sigs.k8s.io/yaml
 sigs.k8s.io/yaml/goyaml.v2
 sigs.k8s.io/yaml/goyaml.v3
 # sigs.k8s.io/controller-tools => github.com/cilium/controller-tools v0.16.5-1
+# github.com/osrg/gobgp/v3 => github.com/cilium/gobgp/v3 v3.0.0-20250717193620-26a4abb75464

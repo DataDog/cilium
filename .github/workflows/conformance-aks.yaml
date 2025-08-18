@@ -208,6 +208,8 @@ jobs:
             --helm-set ipam.operator.clusterPoolIPv4PodCIDRList=192.168.0.0/16 \
             --helm-set ipam.operator.clusterPoolIPv6PodCIDRList=fd00::/104"
           CONNECTIVITY_TEST_DEFAULTS="--flow-validation=disabled \
+            --log-code-owners --code-owners=${CILIUM_CLI_CODE_OWNERS_PATHS} \
+            --exclude-code-owners=${CILIUM_CLI_EXCLUDE_OWNERS} \
             --hubble=false --collect-sysdump-on-failure --external-target bing.com. --external-cidr 8.0.0.0/8 --external-ip 8.8.4.4 --external-other-ip 8.8.8.8"
           echo cilium_install_defaults=${CILIUM_INSTALL_DEFAULTS} >> $GITHUB_OUTPUT
           echo connectivity_test_defaults=${CONNECTIVITY_TEST_DEFAULTS} >> $GITHUB_OUTPUT
@@ -246,7 +248,7 @@ jobs:
             --name ${{ env.name }}
 
       - name: Install Cilium CLI
-        uses: cilium/cilium-cli@011bd4acc9dd898b40bca93faf2986ea4b55a95a # v0.18.5
+        uses: cilium/cilium-cli@746083db48591ffbebd37743873a91a13a6b04b8 # v0.18.6
         with:
           skip-build: ${{ env.CILIUM_CLI_SKIP_BUILD }}
           image-repo: ${{ env.CILIUM_CLI_IMAGE_REPO }}
@@ -293,18 +295,16 @@ jobs:
       - name: Run sequential connectivity test (${{ join(matrix.*, ', ') }})
         run: |
           cilium connectivity test ${{ steps.vars.outputs.connectivity_test_defaults }} \
-          --log-code-owners \
           --test "seq-.*" \
-          --junit-file "cilium-junits/${{ env.job_name }} (${{ join(matrix.*, ', ') }}) - 1.xml" \
+          --junit-file "cilium-junits/${{ env.job_name }}-sequential-clear (${{ join(matrix.*, ', ') }}).xml" \
           --junit-property github_job_step="Run connectivity test (${{ join(matrix.*, ', ') }})"
 
       - name: Run concurrent connectivity test (${{ join(matrix.*, ', ') }})
         run: |
           cilium connectivity test ${{ steps.vars.outputs.connectivity_test_defaults }} \
-          --log-code-owners \
           --test-concurrency=${{ env.test_concurrency }} \
           --test "!seq-.*" \
-          --junit-file "cilium-junits/${{ env.job_name }} (${{ join(matrix.*, ', ') }}) - 1.xml" \
+          --junit-file "cilium-junits/${{ env.job_name }}-concurrent-clear (${{ join(matrix.*, ', ') }}).xml" \
           --junit-property github_job_step="Run connectivity test (${{ join(matrix.*, ', ') }})"
 
       - name: Features tested
@@ -338,16 +338,14 @@ jobs:
       - name: Run sequential connectivity test with IPSec (${{ join(matrix.*, ', ') }})
         run: |
           cilium connectivity test ${{ steps.vars.outputs.connectivity_test_defaults }} --force-deploy \
-          --log-code-owners \
           --test "seq-.*" \
-          --junit-file "cilium-junits/${{ env.job_name }} (${{ join(matrix.*, ', ') }}) - 2.xml" \
+          --junit-file "cilium-junits/${{ env.job_name }}-sequential-ipsec (${{ join(matrix.*, ', ') }}).xml" \
           --junit-property github_job_step="Run connectivity test with IPSec (${{ join(matrix.*, ', ') }})"
 
       - name: Run concurrent connectivity test with IPSec (${{ join(matrix.*, ', ') }})
         run: |
           cilium connectivity test ${{ steps.vars.outputs.connectivity_test_defaults }} --force-deploy \
-          --log-code-owners \
-          --junit-file "cilium-junits/${{ env.job_name }} (${{ join(matrix.*, ', ') }}) - 2.xml" \
+          --junit-file "cilium-junits/${{ env.job_name }}-concurrent-ipsec (${{ join(matrix.*, ', ') }}).xml" \
           --junit-property github_job_step="Run connectivity test with IPSec (${{ join(matrix.*, ', ') }})"
 
       - name: Features tested
@@ -389,7 +387,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: features-tested-${{ matrix.index }}
-          path: ${{ env.job_name }}*.json
+          path: features-tested-*
 
       - name: Publish Test Results As GitHub Summary
         if: ${{ always() }}
