@@ -110,23 +110,23 @@ func writeStatusesAsText(resp http.ResponseWriter, parts []checkStatus, unknownE
 	for _, checkOut := range parts {
 		switch {
 		case checkOut.excluded:
-			fmt.Fprintf(resp, "[+]%s excluded: ok\n", checkOut.name)
+			resp.Write([]byte(fmt.Sprintf("[+]%s excluded: ok\n", checkOut.name)))
 		case checkOut.healthy:
-			fmt.Fprintf(resp, "[+]%s ok\n", checkOut.name)
+			resp.Write([]byte(fmt.Sprintf("[+]%s ok\n", checkOut.name)))
 		default:
 			// don't include the error since this endpoint is public.  If someone wants more detail
 			// they should have explicit permission to the detailed checks.
-			fmt.Fprintf(resp, "[-]%s failed: reason withheld\n", checkOut.name)
+			resp.Write([]byte(fmt.Sprintf("[-]%s failed: reason withheld\n", checkOut.name)))
 		}
 	}
 
 	if unknownExcludes.Len() > 0 {
-		fmt.Fprintf(resp, "warn: some health checks cannot be excluded: no matches for %s\n", formatQuoted(unknownExcludes.UnsortedList()...))
+		resp.Write([]byte(fmt.Sprintf("warn: some health checks cannot be excluded: no matches for %s\n", formatQuoted(unknownExcludes.UnsortedList()...))))
 	}
 
 	if failed {
 		log.Info("healthz check failed", "statuses", parts)
-		fmt.Fprintf(resp, "healthz check failed\n")
+		resp.Write([]byte("healthz check failed\n"))
 	} else {
 		fmt.Fprint(resp, "healthz check passed\n")
 	}
