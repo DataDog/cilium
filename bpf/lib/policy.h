@@ -300,6 +300,18 @@ policy_can_ingress(struct __ctx_buff *ctx, const void *map, __u32 src_id, __u32 
 		ret = CTX_ACT_OK;
 		*audited = 1;
 	}
+#else
+#ifdef POLICY_ICMP_RESPONSE
+	/* Generate ICMP response for policy denials */
+	if (IS_ERR(ret)) {
+		/* Store src_id for the tail call handler */
+		ctx_store_meta(ctx, CB_SRC_LABEL, src_id);
+		
+		/* Generate ICMP response for IPv4 policy denials only */
+		if (ethertype == ETH_P_IP)
+			return tail_call_internal(ctx, CILIUM_CALL_IPV4_POLICY_DENIED, NULL);
+	}
+#endif /* POLICY_ICMP_RESPONSE */
 #endif
 
 	return ret;
@@ -360,6 +372,18 @@ policy_can_egress(struct __ctx_buff *ctx, const void *map, __u32 src_id, __u32 d
 		ret = CTX_ACT_OK;
 		*audited = 1;
 	}
+#else
+#ifdef POLICY_ICMP_RESPONSE
+	/* Generate ICMP response for policy denials */
+	if (IS_ERR(ret)) {
+		/* Store src_id for the tail call handler */
+		ctx_store_meta(ctx, CB_SRC_LABEL, src_id);
+		
+		/* Generate ICMP response for IPv4 policy denials only */
+		if (ethertype == ETH_P_IP)
+			return tail_call_internal(ctx, CILIUM_CALL_IPV4_POLICY_DENIED, NULL);
+	}
+#endif /* POLICY_ICMP_RESPONSE */
 #endif
 	return ret;
 }
@@ -385,3 +409,41 @@ static __always_inline int policy_can_egress4(struct __ctx_buff *ctx, const void
 				 tuple->nexthdr, l4_off, match_type, audited,
 				 ext_err, proxy_port);
 }
+
+#ifdef POLICY_ICMP_RESPONSE
+#include "icmp.h"
+
+#ifndef SKIP_CALLS_MAP
+
+static __always_inline
+int __tail_policy_denied_ipv4(struct __ctx_buff *ctx)
+{
+	int ret;
+
+	ret = generate_icmp4_reply(ctx, ICMP_DEST_UNREACH, ICMP_PKT_FILTERED);
+	if (ret != CTX_ACT_OK)
+		return ret;
+
+	/* Redirect ICMP to the interface we received it on. */
+	cilium_dbg_capture(ctx, DBG_CAPTURE_DELIVERY, ctx_get_ifindex(ctx));
+	return ctx_redirect(ctx, ctx_get_ifindex(ctx), 0);
+}
+
+__declare_tail(CILIUM_CALL_IPV4_POLICY_DENIED)
+int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
+{
+	__u32 src_sec_identity = ctx_load_meta(ctx, CB_SRC_LABEL);
+	int ret;
+
+	ret = __tail_policy_denied_ipv4(ctx);
+	if (IS_ERR(ret))
+		return send_drop_notify_error(ctx, src_sec_identity, ret,
+			CTX_ACT_DROP, METRIC_INGRESS);
+
+	return ret;
+}
+
+
+
+#endif /* SKIP_CALLS_MAP */
+#endif /* POLICY_ICMP_RESPONSE */
