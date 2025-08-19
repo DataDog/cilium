@@ -26,19 +26,17 @@ const (
 	StatNotAvailable = uint64(math.MaxUint64)
 )
 
-var (
-	// nCPU must be on package level to be available for StatsValues.New() below
-	nCPU = ciliumebpf.MustPossibleCPU()
-)
 
 // PolicyStatsMap maps endpoint IDs to the fd for the program which
 // implements its policy.
 type StatsMap struct {
 	*ebpf.Map
-	log *slog.Logger
+	log  *slog.Logger
+	nCPU int
 }
 
 func newStatsMap(maxStatsEntries int, log *slog.Logger) (*StatsMap, int) {
+	nCPU := ciliumebpf.MustPossibleCPU()
 	roundDown := maxStatsEntries % nCPU
 	maxStatsEntries -= roundDown
 
@@ -53,7 +51,8 @@ func newStatsMap(maxStatsEntries int, log *slog.Logger) (*StatsMap, int) {
 			Flags:      unix.BPF_F_NO_COMMON_LRU,
 			Pinning:    ebpf.PinByName,
 		}),
-		log: log,
+		log:  log,
+		nCPU: nCPU,
 	}, maxStatsEntries
 }
 
@@ -65,8 +64,9 @@ func OpenStatsMap(logger *slog.Logger) (*StatsMap, error) {
 		return nil, err
 	}
 	return &StatsMap{
-		Map: m,
-		log: logger,
+		Map:  m,
+		log:  logger,
+		nCPU: ciliumebpf.MustPossibleCPU(),
 	}, nil
 }
 
@@ -166,7 +166,7 @@ func (m *StatsMap) ZeroStat(epID uint16, k PolicyKey) error {
 		Nexthdr:          k.Nexthdr,
 		DestPortNetwork:  k.DestPortNetwork,
 	}
-	zeroValue := make(StatsValues, nCPU)
+	zeroValue := make(StatsValues, m.nCPU)
 
 	err := m.Update(&statsKey, zeroValue, 0)
 
