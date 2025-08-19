@@ -1290,6 +1290,8 @@ skip_vtep:
 		int oif = 0;
 
 		ret = fib_redirect_v4(ctx, ETH_HLEN, ip4, false, false, ext_err, &oif);
+		if (ret == BPF_FIB_LKUP_RET_NOT_FWDED)
+			goto pass_to_stack;
 		if (fib_ok(ret))
 			send_trace_notify(ctx, TRACE_TO_NETWORK, SECLABEL_IPV4,
 					  *dst_sec_identity, TRACE_EP_ID_UNKNOWN, oif,
