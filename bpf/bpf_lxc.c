@@ -1299,10 +1299,10 @@ skip_vtep:
 
 		bpf_printk("fib_redirect_v4: calling with daddr=%pI4", &ip4->daddr);
 		ret = fib_redirect_v4(ctx, ETH_HLEN, ip4, false, false, ext_err, &oif);
-		bpf_printk("fib_redirect_v4: returned ret=%d, oif=%d", ret, oif);
+		bpf_printk("fib_redirect_v4: returned ret=%d, ext_err=%d, oif=%d", ret, *ext_err, oif);
 		
-		if (ret == BPF_FIB_LKUP_RET_NOT_FWDED) {
-			bpf_printk("fib_redirect_v4: BPF_FIB_LKUP_RET_NOT_FWDED, going to stack");
+		if (ret == DROP_NO_FIB && *ext_err == BPF_FIB_LKUP_RET_NOT_FWDED) {
+			bpf_printk("fib_redirect_v4: FIB lookup NOT_FWDED, going to stack");
 			goto pass_to_stack;
 		}
 		if (fib_ok(ret)) {
@@ -1310,6 +1310,8 @@ skip_vtep:
 			send_trace_notify(ctx, TRACE_TO_NETWORK, SECLABEL_IPV4,
 					  *dst_sec_identity, TRACE_EP_ID_UNKNOWN, oif,
 					  trace.reason, trace.monitor);
+		} else {
+			bpf_printk("fib_redirect_v4: failed with ret=%d, ext_err=%d", ret, *ext_err);
 		}
 		return ret;
 	}
