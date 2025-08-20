@@ -12,6 +12,7 @@ import (
 	healthClientPkg "github.com/cilium/cilium/pkg/health/client"
 	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/logging/logfields"
+	"github.com/cilium/cilium/pkg/option"
 )
 
 type statusCollector struct {
@@ -31,12 +32,16 @@ func newStatusCollector(logger *slog.Logger) *statusCollector {
 		logging.Fatal(logger, "Error while creating Cilium API client", logfields.Error, err)
 	}
 
-	healthClient, err := healthClientPkg.NewClient("")
-	if err != nil {
-		logging.Fatal(logger, "Error while creating cilium-health API client", logfields.Error, err)
+	var healthClient *healthClientPkg.Client
+	if option.Config.EnableHealthChecking {
+		healthClient, err = healthClientPkg.NewClient("")
+		if err != nil {
+			logging.Fatal(logger, "Error while creating cilium-health API client", logfields.Error, err)
+		}
+		return newStatusCollectorWithClients(logger, ciliumClient.Daemon, healthClient.Connectivity)
 	}
 
-	return newStatusCollectorWithClients(logger, ciliumClient.Daemon, healthClient.Connectivity)
+	return newStatusCollectorWithClients(logger, ciliumClient.Daemon, nil)
 }
 
 // newStatusCollectorWithClients provides a constructor with injected clients
@@ -71,8 +76,10 @@ func newStatusCollectorWithClients(logger *slog.Logger, d daemonHealthGetter, c 
 func (s *statusCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- s.controllersFailingDesc
 	ch <- s.ipAddressesDesc
-	ch <- s.unreachableNodesDesc
-	ch <- s.unreachableHealthEndpointsDesc
+	if s.connectivityStatusGetter != nil {
+		ch <- s.unreachableNodesDesc
+		ch <- s.unreachableHealthEndpointsDesc
+	}
 }
 
 func (s *statusCollector) Collect(ch chan<- prometheus.Metric) {
@@ -121,47 +128,50 @@ func (s *statusCollector) Collect(ch chan<- prometheus.Metric) {
 		)
 	}
 
-	healthStatusResponse, err := s.connectivityStatusGetter.GetStatus(nil)
-	if err != nil {
-		s.logger.Error("Error while getting cilium-health status", logfields.Error, err)
-		return
-	}
+	// Skip health metrics if health checking is disabled
+	if s.connectivityStatusGetter != nil {
+		healthStatusResponse, err := s.connectivityStatusGetter.GetStatus(nil)
+		if err != nil {
+			s.logger.Error("Error while getting cilium-health status", logfields.Error, err)
+			return
+		}
 
-	if healthStatusResponse.Payload == nil {
-		return
-	}
+		if healthStatusResponse.Payload == nil {
+			return
+		}
 
-	// Nodes and endpoints healthStatusResponse
-	var (
-		unreachableNodes     int
-		unreachableEndpoints int
-	)
+		// Nodes and endpoints healthStatusResponse
+		var (
+			unreachableNodes     int
+			unreachableEndpoints int
+		)
 
-	for _, nodeStatus := range healthStatusResponse.Payload.Nodes {
-		for _, addr := range healthClientPkg.GetAllHostAddresses(nodeStatus) {
-			if healthClientPkg.GetPathConnectivityStatusType(addr) == healthClientPkg.ConnStatusUnreachable {
-				unreachableNodes++
-				break
+		for _, nodeStatus := range healthStatusResponse.Payload.Nodes {
+			for _, addr := range healthClientPkg.GetAllHostAddresses(nodeStatus) {
+				if healthClientPkg.GetPathConnectivityStatusType(addr) == healthClientPkg.ConnStatusUnreachable {
+					unreachableNodes++
+					break
+				}
+			}
+
+			for _, addr := range healthClientPkg.GetAllEndpointAddresses(nodeStatus) {
+				if healthClientPkg.GetPathConnectivityStatusType(addr) == healthClientPkg.ConnStatusUnreachable {
+					unreachableEndpoints++
+					break
+				}
 			}
 		}
 
-		for _, addr := range healthClientPkg.GetAllEndpointAddresses(nodeStatus) {
-			if healthClientPkg.GetPathConnectivityStatusType(addr) == healthClientPkg.ConnStatusUnreachable {
-				unreachableEndpoints++
-				break
-			}
-		}
+		ch <- prometheus.MustNewConstMetric(
+			s.unreachableNodesDesc,
+			prometheus.GaugeValue,
+			float64(unreachableNodes),
+		)
+
+		ch <- prometheus.MustNewConstMetric(
+			s.unreachableHealthEndpointsDesc,
+			prometheus.GaugeValue,
+			float64(unreachableEndpoints),
+		)
 	}
-
-	ch <- prometheus.MustNewConstMetric(
-		s.unreachableNodesDesc,
-		prometheus.GaugeValue,
-		float64(unreachableNodes),
-	)
-
-	ch <- prometheus.MustNewConstMetric(
-		s.unreachableHealthEndpointsDesc,
-		prometheus.GaugeValue,
-		float64(unreachableEndpoints),
-	)
 }
