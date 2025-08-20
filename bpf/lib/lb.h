@@ -6,7 +6,6 @@
 #include "bpf/compiler.h"
 #include "csum.h"
 #include "conntrack.h"
-#include "icmp.h"
 #include "ipv4.h"
 #include "hash.h"
 #include "ids.h"
@@ -15,6 +14,9 @@
 
 #ifndef SKIP_CALLS_MAP
 #include "drop.h"
+#ifdef SERVICE_NO_BACKEND_RESPONSE
+#include "icmp.h"
+#endif
 #endif
 
 #ifdef ENABLE_IPV6
