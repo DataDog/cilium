@@ -6,6 +6,7 @@
 #include "bpf/compiler.h"
 #include "csum.h"
 #include "conntrack.h"
+#include "icmp.h"
 #include "ipv4.h"
 #include "hash.h"
 #include "ids.h"
@@ -1942,10 +1943,7 @@ lb4_ctx_restore_state(struct __ctx_buff *ctx, struct ct_state *state,
 #ifndef SKIP_CALLS_MAP
 #ifdef SERVICE_NO_BACKEND_RESPONSE
 
-#define ICMP_PACKET_MAX_SAMPLE_SIZE 64
 
-static __always_inline
-__wsum icmp_wsum_accumulate(void *data_start, void *data_end, int sample_len);
 
 static __always_inline
 int __tail_no_service_ipv4(struct __ctx_buff *ctx)
@@ -2079,10 +2077,7 @@ int tail_no_service_ipv4(struct __ctx_buff *ctx)
 #ifndef SKIP_CALLS_MAP
 #ifdef SERVICE_NO_BACKEND_RESPONSE
 
-#define ICMPV6_PACKET_MAX_SAMPLE_SIZE 1280 - sizeof(struct ipv6hdr) - sizeof(struct icmp6hdr)
 
-static __always_inline
-__wsum icmp_wsum_accumulate(void *data_start, void *data_end, int sample_len);
 
 /* The IPv6 pseudo-header */
 struct ipv6_pseudo_header_t {
@@ -2246,50 +2241,7 @@ int tail_no_service_ipv6(struct __ctx_buff *ctx)
 #endif /* SKIP_CALLS_MAP */
 #endif /* ENABLE_IPV6 */
 
-#ifdef SERVICE_NO_BACKEND_RESPONSE
 
-static __always_inline
-__wsum icmp_wsum_accumulate(void *data_start, void *data_end, int sample_len)
-{
-	/* Unrolled loop to calculate the checksum of the ICMP sample
-	 * Done manually because the compiler refuses with #pragma unroll
-	 */
-	__wsum wsum = 0;
-
-	#define body(i) if ((i) > sample_len) \
-		return wsum; \
-	if (data_start + (i) + sizeof(__u16) > data_end) { \
-		if (data_start + (i) + sizeof(__u8) <= data_end)\
-			wsum += *(__u8 *)(data_start + (i)); \
-		return wsum; \
-	} \
-	wsum += *(__u16 *)(data_start + (i));
-
-	#define body4(i) body(i)\
-		body(i + 2) \
-		body(i + 4) \
-		body(i + 6)
-
-	#define body16(i) body4(i)\
-		body4(i + 8) \
-		body4(i + 16) \
-		body4(i + 24)
-
-	#define body128(i) body16(i)\
-		body16(i + 32) \
-		body16(i + 64) \
-		body16(i + 96)
-
-	body128(0)
-	body128(256)
-	body128(512)
-	body128(768)
-	body128(1024)
-
-	return wsum;
-}
-
-#endif /* SERVICE_NO_BACKEND_RESPONSE */
 
 /* sock_local_cookie retrieves the socket cookie for the
  * passed socket structure.
