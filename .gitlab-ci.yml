@@ -131,6 +131,7 @@ branch-pipeline:
     BRANCHES=(
       "cilium-cli"
       "v1.17-dd"
+      "v1.18-dd"
     )
 
     # Trigger a CI pipeline for each branch
