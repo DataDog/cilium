@@ -798,3 +798,16 @@ func (e *API) GetSecurityGroups(ctx context.Context) (types.SecurityGroupMap, er
 func (e *API) GetInstanceTypes(ctx context.Context) ([]ec2_types.InstanceTypeInfo, error) {
 	return e.instanceTypes, nil
 }
+
+func (e *API) GetInstanceType(ctx context.Context, instanceType string) (ec2_types.InstanceTypeInfo, error) {
+	e.mutex.RLock()
+	defer e.mutex.RUnlock()
+
+	for _, info := range e.instanceTypes {
+		if string(info.InstanceType) == instanceType {
+			return info, nil
+		}
+	}
+
+	return ec2_types.InstanceTypeInfo{}, fmt.Errorf("instance type %s not found", instanceType)
+}
