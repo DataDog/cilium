@@ -121,23 +121,16 @@ func (n *Node) PopulateStatusFields(k8sObj *v2.CiliumNode) {
 }
 
 // getLimits returns the interface and IP limits of this node
-func (n *Node) getLimits() (ipamTypes.Limits, bool) {
+func (n *Node) getLimits() (ipamTypes.Limits, error) {
 	n.mutex.RLock()
-	l, b := n.getLimitsLocked()
-	n.mutex.RUnlock()
-	return l, b
+	defer n.mutex.RUnlock()
+	return n.getLimitsLocked()
 }
 
 // getLimitsLocked is the same function as getLimits, but assumes the n.mutex
 // is read locked.
-func (n *Node) getLimitsLocked() (ipamTypes.Limits, bool) {
-	limit, ok := n.manager.limitsGetter.Get(n.k8sObj.Spec.ENI.InstanceType)
-	if !ok {
-		n.logger.Load().Debug("Instance type not found in limits packages",
-			logfields.InstanceType, n.k8sObj.Spec.ENI.InstanceType,
-		)
-	}
-	return limit, ok
+func (n *Node) getLimitsLocked() (ipamTypes.Limits, error) {
+	return n.manager.limitsGetter.Get(context.Background(), n.k8sObj.Spec.ENI.InstanceType)
 }
 
 // PrepareIPRelease prepares the release of ENI IPs.
@@ -221,9 +214,9 @@ func (n *Node) ReleaseIPs(ctx context.Context, r *ipam.ReleaseAction) error {
 // PrepareIPAllocation returns the number of ENI IPs and interfaces that can be
 // allocated/created.
 func (n *Node) PrepareIPAllocation(scopedLog *slog.Logger) (a *ipam.AllocationAction, err error) {
-	limits, limitsAvailable := n.getLimits()
-	if !limitsAvailable {
-		return nil, errors.New(errUnableToDetermineLimits)
+	limits, err := n.getLimits()
+	if err != nil {
+		return nil, err
 	}
 
 	a = &ipam.AllocationAction{}
@@ -447,9 +440,9 @@ const (
 // of secondary IPs are assigned to the interface up to the maximum number of
 // addresses as allowed by the instance.
 func (n *Node) CreateInterface(ctx context.Context, allocation *ipam.AllocationAction, scopedLog *slog.Logger) (int, string, error) {
-	limits, limitsAvailable := n.getLimits()
-	if !limitsAvailable {
-		return 0, unableToDetermineLimits, errors.New(errUnableToDetermineLimits)
+	limits, err := n.getLimits()
+	if err != nil {
+		return 0, unableToDetermineLimits, err
 	}
 
 	n.mutex.RLock()
@@ -594,9 +587,9 @@ func (n *Node) ResyncInterfacesAndIPs(ctx context.Context, scopedLog *slog.Logge
 	available ipamTypes.AllocationMap,
 	stats stats.InterfaceStats,
 	err error) {
-	limits, limitsAvailable := n.getLimits()
-	if !limitsAvailable {
-		return nil, stats, ipam.LimitsNotFound{}
+	limits, err := n.getLimits()
+	if err != nil {
+		return nil, stats, err
 	}
 
 	// n.node does not need to be protected by n.mutex as it is only written to
@@ -691,12 +684,13 @@ func (n *Node) GetMaximumAllocatableIPv4() int {
 	firstInterfaceIndex := *n.k8sObj.Spec.ENI.FirstInterfaceIndex
 
 	// Retrieve limits for the instance type
-	limits, limitsAvailable := n.getLimitsLocked()
-	if !limitsAvailable {
+	limits, err := n.getLimitsLocked()
+	if err != nil {
 		n.logger.Load().Warn(
 			fmt.Sprintf("Could not determined instance limits, %s", getMaximumAllocatableIPv4FailureWarningStr),
 			logfields.AdaptersLimit, "unknown",
 			logfields.FirstInterfaceIndex, "unknown",
+			logfields.Error, err,
 		)
 		return 0
 	}
@@ -753,12 +747,13 @@ func (n *Node) GetMinimumAllocatableIPv4() int {
 	// allocate IPs for smaller instance types because the PreAllocate would
 	// exceed the maximum possible number of IPs per instance.
 
-	limits, limitsAvailable := n.getLimitsLocked()
-	if !limitsAvailable {
+	limits, err := n.getLimitsLocked()
+	if err != nil {
 		adviseOperatorFlagOnce.Do(func() {
 			n.logger.Load().Warn(
 				"Unable to find limits for instance type",
 				logfields.InstanceType, n.k8sObj.Spec.ENI.InstanceType,
+				logfields.Error, err,
 			)
 		})
 
@@ -792,8 +787,8 @@ func (n *Node) IsPrefixDelegated() bool {
 		return false
 	}
 	// Verify if this node is nitro based
-	limits, limitsAvailable := n.getLimitsLocked()
-	if !limitsAvailable {
+	limits, err := n.getLimitsLocked()
+	if err != nil {
 		return false
 	}
 	// Allocating prefixes is supported only on nitro and bare metal instances

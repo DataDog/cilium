@@ -979,3 +979,26 @@ func (c *Client) GetInstanceTypes(ctx context.Context) ([]ec2_types.InstanceType
 	}
 	return result, nil
 }
+
+// GetInstanceType returns the information for a given instance type
+func (c *Client) GetInstanceType(ctx context.Context, instanceType string) (ec2_types.InstanceTypeInfo, error) {
+	var result []ec2_types.InstanceTypeInfo
+	input := &ec2.DescribeInstanceTypesInput{
+		InstanceTypes: []ec2_types.InstanceType{ec2_types.InstanceType(instanceType)},
+	}
+	paginator := ec2.NewDescribeInstanceTypesPaginator(c.ec2Client, input)
+	for paginator.HasMorePages() {
+		c.limiter.Limit(ctx, DescribeInstanceTypes)
+		sinceStart := spanstat.Start()
+		output, err := paginator.NextPage(ctx)
+		c.metricsAPI.ObserveAPICall(DescribeInstanceTypes, deriveStatus(err), sinceStart.Seconds())
+		if err != nil {
+			return ec2_types.InstanceTypeInfo{}, err
+		}
+		result = append(result, output.InstanceTypes...)
+	}
+	if len(result) != 1 {
+		return ec2_types.InstanceTypeInfo{}, fmt.Errorf("Expected a single instance type info result for %s, got %d", instanceType, len(result))
+	}
+	return result[0], nil
+}
