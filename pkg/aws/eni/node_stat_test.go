@@ -35,7 +35,7 @@ func TestENIIPAMCapacityAccounting(t *testing.T) {
 	ipamNode := &mockIPAMNode{
 		instanceID: "i-000",
 	}
-	limitsGetter, err := limits.NewLimitsGetter(hivetest.Logger(t), mockEC2API, limits.TriggerMinInterval, limits.EC2apiTimeout, limits.EC2apiRetryCount)
+	limitsGetter, err := limits.NewLimitsGetter(hivetest.Logger(t), mockEC2API)
 	require.NoError(t, err)
 
 	n := &Node{

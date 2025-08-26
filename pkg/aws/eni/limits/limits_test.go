@@ -6,21 +6,13 @@ package limits
 import (
 	"testing"
 
+	ec2_types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/cilium/hive/hivetest"
 	"github.com/stretchr/testify/require"
 	"k8s.io/utils/ptr"
 
-	ec2_types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	"github.com/cilium/hive/hivetest"
-
 	ec2mock "github.com/cilium/cilium/pkg/aws/ec2/mock"
 	ipamTypes "github.com/cilium/cilium/pkg/ipam/types"
-	"github.com/cilium/cilium/pkg/time"
-)
-
-const (
-	testTriggerMinInterval = time.Second
-	testEC2apiTimeout      = time.Second
-	testEC2apiRetryCount   = 2
 )
 
 var api *ec2mock.API
@@ -37,16 +29,16 @@ func TestGet(t *testing.T) {
 		Hypervisor: ec2_types.InstanceTypeHypervisorNitro,
 		BareMetal:  ptr.To(false),
 	}})
-	newLimitsGetter, err := NewLimitsGetter(hivetest.Logger(t), api, testTriggerMinInterval, testEC2apiTimeout, testEC2apiRetryCount)
+	newLimitsGetter, err := NewLimitsGetter(hivetest.Logger(t), api)
 	require.NoError(t, err)
 
 	// Test 1: Get unknown instance type
-	limit, ok := newLimitsGetter.Get("unknown")
-	require.False(t, ok)
+	limit, err := newLimitsGetter.Get(t.Context(), "unknown")
+	require.Error(t, err)
 	require.Equal(t, ipamTypes.Limits{}, limit)
 	// Test 2: Get Known instance type
-	limit, ok = newLimitsGetter.Get("test.large")
-	require.True(t, ok)
+	limit, err = newLimitsGetter.Get(t.Context(), "test.large")
+	require.NoError(t, err)
 	require.Equal(t, ipamTypes.Limits{
 		Adapters:       4,
 		IPv4:           5,
@@ -67,20 +59,16 @@ func TestGet(t *testing.T) {
 		BareMetal:  ptr.To(false),
 	}})
 
-	limit, ok = newLimitsGetter.Get("newtype")
-	require.False(t, ok)
-	require.Equal(t, ipamTypes.Limits{}, limit)
-	// Test 4: EC2 API call and update limits and trigger can be triggered after triggerMinInterval
-	require.Eventually(t, func() bool {
-		limit, ok = newLimitsGetter.Get("newtype")
-		return ok && limit == ipamTypes.Limits{
-			Adapters:       4,
-			IPv4:           15,
-			IPv6:           15,
-			HypervisorType: "nitro",
-			IsBareMetal:    false,
-		}
-	}, 2*testTriggerMinInterval, time.Millisecond)
+	// Test 3: Get the newly added instance type (should work immediately since it's now in the mock API)
+	limit, err = newLimitsGetter.Get(t.Context(), "newtype")
+	require.NoError(t, err)
+	require.Equal(t, ipamTypes.Limits{
+		Adapters:       4,
+		IPv4:           15,
+		IPv6:           15,
+		HypervisorType: "nitro",
+		IsBareMetal:    false,
+	}, limit)
 }
 
 func TestInitEC2APIUpdateTrigger(t *testing.T) {
@@ -100,19 +88,13 @@ func TestInitEC2APIUpdateTrigger(t *testing.T) {
 	})
 
 	// Create a new LimitsGetter instance
-	limitsGetter, err := NewLimitsGetter(hivetest.Logger(t), api, testTriggerMinInterval, testEC2apiTimeout, testEC2apiRetryCount)
+	limitsGetter, err := NewLimitsGetter(hivetest.Logger(t), api)
 	require.NotNil(t, limitsGetter)
 	require.NoError(t, err)
 
-	// Verify the fields are set correctly
-	require.Equal(t, testTriggerMinInterval, limitsGetter.triggerMinInterval)
-	require.Equal(t, testEC2apiTimeout, limitsGetter.ec2APITimeout)
-	require.Equal(t, testEC2apiRetryCount, limitsGetter.ec2APIRetryCount)
-	require.NotNil(t, limitsGetter.limitsUpdateTrigger)
-
 	// Verify that the limits were actually retrieved
-	limits, ok := limitsGetter.Get("test.large")
-	require.True(t, ok)
+	limits, err := limitsGetter.Get(t.Context(), "test.large")
+	require.NoError(t, err)
 	require.Equal(t, ipamTypes.Limits{
 		Adapters:       4,
 		IPv4:           10,
