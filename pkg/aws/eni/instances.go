@@ -42,6 +42,7 @@ type EC2API interface {
 	AssignENIPrefixes(ctx context.Context, eniID string, prefixes int32) error
 	UnassignENIPrefixes(ctx context.Context, eniID string, prefixes []string) error
 	GetInstanceTypes(context.Context) ([]ec2_types.InstanceTypeInfo, error)
+	GetInstanceType(context.Context, string) (ec2_types.InstanceTypeInfo, error)
 	AssociateEIP(ctx context.Context, eniID string, eipTags ipamTypes.Tags) (string, error)
 }
 
@@ -72,7 +73,7 @@ func NewInstancesManager(logger *slog.Logger, api EC2API) (*InstancesManager, er
 		api:       api,
 	}
 
-	limitsGetter, err := limits.NewLimitsGetter(logger, api, limits.TriggerMinInterval, limits.EC2apiTimeout, limits.EC2apiRetryCount)
+	limitsGetter, err := limits.NewLimitsGetter(logger, api)
 	if err != nil {
 		return nil, err
 	}
