@@ -28,6 +28,7 @@ static volatile const __u8 lb_mac[ETH_ALEN] = { 0xce, 0x72, 0xa7, 0x03, 0x88, 0x
 
 #include "lib/ipcache.h"
 #include "lib/lb.h"
+#include "lib/ratelimit.h"
 
 #define FROM_NETDEV	0
 #define TO_NETDEV	1
@@ -187,7 +188,7 @@ int nodeport_no_backend2_reply_pktgen(struct __ctx_buff *ctx)
 SETUP("tc", "tc_nodeport_no_backend2_reply")
 int nodeport_no_backend2_reply_setup(struct __ctx_buff *ctx)
 {
-	if (__tail_no_service_ipv6(ctx))
+	if (generate_icmp6_reply(ctx, ICMPV6_DEST_UNREACH, ICMPV6_PORT_UNREACH))
 		return TEST_ERROR;
 
 	/* Jump into the entrypoint */
