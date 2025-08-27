@@ -3396,6 +3396,10 @@
      - Configure what the response should be to traffic for a service without backends. Possible values:  - reject (default)  - drop
      - string
      - ``"reject"``
+   * - :spelling:ignore:`policyDenyResponse`
+     - Configure what the response should be to traffic denied by policy. Possible values:  - drop (default)  - reject
+     - string
+     - ``"drop"``
    * - :spelling:ignore:`sleepAfterInit`
      - Do not run Cilium agent when running with clean mode. Useful to completely uninstall Cilium as it will stop Cilium from starting and create artifacts in the node.
      - bool
