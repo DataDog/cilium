@@ -14,7 +14,6 @@ import (
 	hubbleDefaults "github.com/cilium/cilium/pkg/hubble/defaults"
 	"github.com/cilium/cilium/pkg/hubble/observer/observeroption"
 	monitorAPI "github.com/cilium/cilium/pkg/monitor/api"
-	"github.com/cilium/cilium/pkg/time"
 )
 
 type config struct {
@@ -39,23 +38,6 @@ type config struct {
 	// PreferIpv6 controls whether IPv6 or IPv4 addresses should be preferred
 	// for communication to agents, if both are available.
 	PreferIpv6 bool `mapstructure:"hubble-prefer-ipv6"`
-
-	// EnableRecorderAPI specifies if the Hubble Recorder API should be served.
-	EnableRecorderAPI bool `mapstructure:"enable-hubble-recorder-api"`
-	// RecorderStoragePath specifies the directory in which pcap files created
-	// via the Hubble Recorder API are stored.
-	RecorderStoragePath string `mapstructure:"hubble-recorder-storage-path"`
-	// RecorderSinkQueueSize is the queue size for each recorder sink.
-	RecorderSinkQueueSize int `mapstructure:"hubble-recorder-sink-queue-size"`
-
-	// EnableK8sDropEvents controls whether Hubble should create v1.Events for
-	// packet drops related to pods.
-	EnableK8sDropEvents bool `mapstructure:"hubble-drop-events"`
-	// K8sDropEventsInterval controls the minimum time between emitting events
-	// with the same source and destination IP.
-	K8sDropEventsInterval time.Duration `mapstructure:"hubble-drop-events-interval"`
-	// K8sDropEventsReasons controls which drop reasons to emit events for.
-	K8sDropEventsReasons []string `mapstructure:"hubble-drop-events-reasons"`
 }
 
 var defaultConfig = config{
@@ -69,14 +51,6 @@ var defaultConfig = config{
 	// Hubble TCP server configuration
 	ListenAddress: "",
 	PreferIpv6:    false,
-	// Hubble recorder configuration
-	EnableRecorderAPI:     true,
-	RecorderStoragePath:   hubbleDefaults.RecorderStoragePath,
-	RecorderSinkQueueSize: 1024,
-	// Hubble k8s v1.Events integration configuration.
-	EnableK8sDropEvents:   false,
-	K8sDropEventsInterval: 2 * time.Minute,
-	K8sDropEventsReasons:  []string{"auth_required", "policy_denied"},
 }
 
 func (def config) Flags(flags *pflag.FlagSet) {
@@ -95,39 +69,12 @@ func (def config) Flags(flags *pflag.FlagSet) {
 	// Hubble TCP server configuration
 	flags.String("hubble-listen-address", def.ListenAddress, `An additional address for Hubble server to listen to, e.g. ":4244"`)
 	flags.Bool("hubble-prefer-ipv6", def.PreferIpv6, "Prefer IPv6 addresses for announcing nodes when both address types are available.")
-	flags.Bool("enable-hubble-recorder-api", def.EnableRecorderAPI, "Enable the Hubble recorder API")
-	flags.MarkDeprecated("enable-hubble-recorder-api", "The feature will be removed in v1.19")
-	flags.String("hubble-recorder-storage-path", def.RecorderStoragePath, "Directory in which pcap files created via the Hubble Recorder API are stored")
-	flags.MarkDeprecated("hubble-recorder-storage-path", "The feature will be removed in v1.19")
-	flags.Int("hubble-recorder-sink-queue-size", def.RecorderSinkQueueSize, "Queue size of each Hubble recorder sink")
-	flags.MarkDeprecated("hubble-recorder-sink-queue-size", "The feature will be removed in v1.19")
-	// Hubble k8s v1.Events integration configuration.
-	flags.Bool("hubble-drop-events", def.EnableK8sDropEvents, "Emit packet drop Events related to pods (alpha)")
-	flags.Duration("hubble-drop-events-interval", def.K8sDropEventsInterval, "Minimum time between emitting same events")
-	flags.StringSlice("hubble-drop-events-reasons", def.K8sDropEventsReasons, "Drop reasons to emit events for")
 }
 
 func (cfg *config) normalize() {
 	// Dynamically set the event queue size.
 	if cfg.EventQueueSize == 0 {
 		cfg.EventQueueSize = getDefaultMonitorQueueSize(runtime.NumCPU())
-	}
-	// Before moving the --hubble-drop-events-reasons flag to Config, it was
-	// registered as flags.String() and parsed through viper.GetStringSlice()
-	// in Cilium's DaemonConfig. In that case, viper is handling the split of
-	// the single string value into slice and it uses white spaces as
-	// separators. See also https://github.com/cilium/cilium/pull/33699 for
-	// more context.
-	//
-	// Since it moved to Config, the --hubble-drop-events-reasons flag is
-	// registered as flags.StringSlice() allowing multiple flag invocations,
-	// and splitting values using comma as separator (see
-	// https://pkg.go.dev/github.com/spf13/pflag#StringSlice). Since the
-	// reasons themselves have no commas nor white spaces, starting to split on
-	// commas should not introduce issues but we still need to handle white
-	// spaces splitting to maintain backward compatibility.
-	if len(cfg.K8sDropEventsReasons) == 1 {
-		cfg.K8sDropEventsReasons = strings.Fields(cfg.K8sDropEventsReasons[0])
 	}
 }
 
