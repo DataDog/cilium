@@ -36,5 +36,11 @@ func nodeConfig(lnc *datapath.LocalNodeConfiguration) config.Node {
 
 	node.TracingIPOptionType = uint8(option.Config.IPTracingOptionType)
 
+	if option.Config.PolicyDenyResponse == option.PolicyDenyResponseIcmp {
+		node.PolicyDenyResponseEnabled = true
+	} else {
+		node.PolicyDenyResponseEnabled = false
+	}
+
 	return node
 }
