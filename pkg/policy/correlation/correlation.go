@@ -77,8 +77,10 @@ func CorrelatePolicy(logger *slog.Logger, endpointGetter getters.EndpointGetter,
 	rules := toProto(info)
 	switch {
 	case direction == trafficdirection.Egress && allowed:
+		logger.Debug("Conducting correlation on allowed egress", logfields.EndpointID, endpointID, logfields.Rules, rules)
 		f.EgressAllowedBy = rules
 	case direction == trafficdirection.Egress && denied:
+		logger.Error("Conducting correlation on dropped egress", logfields.EndpointID, endpointID, logfields.Rules, rules)
 		f.EgressDeniedBy = rules
 	case direction == trafficdirection.Ingress && allowed:
 		f.IngressAllowedBy = rules
