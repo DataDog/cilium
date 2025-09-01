@@ -4916,6 +4916,9 @@
         "array"
       ]
     },
+    "policyDenyResponse": {
+      "type": "string"
+    },
     "policyEnforcementMode": {
       "type": "string"
     },
