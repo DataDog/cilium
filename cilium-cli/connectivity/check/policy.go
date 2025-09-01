@@ -42,7 +42,13 @@ const policyBumpAnnotation = "cli.cilium.io/bump-policy"
 
 // getCiliumPolicyRevisions returns the current policy revisions of all Cilium pods
 func (ct *ConnectivityTest) getCiliumPolicyRevisions(ctx context.Context) (map[Pod]int, error) {
+	return ct.getCiliumPolicyRevisionsInternal(ctx, false)
+}
+
+// getCiliumPolicyRevisionsInternal is the internal implementation with recursion guard
+func (ct *ConnectivityTest) getCiliumPolicyRevisionsInternal(ctx context.Context, podsRefreshed bool) (map[Pod]int, error) {
 	revisions := make(map[Pod]int)
+
 	for _, cp := range ct.ciliumPods {
 		var revision int
 		var err error
@@ -51,12 +57,30 @@ func (ct *ConnectivityTest) getCiliumPolicyRevisions(ctx context.Context) (map[P
 			if err == nil {
 				break
 			}
+			// Check if the error is due to pod not found
+			if k8serrors.IsNotFound(err) {
+				// Refresh the pod list once per call if we haven't already
+				if !podsRefreshed {
+					ct.Infof("Detected missing Cilium pods, refreshing pod list")
+					if refreshErr := ct.refreshCiliumPods(ctx); refreshErr != nil {
+						ct.Debugf("Failed to refresh Cilium pods: %s", refreshErr)
+					} else {
+						// Restart the revision collection with refreshed pod list (with guard)
+						return ct.getCiliumPolicyRevisionsInternal(ctx, true)
+					}
+				}
+				ct.Infof("Cilium pod %s no longer exists, skipping policy revision check", cp.Name())
+				err = nil
+				break
+			}
 			ct.Debugf("Failed to get policy revision from pod %s (%d/%d): %s", cp, i, getPolicyRevisionRetries, err)
 		}
 		if err != nil {
 			return revisions, err
 		}
-		revisions[cp] = revision
+		if revision != 0 {
+			revisions[cp] = revision
+		}
 	}
 	return revisions, nil
 }
@@ -385,6 +409,10 @@ func (t *Test) ContainerLogs(ctx context.Context) {
 	for _, pod := range t.Context().ciliumPods {
 		log, err := pod.K8sClient.ContainerLogs(ctx, pod.Pod.Namespace, pod.Pod.Name, defaults.AgentContainerName, t.startTime, false)
 		if err != nil {
+			if k8serrors.IsNotFound(err) {
+				t.Infof("Cilium pod %s/%s no longer exists, skipping log collection", pod.Pod.Namespace, pod.Pod.Name)
+				continue
+			}
 			t.Fatalf("Error reading Cilium logs: %s", err)
 		}
 		t.Infof(

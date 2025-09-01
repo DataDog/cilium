@@ -920,6 +920,14 @@ func (ct *ConnectivityTest) initClients(ctx context.Context) error {
 
 // initCiliumPods fetches the Cilium agent pod information from all clients
 func (ct *ConnectivityTest) initCiliumPods(ctx context.Context) error {
+	return ct.refreshCiliumPods(ctx)
+}
+
+// refreshCiliumPods refreshes the Cilium agent pod information from all clients
+func (ct *ConnectivityTest) refreshCiliumPods(ctx context.Context) error {
+	// Clear existing pods before refreshing
+	ct.ciliumPods = make(map[string]Pod)
+
 	for _, client := range ct.clients.clients() {
 		ciliumPods, err := client.ListPods(ctx, ct.params.CiliumNamespace, metav1.ListOptions{LabelSelector: ct.params.AgentPodSelector})
 		if err != nil {
