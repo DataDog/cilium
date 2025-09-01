@@ -90,6 +90,10 @@ ifeq ($(INSTRLOG),1)
     BPF_TEST_FLAGS += -instrumentation-log $(ROOT_DIR)/test/bpf-instrumentation.log
 endif
 ifdef RUN
+    # Add TestBPF prefix if it doesn't already exist
+    ifeq ($(patsubst TestBPF/%,%,$(RUN)),$(RUN))
+        RUN := TestBPF/$(RUN)
+    endif
     BPF_TEST_FLAGS += -run $(RUN)
 endif
 ifdef BPF_TEST_DUMP_CTX
