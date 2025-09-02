@@ -92,9 +92,11 @@ endif
 ifdef RUN
     # Add TestBPF prefix if it doesn't already exist
     ifeq ($(patsubst TestBPF/%,%,$(RUN)),$(RUN))
-        RUN := TestBPF/$(RUN)
+        test_pattern := TestBPF/$(RUN)
+    else
+        test_pattern := $(RUN)
     endif
-    BPF_TEST_FLAGS += -run $(RUN)
+    BPF_TEST_FLAGS += -run $(test_pattern)
 endif
 ifdef BPF_TEST_DUMP_CTX
     BPF_TEST_FLAGS += -dump-ctx
