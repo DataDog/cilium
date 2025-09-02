@@ -14,7 +14,12 @@ import (
 	"k8s.io/client-go/tools/record"
 
 	flowpb "github.com/cilium/cilium/api/v1/flow"
+	"github.com/cilium/cilium/api/v1/models"
+	"github.com/cilium/cilium/pkg/container/set"
+	"github.com/cilium/cilium/pkg/endpoint"
+	"github.com/cilium/cilium/pkg/endpointmanager"
 	"github.com/cilium/cilium/pkg/identity"
+	"github.com/cilium/cilium/pkg/k8s/apis/cilium.io/utils"
 	client "github.com/cilium/cilium/pkg/k8s/client"
 	slimv1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/core/v1"
 	metaslimv1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/apis/meta/v1"
@@ -28,10 +33,11 @@ type dropEventEmitter struct {
 	recorder    record.EventRecorder
 	k8sWatcher  watchers.CacheAccessK8SWatcher
 
-	reasons []string
+	endpointManager endpointmanager.EndpointManager
+	reasons         []string
 }
 
-func new(interval time.Duration, reasons []string, k8s client.Clientset, watcher watchers.CacheAccessK8SWatcher) *dropEventEmitter {
+func new(interval time.Duration, reasons []string, k8s client.Clientset, watcher watchers.CacheAccessK8SWatcher, endpointManager endpointmanager.EndpointManager) *dropEventEmitter {
 	broadcaster := record.NewBroadcasterWithCorrelatorOptions(record.CorrelatorOptions{
 		BurstSize:            1,
 		QPS:                  1 / float32(interval.Seconds()),
@@ -42,10 +48,11 @@ func new(interval time.Duration, reasons []string, k8s client.Clientset, watcher
 	broadcaster.StartRecordingToSink(&typedv1.EventSinkImpl{Interface: k8s.CoreV1().Events("")})
 
 	return &dropEventEmitter{
-		broadcaster: broadcaster,
-		recorder:    broadcaster.NewRecorder(slimscheme.Scheme, v1.EventSource{Component: "cilium"}),
-		k8sWatcher:  watcher,
-		reasons:     reasons,
+		broadcaster:     broadcaster,
+		recorder:        broadcaster.NewRecorder(slimscheme.Scheme, v1.EventSource{Component: "cilium"}),
+		k8sWatcher:      watcher,
+		reasons:         reasons,
+		endpointManager: endpointManager,
 	}
 }
 
@@ -66,10 +73,14 @@ func (e *dropEventEmitter) ProcessFlow(ctx context.Context, flow *flowpb.Flow) e
 		return nil
 	}
 
+	flowL4Rules, policyRevision := getL4RulesFromEndpoint(flow.TrafficDirection, e.getEndpoint(flow))
+
 	if flow.TrafficDirection == flowpb.TrafficDirection_INGRESS {
 		message := "Incoming packet dropped (" + reason + ") from " +
 			endpointToString(flow.IP.Source, flow.Source) + " " +
-			l4protocolToString(flow.L4)
+			l4protocolToString(flow.L4) + "." +
+			parseL4Rules(flowL4Rules, policyRevision)
+
 		e.recorder.Event(&slimv1.Pod{
 			TypeMeta: metaslimv1.TypeMeta{
 				Kind:       "Pod",
@@ -83,7 +94,8 @@ func (e *dropEventEmitter) ProcessFlow(ctx context.Context, flow *flowpb.Flow) e
 	} else {
 		message := "Outgoing packet dropped (" + reason + ") to " +
 			endpointToString(flow.IP.Destination, flow.Destination) + " " +
-			l4protocolToString(flow.L4)
+			l4protocolToString(flow.L4) + "." +
+			parseL4Rules(flowL4Rules, policyRevision)
 
 		objMeta := metaslimv1.ObjectMeta{
 			Name:      flow.Source.PodName,
@@ -136,4 +148,70 @@ func l4protocolToString(l4 *flowpb.Layer4) string {
 		return "SCTP"
 	}
 	return ""
+}
+
+func (e *dropEventEmitter) getEndpoint(flow *flowpb.Flow) *endpoint.Endpoint {
+	var endpointID uint16
+	if flow.TrafficDirection == flowpb.TrafficDirection_INGRESS {
+		endpointID = uint16(flow.Destination.ID)
+	} else {
+		endpointID = uint16(flow.Source.ID)
+	}
+	return e.endpointManager.LookupCiliumID(endpointID)
+}
+
+func getL4RulesFromEndpoint(direction flowpb.TrafficDirection, ep *endpoint.Endpoint) ([]*models.PolicyRule, uint64) {
+	if ep == nil {
+		return nil, 0
+	}
+
+	model := ep.GetModel().Status
+	if model == nil || model.Policy == nil || model.Policy.Realized == nil || model.Policy.Realized.L4 == nil {
+		return nil, 0
+	}
+
+	policyRealized := model.Policy.Realized
+	policyRevision := uint64(policyRealized.PolicyRevision)
+	if direction == flowpb.TrafficDirection_INGRESS {
+		if model.Policy.Realized.L4.Ingress == nil {
+			return nil, 0
+		}
+		return policyRealized.L4.Ingress, policyRevision
+	} else {
+		if model.Policy.Realized.L4.Egress == nil {
+			return nil, 0
+		}
+		return policyRealized.L4.Egress, policyRevision
+	}
+}
+
+func parseL4Rules(l4Rules []*models.PolicyRule, policyRevision uint64) string {
+	res := ""
+	if l4Rules == nil {
+		return res
+	}
+
+	networkPolicies, clusterwideNetworkPolicies := set.NewSet[string](), set.NewSet[string]()
+
+	for _, rules := range l4Rules {
+		for _, policyLabels := range rules.DerivedFromRules {
+			policy := utils.GetPolicyFromLabels(policyLabels, policyRevision)
+			if policy == nil {
+				continue
+			}
+			if policy.Namespace == "" {
+				clusterwideNetworkPolicies.Insert(policy.Name)
+				continue
+			}
+			networkPolicies.Insert(policy.Name)
+		}
+	}
+
+	if networkPolicies.Len() > 0 {
+		res += " CNPs: " + networkPolicies.String() + "."
+	}
+	if clusterwideNetworkPolicies.Len() > 0 {
+		res += " CCNPs: " + clusterwideNetworkPolicies.String() + "."
+	}
+	return res
 }

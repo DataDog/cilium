@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/pflag"
 
 	flowpb "github.com/cilium/cilium/api/v1/flow"
+	"github.com/cilium/cilium/pkg/endpointmanager"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/k8s/watchers"
 	"github.com/cilium/cilium/pkg/logging/logfields"
@@ -85,7 +86,8 @@ type params struct {
 	Clientset  k8sClient.Clientset
 	K8sWatcher *watchers.K8sWatcher
 
-	Config config
+	Config          config
+	EndpointManager endpointmanager.EndpointManager
 }
 
 func newDropEventEmitter(p params) FlowProcessor {
@@ -102,7 +104,7 @@ func newDropEventEmitter(p params) FlowProcessor {
 		logfields.Reasons, p.Config.K8sDropEventsReasons,
 	)
 
-	flowProcessor := new(p.Config.K8sDropEventsInterval, p.Config.K8sDropEventsReasons, p.Clientset, p.K8sWatcher)
+	flowProcessor := new(p.Config.K8sDropEventsInterval, p.Config.K8sDropEventsReasons, p.Clientset, p.K8sWatcher, p.EndpointManager)
 	p.Lifecycle.Append(cell.Hook{
 		OnStop: func(hc cell.HookContext) error {
 			flowProcessor.Shutdown()
