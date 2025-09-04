@@ -1,6 +1,6 @@
 default:
   tags: ["arch:amd64"]
-  image: registry.ddbuild.io/images/docker:27.3.1
+  image: registry.ddbuild.io/images/nydus:v2.3.5
 
 variables:
   # Defaults
@@ -82,7 +82,6 @@ before_script:
       BUILD_ARGS+=" --build-arg CILIUM_RUNTIME_IMAGE=${CILIUM_RUNTIME_IMAGE}"
     fi
 
-    METADATA_FILE=$(mktemp)
     docker buildx build --platform linux/amd64,linux/arm64 \
       --tag "$IMAGE_REF" \
       --file "$DOCKERFILE_PATH" \
@@ -94,16 +93,14 @@ before_script:
       --label CI_JOB_ID="$CI_JOB_ID" \
       --label is_fips=true \
       --target "$TARGET" \
-      --metadata-file "$METADATA_FILE" \
       --output type=image,push=true,compression=zstd,force-compression=true,oci-mediatypes=true \
       "$DOCKER_CTX"
 
-    ddsign sign "$IMAGE_REF" --docker-metadata-file "$METADATA_FILE"
+    nydus-convert "${IMAGE_REF}" "${IMAGE_REF}"
 
     # Always build the debug version of the Cilium Agent and Operator images
     if [[ $IMAGE_NAME == "cilium" || $IMAGE_NAME =~ "cilium-operator" ]]; then
       IMAGE_REF_DEBUG="$IMAGE_REF"-debug
-      METADATA_FILE_DEBUG=$(mktemp)
       docker buildx build --platform linux/amd64,linux/arm64 \
         --tag "$IMAGE_REF_DEBUG" \
         --file "$DOCKERFILE_PATH" \
@@ -115,11 +112,10 @@ before_script:
         --label CI_JOB_ID="$CI_JOB_ID" \
         --label is_fips=true \
         --target debug \
-        --metadata-file "$METADATA_FILE_DEBUG" \
         --output type=image,push=true,compression=zstd,force-compression=true,oci-mediatypes=true \
         "$DOCKER_CTX"
 
-      ddsign sign "$IMAGE_REF_DEBUG" --docker-metadata-file "$METADATA_FILE_DEBUG"
+      nydus-convert "${IMAGE_REF_DEBUG}" "${IMAGE_REF_DEBUG}"
     fi
 
 branch-pipeline:
@@ -231,13 +227,6 @@ cilium:
     IMAGES_TO_MIRROR: |
       CILIUM_BUILDER_IMAGE
       CILIUM_ENVOY_IMAGE
-
-cilium-nydus:
-  extends: .build-docker-image
-  needs:
-    - cilium
-  image: registry.ddbuild.io/images/nydus:v75056644-ec4645e-v2.3.5@sha256:9213478316ac036c0f6bb6a014c39a5a7c95c5ba57e51d7f17948505e3a4ed09
-  script: nydus-convert registry.ddbuild.io/cilium:${CI_COMMIT_TAG} registry.ddbuild.io/cilium:${CI_COMMIT_TAG}-nydus
 
 hubble-relay:
   extends: .build-docker-image
