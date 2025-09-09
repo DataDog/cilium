@@ -1,6 +1,6 @@
 default:
   tags: ["arch:amd64"]
-  image: registry.ddbuild.io/images/nydus:v2.3.5
+  image: registry.ddbuild.io/images/nydus:v2.3.6
 
 variables:
   # Defaults
