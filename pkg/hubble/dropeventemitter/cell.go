@@ -42,6 +42,8 @@ type config struct {
 	K8sDropEventsInterval time.Duration `mapstructure:"hubble-drop-events-interval"`
 	// K8sDropEventsReasons controls which drop reasons to emit events for.
 	K8sDropEventsReasons []string `mapstructure:"hubble-drop-events-reasons"`
+	// EnableK8sDropEventsPolicies controls if L4 network policies are included in event message
+	EnableK8sDropEventsPolicies bool `mapstructure:"hubble-drop-events-policies"`
 }
 
 var defaultConfig = config{
@@ -51,12 +53,14 @@ var defaultConfig = config{
 		strings.ToLower(flowpb.DropReason_AUTH_REQUIRED.String()),
 		strings.ToLower(flowpb.DropReason_POLICY_DENIED.String()),
 	},
+	EnableK8sDropEventsPolicies: false,
 }
 
 func (def config) Flags(flags *pflag.FlagSet) {
 	flags.Bool("hubble-drop-events", def.EnableK8sDropEvents, "Emit packet drop Events related to pods (alpha)")
 	flags.Duration("hubble-drop-events-interval", def.K8sDropEventsInterval, "Minimum time between emitting same events")
 	flags.StringSlice("hubble-drop-events-reasons", def.K8sDropEventsReasons, "Drop reasons to emit events for")
+	flags.Bool("hubble-drop-events-policies", def.EnableK8sDropEventsPolicies, "Include L4 network policies in drop event message")
 }
 
 func (cfg *config) normalize() {
@@ -105,9 +109,10 @@ func newDropEventEmitter(p params) FlowProcessor {
 		"Building the Hubble packet drop events emitter",
 		logfields.Interval, p.Config.K8sDropEventsInterval,
 		logfields.Reasons, p.Config.K8sDropEventsReasons,
+		logfields.CiliumNetworkPolicy, p.Config.EnableK8sDropEventsPolicies,
 	)
 
-	flowProcessor := new(p.Logger, p.Config.K8sDropEventsInterval, p.Config.K8sDropEventsReasons, p.Clientset, p.K8sWatcher, p.EndpointManager)
+	flowProcessor := new(p.Logger, p.Config.K8sDropEventsInterval, p.Config.K8sDropEventsReasons, p.Config.EnableK8sDropEventsPolicies, p.Clientset, p.K8sWatcher, p.EndpointManager)
 	p.Lifecycle.Append(cell.Hook{
 		OnStop: func(hc cell.HookContext) error {
 			flowProcessor.Shutdown()
