@@ -1,0 +1,11 @@
+.idea
+.DS_Store
+*.iml
+/bin
+/errors
+/tmp
+*.swp
+orchestrion
+coverage/
+venv/
+.python-version

@@ -1,0 +1,4 @@
+# Some files must be LF-normalized, always: this includes YAML configuration
+# files as well as any golden snapshots. Failing this, some tests will fail on
+# Windows due to normalization differences.
+* text=auto eol=lf
