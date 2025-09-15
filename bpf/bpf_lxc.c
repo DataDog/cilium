@@ -71,6 +71,14 @@
 # define ENABLE_PER_PACKET_LB 1
 #endif
 
+static long (*bpf_trace_printk)(const char *fmt, __u32 fmt_size, ...) = (void *) 6;
+#define bpf_printk(fmt, ...)				\
+({							\
+	static const char ____fmt[] = fmt;				\
+	bpf_trace_printk(____fmt, sizeof(____fmt),	\
+			 ##__VA_ARGS__);		\
+})
+
 #ifdef ENABLE_PER_PACKET_LB
 
 #ifdef ENABLE_IPV4
@@ -1014,10 +1022,12 @@ static __always_inline int handle_ipv4_from_lxc(struct __ctx_buff *ctx, __u32 *d
 		if (verdict != CTX_ACT_OK) {
 #ifdef POLICY_DENY_RESPONSE
 			if (verdict == DROP_POLICY_DENY) {
+				bpf_printk("[POLICY_DENY_RESPONSE] Policy denied - generating ICMP response, verdict=%d", verdict);
 				ctx_store_meta(ctx, CB_SRC_LABEL, SECLABEL_IPV4);
 				return tail_call_internal(ctx, CILIUM_CALL_IPV4_POLICY_DENIED, ext_err);
 			}
 #endif /* POLICY_DENY_RESPONSE */
+			bpf_printk("[POLICY_DENY_RESPONSE] Policy denied but not generating ICMP, verdict=%d", verdict);
 			return verdict;
 		}
 
@@ -2453,17 +2463,25 @@ int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
 	__u32 src_sec_identity = ctx_load_meta(ctx, CB_SRC_LABEL);
 	int ret;
 
+	bpf_printk("[POLICY_DENY_RESPONSE] tail_policy_denied_ipv4 called, src_identity=%u", src_sec_identity);
+
 	ret = generate_icmp4_reply(ctx, ICMP_DEST_UNREACH, ICMP_PKT_FILTERED);
+	bpf_printk("[POLICY_DENY_RESPONSE] generate_icmp4_reply returned %d", ret);
+	
 	if (!ret) {
+		bpf_printk("[POLICY_DENY_RESPONSE] ICMP reply generated successfully, redirecting to self");
 		cilium_dbg_capture(ctx, DBG_CAPTURE_DELIVERY, ctx_get_ifindex(ctx));
 		ret = redirect_self(ctx);
+		bpf_printk("[POLICY_DENY_RESPONSE] redirect_self returned %d", ret);
 		
 		if (!IS_ERR(ret)) {
 			update_metrics(ctx_full_len(ctx), METRIC_EGRESS, __DROP_REASON(DROP_POLICY_DENY));
+			bpf_printk("[POLICY_DENY_RESPONSE] ICMP response sent successfully");
 			return ret;
 		}
 	}
 
+	bpf_printk("[POLICY_DENY_RESPONSE] Failed to send ICMP response, ret=%d", ret);
 	return send_drop_notify_error(ctx, src_sec_identity, ret, METRIC_EGRESS);
 }
 #endif /* ENABLE_IPV4 */

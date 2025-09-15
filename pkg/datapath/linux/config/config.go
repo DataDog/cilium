@@ -269,6 +269,12 @@ func (h *HeaderfileWriter) WriteNodeConfig(w io.Writer, cfg *datapath.LocalNodeC
 
 	if option.Config.PolicyDenyResponse == option.PolicyDenyResponseIcmp {
 		cDefinesMap["POLICY_DENY_RESPONSE"] = "1"
+		slog.Info("Policy deny response ICMP enabled - setting BPF define POLICY_DENY_RESPONSE=1",
+			"policy-deny-response", option.Config.PolicyDenyResponse,
+			"POLICY_DENY_RESPONSE_DEFINE", "1")
+	} else {
+		slog.Info("Policy deny response ICMP disabled - POLICY_DENY_RESPONSE define not set",
+			"policy-deny-response", option.Config.PolicyDenyResponse)
 	}
 
 	if option.Config.EnableL2Announcements {
@@ -731,6 +737,12 @@ func (h *HeaderfileWriter) WriteNodeConfig(w io.Writer, cfg *datapath.LocalNodeC
 	// writing the config.
 	for _, key := range slices.Sorted(maps.Keys(cDefinesMap)) {
 		fmt.Fprintf(fw, "#define %s %s\n", key, cDefinesMap[key])
+		// Log when POLICY_DENY_RESPONSE define is written
+		if key == "POLICY_DENY_RESPONSE" {
+			h.log.Info("Writing POLICY_DENY_RESPONSE define to BPF header",
+				"define", key,
+				"value", cDefinesMap[key])
+		}
 	}
 
 	// Populate cDefinesMap with extraMacrosMap to get all the configuration

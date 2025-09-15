@@ -2753,10 +2753,14 @@ func (c *DaemonConfig) Populate(logger *slog.Logger, vp *viper.Viper) {
 
 	c.populateLoadBalancerSettings(logger, vp)
 	c.PolicyDenyResponse = vp.GetString(PolicyDenyResponse)
+	logger.Info("Policy deny response configuration read from config", "policy-deny-response-raw", c.PolicyDenyResponse)
+
 	switch c.PolicyDenyResponse {
 	case PolicyDenyResponseIcmp, PolicyDenyResponseNone:
+		logger.Info("Policy deny response configuration validated", "policy-deny-response", c.PolicyDenyResponse)
 	case "":
 		c.PolicyDenyResponse = defaults.PolicyDenyResponse
+		logger.Info("Using default policy deny response configuration", "policy-deny-response-default", c.PolicyDenyResponse)
 	default:
 		logging.Fatal(logger, "Invalid value for --%s: %s (must be 'icmp' or 'none')", PolicyDenyResponse, c.PolicyDenyResponse)
 	}
