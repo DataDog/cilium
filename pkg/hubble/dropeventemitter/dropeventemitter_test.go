@@ -48,7 +48,7 @@ func TestEndpointToString(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			str := endpointToString(tt.ip, tt.endpoint)
+			str := endpointToString(tt.ip, tt.endpoint, nil)
 			assert.Equal(t, str, tt.expect)
 		})
 	}

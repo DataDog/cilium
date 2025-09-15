@@ -37,6 +37,7 @@ type dropEventEmitter struct {
 	showPolicies    bool
 	reasons         []flowpb.DropReason
 	endpointManager endpointmanager.EndpointManager
+	log             *slog.Logger
 }
 
 func new(log *slog.Logger, interval time.Duration, reasons []string, showPolicies bool, k8s client.Clientset, watcher watchers.CacheAccessK8SWatcher, endpointManager endpointmanager.EndpointManager) *dropEventEmitter {
@@ -65,6 +66,7 @@ func new(log *slog.Logger, interval time.Duration, reasons []string, showPolicie
 		reasons:         rs,
 		showPolicies:    showPolicies,
 		endpointManager: endpointManager,
+		log:             log,
 	}
 }
 
@@ -96,7 +98,7 @@ func (e *dropEventEmitter) ProcessFlow(ctx context.Context, flow *flowpb.Flow) e
 
 	if flow.TrafficDirection == flowpb.TrafficDirection_INGRESS {
 		message := "Incoming packet dropped (" + reason + ") from " +
-			endpointToString(flow.IP.Source, flow.Source) + " " +
+			endpointToString(flow.IP.Source, flow.Source, e.log) + " " +
 			l4protocolToString(flow.L4) + "."
 		if e.showPolicies {
 			message += parseL4Rules(flowL4Rules, policyRevision)
@@ -111,7 +113,7 @@ func (e *dropEventEmitter) ProcessFlow(ctx context.Context, flow *flowpb.Flow) e
 		}, v1.EventTypeWarning, "PacketDrop", message)
 	} else {
 		message := "Outgoing packet dropped (" + reason + ") to " +
-			endpointToString(flow.IP.Destination, flow.Destination) + " " +
+			endpointToString(flow.IP.Destination, flow.Destination, e.log) + " " +
 			l4protocolToString(flow.L4) + "."
 		if e.showPolicies {
 			message += parseL4Rules(flowL4Rules, policyRevision)
@@ -141,12 +143,15 @@ func (e *dropEventEmitter) Shutdown() {
 	e.broadcaster.Shutdown()
 }
 
-func endpointToString(ip string, endpoint *flowpb.Endpoint) string {
+func endpointToString(ip string, endpoint *flowpb.Endpoint, log *slog.Logger) string {
 	if endpoint.PodName != "" {
 		return endpoint.Namespace + "/" + endpoint.PodName + " (" + ip + ")"
 	}
 	if identity.NumericIdentity(endpoint.Identity).IsReservedIdentity() {
 		return identity.NumericIdentity(endpoint.Identity).String() + " (" + ip + ")"
+	}
+	if log != nil {
+		log.Warn("Unknown endpoint", logfields.Identity, int(endpoint.Identity), logfields.Endpoint, endpoint)
 	}
 	return ip
 }
