@@ -15,7 +15,12 @@ import (
 	"k8s.io/client-go/tools/record"
 
 	flowpb "github.com/cilium/cilium/api/v1/flow"
+	"github.com/cilium/cilium/api/v1/models"
+	"github.com/cilium/cilium/pkg/container/set"
+	"github.com/cilium/cilium/pkg/endpoint"
+	"github.com/cilium/cilium/pkg/endpointmanager"
 	"github.com/cilium/cilium/pkg/identity"
+	"github.com/cilium/cilium/pkg/k8s/apis/cilium.io/utils"
 	client "github.com/cilium/cilium/pkg/k8s/client"
 	slimv1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/core/v1"
 	metaslimv1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/apis/meta/v1"
@@ -26,14 +31,15 @@ import (
 )
 
 type dropEventEmitter struct {
-	broadcaster record.EventBroadcaster
-	recorder    record.EventRecorder
-	k8sWatcher  watchers.CacheAccessK8SWatcher
-
-	reasons []flowpb.DropReason
+	broadcaster     record.EventBroadcaster
+	recorder        record.EventRecorder
+	k8sWatcher      watchers.CacheAccessK8SWatcher
+	showPolicies    bool
+	reasons         []flowpb.DropReason
+	endpointManager endpointmanager.EndpointManager
 }
 
-func new(log *slog.Logger, interval time.Duration, reasons []string, k8s client.Clientset, watcher watchers.CacheAccessK8SWatcher) *dropEventEmitter {
+func new(log *slog.Logger, interval time.Duration, reasons []string, showPolicies bool, k8s client.Clientset, watcher watchers.CacheAccessK8SWatcher, endpointManager endpointmanager.EndpointManager) *dropEventEmitter {
 	broadcaster := record.NewBroadcasterWithCorrelatorOptions(record.CorrelatorOptions{
 		BurstSize:            1,
 		QPS:                  1 / float32(interval.Seconds()),
@@ -53,10 +59,12 @@ func new(log *slog.Logger, interval time.Duration, reasons []string, k8s client.
 	}
 
 	return &dropEventEmitter{
-		broadcaster: broadcaster,
-		recorder:    broadcaster.NewRecorder(slimscheme.Scheme, v1.EventSource{Component: "cilium"}),
-		k8sWatcher:  watcher,
-		reasons:     rs,
+		broadcaster:     broadcaster,
+		recorder:        broadcaster.NewRecorder(slimscheme.Scheme, v1.EventSource{Component: "cilium"}),
+		k8sWatcher:      watcher,
+		reasons:         rs,
+		showPolicies:    showPolicies,
+		endpointManager: endpointManager,
 	}
 }
 
@@ -76,15 +84,26 @@ func (e *dropEventEmitter) ProcessFlow(ctx context.Context, flow *flowpb.Flow) e
 	}
 
 	reason := strings.ToLower(flow.DropReasonDesc.String())
+	flowL4Rules := []*models.PolicyRule{}
+	policyRevision := uint64(0)
+	if e.showPolicies {
+		flowL4Rules, policyRevision = getL4RulesFromEndpoint(flow.TrafficDirection, e.getEndpoint(flow))
+	}
+	typeMeta := metaslimv1.TypeMeta{
+		Kind:       "Pod",
+		APIVersion: "v1",
+	}
+
 	if flow.TrafficDirection == flowpb.TrafficDirection_INGRESS {
 		message := "Incoming packet dropped (" + reason + ") from " +
 			endpointToString(flow.IP.Source, flow.Source) + " " +
-			l4protocolToString(flow.L4)
+			l4protocolToString(flow.L4) + "."
+		if e.showPolicies {
+			message += parseL4Rules(flowL4Rules, policyRevision)
+		}
+
 		e.recorder.Event(&slimv1.Pod{
-			TypeMeta: metaslimv1.TypeMeta{
-				Kind:       "Pod",
-				APIVersion: "v1",
-			},
+			TypeMeta: typeMeta,
 			ObjectMeta: metaslimv1.ObjectMeta{
 				Name:      flow.Destination.PodName,
 				Namespace: flow.Destination.Namespace,
@@ -93,7 +112,10 @@ func (e *dropEventEmitter) ProcessFlow(ctx context.Context, flow *flowpb.Flow) e
 	} else {
 		message := "Outgoing packet dropped (" + reason + ") to " +
 			endpointToString(flow.IP.Destination, flow.Destination) + " " +
-			l4protocolToString(flow.L4)
+			l4protocolToString(flow.L4) + "."
+		if e.showPolicies {
+			message += parseL4Rules(flowL4Rules, policyRevision)
+		}
 
 		objMeta := metaslimv1.ObjectMeta{
 			Name:      flow.Source.PodName,
@@ -106,10 +128,7 @@ func (e *dropEventEmitter) ProcessFlow(ctx context.Context, flow *flowpb.Flow) e
 			}
 		}
 		podObj := slimv1.Pod{
-			TypeMeta: metaslimv1.TypeMeta{
-				Kind:       "Pod",
-				APIVersion: "v1",
-			},
+			TypeMeta:   typeMeta,
 			ObjectMeta: objMeta,
 		}
 		e.recorder.Event(&podObj, v1.EventTypeWarning, "PacketDrop", message)
@@ -146,4 +165,70 @@ func l4protocolToString(l4 *flowpb.Layer4) string {
 		return "SCTP"
 	}
 	return ""
+}
+
+func (e *dropEventEmitter) getEndpoint(flow *flowpb.Flow) *endpoint.Endpoint {
+	var endpointID uint16
+	if flow.TrafficDirection == flowpb.TrafficDirection_INGRESS {
+		endpointID = uint16(flow.Destination.ID)
+	} else {
+		endpointID = uint16(flow.Source.ID)
+	}
+	return e.endpointManager.LookupCiliumID(endpointID)
+}
+
+func getL4RulesFromEndpoint(direction flowpb.TrafficDirection, ep *endpoint.Endpoint) ([]*models.PolicyRule, uint64) {
+	if ep == nil {
+		return nil, 0
+	}
+
+	model := ep.GetModel().Status
+	if model == nil || model.Policy == nil || model.Policy.Realized == nil || model.Policy.Realized.L4 == nil {
+		return nil, 0
+	}
+
+	policyRealized := model.Policy.Realized
+	policyRevision := uint64(policyRealized.PolicyRevision)
+	if direction == flowpb.TrafficDirection_INGRESS {
+		if model.Policy.Realized.L4.Ingress == nil {
+			return nil, 0
+		}
+		return policyRealized.L4.Ingress, policyRevision
+	} else {
+		if model.Policy.Realized.L4.Egress == nil {
+			return nil, 0
+		}
+		return policyRealized.L4.Egress, policyRevision
+	}
+}
+
+func parseL4Rules(l4Rules []*models.PolicyRule, policyRevision uint64) string {
+	res := ""
+	if l4Rules == nil {
+		return res
+	}
+
+	networkPolicies, clusterwideNetworkPolicies := set.NewSet[string](), set.NewSet[string]()
+
+	for _, rules := range l4Rules {
+		for _, policyLabels := range rules.DerivedFromRules {
+			policy := utils.GetPolicyFromLabels(policyLabels, policyRevision)
+			if policy == nil {
+				continue
+			}
+			if policy.Namespace == "" {
+				clusterwideNetworkPolicies.Insert(policy.Name)
+				continue
+			}
+			networkPolicies.Insert(policy.Name)
+		}
+	}
+
+	if networkPolicies.Len() > 0 {
+		res += " Applicable network policies: " + networkPolicies.String() + "."
+	}
+	if clusterwideNetworkPolicies.Len() > 0 {
+		res += " Applicable clusterwide network policies: " + clusterwideNetworkPolicies.String() + "."
+	}
+	return res
 }
