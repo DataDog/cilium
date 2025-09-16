@@ -1020,7 +1020,7 @@ static __always_inline int handle_ipv4_from_lxc(struct __ctx_buff *ctx, __u32 *d
 		}
 
 		if (verdict != CTX_ACT_OK) {
-			if (verdict == DROP_POLICY_DENY && CONFIG(policy_deny_response_enabled)) {
+			if ((verdict == DROP_POLICY_DENY || verdict == DROP_POLICY) && CONFIG(policy_deny_response_enabled)) {
 				bpf_printk("[POLICY_DENY_RESPONSE] Policy denied - generating ICMP response, verdict=%d", verdict);
 				ctx_store_meta(ctx, CB_SRC_LABEL, SECLABEL_IPV4);
 				return tail_call_internal(ctx, CILIUM_CALL_IPV4_POLICY_DENIED, ext_err);
