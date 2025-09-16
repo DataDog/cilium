@@ -8,9 +8,7 @@
 #include "drop.h"
 #include "dbg.h"
 #include "eps.h"
-#ifdef POLICY_DENY_RESPONSE
 #include "icmp.h"
-#endif
 
 /* Global policy stats map */
 struct {

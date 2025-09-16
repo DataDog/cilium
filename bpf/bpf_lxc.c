@@ -1020,14 +1020,13 @@ static __always_inline int handle_ipv4_from_lxc(struct __ctx_buff *ctx, __u32 *d
 		}
 
 		if (verdict != CTX_ACT_OK) {
-#ifdef POLICY_DENY_RESPONSE
-			if (verdict == DROP_POLICY_DENY) {
+			if (verdict == DROP_POLICY_DENY && CONFIG(policy_deny_response_enabled)) {
 				bpf_printk("[POLICY_DENY_RESPONSE] Policy denied - generating ICMP response, verdict=%d", verdict);
 				ctx_store_meta(ctx, CB_SRC_LABEL, SECLABEL_IPV4);
 				return tail_call_internal(ctx, CILIUM_CALL_IPV4_POLICY_DENIED, ext_err);
 			}
-#endif /* POLICY_DENY_RESPONSE */
-			bpf_printk("[POLICY_DENY_RESPONSE] Policy denied but not generating ICMP, verdict=%d", verdict);
+			bpf_printk("[POLICY_DENY_RESPONSE] Policy denied but not generating ICMP, verdict=%d, config_enabled=%u", 
+				verdict, CONFIG(policy_deny_response_enabled));
 			return verdict;
 		}
 
@@ -2454,8 +2453,6 @@ out:
 	return ret;
 }
 
-#ifdef POLICY_DENY_RESPONSE
-
 #ifdef ENABLE_IPV4
 __declare_tail(CILIUM_CALL_IPV4_POLICY_DENIED)
 int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
@@ -2463,7 +2460,8 @@ int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
 	__u32 src_sec_identity = ctx_load_meta(ctx, CB_SRC_LABEL);
 	int ret;
 
-	bpf_printk("[POLICY_DENY_RESPONSE] tail_policy_denied_ipv4 called, src_identity=%u", src_sec_identity);
+	bpf_printk("[POLICY_DENY_RESPONSE] tail_policy_denied_ipv4 called, src_identity=%u, config_enabled=%u", 
+		src_sec_identity, CONFIG(policy_deny_response_enabled));
 
 	ret = generate_icmp4_reply(ctx, ICMP_DEST_UNREACH, ICMP_PKT_FILTERED);
 	bpf_printk("[POLICY_DENY_RESPONSE] generate_icmp4_reply returned %d", ret);
@@ -2485,6 +2483,5 @@ int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
 	return send_drop_notify_error(ctx, src_sec_identity, ret, METRIC_EGRESS);
 }
 #endif /* ENABLE_IPV4 */
-#endif /* POLICY_DENY_RESPONSE */
 
 BPF_LICENSE("Dual BSD/GPL");
