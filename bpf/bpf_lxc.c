@@ -2467,16 +2467,14 @@ int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
 	bpf_printk("[POLICY_DENY_RESPONSE] generate_icmp4_reply returned %d", ret);
 	
 	if (!ret) {
-		bpf_printk("[POLICY_DENY_RESPONSE] ICMP reply generated successfully, redirecting to self");
+		bpf_printk("[POLICY_DENY_RESPONSE] ICMP reply generated successfully, delivering to stack");
 		cilium_dbg_capture(ctx, DBG_CAPTURE_DELIVERY, ctx_get_ifindex(ctx));
-		ret = redirect_self(ctx);
-		bpf_printk("[POLICY_DENY_RESPONSE] redirect_self returned %d", ret);
 		
-		if (!IS_ERR(ret)) {
-			update_metrics(ctx_full_len(ctx), METRIC_EGRESS, __DROP_REASON(DROP_POLICY_DENY));
-			bpf_printk("[POLICY_DENY_RESPONSE] ICMP response sent successfully");
-			return ret;
-		}
+		/* Deliver directly to kernel stack, bypassing BPF ingress policies */
+		ctx_change_type(ctx, PACKET_HOST);
+		update_metrics(ctx_full_len(ctx), METRIC_EGRESS, __DROP_REASON(DROP_POLICY_DENY));
+		bpf_printk("[POLICY_DENY_RESPONSE] ICMP response sent to stack successfully");
+		return CTX_ACT_OK;
 	}
 
 	bpf_printk("[POLICY_DENY_RESPONSE] Failed to send ICMP response, ret=%d", ret);
