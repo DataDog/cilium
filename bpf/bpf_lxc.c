@@ -1020,10 +1020,14 @@ static __always_inline int handle_ipv4_from_lxc(struct __ctx_buff *ctx, __u32 *d
 		}
 
 		if (verdict != CTX_ACT_OK) {
-			if ((verdict == DROP_POLICY_DENY || verdict == DROP_POLICY) && CONFIG(policy_deny_response_enabled)) {
-				bpf_printk("[POLICY_DENY_RESPONSE] Policy denied - generating ICMP response, verdict=%d", verdict);
-				ctx_store_meta(ctx, CB_SRC_LABEL, SECLABEL_IPV4);
-				return tail_call_internal(ctx, CILIUM_CALL_IPV4_POLICY_DENIED, ext_err);
+		    /* If policy_deny_response_enabled is set and the packet has been denied,
+		     * respond with an ICMPv4 "Destination Unreachable"
+		     */
+			if (CONFIG(policy_deny_response_enabled) &&
+			    (verdict == DROP_POLICY || verdict == DROP_POLICY_DENY)) {
+				ctx_store_meta(ctx, CB_VERDICT, verdict);
+				return tail_call_internal(ctx, CILIUM_CALL_IPV4_POLICY_DENIED,
+							  ext_err);
 			}
 			bpf_printk("[POLICY_DENY_RESPONSE] Policy denied but not generating ICMP, verdict=%d, config_enabled=%u", 
 				verdict, CONFIG(policy_deny_response_enabled));
@@ -2457,28 +2461,19 @@ out:
 __declare_tail(CILIUM_CALL_IPV4_POLICY_DENIED)
 int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
 {
-	__u32 src_sec_identity = ctx_load_meta(ctx, CB_SRC_LABEL);
 	int ret;
+	__u32 verdict = ctx_load_meta(ctx, CB_VERDICT);
 
 	bpf_printk("[POLICY_DENY_RESPONSE] tail_policy_denied_ipv4 called, src_identity=%u, config_enabled=%u", 
 		src_sec_identity, CONFIG(policy_deny_response_enabled));
 
-	ret = generate_icmp4_reply(ctx, ICMP_DEST_UNREACH, ICMP_PKT_FILTERED);
-	bpf_printk("[POLICY_DENY_RESPONSE] generate_icmp4_reply returned %d", ret);
-	
-	if (!ret) {
-		bpf_printk("[POLICY_DENY_RESPONSE] ICMP reply generated successfully, delivering to stack");
-		cilium_dbg_capture(ctx, DBG_CAPTURE_DELIVERY, ctx_get_ifindex(ctx));
-		
-		/* Deliver directly to kernel stack, bypassing BPF ingress policies */
-		ctx_change_type(ctx, PACKET_HOST);
-		update_metrics(ctx_full_len(ctx), METRIC_EGRESS, __DROP_REASON(DROP_POLICY_DENY));
-		bpf_printk("[POLICY_DENY_RESPONSE] ICMP response sent to stack successfully");
-		return CTX_ACT_OK;
+		if (!IS_ERR(ret)) {
+			update_metrics(ctx_full_len(ctx), METRIC_EGRESS, __DROP_REASON(verdict));
+			return ret;
+		}
 	}
 
-	bpf_printk("[POLICY_DENY_RESPONSE] Failed to send ICMP response, ret=%d", ret);
-	return send_drop_notify_error(ctx, src_sec_identity, ret, METRIC_EGRESS);
+	return send_drop_notify_error(ctx, SECLABEL_IPV4, ret, METRIC_EGRESS);
 }
 #endif /* ENABLE_IPV4 */
 
