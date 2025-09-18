@@ -2464,8 +2464,10 @@ int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
 	int ret;
 	__u32 verdict = ctx_load_meta(ctx, CB_VERDICT);
 
-	bpf_printk("[POLICY_DENY_RESPONSE] tail_policy_denied_ipv4 called, src_identity=%u, config_enabled=%u", 
-		src_sec_identity, CONFIG(policy_deny_response_enabled));
+	ret = generate_icmp4_reply(ctx, ICMP_DEST_UNREACH, ICMP_PKT_FILTERED);
+	if (!ret) {
+		cilium_dbg_capture(ctx, DBG_CAPTURE_DELIVERY, ctx_get_ifindex(ctx));
+		ret = redirect_self(ctx);
 
 		if (!IS_ERR(ret)) {
 			update_metrics(ctx_full_len(ctx), METRIC_EGRESS, __DROP_REASON(verdict));
