@@ -111,7 +111,7 @@ jobs:
       # Warning: since this is a privileged workflow, subsequent workflow job
       # steps must take care not to execute untrusted code.
       - name: Checkout pull request branch (NOT TRUSTED)
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ inputs.SHA || github.sha }}
           persist-credentials: false
@@ -126,10 +126,10 @@ jobs:
 
       - name: Install Go
         if: ${{ steps.cache.outputs.cache-hit != 'true' }}
-        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
         with:
           # renovate: datasource=golang-version depName=go
-          go-version: 1.24.6
+          go-version: 1.24.7
 
       - name: Build Ginkgo
         if: ${{ steps.cache.outputs.cache-hit != 'true' }}
@@ -164,7 +164,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -185,7 +185,7 @@ jobs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -249,7 +249,7 @@ jobs:
           comment_on_pr: false
 
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -264,7 +264,7 @@ jobs:
       # Warning: since this is a privileged workflow, subsequent workflow job
       # steps must take care not to execute untrusted code.
       - name: Checkout pull request branch (NOT TRUSTED)
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ inputs.SHA || github.sha }}
           persist-credentials: false
@@ -278,10 +278,19 @@ jobs:
           repository: ${{ env.CILIUM_CLI_RELEASE_REPO }}
           release-version: ${{ env.CILIUM_CLI_VERSION }}
 
-      - name: Copy cilium-cli
+      - name: Copy cilium-cli from CI docker image
+        if: ${{ env.CILIUM_CLI_VERSION == '' }}
         shell: bash
         run: |
-          cp -f /usr/local/bin/cilium ./cilium-cli-bin
+          cid=$(docker create ${{ env.CILIUM_CLI_IMAGE_REPO }}:${{ needs.setup-vars.outputs.SHA }} ls)
+          docker cp $cid:/usr/local/bin/cilium "$PWD/cilium-cli-bin"
+          docker rm $cid
+
+      - name: Copy cilium-cli from released binary
+        if: ${{ env.CILIUM_CLI_VERSION != '' }}
+        shell: bash
+        run: |
+          cp /usr/local/bin/cilium "$PWD/cilium-cli-bin"
 
       - name: Install helm
         shell: bash
@@ -338,10 +347,10 @@ jobs:
       # Re-build the tests if it was a cache miss.
       - name: Install Go
         if: ${{ steps.cache.outputs.cache-hit != 'true' }}
-        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
         with:
           # renovate: datasource=golang-version depName=go
-          go-version: 1.24.6
+          go-version: 1.24.7
 
       - name: Build Ginkgo
         if: ${{ steps.cache.outputs.cache-hit != 'true' }}
@@ -442,31 +451,26 @@ jobs:
             kubectl get pods --all-namespaces -o wide
             tar -zcf "test_results-${{ env.job_name }}.tar.gz" /host/test/test_results
 
-      - name: Prepare script to run inside lvm
-        if: ${{ always() && steps.provision-vh-vms.outcome == 'success' }}
+      - name: Fetch tested features
+        if: ${{ always() && steps.run-tests.outcome != 'skipped' }}
         shell: bash
         run: |
-          cat <<EOF > run-in-lvm.sh
-          #!/usr/bin/env bash
-          cd /host
-          if ! find /host/test/test_results -type f -iname 'feature-status-*.json' | grep -q .; then
-            exit 0
-          fi
+          sudo chown $USER:$USER -R ./test
           find . -type f -iname 'feature-status-*.json' | while IFS= read -r file; do
-            mv "\$file" "./${{ env.job_name }}-\${file##*/feature-status-}"
+            basename_file=$(basename "$file")
+            suffix="${basename_file#feature-status-}"
+            new_filename="features-tested-${{ env.job_name }}-${suffix}"
+            # Truncate filename to 250 characters max
+            if [ ${#new_filename} -gt 250 ]; then
+              new_filename="${new_filename:0:250}"
+            fi
+            # Check if file already exists and fail if it does
+            if [ -f "./${new_filename}" ]; then
+              echo "Error: File ./${new_filename} already exists. Aborting to prevent overwrite."
+              exit 1
+            fi
+            mv "$file" "./${new_filename}"
           done
-          EOF
-          chmod +x run-in-lvm.sh
-
-      - name: Fetch features tested
-        if: ${{ always() && steps.provision-vh-vms.outcome == 'success' }}
-        continue-on-error: true
-        uses: cilium/little-vm-helper@9c1f3a549af06e213863d034c13ba1c5d1e3c667 # v0.0.26
-        with:
-          provision: 'false'
-          cmd: |
-            cd /host
-            ./run-in-lvm.sh
 
       - name: Upload artifacts
         if: ${{ !success() }}
@@ -514,7 +518,7 @@ jobs:
     needs: setup-and-test
     steps:
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
