@@ -1,6 +1,6 @@
 default:
   tags: ["arch:amd64"]
-  image: registry.ddbuild.io/images/nydus:v2.3.6
+  image: registry.ddbuild.io/images/nydus:v2.3.7
 
 variables:
   # Defaults
@@ -82,6 +82,7 @@ before_script:
       BUILD_ARGS+=" --build-arg CILIUM_RUNTIME_IMAGE=${CILIUM_RUNTIME_IMAGE}"
     fi
 
+    METADATA_FILE=$(mktemp)
     docker buildx build --platform linux/amd64,linux/arm64 \
       --tag "$IMAGE_REF" \
       --file "$DOCKERFILE_PATH" \
@@ -93,14 +94,17 @@ before_script:
       --label CI_JOB_ID="$CI_JOB_ID" \
       --label is_fips=true \
       --target "$TARGET" \
+      --metadata-file "$METADATA_FILE" \
       --output type=image,push=true,compression=zstd,force-compression=true,oci-mediatypes=true \
       "$DOCKER_CTX"
 
-    nydus-convert "${IMAGE_REF}" "${IMAGE_REF}"
+    ddsign sign "${IMAGE_REF}" --docker-metadata-file "${METADATA_FILE}"
+    nydus-convert "${IMAGE_REF}"
 
     # Always build the debug version of the Cilium Agent and Operator images
     if [[ $IMAGE_NAME == "cilium" || $IMAGE_NAME =~ "cilium-operator" ]]; then
       IMAGE_REF_DEBUG="$IMAGE_REF"-debug
+      METADATA_FILE_DEBUG=$(mktemp)
       docker buildx build --platform linux/amd64,linux/arm64 \
         --tag "$IMAGE_REF_DEBUG" \
         --file "$DOCKERFILE_PATH" \
@@ -112,10 +116,12 @@ before_script:
         --label CI_JOB_ID="$CI_JOB_ID" \
         --label is_fips=true \
         --target debug \
+        --metadata-file "$METADATA_FILE_DEBUG" \
         --output type=image,push=true,compression=zstd,force-compression=true,oci-mediatypes=true \
         "$DOCKER_CTX"
 
-      nydus-convert "${IMAGE_REF_DEBUG}" "${IMAGE_REF_DEBUG}"
+      ddsign sign "${IMAGE_REF_DEBUG}" --docker-metadata-file "${METADATA_FILE_DEBUG}"
+      nydus-convert "${IMAGE_REF_DEBUG}"
     fi
 
 branch-pipeline:
