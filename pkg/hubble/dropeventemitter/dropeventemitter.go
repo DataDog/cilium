@@ -92,12 +92,6 @@ func (e *dropEventEmitter) ProcessFlow(ctx context.Context, flow *flowpb.Flow) e
 
 	reason := strings.ToLower(flow.DropReasonDesc.String())
 
-	var flowL4Rules []*models.PolicyRule
-	var policyRevision uint64
-	if e.showPolicies {
-		flowL4Rules, policyRevision = getL4RulesFromEndpoint(flow.TrafficDirection, e.getLocalEndpoint(flow))
-	}
-
 	typeMeta := metaslimv1.TypeMeta{
 		Kind:       "Pod",
 		APIVersion: "v1",
@@ -109,7 +103,10 @@ func (e *dropEventEmitter) ProcessFlow(ctx context.Context, flow *flowpb.Flow) e
 			l4protocolToString(flow.L4) + "."
 
 		if e.showPolicies {
-			message += " " + parseL4Rules(flowL4Rules, policyRevision)
+			policies := e.dropEventPoliciesToString(flow)
+			if policies != "" {
+				message += " " + policies
+			}
 		}
 
 		e.recorder.Event(&slimv1.Pod{
@@ -125,7 +122,10 @@ func (e *dropEventEmitter) ProcessFlow(ctx context.Context, flow *flowpb.Flow) e
 			l4protocolToString(flow.L4) + "."
 
 		if e.showPolicies {
-			message += " " + parseL4Rules(flowL4Rules, policyRevision)
+			policies := e.dropEventPoliciesToString(flow)
+			if policies != "" {
+				message += " " + policies
+			}
 		}
 
 		objMeta := metaslimv1.ObjectMeta{
@@ -213,10 +213,7 @@ func getL4RulesFromEndpoint(direction flowpb.TrafficDirection, ep endpointInterf
 	}
 }
 
-func parseL4Rules(l4Rules []*models.PolicyRule, policyRevision uint64) string {
-	var res []string
-	var networkPolicies, clusterwideNetworkPolicies set.Set[string]
-
+func parseL4Rules(l4Rules []*models.PolicyRule, policyRevision uint64) (networkPolicies set.Set[string], clusterwideNetworkPolicies set.Set[string]) {
 	for _, rules := range l4Rules {
 		if rules == nil {
 			continue
@@ -233,12 +230,40 @@ func parseL4Rules(l4Rules []*models.PolicyRule, policyRevision uint64) string {
 			networkPolicies.Insert(policy.Name)
 		}
 	}
+	return
+}
 
+func parsePolicyCorrelation(direction flowpb.TrafficDirection, ingressDeniedBy []*flowpb.Policy, egressDeniedBy []*flowpb.Policy) (networkPolicies set.Set[string], clusterwideNetworkPolicies set.Set[string]) {
+	var policies []*flowpb.Policy
+	if direction == flowpb.TrafficDirection_INGRESS {
+		policies = ingressDeniedBy
+	} else {
+		policies = egressDeniedBy
+	}
+	for _, policy := range policies {
+		if policy.Namespace == "" {
+			clusterwideNetworkPolicies.Insert(policy.Name)
+			continue
+		}
+		networkPolicies.Insert(policy.Name)
+	}
+	return
+}
+
+func (e *dropEventEmitter) dropEventPoliciesToString(flow *flowpb.Flow) string {
+	var parts []string
+	prefix := "Blocked by"
+	networkPolicies, clusterwideNetworkPolicies := parsePolicyCorrelation(flow.TrafficDirection, flow.IngressDeniedBy, flow.EgressDeniedBy)
+	if networkPolicies.Len() == 0 && clusterwideNetworkPolicies.Len() == 0 {
+		prefix = "Applied"
+		flowL4Rules, policyRevision := getL4RulesFromEndpoint(flow.TrafficDirection, e.getLocalEndpoint(flow))
+		networkPolicies, clusterwideNetworkPolicies = parseL4Rules(flowL4Rules, policyRevision)
+	}
 	if networkPolicies.Len() > 0 {
-		res = append(res, "Applied network policies: "+networkPolicies.String()+".")
+		parts = append(parts, prefix+" network policies: "+networkPolicies.String()+".")
 	}
 	if clusterwideNetworkPolicies.Len() > 0 {
-		res = append(res, "Applied clusterwide network policies: "+clusterwideNetworkPolicies.String()+".")
+		parts = append(parts, prefix+" clusterwide network policies: "+clusterwideNetworkPolicies.String()+".")
 	}
-	return strings.Join(res, " ")
+	return strings.Join(parts, " ")
 }

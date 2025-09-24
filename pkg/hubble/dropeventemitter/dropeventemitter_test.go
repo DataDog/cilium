@@ -11,6 +11,7 @@ import (
 
 	flowpb "github.com/cilium/cilium/api/v1/flow"
 	"github.com/cilium/cilium/api/v1/models"
+	"github.com/cilium/cilium/pkg/container/set"
 	"github.com/cilium/cilium/pkg/endpoint"
 	"github.com/cilium/cilium/pkg/identity"
 	slim_corev1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/core/v1"
@@ -280,9 +281,10 @@ func TestGetL4RulesFromEndpoint(t *testing.T) {
 
 func TestParseL4Rules(t *testing.T) {
 	tests := []struct {
-		name   string
-		rules  []*models.PolicyRule
-		expect string
+		name                  string
+		rules                 []*models.PolicyRule
+		expectPolicies        set.Set[string]
+		expectClusterPolicies set.Set[string]
 	}{
 		{
 			name: "Rules with namespaced network policies",
@@ -295,7 +297,7 @@ func TestParseL4Rules(t *testing.T) {
 					}},
 				},
 			},
-			expect: "Applied network policies: foo.",
+			expectPolicies: set.NewSet("foo"),
 		},
 		{
 			name: "Rules with clusterwide network policies",
@@ -307,7 +309,7 @@ func TestParseL4Rules(t *testing.T) {
 					}},
 				},
 			},
-			expect: "Applied clusterwide network policies: foo.",
+			expectClusterPolicies: set.NewSet("foo"),
 		},
 		{
 			name: "Rules with both namespaced and clusterwide network policies",
@@ -326,18 +328,81 @@ func TestParseL4Rules(t *testing.T) {
 					}},
 				},
 			},
-			expect: "Applied network policies: foo. Applied clusterwide network policies: foowide.",
-		},
-		{
-			name:   "Empty rules array",
-			rules:  []*models.PolicyRule{},
-			expect: "",
+			expectPolicies:        set.NewSet("foo"),
+			expectClusterPolicies: set.NewSet("foowide"),
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			actual := parseL4Rules(tt.rules, 1)
-			assert.Equal(t, tt.expect, actual)
+			actualPolicies, actualClusterPolicies := parseL4Rules(tt.rules, 1)
+			assert.Equal(t, tt.expectPolicies, actualPolicies)
+			assert.Equal(t, tt.expectClusterPolicies, actualClusterPolicies)
+		})
+	}
+}
+
+func TestParsePolicyCorrelation(t *testing.T) {
+	tests := []struct {
+		name                  string
+		direction             flowpb.TrafficDirection
+		ingressDeniedBy       []*flowpb.Policy
+		egressDeniedBy        []*flowpb.Policy
+		expectPolicies        set.Set[string]
+		expectClusterPolicies set.Set[string]
+	}{
+		{
+			name:      "Egress with network policy",
+			direction: flowpb.TrafficDirection_EGRESS,
+			egressDeniedBy: []*flowpb.Policy{
+				{
+					Name:      "foo",
+					Namespace: "bar",
+				},
+			},
+			expectPolicies: set.NewSet("foo"),
+		},
+		{
+			name:      "Ingress with network policy",
+			direction: flowpb.TrafficDirection_EGRESS,
+			ingressDeniedBy: []*flowpb.Policy{
+				{
+					Name:      "foo",
+					Namespace: "bar",
+				},
+			},
+			expectPolicies: set.NewSet("foo"),
+		},
+		{
+			name:      "Egress with clusterwide network policy",
+			direction: flowpb.TrafficDirection_EGRESS,
+			egressDeniedBy: []*flowpb.Policy{
+				{
+					Name: "foo",
+				},
+			},
+			expectClusterPolicies: set.NewSet("foo"),
+		},
+		{
+			name:      "Egress with both namespaced and clusterwide network policies",
+			direction: flowpb.TrafficDirection_EGRESS,
+			egressDeniedBy: []*flowpb.Policy{
+				{
+					Name: "foowide",
+				},
+				{
+					Name:      "foo",
+					Namespace: "bar",
+				},
+			},
+			expectPolicies:        set.NewSet("foowide"),
+			expectClusterPolicies: set.NewSet("foo"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			actualPolicies, actualClusterPolicies := parsePolicyCorrelation(tt.direction, tt.ingressDeniedBy, tt.egressDeniedBy)
+			assert.Equal(t, tt.expectPolicies, actualPolicies)
+			assert.Equal(t, tt.expectClusterPolicies, actualClusterPolicies)
 		})
 	}
 }
