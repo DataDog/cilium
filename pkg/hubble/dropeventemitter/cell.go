@@ -52,6 +52,7 @@ var defaultConfig = config{
 	K8sDropEventsReasons: []string{
 		strings.ToLower(flowpb.DropReason_AUTH_REQUIRED.String()),
 		strings.ToLower(flowpb.DropReason_POLICY_DENIED.String()),
+		strings.ToLower(flowpb.DropReason_POLICY_DENY.String()),
 	},
 	EnableK8sDropEventsExtended: false,
 }

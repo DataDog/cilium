@@ -109,7 +109,12 @@ func (e *dropEventEmitter) ProcessFlow(ctx context.Context, flow *flowpb.Flow) e
 			l4protocolToString(flow.L4) + "."
 
 		if e.showPolicies {
-			message += " " + parseL4Rules(flowL4Rules, policyRevision)
+			blockingPolicies := parsePolicyCorrelation(flow)
+			if blockingPolicies != "" {
+				message += " " + blockingPolicies
+			} else {
+				message += " " + parseL4Rules(flowL4Rules, policyRevision)
+			}
 		}
 
 		e.recorder.Event(&slimv1.Pod{
@@ -125,7 +130,12 @@ func (e *dropEventEmitter) ProcessFlow(ctx context.Context, flow *flowpb.Flow) e
 			l4protocolToString(flow.L4) + "."
 
 		if e.showPolicies {
-			message += " " + parseL4Rules(flowL4Rules, policyRevision)
+			blockingPolicies := parsePolicyCorrelation(flow)
+			if blockingPolicies != "" {
+				message += " " + blockingPolicies
+			} else {
+				message += " " + parseL4Rules(flowL4Rules, policyRevision)
+			}
 		}
 
 		objMeta := metaslimv1.ObjectMeta{
@@ -241,4 +251,24 @@ func parseL4Rules(l4Rules []*models.PolicyRule, policyRevision uint64) string {
 		res = append(res, "Applied clusterwide network policies: "+clusterwideNetworkPolicies.String()+".")
 	}
 	return strings.Join(res, " ")
+}
+
+func parsePolicyCorrelation(flow *flowpb.Flow) string {
+	var rules []*flowpb.Policy
+	var blockingPolicies set.Set[string]
+	if flow.TrafficDirection == flowpb.TrafficDirection_INGRESS {
+		rules = flow.IngressDeniedBy
+	} else {
+		rules = flow.EgressDeniedBy
+	}
+	for _, rule := range rules {
+		if rule.Namespace != "" {
+			blockingPolicies.Insert(rule.Namespace + "/" + rule.Name)
+		}
+		blockingPolicies.Insert(rule.Name)
+	}
+	if blockingPolicies.Len() == 0 {
+		return ""
+	}
+	return "Blocking policies: " + blockingPolicies.String()
 }
