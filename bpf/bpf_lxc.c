@@ -2530,6 +2530,7 @@ int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
 	/* 2. Check if source is a remote cluster endpoint */
 	remote_info = lookup_ip4_remote_endpoint(source_ip, 0);
 	if (remote_info && identity_is_cluster(remote_info->sec_identity)) {
+#ifdef TUNNEL_MODE
 		if (remote_info->flag_has_tunnel_ep) {
 			/* Remote cluster endpoint via tunnel - use existing encap/redirect */
 			struct trace_ctx trace = {
@@ -2541,7 +2542,8 @@ int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
 						     bpf_htons(ETH_P_IP));
 			goto out;
 		}
-		/* Remote cluster endpoint via native routing - let host handle it */
+#endif /* TUNNEL_MODE */
+		/* Remote cluster endpoint via native/host routing - let host handle it */
 		ret = ctx_redirect(ctx, CILIUM_HOST_IFINDEX, 0);
 		goto out;
 	}
