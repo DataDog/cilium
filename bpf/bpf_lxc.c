@@ -1018,6 +1018,7 @@ static __always_inline int handle_ipv4_from_lxc(struct __ctx_buff *ctx, __u32 *d
 			if (CONFIG(policy_deny_response_enabled) &&
 			    (verdict == DROP_POLICY || verdict == DROP_POLICY_DENY)) {
 				ctx_store_meta(ctx, CB_VERDICT, verdict);
+				ctx_store_meta(ctx, CB_POLICY_DENY_DIR, METRIC_EGRESS);
 				return tail_call_internal(ctx, CILIUM_CALL_IPV4_POLICY_DENIED,
 							ext_err);
 			}
@@ -2012,8 +2013,19 @@ ipv4_policy(struct __ctx_buff *ctx, struct iphdr *ip4, __u32 src_label,
 						   verdict, *proxy_port, policy_match_type, audited,
 						   auth_type);
 
-		if (verdict != CTX_ACT_OK)
+		if (verdict != CTX_ACT_OK) {
+			/* If policy_deny_response_enabled is set and the packet has been denied,
+			 * respond with an ICMPv4 "Destination Unreachable"
+			 */
+			if (CONFIG(policy_deny_response_enabled) &&
+			    (verdict == DROP_POLICY || verdict == DROP_POLICY_DENY)) {
+				ctx_store_meta(ctx, CB_VERDICT, verdict);
+				ctx_store_meta(ctx, CB_POLICY_DENY_DIR, METRIC_INGRESS);
+				return tail_call_internal(ctx, CILIUM_CALL_IPV4_POLICY_DENIED,
+							ext_err);
+			}
 			return verdict;
+		}
 
 		break;
 	}
@@ -2451,22 +2463,87 @@ out:
 __declare_tail(CILIUM_CALL_IPV4_POLICY_DENIED)
 int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
 {
+	void *data, *data_end;
+	struct iphdr *ip4;
+	struct endpoint_info *ep;
+	struct remote_endpoint_info *remote_info;
+	__be32 source_ip;
 	int ret;
 	__u32 verdict = ctx_load_meta(ctx, CB_VERDICT);
+	__u8 metric_dir = (__u8)ctx_load_meta(ctx, CB_POLICY_DENY_DIR);
+	__s8 ext_err = 0;
 
+	if (!revalidate_data(ctx, &data, &data_end, &ip4))
+		return DROP_INVALID;
+
+	/* Save original source IP for routing ICMP response back */
+	source_ip = ip4->saddr;
+
+	/* Generate ICMP destination unreachable response */
 	ret = generate_icmp4_reply(ctx, ICMP_DEST_UNREACH, ICMP_PKT_FILTERED);
-	if (!ret) {
+	if (ret)
+		goto drop_err;
+
+	/* 1. Check if source is a local endpoint */
+	ep = __lookup_ip4_endpoint(source_ip);
+	if (ep) {
+		/* Local endpoint - use existing local delivery path */
 		cilium_dbg_capture(ctx, DBG_CAPTURE_DELIVERY, ctx_get_ifindex(ctx));
 		ret = redirect_self(ctx);
-
-		if (!IS_ERR(ret)) {
-			update_metrics(ctx_full_len(ctx), METRIC_EGRESS, __DROP_REASON(verdict));
-			return ret;
-		}
+		goto out;
 	}
 
-	return send_drop_notify_error(ctx, SECLABEL_IPV4, ret, METRIC_EGRESS);
+	/* 2. Check if source is a remote cluster endpoint */
+	remote_info = lookup_ip4_remote_endpoint(source_ip, 0);
+	if (remote_info && identity_is_cluster(remote_info->sec_identity)) {
+#ifdef TUNNEL_MODE
+		if (remote_info->flag_has_tunnel_ep) {
+			/* Remote cluster endpoint via tunnel - use existing encap/redirect */
+			struct trace_ctx trace = {
+				.reason = TRACE_REASON_POLICY,
+				.monitor = 0
+			};
+			ret = encap_and_redirect_lxc(ctx, remote_info, SECLABEL_IPV4,
+						     remote_info->sec_identity, &trace,
+						     bpf_htons(ETH_P_IP));
+			goto out;
+		}
+#endif /* TUNNEL_MODE */
+		/* Remote cluster endpoint via native routing - use FIB lookup */
+	}
+
+	/* 3. Remote cluster native routing or external source - use FIB lookup for optimal routing */
+	if (is_defined(ENABLE_HOST_ROUTING)) {
+		int oif = 0;
+
+		ret = fib_redirect_v4(ctx, ETH_HLEN, ip4, false, false, &ext_err, &oif);
+		/* Error handling for local routes - fallback to host stack */
+		if (ret == DROP_NO_FIB && ext_err == BPF_FIB_LKUP_RET_NOT_FWDED) {
+			if (!revalidate_data(ctx, &data, &data_end, &ip4)) {
+				ret = DROP_INVALID;
+				goto drop_err;
+			}
+			ret = ctx_redirect(ctx, CILIUM_HOST_IFINDEX, 0);
+		}
+		if (fib_ok(ret))
+			send_trace_notify(ctx, TRACE_TO_NETWORK, SECLABEL_IPV4,
+					  UNKNOWN_ID, TRACE_EP_ID_UNKNOWN, oif,
+					  TRACE_REASON_POLICY, 0, bpf_htons(ETH_P_IP));
+	} else {
+		/* Fallback: route via host interface when FIB routing disabled */
+		ret = ctx_redirect(ctx, CILIUM_HOST_IFINDEX, 0);
+	}
+
+out:
+	if (!IS_ERR(ret)) {
+		update_metrics(ctx_full_len(ctx), metric_dir, __DROP_REASON(verdict));
+		return ret;
+	}
+
+drop_err:
+	return send_drop_notify_error(ctx, SECLABEL_IPV4, ret, metric_dir);
 }
+
 #endif /* ENABLE_IPV4 */
 
 BPF_LICENSE("Dual BSD/GPL");
