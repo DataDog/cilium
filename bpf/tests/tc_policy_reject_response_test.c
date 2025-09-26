@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 /* Copyright Authors of Cilium */
 
+/* Enable code paths under test */
+#define ENABLE_IPV4
+#define TUNNEL_MODE
+
 #include <bpf/ctx/skb.h>
 #include "common.h"
 #include "pktgen.h"
 
-/* Enable code paths under test */
-#define ENABLE_IPV4
-#define TUNNEL_MODE
 #include <bpf/config/node.h>
 ASSIGN_CONFIG(bool, policy_deny_response_enabled, true)
 
