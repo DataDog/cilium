@@ -2503,7 +2503,7 @@ int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
 	__be32 source_ip;
 	int ret;
 	__u32 verdict = ctx_load_meta(ctx, CB_VERDICT);
-	__u8 metric_dir = ctx_load_meta(ctx, CB_POLICY_DENY_DIR);
+	__u8 metric_dir = (__u8)ctx_load_meta(ctx, CB_POLICY_DENY_DIR);
 
 	if (!revalidate_data(ctx, &data, &data_end, &ip4))
 		return DROP_INVALID;
@@ -2542,12 +2542,12 @@ int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
 			goto out;
 		}
 		/* Remote cluster endpoint via native routing - let host handle it */
-		ret = ctx_redirect(ctx, HOST_IFINDEX, 0);
+		ret = ctx_redirect(ctx, CILIUM_HOST_IFINDEX, 0);
 		goto out;
 	}
 
 	/* 3. External source - route via host interface */
-	ret = ctx_redirect(ctx, HOST_IFINDEX, 0);
+	ret = ctx_redirect(ctx, CILIUM_HOST_IFINDEX, 0);
 
 out:
 	if (!IS_ERR(ret)) {
