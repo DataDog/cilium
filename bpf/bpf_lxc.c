@@ -36,6 +36,7 @@
 #include "lib/identity.h"
 #include "lib/policy.h"
 #include "lib/mcast.h"
+#include "lib/clustermesh.h"
 
 /* Override LB_SELECTION initially defined in node_config.h to force bpf_lxc to use the random backend selection
  * algorithm for in-cluster traffic. Otherwise, it will fail with the Maglev hash algorithm because Cilium doesn't provision
@@ -1027,6 +1028,7 @@ static __always_inline int handle_ipv4_from_lxc(struct __ctx_buff *ctx, __u32 *d
 			    (verdict == DROP_POLICY || verdict == DROP_POLICY_DENY)) {
 				ctx_store_meta(ctx, CB_VERDICT, verdict);
 				ctx_store_meta(ctx, CB_POLICY_DENY_DIR, METRIC_EGRESS);
+				ctx_store_meta(ctx, CB_POLICY_DENY_SRC_ID, SECLABEL_IPV4);
 				return tail_call_internal(ctx, CILIUM_CALL_IPV4_POLICY_DENIED,
 							ext_err);
 			}
@@ -2029,6 +2031,7 @@ ipv4_policy(struct __ctx_buff *ctx, struct iphdr *ip4, __u32 src_label,
 			    (verdict == DROP_POLICY || verdict == DROP_POLICY_DENY)) {
 				ctx_store_meta(ctx, CB_VERDICT, verdict);
 				ctx_store_meta(ctx, CB_POLICY_DENY_DIR, METRIC_INGRESS);
+				ctx_store_meta(ctx, CB_POLICY_DENY_SRC_ID, src_label);
 				return tail_call_internal(ctx, CILIUM_CALL_IPV4_POLICY_DENIED,
 							ext_err);
 			}
@@ -2475,11 +2478,21 @@ int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
 	struct iphdr *ip4;
 	struct endpoint_info *ep;
 	struct remote_endpoint_info *remote_info;
+#ifdef ENABLE_ROUTING
+	union macaddr router_mac = THIS_INTERFACE_MAC;
+#endif
 	__be32 source_ip;
 	int ret;
 	__u32 verdict = ctx_load_meta(ctx, CB_VERDICT);
 	__u8 metric_dir = (__u8)ctx_load_meta(ctx, CB_POLICY_DENY_DIR);
+	__u32 src_identity = ctx_load_meta(ctx, CB_POLICY_DENY_SRC_ID);
+	__u32 cluster_id = extract_cluster_id_from_identity(src_identity);
 	__s8 ext_err = 0;
+
+	if (!revalidate_data(ctx, &data, &data_end, &ip4))
+		return DROP_INVALID;
+
+	source_ip = ip4->saddr;
 
 	bpf_printk("policy_denied_ipv4: entry verdict=%u dir=%u", verdict, metric_dir);
 
@@ -2492,8 +2505,11 @@ int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
 
 	/* Generate ICMP destination unreachable response */
 	ret = generate_icmp4_reply(ctx, ICMP_DEST_UNREACH, ICMP_PKT_FILTERED);
-	if (ret) {
-		bpf_printk("policy_denied_ipv4: ICMP gen failed ret=%d", ret);
+	if (ret)
+		goto drop_err;
+
+	if (!revalidate_data(ctx, &data, &data_end, &ip4)) {
+		ret = DROP_INVALID;
 		goto drop_err;
 	}
 	bpf_printk("policy_denied_ipv4: ICMP generated ok");
@@ -2502,26 +2518,17 @@ int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
 	ep = __lookup_ip4_endpoint(source_ip);
 	if (ep) {
 		bpf_printk("policy_denied_ipv4: local endpoint found");
-		/* Local endpoint - use existing local delivery path */
 		cilium_dbg_capture(ctx, DBG_CAPTURE_DELIVERY, ctx_get_ifindex(ctx));
 		ret = redirect_self(ctx);
 		goto out;
 	}
 
 	/* 2. Check if source is a remote cluster endpoint */
-	remote_info = lookup_ip4_remote_endpoint(source_ip, 0);
+	remote_info = lookup_ip4_remote_endpoint(source_ip, cluster_id);
 	if (remote_info && identity_is_cluster(remote_info->sec_identity)) {
 		bpf_printk("policy_denied_ipv4: remote cluster endpoint");
-		/* Re-validate data after bpf_printk calls */
-		if (!revalidate_data(ctx, &data, &data_end, &ip4))
-			return DROP_INVALID;
 #ifdef TUNNEL_MODE
 		if (remote_info->flag_has_tunnel_ep) {
-			bpf_printk("policy_denied_ipv4: using tunnel encap");
-			/* Re-validate data after bpf_printk calls */
-			if (!revalidate_data(ctx, &data, &data_end, &ip4))
-				return DROP_INVALID;
-			/* Remote cluster endpoint via tunnel - use existing encap/redirect */
 			struct trace_ctx trace = {
 				.reason = TRACE_REASON_POLICY,
 				.monitor = 0
@@ -2532,44 +2539,42 @@ int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
 			goto out;
 		}
 #endif /* TUNNEL_MODE */
-		bpf_printk("policy_denied_ipv4: using native routing");
-		/* Remote cluster endpoint via native routing - use FIB lookup */
-	} else {
-		bpf_printk("policy_denied_ipv4: not a remote cluster endpoint");
 	}
-	
-	/* Re-validate data before FIB lookup */
-	if (!revalidate_data(ctx, &data, &data_end, &ip4))
-		return DROP_INVALID;
 
-	/* 3. Remote cluster native routing or external source - use FIB lookup for optimal routing */
 	if (is_defined(ENABLE_HOST_ROUTING)) {
 		int oif = 0;
 
 		bpf_printk("policy_denied_ipv4: trying FIB redirect");
 		ret = fib_redirect_v4(ctx, ETH_HLEN, ip4, false, false, &ext_err, &oif);
-		/* Error handling for local routes - fallback to host stack */
 		if (ret == DROP_NO_FIB && ext_err == BPF_FIB_LKUP_RET_NOT_FWDED) {
 			bpf_printk("policy_denied_ipv4: FIB failed, fallback to host");
 			if (!revalidate_data(ctx, &data, &data_end, &ip4)) {
 				ret = DROP_INVALID;
 				goto drop_err;
 			}
-			ret = ctx_redirect(ctx, CILIUM_HOST_IFINDEX, 0);
+			goto pass_to_stack;
 		}
 		if (fib_ok(ret)) {
-			bpf_printk("policy_denied_ipv4: FIB ok, oif=%d", oif);
 			send_trace_notify(ctx, TRACE_TO_NETWORK, SECLABEL_IPV4,
 					  UNKNOWN_ID, TRACE_EP_ID_UNKNOWN, oif,
 					  TRACE_REASON_POLICY, 0, bpf_htons(ETH_P_IP));
-		} else {
-			bpf_printk("policy_denied_ipv4: FIB failed ret=%d", ret);
-		}
-	} else {
-		bpf_printk("policy_denied_ipv4: FIB disabled, using host");
-		/* Fallback: route via host interface when FIB routing disabled */
-		ret = ctx_redirect(ctx, CILIUM_HOST_IFINDEX, 0);
+			bpf_printk("policy_denied_ipv4: FIB ok, oif=%d", oif);
+	    }
+		goto out;
 	}
+
+pass_to_stack:
+#ifdef ENABLE_ROUTING
+	ret = ipv4_l3(ctx, ETH_HLEN, NULL, (__u8 *)&router_mac.addr, ip4);
+	if (unlikely(ret != CTX_ACT_OK))
+		goto drop_err;
+#endif
+
+#ifdef ENABLE_IDENTITY_MARK
+	set_identity_mark(ctx, SECLABEL_IPV4, MARK_MAGIC_IDENTITY);
+#endif
+	bpf_printk("policy_denied_ipv4: setting CTX_ACT_OK", ret);
+	ret = CTX_ACT_OK;
 
 out:
 	if (!IS_ERR(ret)) {
