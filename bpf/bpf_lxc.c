@@ -2512,9 +2512,15 @@ int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
 	remote_info = lookup_ip4_remote_endpoint(source_ip, 0);
 	if (remote_info && identity_is_cluster(remote_info->sec_identity)) {
 		bpf_printk("policy_denied_ipv4: remote cluster endpoint");
+		/* Re-validate data after bpf_printk calls */
+		if (!revalidate_data(ctx, &data, &data_end, &ip4))
+			return DROP_INVALID;
 #ifdef TUNNEL_MODE
 		if (remote_info->flag_has_tunnel_ep) {
 			bpf_printk("policy_denied_ipv4: using tunnel encap");
+			/* Re-validate data after bpf_printk calls */
+			if (!revalidate_data(ctx, &data, &data_end, &ip4))
+				return DROP_INVALID;
 			/* Remote cluster endpoint via tunnel - use existing encap/redirect */
 			struct trace_ctx trace = {
 				.reason = TRACE_REASON_POLICY,
@@ -2531,6 +2537,10 @@ int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
 	} else {
 		bpf_printk("policy_denied_ipv4: not a remote cluster endpoint");
 	}
+	
+	/* Re-validate data before FIB lookup */
+	if (!revalidate_data(ctx, &data, &data_end, &ip4))
+		return DROP_INVALID;
 
 	/* 3. Remote cluster native routing or external source - use FIB lookup for optimal routing */
 	if (is_defined(ENABLE_HOST_ROUTING)) {
