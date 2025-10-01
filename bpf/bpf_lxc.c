@@ -71,6 +71,14 @@
 # define ENABLE_PER_PACKET_LB 1
 #endif
 
+static long (*bpf_trace_printk)(const char *fmt, __u32 fmt_size, ...) = (void *) 6;
+#define bpf_printk(fmt, ...)				\
+({							\
+	static const char ____fmt[] = fmt;				\
+	bpf_trace_printk(____fmt, sizeof(____fmt),	\
+			 ##__VA_ARGS__);		\
+})
+
 #ifdef ENABLE_PER_PACKET_LB
 
 #ifdef ENABLE_IPV4
@@ -1018,6 +1026,7 @@ static __always_inline int handle_ipv4_from_lxc(struct __ctx_buff *ctx, __u32 *d
 			if (CONFIG(policy_deny_response_enabled) &&
 			    (verdict == DROP_POLICY || verdict == DROP_POLICY_DENY)) {
 				ctx_store_meta(ctx, CB_VERDICT, verdict);
+				bpf_printk("EGRESS: calling CILIUM_CALL_IPV4_POLICY_DENIED, verdict=%u", verdict);
 				return tail_call_internal(ctx, CILIUM_CALL_IPV4_POLICY_DENIED,
 							ext_err);
 			}
@@ -1669,18 +1678,8 @@ ipv6_policy(struct __ctx_buff *ctx, struct ipv6hdr *ip6, __u32 src_label,
 						   verdict, *proxy_port, policy_match_type, audited,
 						   auth_type);
 
-		if (verdict != CTX_ACT_OK) {
-            /* If policy_deny_response_enabled is set and the packet has been denied,
-             * respond with an ICMPv4 "Destination Unreachable"
-             */
-            if (CONFIG(policy_deny_response_enabled) &&
-                (verdict == DROP_POLICY || verdict == DROP_POLICY_DENY)) {
-                ctx_store_meta(ctx, CB_VERDICT, verdict);
-                return tail_call_internal(ctx, CILIUM_CALL_IPV4_POLICY_DENIED,
-                            ext_err);
-            }
-            return verdict;
-        }
+		if (verdict != CTX_ACT_OK)
+			return verdict;
 
 		break;
 	}
@@ -2022,8 +2021,19 @@ ipv4_policy(struct __ctx_buff *ctx, struct iphdr *ip4, __u32 src_label,
 						   verdict, *proxy_port, policy_match_type, audited,
 						   auth_type);
 
-		if (verdict != CTX_ACT_OK)
-			return verdict;
+		if (verdict != CTX_ACT_OK) {
+            /* If policy_deny_response_enabled is set and the packet has been denied,
+             * respond with an ICMPv4 "Destination Unreachable"
+             */
+            if (CONFIG(policy_deny_response_enabled) &&
+                (verdict == DROP_POLICY || verdict == DROP_POLICY_DENY)) {
+                ctx_store_meta(ctx, CB_VERDICT, verdict);
+                bpf_printk("EGRESS: calling CILIUM_CALL_IPV4_POLICY_DENIED, verdict=%u", verdict);
+                return tail_call_internal(ctx, CILIUM_CALL_IPV4_POLICY_DENIED,
+                            ext_err);
+            }
+            return verdict;
+        }
 
 		break;
 	}
@@ -2464,10 +2474,14 @@ int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
 	int ret;
 	__u32 verdict = ctx_load_meta(ctx, CB_VERDICT);
 
+	bpf_printk("tail_policy_denied_ipv4: entered, verdict=%u", verdict);
+
 	ret = generate_icmp4_reply(ctx, ICMP_DEST_UNREACH, ICMP_PKT_FILTERED);
+	bpf_printk("tail_policy_denied_ipv4: generate_icmp4_reply returned %d", ret);
 	if (!ret) {
 		cilium_dbg_capture(ctx, DBG_CAPTURE_DELIVERY, ctx_get_ifindex(ctx));
 		ret = redirect_self(ctx);
+		bpf_printk("tail_policy_denied_ipv4: redirect_self returned %d", ret);
 
 		if (!IS_ERR(ret)) {
 			update_metrics(ctx_full_len(ctx), METRIC_EGRESS, __DROP_REASON(verdict));
@@ -2475,6 +2489,7 @@ int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
 		}
 	}
 
+	bpf_printk("tail_policy_denied_ipv4: sending drop notify, ret=%d", ret);
 	return send_drop_notify_error(ctx, SECLABEL_IPV4, ret, METRIC_EGRESS);
 }
 #endif /* ENABLE_IPV4 */
