@@ -2573,8 +2573,8 @@ pass_to_stack:
 #ifdef ENABLE_IDENTITY_MARK
 	set_identity_mark(ctx, SECLABEL_IPV4, MARK_MAGIC_IDENTITY);
 #endif
-	bpf_printk("policy_denied_ipv4: setting CTX_ACT_OK", ret);
-	ret = CTX_ACT_OK;
+	bpf_printk("policy_denied_ipv4: redirect_self");
+	ret = redirect_self(ctx);
 
 out:
 	if (!IS_ERR(ret)) {
