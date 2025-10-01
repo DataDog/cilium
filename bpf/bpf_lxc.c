@@ -1669,8 +1669,18 @@ ipv6_policy(struct __ctx_buff *ctx, struct ipv6hdr *ip6, __u32 src_label,
 						   verdict, *proxy_port, policy_match_type, audited,
 						   auth_type);
 
-		if (verdict != CTX_ACT_OK)
-			return verdict;
+		if (verdict != CTX_ACT_OK) {
+            /* If policy_deny_response_enabled is set and the packet has been denied,
+             * respond with an ICMPv4 "Destination Unreachable"
+             */
+            if (CONFIG(policy_deny_response_enabled) &&
+                (verdict == DROP_POLICY || verdict == DROP_POLICY_DENY)) {
+                ctx_store_meta(ctx, CB_VERDICT, verdict);
+                return tail_call_internal(ctx, CILIUM_CALL_IPV4_POLICY_DENIED,
+                            ext_err);
+            }
+            return verdict;
+        }
 
 		break;
 	}
