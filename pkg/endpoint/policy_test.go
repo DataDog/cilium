@@ -134,6 +134,7 @@ func TestIncrementalUpdatesDuringPolicyGeneration(t *testing.T) {
 	stats := new(regenerationStatistics)
 	datapathRegenCtxt := new(datapathRegenerationContext)
 	// Continuously compute policy for the pod and ensure we never missed an incremental update.
+	fmt.Println(ep.GetL4PolicyForEndpoint())
 	for {
 		t.Log("Calculating policy...")
 		ep.forcePolicyCompute = true

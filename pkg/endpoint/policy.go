@@ -1195,6 +1195,18 @@ func (e *Endpoint) GetPolicyCorrelationInfoForKey(key policyTypes.Key) (
 	return info, err == nil
 }
 
+func (e *Endpoint) GetL4PolicyForEndpoint() (Ingress policy.L4PolicyMap, Egress policy.L4PolicyMap, PolicyRevision int64) {
+	e.mutex.RLock()
+	defer e.mutex.RUnlock()
+	if e.realizedPolicy == nil {
+		return
+	}
+	Ingress = e.realizedPolicy.L4Policy.Ingress.PortRules
+	Egress = e.realizedPolicy.L4Policy.Egress.PortRules
+	PolicyRevision = int64(e.policyRevision)
+	return
+}
+
 // setDNSRulesLocked is called when the Endpoint's DNS policy has been updated.
 // endpoint lock must be held.
 func (e *Endpoint) setDNSRulesLocked(rules restore.DNSRules) {

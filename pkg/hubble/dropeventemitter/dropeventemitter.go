@@ -25,7 +25,9 @@ import (
 	metaslimv1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/apis/meta/v1"
 	slimscheme "github.com/cilium/cilium/pkg/k8s/slim/k8s/client/clientset/versioned/scheme"
 	"github.com/cilium/cilium/pkg/k8s/watchers"
+	"github.com/cilium/cilium/pkg/labels"
 	"github.com/cilium/cilium/pkg/logging/logfields"
+	"github.com/cilium/cilium/pkg/policy"
 	"github.com/cilium/cilium/pkg/time"
 )
 
@@ -194,44 +196,46 @@ func (e *dropEventEmitter) getLocalEndpoint(flow *flowpb.Flow) *endpoint.Endpoin
 	return e.endpointsLookup.LookupCiliumID(endpointID)
 }
 
-func getL4RulesFromEndpoint(direction flowpb.TrafficDirection, ep endpointInterface) ([]*models.PolicyRule, uint64, error) {
+func getL4RulesFromEndpoint(direction flowpb.TrafficDirection, ep *endpoint.Endpoint) ([][]string, int64) {
 	if ep == nil {
-		return nil, 0, nil
+		return nil, 0
 	}
 
-	policyModel, err := ep.GetPolicyModel()
-	if err != nil {
-		return nil, 0, err
-	}
-	if policyModel == nil || policyModel.Realized == nil || policyModel.Realized.L4 == nil {
-		return nil, 0, nil
-	}
+	// policyModel, err := ep.GetPolicyModel()
+	// if err != nil {
+	// 	return nil, 0, err
+	// }
+	// if policyModel == nil || policyModel.Realized == nil || policyModel.Realized.L4 == nil {
+	// 	return nil, 0, nil
+	// }
 
-	policyRealizedL4 := policyModel.Realized.L4
-	policyRevision := uint64(policyModel.Realized.PolicyRevision)
+	ingress, egress, policyRevision := ep.GetL4PolicyForEndpoint()
+	l4Rules := egress
 	if direction == flowpb.TrafficDirection_INGRESS {
-		return policyRealizedL4.Ingress, policyRevision, nil
-	} else {
-		return policyRealizedL4.Egress, policyRevision, nil
+		l4Rules = ingress
 	}
+	result := labels.LabelArrayList{}
+	l4Rules.ForEach(func(l4 *policy.L4Filter) bool {
+		for _, origin := range l4.RuleOrigin {
+			result.MergeSorted(origin.GetLabelArrayList())
+		}
+		return true
+	})
+	return result.GetModel(), policyRevision
 }
 
-func parseL4Rules(l4Rules []*models.PolicyRule, policyRevision uint64) (networkPolicies set.Set[string], clusterwideNetworkPolicies set.Set[string]) {
-	for _, rules := range l4Rules {
-		if rules == nil {
+func parseL4Rules(l4Rules [][]string, policyRevision int64) (networkPolicies set.Set[string], clusterwideNetworkPolicies set.Set[string]) {
+
+	for _, policyLabels := range l4Rules {
+		policy := utils.GetPolicyFromLabels(policyLabels, uint64(policyRevision))
+		if policy == nil {
 			continue
 		}
-		for _, policyLabels := range rules.DerivedFromRules {
-			policy := utils.GetPolicyFromLabels(policyLabels, policyRevision)
-			if policy == nil {
-				continue
-			}
-			if policy.Namespace == "" {
-				clusterwideNetworkPolicies.Insert(policy.Name)
-				continue
-			}
-			networkPolicies.Insert(policy.Name)
+		if policy.Namespace == "" {
+			clusterwideNetworkPolicies.Insert(policy.Name)
+			continue
 		}
+		networkPolicies.Insert(policy.Name)
 	}
 	return
 }
@@ -259,10 +263,10 @@ func (e *dropEventEmitter) dropEventPoliciesToString(flow *flowpb.Flow) (string,
 	networkPolicies, clusterwideNetworkPolicies := parsePolicyCorrelation(flow.TrafficDirection, flow.IngressDeniedBy, flow.EgressDeniedBy)
 	if networkPolicies.Len() == 0 && clusterwideNetworkPolicies.Len() == 0 {
 		prefix = "Applied"
-		flowL4Rules, policyRevision, err := getL4RulesFromEndpoint(flow.TrafficDirection, e.getLocalEndpoint(flow))
-		if err != nil {
-			return "", err
-		}
+		flowL4Rules, policyRevision := getL4RulesFromEndpoint(flow.TrafficDirection, e.getLocalEndpoint(flow))
+		// if err != nil {
+		// 	return "", err
+		// }
 		networkPolicies, clusterwideNetworkPolicies = parseL4Rules(flowL4Rules, policyRevision)
 	}
 	if networkPolicies.Len() > 0 {
