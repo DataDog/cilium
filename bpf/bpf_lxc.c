@@ -2471,8 +2471,11 @@ out:
 __declare_tail(CILIUM_CALL_IPV4_POLICY_DENIED)
 int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
 {
+	void *data, *data_end;
+	struct iphdr *ip4;
 	int oif = 0;
 	int ret;
+	__s8 ext_err = 0;
 	__u32 verdict = ctx_load_meta(ctx, CB_VERDICT);
 
 	bpf_printk("tail_policy_denied_ipv4: entered, verdict=%u", verdict);
@@ -2480,11 +2483,16 @@ int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
 	ret = generate_icmp4_reply(ctx, ICMP_DEST_UNREACH, ICMP_PKT_FILTERED);
 	bpf_printk("tail_policy_denied_ipv4: generate_icmp4_reply returned %d", ret);
 	if (!ret) {
+		if (!revalidate_data(ctx, &data, &data_end, &ip4)) {
+			ret = DROP_INVALID;
+			goto drop_err;
+		}
+
 		cilium_dbg_capture(ctx, DBG_CAPTURE_DELIVERY, ctx_get_ifindex(ctx));
 		if (is_defined(ENABLE_HOST_ROUTING)) {	
 			bpf_printk("policy_denied_ipv4: trying FIB redirect");
 			ret = fib_redirect_v4(ctx, ETH_HLEN, ip4, false, false, &ext_err, &oif);
-			bpf_printk("tail_policy_denied_ipv4: fib_redirect_v4 returned %d", ret);
+			bpf_printk("tail_policy_denied_ipv4: fib_redirect_v4 returned %d with oif=%d", ret, oif);
 			if (fib_ok(ret)) {
 				update_metrics(ctx_full_len(ctx), METRIC_EGRESS, __DROP_REASON(verdict));
 				return ret;
@@ -2499,6 +2507,7 @@ int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
 		}
 	}
 
+drop_err:
 	bpf_printk("tail_policy_denied_ipv4: sending drop notify, ret=%d", ret);
 	return send_drop_notify_error(ctx, SECLABEL_IPV4, ret, METRIC_EGRESS);
 }
