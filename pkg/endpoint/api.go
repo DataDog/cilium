@@ -645,3 +645,19 @@ func (e *Endpoint) ApplyUserLabelChanges(lbls labels.Labels) (add, del labels.La
 func (e *Endpoint) GetStatusModel() []*models.EndpointStatusChange {
 	return e.status.GetModel()
 }
+
+// GetRealizedL4PolicyModel returns the realized L4 policy of the endpoint.
+func (e *Endpoint) GetRealizedL4PolicyModel() (policy *models.L4Policy, policyRevision uint64, err error) {
+	if e == nil {
+		return
+	}
+	err = e.lockAlive()
+	if err != nil {
+		return
+	}
+	defer e.unlock()
+	if e.realizedPolicy == nil {
+		return
+	}
+	return e.realizedPolicy.L4Policy.GetModel(), e.policyRevision, nil
+}
