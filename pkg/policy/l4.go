@@ -1866,6 +1866,43 @@ func (l4 *L4Policy) GetModel() *models.L4Policy {
 	}
 }
 
+func (l4 *L4Policy) GetRuleOriginModel() *models.L4Policy {
+	if l4 == nil {
+		return nil
+	}
+
+	ingress := []*models.PolicyRule{}
+	l4.Ingress.PortRules.ForEach(func(v *L4Filter) bool {
+		derivedFrom := labels.LabelArrayList{}
+		for _, rules := range v.RuleOrigin {
+			lal := rules.GetLabelArrayList()
+			derivedFrom.MergeSorted(lal)
+		}
+		ingress = append(ingress, &models.PolicyRule{
+			DerivedFromRules: derivedFrom.GetModel(),
+		})
+		return true
+	})
+
+	egress := []*models.PolicyRule{}
+	l4.Egress.PortRules.ForEach(func(v *L4Filter) bool {
+		derivedFrom := labels.LabelArrayList{}
+		for _, rules := range v.RuleOrigin {
+			lal := rules.GetLabelArrayList()
+			derivedFrom.MergeSorted(lal)
+		}
+		egress = append(egress, &models.PolicyRule{
+			DerivedFromRules: derivedFrom.GetModel(),
+		})
+		return true
+	})
+
+	return &models.L4Policy{
+		Ingress: ingress,
+		Egress:  egress,
+	}
+}
+
 // ProxyPolicy is any type which encodes state needed to redirect to an L7
 // proxy.
 type ProxyPolicy interface {
