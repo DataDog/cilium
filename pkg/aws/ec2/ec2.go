@@ -704,6 +704,7 @@ func (c *Client) AttachNetworkInterface(ctx context.Context, index int32, instan
 		DeviceIndex:        aws.Int32(index),
 		InstanceId:         aws.String(instanceID),
 		NetworkInterfaceId: aws.String(eniID),
+		NetworkCardIndex:   aws.Int32(0),
 	}
 
 	c.limiter.Limit(ctx, AttachNetworkInterface)
