@@ -118,7 +118,7 @@ func (info *RoutingInfo) Configure(ip net.IP, mtu int, compat bool, host bool) e
 		}
 	} else {
 		// Lookup a VPC specific table for all traffic from an endpoint.
-		info.logger.Info(fmt.Sprintf("Anton-Test: adding rules without CIDRs for ip %s", ipWithMask.String()))
+		info.logger.Info(fmt.Sprintf("Anton-Test: adding catch-all rule (no per-CIDR) for ip %s, masquerade=%t, ipamMode=%s", ipWithMask.String(), info.Masquerade, info.IpamMode))
 		if err := replaceRule(route.Rule{
 			Priority: egressPriority,
 			From:     &ipWithMask,

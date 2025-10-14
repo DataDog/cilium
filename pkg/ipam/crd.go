@@ -810,12 +810,15 @@ func (a *crdAllocator) buildAllocationResult(ip net.IP, ipInfo *ipamTypes.Alloca
 				result.PrimaryMAC = iface.MAC
 				result.GatewayIP = iface.Gateway
 				result.CIDRs = append(result.CIDRs, iface.CIDR)
+				a.logger.Info(fmt.Sprintf("Anton-Test: buildAllocationResult for Azure IP %s, gateway %s, initial CIDR %s", ip, iface.Gateway, iface.CIDR))
 
 				// If the ip-masq-agent is enabled, get the CIDRs that are not masqueraded.
 				// Note that the resulting ip rules will not be dynamically regenerated if the
 				// ip-masq-agent configuration changes.
 				if a.conf.EnableIPMasqAgent {
+					a.logger.Info(fmt.Sprintf("Anton-Test: ip-masq-agent enabled for Azure, getting non-masq CIDRs"))
 					nonMasqCidrs := a.ipMasqAgent.NonMasqCIDRsFromConfig()
+					a.logger.Info(fmt.Sprintf("Anton-Test: got %d non-masq CIDRs: %v", len(nonMasqCidrs), nonMasqCidrs))
 					for _, prefix := range nonMasqCidrs {
 						if ip.To4() != nil && prefix.Addr().Is4() {
 							result.CIDRs = append(result.CIDRs, prefix.String())
@@ -823,7 +826,10 @@ func (a *crdAllocator) buildAllocationResult(ip net.IP, ipInfo *ipamTypes.Alloca
 							result.CIDRs = append(result.CIDRs, prefix.String())
 						}
 					}
+				} else {
+					a.logger.Info(fmt.Sprintf("Anton-Test: ip-masq-agent NOT enabled for Azure"))
 				}
+				a.logger.Info(fmt.Sprintf("Anton-Test: final Azure CIDRs for IP %s: %v", ip, result.CIDRs))
 
 				// For now, we can hardcode the interface number to a valid
 				// integer because it will not be used in the allocation result

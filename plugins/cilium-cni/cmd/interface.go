@@ -16,11 +16,13 @@ import (
 )
 
 func interfaceAdd(logger *slog.Logger, ipConfig *current.IPConfig, ipam *models.IPAMAddressResponse, conf *models.DaemonConfigurationStatus) error {
+	logger.Info(fmt.Sprintf("Anton-Test: interfaceAdd called for IP %s, gateway %s, CIDRs %v, IPAM mode %s", ipConfig.Address.IP, ipam.Gateway, ipam.Cidrs, conf.IpamMode))
 	if ipam == nil {
 		return fmt.Errorf("missing IPAM configuration")
 	}
 	// If the gateway IP is not available, it is already set up
 	if ipam.Gateway == "" {
+		logger.Info(fmt.Sprintf("Anton-Test: skipping routing setup - empty gateway for IP %s", ipConfig.Address.IP))
 		return nil
 	}
 
@@ -37,6 +39,7 @@ func interfaceAdd(logger *slog.Logger, ipConfig *current.IPConfig, ipam *models.
 	// Coalesce CIDRs into minimum set needed for route rules
 	// The routes set up here will be cleaned up by linuxrouting.Delete.
 	// Therefor the code here should be kept in sync with the deletion code.
+	logger.Info(fmt.Sprintf("Anton-Test: before coalescing - allCIDRs %v", allCIDRs))
 	ipv4CIDRs, ipv6CIDRs := ip.CoalesceCIDRs(allCIDRs)
 	coalescedCIDRs := make([]string, 0, len(allCIDRs))
 	var masq bool
@@ -47,14 +50,17 @@ func interfaceAdd(logger *slog.Logger, ipConfig *current.IPConfig, ipam *models.
 		}
 
 		masq = conf.MasqueradeProtocols.IPV4
+		logger.Info(fmt.Sprintf("Anton-Test: after coalescing IPv4 - coalescedCIDRs %v, masq %t", coalescedCIDRs, masq))
 	} else {
 		for _, cidr := range ipv6CIDRs {
 			coalescedCIDRs = append(coalescedCIDRs, cidr.String())
 		}
 
 		masq = conf.MasqueradeProtocols.IPV6
+		logger.Info(fmt.Sprintf("Anton-Test: after coalescing IPv6 - coalescedCIDRs %v, masq %t", coalescedCIDRs, masq))
 	}
 
+	logger.Info(fmt.Sprintf("Anton-Test: calling NewRoutingInfo with gateway %s, CIDRs %v, masq %t", ipam.Gateway, coalescedCIDRs, masq))
 	routingInfo, err := linuxrouting.NewRoutingInfo(
 		logger,
 		ipam.Gateway,
