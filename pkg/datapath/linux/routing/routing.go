@@ -103,7 +103,7 @@ func (info *RoutingInfo) Configure(ip net.IP, mtu int, compat bool, host bool) e
 		// CIDR configured for the VPC on which the endpoint has the IP on.
 		// ReplaceRule function doesn't handle all zeros cidr and return `file exists` error,
 		// so we need to normalize the rule to cidr here and in Delete
-		info.logger.Info(fmt.Sprintf("Anton-Test: adding rules for CIDRs %v", info.CIDRs))
+		info.logger.Info(fmt.Sprintf("Anton-Test: adding rules for CIDRs %v for ip %s", info.CIDRs, ipWithMask.String()))
 		for _, cidr := range info.CIDRs {
 			if err := replaceRule(route.Rule{
 				Priority: egressPriority,
@@ -117,6 +117,7 @@ func (info *RoutingInfo) Configure(ip net.IP, mtu int, compat bool, host bool) e
 		}
 	} else {
 		// Lookup a VPC specific table for all traffic from an endpoint.
+		info.logger.Info(fmt.Sprintf("Anton-Test: adding rules without CIDRs for ip %s", ipWithMask.String()))
 		if err := replaceRule(route.Rule{
 			Priority: egressPriority,
 			From:     &ipWithMask,
