@@ -32,7 +32,7 @@ func TestPrivilegedConfigure(t *testing.T) {
 
 	ns1 := netns.NewNetNS(t)
 	ns1.Do(func() error {
-		ip, ri := getFakes(t, true, false)
+		ip, ri := getFakes(t, ipamOption.IPAMENI, true, false)
 		masterMAC := ri.MasterIfMAC
 		ifaceCleanup := createDummyDevice(t, masterMAC)
 		defer ifaceCleanup()
@@ -43,7 +43,22 @@ func TestPrivilegedConfigure(t *testing.T) {
 
 	ns2 := netns.NewNetNS(t)
 	ns2.Do(func() error {
-		ip, ri := getFakes(t, false, false)
+		ip, ri := getFakes(t, ipamOption.IPAMAzure, false, false)
+		masterMAC := ri.MasterIfMAC
+		ifaceCleanup := createDummyDevice(t, masterMAC)
+		defer ifaceCleanup()
+
+		runConfigureThenDelete(t, ri, ip, 1500)
+		return nil
+	})
+}
+
+func TestPrivilegedConfigureAzureMasquerade(t *testing.T) {
+	setupLinuxRoutingSuite(t)
+
+	ns := netns.NewNetNS(t)
+	ns.Do(func() error {
+		ip, ri := getFakes(t, ipamOption.IPAMAzure, true, false)
 		masterMAC := ri.MasterIfMAC
 		ifaceCleanup := createDummyDevice(t, masterMAC)
 		defer ifaceCleanup()
@@ -58,7 +73,7 @@ func TestPrivilegedConfigureZeros(t *testing.T) {
 
 	ns1 := netns.NewNetNS(t)
 	ns1.Do(func() error {
-		ip, ri := getFakes(t, true, true)
+		ip, ri := getFakes(t, ipamOption.IPAMENI, true, true)
 		masterMAC := ri.MasterIfMAC
 		ifaceCleanup := createDummyDevice(t, masterMAC)
 		defer ifaceCleanup()
@@ -71,7 +86,7 @@ func TestPrivilegedConfigureZeros(t *testing.T) {
 func TestPrivilegedConfigureRouteWithIncompatibleIP(t *testing.T) {
 	setupLinuxRoutingSuite(t)
 
-	_, ri := getFakes(t, true, false)
+	_, ri := getFakes(t, ipamOption.IPAMENI, true, false)
 	err := ri.Configure(nil, 1500, false, false)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "IP not compatible")
@@ -89,7 +104,7 @@ func TestPrivilegedDeleteRouteWithIncompatibleIP(t *testing.T) {
 func TestPrivilegedDelete(t *testing.T) {
 	setupLinuxRoutingSuite(t)
 
-	fakeIP, fakeRoutingInfo := getFakes(t, true, false)
+	fakeIP, fakeRoutingInfo := getFakes(t, ipamOption.IPAMENI, true, false)
 	masterMAC := fakeRoutingInfo.MasterIfMAC
 
 	tests := []struct {
@@ -251,9 +266,9 @@ func createDummyDevice(t *testing.T, macAddr mac.MAC) func() {
 }
 
 // getFakes returns a fake IP simulating an Endpoint IP and RoutingInfo as test harnesses.
-// To create routing info with a list of CIDRs which the interface has access to, set withCIDR parameter to true
+// To create routing info with a list of CIDRs which the interface has access to, set masquerade parameter to true
 // If withZeroCIDR is also set to true, the function will use the "0.0.0.0/0" CIDR block instead of other CIDR blocks.
-func getFakes(t *testing.T, withCIDR bool, withZeroCIDR bool) (netip.Addr, RoutingInfo) {
+func getFakes(t *testing.T, ipamMode string, masquerade bool, withZeroCIDR bool) (netip.Addr, RoutingInfo) {
 	t.Helper()
 
 	logger := hivetest.Logger(t)
@@ -264,17 +279,13 @@ func getFakes(t *testing.T, withCIDR bool, withZeroCIDR bool) (netip.Addr, Routi
 	fakeMAC := "00:11:22:33:44:55"
 
 	var cidrs []string
-	ipamMode := ipamOption.IPAMAzure
-	masquerade := false
-
-	if withCIDR {
+	if masquerade {
 		cidrs = []string{fakeSubnet1CIDR, fakeSubnet2CIDR}
 		if withZeroCIDR {
 			cidrs = []string{"0.0.0.0/0"}
 		}
-		ipamMode = ipamOption.IPAMENI
-		masquerade = true
 	}
+
 	fakeRoutingInfo, err := NewRoutingInfo(
 		logger,
 		fakeGateway,
