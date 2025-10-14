@@ -41,6 +41,7 @@ import (
 // compat: Whether to use the compat egress priority or not.
 // host: Whether the IP is a host IP and needs to be routed via the 'local' table
 func (info *RoutingInfo) Configure(ip net.IP, mtu int, compat bool, host bool) error {
+	info.logger.Info(fmt.Sprintf("Anton-Test: configuring rules and routes for ip %s with masquerade %t", ip.String(), info.Masquerade))
 	if ip == nil || (ip.To4() == nil && ip.To16() == nil) {
 		info.logger.Warn(
 			"Unable to configure rules and routes because IP is not a valid IP address",

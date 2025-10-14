@@ -59,6 +59,7 @@ func NewRoutingInfo(logger *slog.Logger, gateway string, cidrs []string, mac, if
 }
 
 func parse(logger *slog.Logger, gateway string, cidrs []string, macAddr, ifaceNum, ipamMode string, masquerade bool) (*RoutingInfo, error) {
+	logger.Info(fmt.Sprintf("Anton-Test: parsing routing info for gateway %s, cidrs %v, macAddr %s, ifaceNum %s, ipamMode %s, masquerade %t", gateway, cidrs, macAddr, ifaceNum, ipamMode, masquerade))
 	ip := net.ParseIP(gateway)
 	if ip == nil {
 		return nil, fmt.Errorf("invalid gateway: %s", gateway)
