@@ -729,8 +729,11 @@ func (cmd *Cmd) Add(args *skel.CmdArgs) (err error) {
 			res.Routes = append(res.Routes, routes...)
 		}
 
+		scopedLogger.Info(fmt.Sprintf("Anton-Test: needsEndpointRoutingOnHost=%t, ipam.IPV4=%v, ipConfig=%v", needsEndpointRoutingOnHost(conf), ipam.IPV4, ipConfig))
 		if needsEndpointRoutingOnHost(conf) {
+			scopedLogger.Info(fmt.Sprintf("Anton-Test: needs endpoint routing, checking conditions - ipam.IPV4 nil? %t, ipConfig nil? %t", ipam.IPV4 == nil, ipConfig == nil))
 			if ipam.IPV4 != nil && ipConfig != nil {
+				scopedLogger.Info(fmt.Sprintf("Anton-Test: calling interfaceAdd for IP %s", ipConfig.Address.IP))
 				err = interfaceAdd(scopedLogger, ipConfig, ipam.IPV4, conf)
 				if err != nil {
 					return fmt.Errorf("unable to setup interface datapath: %w", err)
