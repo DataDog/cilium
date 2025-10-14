@@ -170,7 +170,7 @@ func (d *Daemon) allocateDatapathIPs(family types.NodeAddressingFamily, fromK8s,
 
 	// Coalescing multiple CIDRs. GH #18868
 	if masq &&
-		option.Config.IPAM == ipamOption.IPAMENI &&
+		(option.Config.IPAM == ipamOption.IPAMENI || option.Config.IPAM == ipamOption.IPAMAzure) &&
 		result != nil &&
 		len(result.CIDRs) > 0 {
 		result.CIDRs, err = coalesceCIDRs(result.CIDRs)
@@ -266,7 +266,7 @@ func (d *Daemon) allocateHealthIPs() error {
 
 		// Coalescing multiple CIDRs. GH #18868
 		if option.Config.EnableIPv4Masquerade &&
-			option.Config.IPAM == ipamOption.IPAMENI &&
+			(option.Config.IPAM == ipamOption.IPAMENI || option.Config.IPAM == ipamOption.IPAMAzure) &&
 			result != nil &&
 			len(result.CIDRs) > 0 {
 			result.CIDRs, err = coalesceCIDRs(result.CIDRs)
@@ -349,7 +349,7 @@ func (d *Daemon) allocateIngressIPs() error {
 
 			// Coalescing multiple CIDRs. GH #18868
 			if option.Config.EnableIPv4Masquerade &&
-				option.Config.IPAM == ipamOption.IPAMENI &&
+				(option.Config.IPAM == ipamOption.IPAMENI || option.Config.IPAM == ipamOption.IPAMAzure) &&
 				result != nil &&
 				len(result.CIDRs) > 0 {
 				result.CIDRs, err = coalesceCIDRs(result.CIDRs)
