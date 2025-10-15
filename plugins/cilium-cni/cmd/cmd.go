@@ -513,6 +513,7 @@ func (cmd *Cmd) Add(args *skel.CmdArgs) (err error) {
 	}
 
 	scopedLogger := buildLogAttrsWithEventID(cmd.logger, args)
+	scopedLogger.Info("Anton-Test: Add called")
 
 	if n.EnableDebug {
 		if err := gops.Listen(gops.Options{}); err != nil {
