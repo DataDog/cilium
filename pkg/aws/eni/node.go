@@ -521,9 +521,27 @@ func (n *Node) CreateInterface(ctx context.Context, allocation *ipam.AllocationA
 		eni.Subnet.CIDR = subnet.CIDR.String()
 	}
 
+	// Determine ENA queue count if the instance supports flexible ENA queues
+	var enaQueueCount *int32
+	limits, limitsAvailable = n.getLimits()
+	if limitsAvailable && limits.SupportsFlexibleEnaQueues && limits.VCpus > 0 {
+		// Set queue count to match vCPU count, but cap at reasonable maximum
+		queueCount := limits.VCpus
+		if queueCount > 128 { // AWS maximum queue count
+			queueCount = 128
+		}
+		enaQueueCount = aws.Int32(int32(queueCount))
+		scopedLog.Debug("Configuring ENA queues", "queue-count", queueCount, "vcpus", limits.VCpus)
+	}
+
 	var attachmentID string
 	for range maxAttachRetries {
-		attachmentID, err = n.manager.api.AttachNetworkInterface(ctx, index, n.node.InstanceID(), eniID)
+		// Check if the EC2 API client supports ENA queue configuration
+		if ec2APIWithQueues, ok := n.manager.api.(*ec2.Client); ok && enaQueueCount != nil {
+			attachmentID, err = ec2APIWithQueues.AttachNetworkInterfaceWithQueues(ctx, index, n.node.InstanceID(), eniID, enaQueueCount)
+		} else {
+			attachmentID, err = n.manager.api.AttachNetworkInterface(ctx, index, n.node.InstanceID(), eniID)
+		}
 
 		// The index is already in use, this can happen if the local
 		// list of ENIs is oudated.  Retry the attachment to avoid

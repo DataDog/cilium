@@ -752,10 +752,19 @@ func (c *Client) DeleteNetworkInterface(ctx context.Context, eniID string) error
 
 // AttachNetworkInterface attaches a previously created ENI to an instance
 func (c *Client) AttachNetworkInterface(ctx context.Context, index int32, instanceID, eniID string) (string, error) {
+	return c.AttachNetworkInterfaceWithQueues(ctx, index, instanceID, eniID, nil)
+}
+
+// AttachNetworkInterfaceWithQueues attaches a previously created ENI to an instance with optional ENA queue count
+func (c *Client) AttachNetworkInterfaceWithQueues(ctx context.Context, index int32, instanceID, eniID string, enaQueueCount *int32) (string, error) {
 	input := &ec2.AttachNetworkInterfaceInput{
 		DeviceIndex:        aws.Int32(index),
 		InstanceId:         aws.String(instanceID),
 		NetworkInterfaceId: aws.String(eniID),
+	}
+
+	if enaQueueCount != nil {
+		input.EnaQueueCount = enaQueueCount
 	}
 
 	c.limiter.Limit(ctx, AttachNetworkInterface)
