@@ -536,12 +536,7 @@ func (n *Node) CreateInterface(ctx context.Context, allocation *ipam.AllocationA
 
 	var attachmentID string
 	for range maxAttachRetries {
-		// TODO fold this into a single interface method
-		if enaQueueCount != nil {
-			attachmentID, err = n.manager.api.AttachNetworkInterfaceWithQueues(ctx, index, n.node.InstanceID(), eniID, enaQueueCount)
-		} else {
-			attachmentID, err = n.manager.api.AttachNetworkInterface(ctx, index, n.node.InstanceID(), eniID)
-		}
+		attachmentID, err = n.manager.api.AttachNetworkInterfaceWithQueues(ctx, index, n.node.InstanceID(), eniID, enaQueueCount)
 
 		// The index is already in use, this can happen if the local
 		// list of ENIs is oudated.  Retry the attachment to avoid
