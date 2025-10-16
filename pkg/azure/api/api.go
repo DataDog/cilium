@@ -656,6 +656,15 @@ func (c *Client) AssignPrivateIpAddressesVM(ctx context.Context, subnetID, inter
 // AssignPublicIPAddressesVMSS assigns a public IP to a VMSS instance.
 // The public IP is allocated from a Public IP Prefix matching publicIpTags
 func (c *Client) AssignPublicIPAddressesVMSS(ctx context.Context, instanceID, vmssName string, publicIpTags ipamTypes.Tags) (string, error) {
+	// The instance ID format is:
+	// /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Compute/virtualMachineScaleSets/{vmssName}/virtualMachines/{instanceNum}
+	// Parse the instance ID to get just the instance number
+	resourceID, err := arm.ParseResourceID(instanceID)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse instance ID %q: %w", instanceID, err)
+	}
+	instanceNum := resourceID.Name
+
 	var primaryNetIfConfig *armcompute.VirtualMachineScaleSetNetworkConfiguration
 
 	vmssGetOptions := &armcompute.VirtualMachineScaleSetVMsClientGetOptions{
@@ -665,7 +674,7 @@ func (c *Client) AssignPublicIPAddressesVMSS(ctx context.Context, instanceID, vm
 	c.limiter.Limit(ctx, virtualMachineScaleSetVMsGet)
 	sinceStart := spanstat.Start()
 
-	vm, err := c.virtualMachineScaleSetVMs.Get(ctx, c.resourceGroup, vmssName, instanceID, vmssGetOptions)
+	vm, err := c.virtualMachineScaleSetVMs.Get(ctx, c.resourceGroup, vmssName, instanceNum, vmssGetOptions)
 
 	c.metricsAPI.ObserveAPICall(virtualMachineScaleSetVMsGet, deriveStatus(err), sinceStart.Seconds())
 	if err != nil {
@@ -750,7 +759,7 @@ func (c *Client) AssignPublicIPAddressesVMSS(ctx context.Context, instanceID, vm
 	c.limiter.Limit(ctx, virtualMachineScaleSetVMsUpdate)
 	sinceStart = spanstat.Start()
 
-	poller, err := c.virtualMachineScaleSetVMs.BeginUpdate(ctx, c.resourceGroup, vmssName, instanceID, vm.VirtualMachineScaleSetVM, nil)
+	poller, err := c.virtualMachineScaleSetVMs.BeginUpdate(ctx, c.resourceGroup, vmssName, instanceNum, vm.VirtualMachineScaleSetVM, nil)
 	if err != nil {
 		c.metricsAPI.ObserveAPICall(virtualMachineScaleSetVMsUpdate, deriveStatus(err), sinceStart.Seconds())
 		return "", fmt.Errorf("unable to update virtualMachineScaleSetVMs: %w", err)
@@ -771,7 +780,7 @@ func (c *Client) AssignPublicIPAddressesVMSS(ctx context.Context, instanceID, vm
 // AssignPublicIPAddressesVM assigns a public IP to a VM instance.
 // The public IP is allocated from a Public IP Prefix matching publicIpTags
 func (c *Client) AssignPublicIPAddressesVM(ctx context.Context, instanceID string, publicIpTags ipamTypes.Tags) (string, error) {
-	// For standalone VMs, the instance ID format is:
+	// The instance ID format is:
 	// /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Compute/virtualMachines/{vmName}
 	// Parse the instance ID to get the VM name
 	resourceID, err := arm.ParseResourceID(instanceID)
