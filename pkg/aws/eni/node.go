@@ -536,9 +536,9 @@ func (n *Node) CreateInterface(ctx context.Context, allocation *ipam.AllocationA
 
 	var attachmentID string
 	for range maxAttachRetries {
-		// Check if the EC2 API client supports ENA queue configuration
-		if ec2APIWithQueues, ok := n.manager.api.(*ec2.Client); ok && enaQueueCount != nil {
-			attachmentID, err = ec2APIWithQueues.AttachNetworkInterfaceWithQueues(ctx, index, n.node.InstanceID(), eniID, enaQueueCount)
+		// TODO fold this into a single interface method
+		if enaQueueCount != nil {
+			attachmentID, err = n.manager.api.AttachNetworkInterfaceWithQueues(ctx, index, n.node.InstanceID(), eniID, enaQueueCount)
 		} else {
 			attachmentID, err = n.manager.api.AttachNetworkInterface(ctx, index, n.node.InstanceID(), eniID)
 		}
