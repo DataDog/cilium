@@ -885,10 +885,14 @@ struct {
  * - VTEP redirection
  * - Tunnel mode with cluster-aware addressing
  * - FIB redirect / stack delivery
+ *
+ * Note: The 'ip4' parameter must point to a valid, already revalidated IP header.
+ * The 'tuple' parameter is required for TPROXY mode when proxy_port > 0.
  */
 static __always_inline int
 ipv4_forward_to_destination(struct __ctx_buff *ctx,
 			    struct iphdr *ip4,
+			    struct ipv4_ct_tuple *tuple,
 			    __u32 *dst_sec_identity,
 			    __s8 *ext_err,
 			    struct ct_state *ct_state,
@@ -937,7 +941,7 @@ ipv4_forward_to_destination(struct __ctx_buff *ctx,
 		send_trace_notify(ctx, TRACE_TO_PROXY, SECLABEL_IPV4, UNKNOWN_ID,
 				  bpf_ntohs(proxy_port), TRACE_IFINDEX_UNKNOWN,
 				  trace->reason, trace->monitor, bpf_htons(ETH_P_IP));
-		return ctx_redirect_to_proxy4(ctx, NULL, proxy_port, false);
+		return ctx_redirect_to_proxy4(ctx, tuple, proxy_port, false);
 	}
 
 #if defined(ENABLE_HOST_FIREWALL) && !defined(ENABLE_ROUTING)
@@ -1274,6 +1278,10 @@ static __always_inline int handle_ipv4_from_lxc(struct __ctx_buff *ctx, __u32 *d
 				ctx_store_meta(ctx, CB_VERDICT, verdict);
 				ctx_store_meta(ctx, CB_POLICY_DENY_DIR, METRIC_EGRESS);
 				ctx_store_meta(ctx, CB_POLICY_DENY_SRC_ID, SECLABEL_IPV4);
+#if defined(TUNNEL_MODE)
+				/* Egress packets are never from tunnel */
+				ctx_store_meta(ctx, CB_FROM_TUNNEL, 0);
+#endif
 				return tail_call_internal(ctx, CILIUM_CALL_IPV4_POLICY_DENIED,
 							ext_err);
 			}
@@ -1377,7 +1385,7 @@ ct_recreate4:
 		return DROP_UNKNOWN_CT;
 	}
 
-	return ipv4_forward_to_destination(ctx, ip4, dst_sec_identity, ext_err,
+	return ipv4_forward_to_destination(ctx, ip4, tuple, dst_sec_identity, ext_err,
 					   ct_state, ct_status, info, &trace,
 					   skip_tunnel, hairpin_flow, from_l7lb,
 					   proxy_port, cluster_id);
@@ -2012,6 +2020,9 @@ ipv4_policy(struct __ctx_buff *ctx, struct iphdr *ip4, __u32 src_label,
 				ctx_store_meta(ctx, CB_VERDICT, verdict);
 				ctx_store_meta(ctx, CB_POLICY_DENY_DIR, METRIC_INGRESS);
 				ctx_store_meta(ctx, CB_POLICY_DENY_SRC_ID, src_label);
+#if defined(TUNNEL_MODE)
+				ctx_store_meta(ctx, CB_FROM_TUNNEL, from_tunnel ? 1 : 0);
+#endif
 				return tail_call_internal(ctx, CILIUM_CALL_IPV4_POLICY_DENIED,
 							ext_err);
 			}
@@ -2465,8 +2476,11 @@ int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
 
 		/* Forward the ICMP packet to its destination following the same
 		 * path as regular egress traffic from the pod would take.
+		 * Note: tuple is NULL since ICMP error packets are never redirected
+		 * to L7 proxy (proxy_port is 0), and tuple extraction would fail
+		 * for ICMP packets anyway.
 		 */
-		ret = ipv4_forward_to_destination(ctx, ip4, &dst_sec_identity,
+		ret = ipv4_forward_to_destination(ctx, ip4, NULL, &dst_sec_identity,
 						  &ext_err, &ct_state_local, CT_NEW,
 						  info, &trace, false, false, false, 0, 0);
 		if (ret == CTX_ACT_REDIRECT) {
