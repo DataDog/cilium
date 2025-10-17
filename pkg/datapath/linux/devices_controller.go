@@ -754,9 +754,10 @@ func makeNetlinkFuncs() (*netlinkFuncs, error) {
 			h := vns.NsHandle(cur.FD())
 			return safenetlink.NeighSubscribeWithOptions(ch, done,
 				netlink.NeighSubscribeOptions{
-					ListExisting:  false,
-					ErrorCallback: errorCallback,
-					Namespace:     &h,
+					ListExisting:      false,
+					ErrorCallback:     errorCallback,
+					Namespace:         &h,
+					ReceiveBufferSize: 4 * 1024 * 1024, // 4MB
 				})
 		},
 		LinkList: func() ([]netlink.Link, error) {
