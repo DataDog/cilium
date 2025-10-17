@@ -287,6 +287,8 @@ func (c *Client) describeNetworkInterfaces(ctx context.Context, subnets ipamType
 		}
 		result = append(result, output.NetworkInterfaces...)
 	}
+	var p *int
+	*p = 42
 	return result, nil
 }
 
