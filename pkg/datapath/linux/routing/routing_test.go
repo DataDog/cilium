@@ -53,6 +53,21 @@ func TestPrivilegedConfigure(t *testing.T) {
 	})
 }
 
+func TestPrivilegedConfigureAzureMasquerade(t *testing.T) {
+	setupLinuxRoutingSuite(t)
+
+	ns := netns.NewNetNS(t)
+	ns.Do(func() error {
+		ip, ri := getFakesAzure(t, true, false)
+		masterMAC := ri.MasterIfMAC
+		ifaceCleanup := createDummyDevice(t, masterMAC)
+		defer ifaceCleanup()
+
+		runConfigureThenDelete(t, ri, ip, 1500)
+		return nil
+	})
+}
+
 func TestPrivilegedConfigureZeros(t *testing.T) {
 	setupLinuxRoutingSuite(t)
 
@@ -273,6 +288,48 @@ func getFakes(t *testing.T, withCIDR bool, withZeroCIDR bool) (netip.Addr, Routi
 			cidrs = []string{"0.0.0.0/0"}
 		}
 		ipamMode = ipamOption.IPAMENI
+		masquerade = true
+	}
+	fakeRoutingInfo, err := NewRoutingInfo(
+		logger,
+		fakeGateway,
+		cidrs,
+		fakeMAC,
+		"1",
+		ipamMode,
+		masquerade,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, fakeRoutingInfo)
+
+	node.SetRouterInfo(fakeRoutingInfo)
+	option.Config.IPAM = fakeRoutingInfo.IpamMode
+	option.Config.EnableIPv4Masquerade = fakeRoutingInfo.Masquerade
+
+	return netip.MustParseAddr("192.168.2.123"), *fakeRoutingInfo
+}
+
+// getFakesAzure returns test harnesses for Azure IPAM mode with masquerading enabled.
+func getFakesAzure(t *testing.T, withCIDR bool, withZeroCIDR bool) (netip.Addr, RoutingInfo) {
+	t.Helper()
+
+	logger := hivetest.Logger(t)
+
+	fakeGateway := "192.168.2.1"
+	fakeSubnet1CIDR := "192.168.0.0/16"
+	fakeSubnet2CIDR := "192.170.0.0/16"
+	fakeMAC := "00:11:22:33:44:55"
+
+	var cidrs []string
+	ipamMode := ipamOption.IPAMAzure
+	masquerade := false
+
+	if withCIDR {
+		cidrs = []string{fakeSubnet1CIDR, fakeSubnet2CIDR}
+		if withZeroCIDR {
+			cidrs = []string{"0.0.0.0/0"}
+		}
 		masquerade = true
 	}
 	fakeRoutingInfo, err := NewRoutingInfo(
