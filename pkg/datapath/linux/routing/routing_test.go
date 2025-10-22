@@ -184,6 +184,45 @@ func TestPrivilegedDelete(t *testing.T) {
 	}
 }
 
+// verifyMasqueradeRules checks that masquerade mode creates rules with destination CIDRs
+func verifyMasqueradeRules(t *testing.T, rules []netlink.Rule, masquerade bool, ip netip.Addr) {
+	t.Helper()
+
+	// Find egress rules (rules with From: set to endpoint IP)
+	ipWithMask := net.IPNet{
+		IP:   ip.AsSlice(),
+		Mask: net.CIDRMask(32, 32),
+	}
+
+	var egressRules []netlink.Rule
+	for _, rule := range rules {
+		if rule.Src != nil && rule.Src.IP.Equal(ipWithMask.IP) {
+			egressRules = append(egressRules, rule)
+		}
+	}
+
+	if len(egressRules) == 0 {
+		return // No egress rules to check
+	}
+
+	if masquerade {
+		// At least one egress rule should have a destination CIDR (To: field)
+		hasDestCIDR := false
+		for _, rule := range egressRules {
+			if rule.Dst != nil {
+				hasDestCIDR = true
+				break
+			}
+		}
+		require.True(t, hasDestCIDR, "masquerade mode should create rules with destination CIDR (To: field)")
+	} else {
+		// Egress rules should NOT have destination CIDR filtering
+		for _, rule := range egressRules {
+			require.Nil(t, rule.Dst, "non-masquerade mode should create rules without destination CIDR filtering")
+		}
+	}
+}
+
 func runConfigureThenDelete(t *testing.T, ri RoutingInfo, ip netip.Addr, mtu int) {
 	// Create rules and routes
 	beforeCreationRules, beforeCreationRoutes := listRulesAndRoutes(t, netlink.FAMILY_V4)
@@ -194,6 +233,9 @@ func runConfigureThenDelete(t *testing.T, ri RoutingInfo, ip netip.Addr, mtu int
 	require.NotEmpty(t, afterCreationRoutes)
 	require.NotEqual(t, len(afterCreationRules), len(beforeCreationRules))
 	require.NotEqual(t, len(afterCreationRoutes), len(beforeCreationRoutes))
+
+	// Verify masquerade vs non-masquerade rules
+	verifyMasqueradeRules(t, afterCreationRules, ri.Masquerade, ip)
 
 	// Delete rules and routes
 	beforeDeletionRules, beforeDeletionRoutes := listRulesAndRoutes(t, netlink.FAMILY_V4)
