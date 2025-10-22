@@ -391,11 +391,7 @@ func (m *InstancesManager) syncInfrastructure(ctx context.Context) error {
 		m.logger.Warn("Unable to retrieve EC2 security group list", logfields.Error, err)
 		return err
 	}
-	routeTables, err := m.ec2api.GetRouteTables(ctx, currentVpcID)
-	if err != nil {
-		m.logger.Warn("Unable to retrieve EC2 route table list", logfields.Error, err)
-		return err
-	}
+	routeTables := ipamTypes.RouteTableMap{}
 
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
