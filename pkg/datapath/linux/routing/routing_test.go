@@ -185,12 +185,20 @@ func TestPrivilegedDelete(t *testing.T) {
 }
 
 // verifyMasqueradeRules checks that masquerade mode creates rules with destination CIDRs
-func verifyMasqueradeRules(t *testing.T, rules []netlink.Rule, masquerade bool, ip netip.Addr) {
+func verifyMasqueradeRules(t *testing.T, rules []netlink.Rule, ri RoutingInfo, ip netip.Addr) {
 	t.Helper()
+
+	hasZeroCidr := false
+	for _, cidr := range ri.CIDRs {
+		if cidr.IP.IsUnspecified() {
+			hasZeroCidr = true
+			break
+		}
+	}
 
 	for _, rule := range rules {
 		if rule.Src != nil && rule.Src.IP.Equal(ip.AsSlice()) {
-			if masquerade && rule.Dst == nil {
+			if ri.Masquerade && !hasZeroCidr && rule.Dst == nil {
 				t.Fail()
 			}
 		}
@@ -209,7 +217,7 @@ func runConfigureThenDelete(t *testing.T, ri RoutingInfo, ip netip.Addr, mtu int
 	require.NotEqual(t, len(afterCreationRoutes), len(beforeCreationRoutes))
 
 	// Verify masquerade vs non-masquerade rules
-	verifyMasqueradeRules(t, afterCreationRules, ri.Masquerade, ip)
+	verifyMasqueradeRules(t, afterCreationRules, ri, ip)
 
 	// Delete rules and routes
 	beforeDeletionRules, beforeDeletionRoutes := listRulesAndRoutes(t, netlink.FAMILY_V4)
