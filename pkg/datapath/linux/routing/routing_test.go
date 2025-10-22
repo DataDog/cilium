@@ -200,6 +200,10 @@ func verifyMasqueradeRules(t *testing.T, rules []netlink.Rule, ri RoutingInfo, i
 		if rule.Src != nil && rule.Src.IP.Equal(ip.AsSlice()) {
 			if ri.Masquerade && !hasZeroCidr && rule.Dst == nil {
 				t.Fail()
+			} else if ri.Masquerade && hasZeroCidr && rule.Dst != nil {
+				t.Fail()
+			} else if !ri.Masquerade && rule.Dst != nil {
+				t.Fail()
 			}
 		}
 	}
