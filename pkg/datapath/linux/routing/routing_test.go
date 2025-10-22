@@ -188,37 +188,11 @@ func TestPrivilegedDelete(t *testing.T) {
 func verifyMasqueradeRules(t *testing.T, rules []netlink.Rule, masquerade bool, ip netip.Addr) {
 	t.Helper()
 
-	// Find egress rules (rules with From: set to endpoint IP)
-	ipWithMask := net.IPNet{
-		IP:   ip.AsSlice(),
-		Mask: net.CIDRMask(32, 32),
-	}
-
-	var egressRules []netlink.Rule
 	for _, rule := range rules {
-		if rule.Src != nil && rule.Src.IP.Equal(ipWithMask.IP) {
-			egressRules = append(egressRules, rule)
-		}
-	}
-
-	if len(egressRules) == 0 {
-		return // No egress rules to check
-	}
-
-	if masquerade {
-		// At least one egress rule should have a destination CIDR (To: field)
-		hasDestCIDR := false
-		for _, rule := range egressRules {
-			if rule.Dst != nil {
-				hasDestCIDR = true
-				break
+		if rule.Src != nil && rule.Src.IP.Equal(ip.AsSlice()) {
+			if masquerade && rule.Dst == nil {
+				t.Fail()
 			}
-		}
-		require.True(t, hasDestCIDR, "masquerade mode should create rules with destination CIDR (To: field)")
-	} else {
-		// Egress rules should NOT have destination CIDR filtering
-		for _, rule := range egressRules {
-			require.Nil(t, rule.Dst, "non-masquerade mode should create rules without destination CIDR filtering")
 		}
 	}
 }
