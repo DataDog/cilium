@@ -446,7 +446,11 @@ func retrieveIfIndexFromMAC(mac mac.MAC, mtu int) (int, error) {
 	}
 
 	if link == nil {
-		return -1, fmt.Errorf("interface with MAC %s not found", mac)
+		errMsg := fmt.Sprintf("interface with MAC %s not found", mac)
+		if option.Config.IPAM == ipamOption.IPAMENI {
+			errMsg += ", is the ENI attached?"
+		}
+		return -1, fmt.Errorf("%s", errMsg)
 	}
 
 	if err = netlink.LinkSetMTU(link, mtu); err != nil {
