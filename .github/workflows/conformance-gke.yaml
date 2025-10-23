@@ -17,9 +17,6 @@ on:
         description: "[JSON object] Arbitrary arguments passed from the trigger comment via regex capture group. Parse with 'fromJson(inputs.extra-args).argName' in workflow."
         required: false
         default: '{}'
-  push:
-    branches:
-      - 'renovate/v1.17-**'
 
 # By specifying the access of one of the scopes, all of those that are not
 # specified are set to 'none'.
@@ -49,7 +46,6 @@ concurrency:
     ${{ github.workflow }}
     ${{ github.event_name }}
     ${{
-      (github.event_name == 'push' && github.sha) ||
       (github.event_name == 'schedule' && github.sha) ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.PR-number)
     }}
@@ -59,7 +55,7 @@ env:
   clusterName: ${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ github.run_id }}-${{ github.run_attempt }}
   USE_GKE_GCLOUD_AUTH_PLUGIN: True
   # renovate: datasource=docker depName=google/cloud-sdk
-  gcloud_version: 537.0.0
+  gcloud_version: 543.0.0
 
 jobs:
   echo-inputs:

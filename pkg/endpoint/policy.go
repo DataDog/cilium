@@ -308,6 +308,7 @@ func (e *Endpoint) setDesiredPolicy(datapathRegenCtxt *datapathRegenerationConte
 		return fmt.Errorf("endpoint %d SecurityIdentity changed during policy regeneration", e.ID)
 	}
 
+	oldNextPolicyRevision := e.nextPolicyRevision
 	// Set the revision of this endpoint to the current revision of the policy
 	// repository.
 	e.setNextPolicyRevision(res.policyRevision)
@@ -331,6 +332,12 @@ func (e *Endpoint) setDesiredPolicy(datapathRegenCtxt *datapathRegenerationConte
 		datapathRegenCtxt.revertStack.Push(func() error {
 			// Do nothing if e.policyMap was not initialized already
 			if e.policyMap != nil && e.desiredPolicy != e.realizedPolicy {
+				// Revert nextPolicyRevision; otherwise,
+				// res.endpointPolicy will not be recalculated
+				// on the next regeneration attempt, and we
+				// won't advance to the true desired policy map
+				// state. See GH-38998.
+				e.setNextPolicyRevision(oldNextPolicyRevision)
 				e.desiredPolicy.Detach()
 				e.desiredPolicy = e.realizedPolicy
 
@@ -664,14 +671,11 @@ func (e *Endpoint) UpdatePolicy(idsToRegen *set.Set[identityPkg.NumericIdentity]
 	// bump the policy revision directly (as long as we didn't miss an update somehow).
 	if !idsToRegen.Has(secID) {
 		if e.policyRevision < fromRev {
-			if e.state == StateWaitingToRegenerate {
-				// We can log this at less severity since a regeneration was already queued.
-				// This can happen if two policy updates come in quick succession, with the first
-				// affecting this endpoint and the second not.
-				e.getLogger().WithField(logfields.PolicyRevision, fromRev).Info("Endpoint missed a policy revision; triggering regeneration")
-			} else {
-				e.getLogger().WithField(logfields.PolicyRevision, fromRev).Warn("Endpoint missed a policy revision; triggering regeneration")
-			}
+			// FIXME: https://github.com/cilium/cilium/issues/36493
+			// Currently policy repository version can be bumped through multiple triggers
+			// async to each other. This can lead to out of order processing of regeneration
+			// events. Continue with endpoint regeneration to be safe but log as Info.
+			e.getLogger().WithField(logfields.PolicyRevision, fromRev).Info("Endpoint missed a policy revision; triggering regeneration")
 		} else {
 			e.getLogger().WithField(logfields.PolicyRevision, toRev).Debug("Policy update is a no-op, bumping policyRevision")
 			e.setPolicyRevision(toRev)
@@ -798,13 +802,22 @@ func (e *Endpoint) Regenerate(regenMetadata *regeneration.ExternalRegenerationMe
 	return done
 }
 
-// InitialPolicyComputedLocked marks computation of the initial Envoy policy done.
-// Endpoint lock must be held so that the channel is never closed twice.
-func (e *Endpoint) InitialPolicyComputedLocked() {
+// Wait for initial policy blocks till the initial policy for the endpoint is computed
+// or the endpoint is stopped.
+func (e *Endpoint) WaitForInitialPolicy() {
 	select {
-	case <-e.InitialEnvoyPolicyComputed:
+	case <-e.initialEnvoyPolicyComputed:
+	case <-e.aliveCtx.Done():
+	}
+}
+
+// initialPolicyComputedLocked marks computation of the initial Envoy policy done.
+// Endpoint lock must be held so that the channel is never closed twice.
+func (e *Endpoint) initialPolicyComputedLocked() {
+	select {
+	case <-e.initialEnvoyPolicyComputed:
 	default:
-		close(e.InitialEnvoyPolicyComputed)
+		close(e.initialEnvoyPolicyComputed)
 	}
 }
 
@@ -879,7 +892,7 @@ func (e *Endpoint) ComputeInitialPolicy(regenContext *regenerationContext) (erro
 	}
 
 	// Signal computation of the initial Envoy policy if not done yet
-	e.InitialPolicyComputedLocked()
+	e.initialPolicyComputedLocked()
 
 	return nil, release
 }
