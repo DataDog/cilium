@@ -15,11 +15,13 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/cilium/cilium/pkg/datapath/linux/safenetlink"
+	datapathOption "github.com/cilium/cilium/pkg/datapath/option"
 	"github.com/cilium/cilium/pkg/endpoint"
 	"github.com/cilium/cilium/pkg/ipam"
 	slim_corev1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/core/v1"
 	"github.com/cilium/cilium/pkg/k8s/watchers/resources"
 	"github.com/cilium/cilium/pkg/labels"
+	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/maps/ctmap"
 	"github.com/cilium/cilium/pkg/maps/lxcmap"
@@ -65,6 +67,81 @@ type endpointRestoreState struct {
 func checkLink(linkName string) error {
 	_, err := safenetlink.LinkByName(linkName)
 	return err
+}
+
+// checkEndpointLinkType returns the type of network link used by the endpoint.
+// It returns "veth", "netkit", or an error if the link cannot be determined.
+func (d *Daemon) checkEndpointLinkType(ep *endpoint.Endpoint) (string, error) {
+	if ep.IsProperty(endpoint.PropertyFakeEndpoint) {
+		return "", nil
+	}
+
+	ifName := ep.HostInterface()
+	if ifName == "" {
+		return "", nil
+	}
+
+	link, err := safenetlink.LinkByName(ifName)
+	if err != nil {
+		return "", fmt.Errorf("failed to lookup link %s: %w", ifName, err)
+	}
+
+	return link.Type(), nil
+}
+
+// validateDatapathModeCompatibility checks if endpoints being restored are compatible
+// with the current datapath mode. If the agent is configured with netkit/veth mode and
+// detects existing endpoints using veth/netkit, it will exit with a fatal error describing
+// the compatibility issue
+func (d *Daemon) validateDatapathModeCompatibility(endpoints map[uint16]*endpoint.Endpoint) error {
+	var incompatibleEndpoints []string
+	var incompatibleType string
+
+	// Determine what type of endpoints are incompatible with current mode
+	currentDatapathMode := option.Config.DatapathMode
+	isNetkitMode := currentDatapathMode == datapathOption.DatapathModeNetkit || currentDatapathMode == datapathOption.DatapathModeNetkitL2
+	isVethMode := currentDatapathMode == datapathOption.DatapathModeVeth
+
+	for _, ep := range endpoints {
+		// Only check pod endpoints, skip host endpoint, health endpoint, and other special endpoints
+		if !ep.K8sNamespaceAndPodNameIsSet() {
+			continue
+		}
+
+		linkType, err := d.checkEndpointLinkType(ep)
+		if err != nil {
+			d.logger.Debug("Failed to check endpoint link type, skipping",
+				logfields.EndpointID, ep.ID,
+				logfields.Error, err,
+			)
+			continue
+		}
+
+		// Check for incompatibility
+		isIncompatible := false
+		if isNetkitMode && linkType == "veth" {
+			isIncompatible = true
+			incompatibleType = "veth"
+		} else if isVethMode && linkType == "netkit" {
+			isIncompatible = true
+			incompatibleType = "netkit"
+		}
+
+		if isIncompatible {
+			epName := fmt.Sprintf("%s/%s (endpoint-%d)", ep.K8sNamespace, ep.K8sPodName, ep.ID)
+			incompatibleEndpoints = append(incompatibleEndpoints, epName)
+		}
+	}
+
+	if len(incompatibleEndpoints) > 0 {
+		return fmt.Errorf(
+			"Cannot start cilium-agent with datapath-mode=%s: detected %d existing endpoint(s) using %s datapath mode. "+
+				"Endpoints using %s datapath mode: %v. "+
+				"Please delete these pods or change the datapath mode back to %s before starting the agent with %s mode",
+			currentDatapathMode, len(incompatibleEndpoints), incompatibleType, incompatibleType, incompatibleEndpoints, incompatibleType, currentDatapathMode)
+	}
+
+	return nil
 }
 
 // validateEndpoint attempts to determine that the restored endpoint is valid, ie it
@@ -202,6 +279,11 @@ func (d *Daemon) restoreOldEndpoints(state *endpointRestoreState) {
 	}
 
 	d.logger.Info("Restoring endpoints...")
+
+	// Validate that endpoints are compatible with the current datapath mode
+	if err := d.validateDatapathModeCompatibility(state.possible); err != nil {
+		logging.Fatal(d.logger, "Datapath mode incompatibility detected", logfields.Error, err)
+	}
 
 	var (
 		existingEndpoints map[string]lxcmap.EndpointInfo
