@@ -28,6 +28,12 @@ type Limits struct {
 
 	// IsBareMetal tracks whether an instance is a bare metal instance or not
 	IsBareMetal bool
+
+	// VCpus is the number of virtual CPUs for the instance type
+	VCpus int
+
+	// SupportsFlexibleEnaQueues indicates if the instance type supports flexible ENA queue configuration
+	SupportsFlexibleEnaQueues bool
 }
 
 // AllocationIP is an IP which is available for allocation, or already
@@ -370,11 +376,8 @@ func (in *Subnet) DeepEqual(other *Subnet) bool {
 	if in.AvailableIPv6Addresses != other.AvailableIPv6Addresses {
 		return false
 	}
-	if ((in.Tags != nil) && (other.Tags != nil)) || ((in.Tags == nil) != (other.Tags == nil)) {
-		in, other := &in.Tags, &other.Tags
-		if !in.DeepEqual(other) {
-			return false
-		}
+	if !in.Tags.DeepEqual(&other.Tags) {
+		return false
 	}
 
 	return true
