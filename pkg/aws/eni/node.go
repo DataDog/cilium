@@ -324,13 +324,17 @@ func (n *Node) AllocateIPs(ctx context.Context, a *ipam.AllocationAction) error 
 func (n *Node) AllocateStaticIP(ctx context.Context, staticIPTags ipamTypes.Tags) (string, error) {
 	n.mutex.RLock()
 	defer n.mutex.RUnlock()
+
 	for _, eni := range n.enis {
-		if eni.PublicIP == "" {
+		if eni.Number == 0 {
+			if eni.PublicIP != "" {
+				return "", fmt.Errorf("primary ENI %s already has a public IP: %s", eni.ID, eni.PublicIP)
+			}
 			return n.manager.api.AssociateEIP(ctx, eni.ID, staticIPTags)
 		}
 	}
 
-	return "", fmt.Errorf("no ENI found to associate static IP")
+	return "", fmt.Errorf("no primary ENI found")
 }
 
 func (n *Node) getSecurityGroupIDs(ctx context.Context, eniSpec eniTypes.ENISpec) ([]string, error) {
