@@ -324,13 +324,17 @@ func (n *Node) AllocateIPs(ctx context.Context, a *ipam.AllocationAction) error 
 func (n *Node) AllocateStaticIP(ctx context.Context, staticIPTags ipamTypes.Tags) (string, error) {
 	n.mutex.RLock()
 	defer n.mutex.RUnlock()
+
 	for _, eni := range n.enis {
-		if eni.PublicIP == "" {
+		if eni.Number == 0 {
+			if eni.PublicIP != "" {
+				return eni.PublicIP, nil
+			}
 			return n.manager.api.AssociateEIP(ctx, eni.ID, staticIPTags)
 		}
 	}
 
-	return "", fmt.Errorf("no ENI found to associate static IP")
+	return "", fmt.Errorf("no primary ENI found")
 }
 
 func (n *Node) getSecurityGroupIDs(ctx context.Context, eniSpec eniTypes.ENISpec) ([]string, error) {
@@ -629,6 +633,12 @@ func (n *Node) ResyncInterfacesAndIPs(ctx context.Context, scopedLog *slog.Logge
 
 			n.enis[e.ID] = *e
 
+			// Check for public IP on primary ENI before exclusion logic
+			// The primary ENI may be excluded from IPAM but we still need to track its public IP
+			if e.Number == 0 && e.PublicIP != "" {
+				stats.AssignedStaticIP = e.PublicIP
+			}
+
 			// 3. Finally, we iterate any already existing interfaces and add on any extra
 			//		capacity to account for leftover prefix delegated /28 ip slots.
 			leftoverPrefixCapcity, effectiveLimits := n.getEffectiveIPLimits(e, limits.IPv4)
@@ -648,11 +658,6 @@ func (n *Node) ResyncInterfacesAndIPs(ctx context.Context, scopedLog *slog.Logge
 
 			for _, ip := range e.Addresses {
 				available[ip] = ipamTypes.AllocationIP{Resource: e.ID}
-			}
-
-			// If the primary ENI has a public IP, we store it
-			if e.Number == 0 && e.PublicIP != "" {
-				stats.AssignedStaticIP = e.PublicIP
 			}
 
 			return nil
