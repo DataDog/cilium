@@ -13,6 +13,9 @@ on:
       SHA:
         description: "SHA under test (head of the PR branch)."
         required: true
+      base-SHA:
+        description: "SHA of the base branch (target branch of the PR)."
+        required: false
       extra-args:
         description: "[JSON object] Arbitrary arguments passed from the trigger comment via regex capture group. Parse with 'fromJson(inputs.extra-args).argName' in workflow."
         required: false
@@ -54,7 +57,7 @@ concurrency:
 
 env:
   # renovate: datasource=golang-version depName=go
-  go-version: 1.24.9
+  go-version: 1.24.10
 
 jobs:
   echo-inputs:
@@ -82,23 +85,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: 'rhel8.6-20250812.093650'
+          - kernel: 'rhel8.10'
             ci-kernel: '54'
-          # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: '5.10-20251021.054756'
+          - kernel: '5.10'
             ci-kernel: '510'
-          # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: '5.15-20251021.054756'
+          - kernel: '5.15'
             ci-kernel: '510'
-          # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: '6.1-20251021.054756'
+          - kernel: '6.1'
             ci-kernel: '61'
-          # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: '6.6-20251021.054756'
+          - kernel: '6.6'
             ci-kernel: '61'
-          # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-          - kernel: '6.12-20251021.054756'
+          - kernel: '6.12'
             ci-kernel: '61'
     timeout-minutes: 60
     steps:
@@ -115,12 +112,33 @@ jobs:
           ref: ${{ inputs.SHA || github.sha }}
           persist-credentials: false
 
+      - name: Resolve full kernel version
+        id: kernel-version
+        run: |
+          KERNEL="${{ matrix.kernel }}"
+          case "$KERNEL" in
+            # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
+            "rhel8.10") FULL_KERNEL="rhel8.10-20251107.044907" ;;
+            # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
+            "5.10") FULL_KERNEL="5.10-20251107.044907" ;;
+            # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
+            "5.15") FULL_KERNEL="5.15-20251107.044907" ;;
+            # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
+            "6.1") FULL_KERNEL="6.1-20251107.044907" ;;
+            # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
+            "6.6") FULL_KERNEL="6.6-20251107.044907" ;;
+            # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
+            "6.12") FULL_KERNEL="6.12-20251107.044907" ;;
+            *) FULL_KERNEL="$KERNEL" ;;
+          esac
+          echo "full=${FULL_KERNEL}" >> $GITHUB_OUTPUT
+
       - name: Provision LVH VMs
         uses: cilium/little-vm-helper@01debd6cb7e5514cfdb4a33e776bdc647bc5306e # v0.0.27
         with:
           test-name: datapath-bpf-complexity
           image: 'complexity-test'
-          image-version: ${{ matrix.kernel }}
+          image-version: ${{ steps.kernel-version.outputs.full }}
           host-mount: ./
           images-folder-parent: "/tmp"
           cpu: 4
@@ -165,7 +183,7 @@ jobs:
 
       - name: Upload artifacts
         if: ${{ !success() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: datapath-verifier_${{ matrix.kernel }}
           path: datapath-verifier
