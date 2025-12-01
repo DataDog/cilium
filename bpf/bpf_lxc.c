@@ -1054,6 +1054,7 @@ ipv4_forward_to_destination(struct __ctx_buff *ctx,
 #ifdef ENABLE_ROUTING
 	union macaddr router_mac = CONFIG(interface_mac);
 #endif
+	struct remote_endpoint_info fake_info = {0};
 	void *data, *data_end;
 	int ret;
 
@@ -1165,7 +1166,6 @@ ipv4_forward_to_destination(struct __ctx_buff *ctx,
 	 */
 #if defined(ENABLE_VTEP)
 	{
-		struct remote_endpoint_info fake_info = {0};
 		struct vtep_key vkey = {};
 		struct vtep_value *vtep;
 
@@ -1219,7 +1219,6 @@ skip_vtep:
 		 */
 		if (ct_status == CT_REPLY) {
 			if (identity_is_remote_node(dst_sec_identity) && ct_state->from_tunnel) {
-				struct remote_endpoint_info fake_info = {};
 				/* Do not modify [info], as this will update IPcache */
 				fake_info.tunnel_endpoint.ip4 = ip4->daddr;
 				fake_info.flag_has_tunnel_ep = true;
