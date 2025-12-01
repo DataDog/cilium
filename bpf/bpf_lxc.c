@@ -1054,7 +1054,7 @@ ipv4_forward_to_destination(struct __ctx_buff *ctx,
 #ifdef ENABLE_ROUTING
 	union macaddr router_mac = CONFIG(interface_mac);
 #endif
-	struct remote_endpoint_info fake_info = {0};
+	struct remote_endpoint_info __maybe_unused fake_info = {0};
 	void *data, *data_end;
 	int ret;
 
