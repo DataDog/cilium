@@ -7,9 +7,6 @@ dario.cat/mergo
 # github.com/AdaLogics/go-fuzz-headers v0.0.0-20240806141605-e8a1dd7889d6
 ## explicit; go 1.20
 github.com/AdaLogics/go-fuzz-headers
-# github.com/AdamKorcz/go-118-fuzz-build v0.0.0-20250520111509-a70c2aa677fa
-## explicit; go 1.18
-github.com/AdamKorcz/go-118-fuzz-build/testing
 # github.com/Azure/azure-sdk-for-go/sdk/azcore v1.20.0
 ## explicit; go 1.23.0
 github.com/Azure/azure-sdk-for-go/sdk/azcore
@@ -2555,10 +2552,6 @@ k8s.io/client-go/util/retry
 k8s.io/client-go/util/workqueue
 # k8s.io/code-generator v0.34.2
 ## explicit; go 1.24.0
-k8s.io/code-generator
-k8s.io/code-generator/cmd/applyconfiguration-gen
-k8s.io/code-generator/cmd/applyconfiguration-gen/args
-k8s.io/code-generator/cmd/applyconfiguration-gen/generators
 k8s.io/code-generator/cmd/client-gen
 k8s.io/code-generator/cmd/client-gen/args
 k8s.io/code-generator/cmd/client-gen/generators
@@ -2566,27 +2559,9 @@ k8s.io/code-generator/cmd/client-gen/generators/fake
 k8s.io/code-generator/cmd/client-gen/generators/scheme
 k8s.io/code-generator/cmd/client-gen/generators/util
 k8s.io/code-generator/cmd/client-gen/types
-k8s.io/code-generator/cmd/conversion-gen
-k8s.io/code-generator/cmd/conversion-gen/args
-k8s.io/code-generator/cmd/conversion-gen/generators
-k8s.io/code-generator/cmd/deepcopy-gen
-k8s.io/code-generator/cmd/deepcopy-gen/args
-k8s.io/code-generator/cmd/deepcopy-gen/generators
-k8s.io/code-generator/cmd/defaulter-gen
-k8s.io/code-generator/cmd/defaulter-gen/args
-k8s.io/code-generator/cmd/defaulter-gen/generators
 k8s.io/code-generator/cmd/go-to-protobuf
 k8s.io/code-generator/cmd/go-to-protobuf/protobuf
 k8s.io/code-generator/cmd/go-to-protobuf/protoc-gen-gogo
-k8s.io/code-generator/cmd/informer-gen
-k8s.io/code-generator/cmd/informer-gen/args
-k8s.io/code-generator/cmd/informer-gen/generators
-k8s.io/code-generator/cmd/lister-gen
-k8s.io/code-generator/cmd/lister-gen/args
-k8s.io/code-generator/cmd/lister-gen/generators
-k8s.io/code-generator/cmd/register-gen
-k8s.io/code-generator/cmd/register-gen/args
-k8s.io/code-generator/cmd/register-gen/generators
 k8s.io/code-generator/cmd/validation-gen
 k8s.io/code-generator/cmd/validation-gen/util
 k8s.io/code-generator/cmd/validation-gen/validators
@@ -2629,22 +2604,16 @@ k8s.io/klog/v2/internal/severity
 k8s.io/klog/v2/internal/sloghandler
 # k8s.io/kube-openapi v0.0.0-20250814151709-d7b6acb124c3
 ## explicit; go 1.23
-k8s.io/kube-openapi/cmd/openapi-gen
-k8s.io/kube-openapi/cmd/openapi-gen/args
 k8s.io/kube-openapi/pkg/cached
 k8s.io/kube-openapi/pkg/common
-k8s.io/kube-openapi/pkg/generators
-k8s.io/kube-openapi/pkg/generators/rules
 k8s.io/kube-openapi/pkg/handler3
 k8s.io/kube-openapi/pkg/internal
 k8s.io/kube-openapi/pkg/internal/third_party/go-json-experiment/json
 k8s.io/kube-openapi/pkg/internal/third_party/govalidator
 k8s.io/kube-openapi/pkg/schemaconv
 k8s.io/kube-openapi/pkg/spec3
-k8s.io/kube-openapi/pkg/util
 k8s.io/kube-openapi/pkg/util/proto
 k8s.io/kube-openapi/pkg/util/proto/validation
-k8s.io/kube-openapi/pkg/util/sets
 k8s.io/kube-openapi/pkg/validation/errors
 k8s.io/kube-openapi/pkg/validation/spec
 k8s.io/kube-openapi/pkg/validation/strfmt
