@@ -961,26 +961,26 @@ func findPublicIPPrefixByTags(prefixes []*armnetwork.PublicIPPrefix, searchTags 
 			continue
 		}
 
-		// Calculate total capacity from the prefix CIDR
-		var totalIPs int
-		if publicIPPrefix.Properties.IPPrefix != nil {
-			prefix, err := netip.ParsePrefix(*publicIPPrefix.Properties.IPPrefix)
-			if err != nil {
-				continue
-			}
-			totalIPs = availableIPs(prefix)
-		}
+		// // Calculate total capacity from the prefix CIDR
+		// var totalIPs int
+		// if publicIPPrefix.Properties.IPPrefix != nil {
+		// 	prefix, err := netip.ParsePrefix(*publicIPPrefix.Properties.IPPrefix)
+		// 	if err != nil {
+		// 		continue
+		// 	}
+		// 	totalIPs = availableIPs(prefix)
+		// }
 
-		// Count allocated IPs
-		allocatedIPs := 0
-		if publicIPPrefix.Properties.PublicIPAddresses != nil {
-			allocatedIPs = len(publicIPPrefix.Properties.PublicIPAddresses)
-		}
+		// // Count allocated IPs
+		// allocatedIPs := 0
+		// if publicIPPrefix.Properties.PublicIPAddresses != nil {
+		// 	allocatedIPs = len(publicIPPrefix.Properties.PublicIPAddresses)
+		// }
 
-		// Skip if no available IPs
-		if totalIPs > 0 && allocatedIPs >= totalIPs {
-			continue
-		}
+		// // Skip if no available IPs
+		// if totalIPs > 0 && allocatedIPs >= totalIPs {
+		// 	continue
+		// }
 
 		return *publicIPPrefix.ID, true
 	}
