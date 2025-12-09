@@ -1303,6 +1303,8 @@ const (
 
 	NumSubnets = "numSubnets"
 
+	TargetedSubnets = "targetedSubnets"
+
 	NumRouteTables = "numRouteTables"
 
 	NeedIndex = "needIndex"
