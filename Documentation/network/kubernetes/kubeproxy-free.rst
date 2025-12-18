@@ -1360,12 +1360,18 @@ Cilium's eBPF kube-proxy replacement supports graceful termination of service
 endpoint pods. The Cilium agent detects such terminating Pod events, and
 increments the metric ``k8s_terminating_endpoints_events_total``.
 
-When Cilium agent receives a Kubernetes update event for a terminating endpoint,
-the datapath state for the endpoint is removed such that it won't service new
-connections, but the endpoint's active connections are able to terminate
-gracefully. The endpoint state is fully removed when the agent receives
-a Kubernetes delete event for the endpoint. The `Kubernetes
-pod termination <https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-termination>`_
+When Cilium agent receives a Kubernetes update event that marks an endpoint as
+terminating Cilium will retain the datapath state necessary for existing connections.
+The terminating endpoint will be used as fallback for new connections only if
+1) no active endpoints exist for the service and 2) terminating endpoint has condition ``serving``
+(e.g. pod is still passing `readinessProbes <https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/#define-readiness-probes>`_).
+
+If ``publishNotReadyAddresses`` is set on the Service the endpoints received by Cilium
+may have both the ``ready`` and ``terminating`` conditions set. In this case Cilium follows
+kube-proxy and uses these for new connections, ignoring the ``terminating`` condition.
+
+The endpoint state is fully removed when the agent receives a Kubernetes delete
+event for the endpoint. The `Kubernetes pod termination <https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-termination>`_
 documentation contains more background on the behavior and configuration using ``terminationGracePeriodSeconds``.
 There are some special cases, like zero disruption during rolling updates, that require to be able to send traffic
 to Terminating Pods that are still Serving traffic during the Terminating period, the Kubernetes blog
@@ -1783,24 +1789,31 @@ For more information, ensure that you have the fix `Pull Request <https://github
 Known Issues
 ############
 
-For clusters deployed with Cilium version 1.11.14 or earlier, service backend entries could
-be leaked in the BPF maps in some instances. The known cases that could lead
-to such leaks are due to race conditions between deletion of a service backend
-while it's terminating, and simultaneous deletion of the service the backend is
-associated with. This could lead to duplicate backend entries that could eventually
-fill up the ``cilium_lb4_backends_v2`` map.
-In such cases, you might see error messages like these in the Cilium agent logs::
+Connection Collisions When a Service Endpoint Is Accessed via Multiple VIPs
+***************************************************************************
 
-    Unable to update element for cilium_lb4_backends_v2 map with file descriptor 15: the map is full, please consider resizing it. argument list too long
+If a given backend endpoint is reachable through multiple services (i.e., via different VIPs or NodePorts),
+a new connection from a client to a different VIP or NodePort may reuse an existing connection tracking state
+from a connection to a different VIP or NodePort. This can happen if the client selects the same source port.
+In such cases, the connection might be dropped.
 
-While the leak was fixed in Cilium version 1.11.15, in some cases, any affected clusters upgrading
-from the problematic cilium versions 1.11.14 or earlier to any subsequent versions may not
-see the leaked backends cleaned up from the BPF maps after the Cilium agent restarts.
-The fixes to clean up leaked duplicate backend entries were backported to older
-releases, and are available as part of Cilium versions v1.11.16, v1.12.9 and v1.13.2.
-Fresh clusters deploying Cilium versions 1.11.15 or later don't experience this leak issue.
+The following scenarios are prone to this problem:
 
-For more information, see `this GitHub issue <https://github.com/cilium/cilium/issues/23551>`__.
+* With :ref:`DSR<DSR Mode>`: A client running outside a cluster sends requests ``CLIENT_IP:SRC_PORT -> LB1_IP:LB1_PORT``
+  and ``CLIENT_IP:SRC_PORT -> LB2_IP:LB2_PORT`` via an intermediate K8s node(s). The intermediate node selects
+  ``BACKEND_IP:BACKEND_PORT`` for each request and forwards them to the backend endpoint. Each request
+  appears identical as ``CLIENT_IP:SRC_PORT -> BACKEND_IP:BACKEND_PORT``, so the backend cannot distinguish
+  between them.
+
+* With or without DSR: A client running outside a cluster sends requests ``CLIENT_IP:SRC_PORT -> LB1_IP:LB1_PORT``
+  and ``CLIENT_IP:SRC_PORT -> LB2_IP:LB2_PORT`` to a K8s node that runs the selected backend endpoint.
+  Again, each request appears the same: ``CLIENT_IP:SRC_PORT -> BACKEND_IP:BACKEND_PORT``.
+
+* Without Socket LB: A client running in a Pod sends requests ``CLIENT_IP:SRC_PORT -> LB1_IP:LB1_PORT`` and
+  ``CLIENT_IP:SRC_PORT -> LB2_IP:LB2_PORT``. The per-packet load-balancer then DNATs each request to the backend,
+  resulting in ``CLIENT_IP:SRC_PORT -> BACKEND_IP:BACKEND_PORT``.
+
+Therefore, it is highly recommended not to expose a backend endpoint via multiple VIPs :gh-issue:`11810` :gh-issue:`18632`.
 
 Limitations
 ###########

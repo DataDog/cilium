@@ -31,6 +31,7 @@
 #define mac_five_addr {0x15, 0x21, 0x39, 0x45, 0x4D, 0x5D}
 #define mac_six_addr {0x08, 0x14, 0x1C, 0x32, 0x52, 0x7E}
 #define mac_zero_addr {0x0, 0x0, 0x0, 0x0, 0x0, 0x0}
+#define host_mac_addr { 0xce, 0x72, 0xa7, 0x03, 0x88, 0x56 }
 
 volatile const __u8 mac_one[] = mac_one_addr;
 volatile const __u8 mac_two[] = mac_two_addr;
@@ -39,6 +40,8 @@ volatile const __u8 mac_four[] = mac_four_addr;
 volatile const __u8 mac_five[] = mac_five_addr;
 volatile const __u8 mac_six[] = mac_six_addr;
 volatile const __u8 mac_zero[] = mac_zero_addr;
+/* this matches the default node_config.h: */
+volatile const __u8 mac_host[] = host_mac_addr;
 
 /* A collection of pre-defined IP addresses, so tests can reuse them without
  *  having to come up with custom ips.
@@ -76,7 +79,10 @@ volatile const __u8 mac_zero[] = mac_zero_addr;
 
 #define v4_svc_loopback	IPV4(10, 245, 255, 31)
 
-#define v4_all	IPV4(0, 0, 0, 0)
+#define v4_all		IPV4(0, 0, 0, 0)
+#define v6_all_addr	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+
+volatile const __u8 v6_all[] = v6_all_addr;
 
 /* IPv6 addresses for pods in the cluster */
 #define v6_pod_one_addr {0xfd, 0x04, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}
