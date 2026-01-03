@@ -369,6 +369,10 @@ func (e *API) DeleteNetworkInterface(ctx context.Context, eniID string) error {
 }
 
 func (e *API) AttachNetworkInterface(ctx context.Context, index int32, instanceID, eniID string) (string, error) {
+	return e.AttachNetworkInterfaceWithQueues(ctx, index, instanceID, eniID, nil)
+}
+
+func (e *API) AttachNetworkInterfaceWithQueues(ctx context.Context, index int32, instanceID, eniID string, enaQueueCount *int32) (string, error) {
 	e.rateLimit()
 	e.delaySim.Delay(AttachNetworkInterface)
 
