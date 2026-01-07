@@ -7,7 +7,7 @@ sphinx-rtd-theme-cilium @ git+https://github.com/cilium/sphinx_rtd_theme.git@5e4
 # We use semver to parse Cilium's version in the config file
 semver==3.0.1
 # Sphinx extensions
-myst-parser==2.0.0
+myst-parser==4.0.1
 sphinx-tabs==3.4.1
 sphinx-version-warning==1.1.2
 sphinxcontrib-googleanalytics==0.4
