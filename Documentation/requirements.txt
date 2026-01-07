@@ -55,7 +55,7 @@ rpds-py==0.10.3
 rstcheck-core==1.1.1
 shellingham==1.5.3
 six==1.16.0
-snowballstemmer==2.2.0
+snowballstemmer==3.0.1
 sphinx_mdinclude==0.5.3
 sphinxcontrib-applehelp==1.0.4
 sphinxcontrib-devhelp==1.0.2
