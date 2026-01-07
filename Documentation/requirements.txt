@@ -42,7 +42,7 @@ mdurl==0.1.2
 mistune==2.0.5
 packaging==23.1
 pathspec==0.11.2
-picobox==3.0.0
+picobox==4.0.0
 pydantic==2.7.1
 pydantic_core==2.18.2
 pyenchant==3.2.2
