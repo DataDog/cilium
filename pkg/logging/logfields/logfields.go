@@ -1802,4 +1802,19 @@ const (
 	Rate = "rate"
 
 	KPRConfiguration = "kprConfiguration"
+
+	// CESFeatureEnabled indicates whether CiliumEndpointSlice feature is enabled.
+	CESFeatureEnabled = "cesEnabled"
+
+	// Matches is a list of pools that match a pod.
+	Matches = "matches"
+
+	// CompiledPools is a map of pools that use podSelectors
+	CompiledPools = "compiledPools"
+
+	ReloadKeypairError = "reloadKeypairError"
+
+	ReloadCAError = "reloadCAError"
+
+	ExtendedMessage = "extendedMessage"
 )
