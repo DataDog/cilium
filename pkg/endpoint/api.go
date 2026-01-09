@@ -659,5 +659,5 @@ func (e *Endpoint) GetRealizedL4PolicyRuleOriginModel() (policy *models.L4Policy
 	if e.realizedPolicy == nil {
 		return
 	}
-	return e.realizedPolicy.SelectorPolicy.L4Policy.GetRuleOriginModel(), e.policyRevision, nil
+	return e.realizedPolicy.L4Policy.GetRuleOriginModel(), e.policyRevision, nil
 }
