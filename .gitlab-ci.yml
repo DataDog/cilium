@@ -1,6 +1,6 @@
 default:
   tags: ["arch:amd64"]
-  image: registry.ddbuild.io/images/nydus:v2.3.7
+  image: registry.ddbuild.io/images/nydus:v2.3.8-dd
 
 variables:
   # Defaults
@@ -100,6 +100,7 @@ before_script:
 
     ddsign sign "${IMAGE_REF}" --docker-metadata-file "${METADATA_FILE}"
     nydus-convert "${IMAGE_REF}"
+    MERGE_PLATFORM=true nydus-convert "${IMAGE_REF}" "${IMAGE_REF}-merged-nydus"
 
     # Always build the debug version of the Cilium Agent and Operator images
     if [[ $IMAGE_NAME == "cilium" || $IMAGE_NAME =~ "cilium-operator" ]]; then
@@ -122,6 +123,7 @@ before_script:
 
       ddsign sign "${IMAGE_REF_DEBUG}" --docker-metadata-file "${METADATA_FILE_DEBUG}"
       nydus-convert "${IMAGE_REF_DEBUG}"
+      MERGE_PLATFORM=true nydus-convert "${IMAGE_REF_DEBUG}" "${IMAGE_REF_DEBUG}-merged-nydus"
     fi
 
 branch-pipeline:
