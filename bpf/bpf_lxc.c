@@ -881,7 +881,6 @@ int tail_handle_ipv6(struct __ctx_buff *ctx)
 }
 #endif /* ENABLE_IPV6 */
 
-#ifdef ENABLE_IPV4
 struct {
 	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
 	__type(key, __u32);
@@ -1141,7 +1140,7 @@ static __always_inline int handle_ipv4_from_lxc(struct __ctx_buff *ctx, __u32 *d
 						__s8 *ext_err)
 {
 	struct ct_state *ct_state, ct_state_new = {};
-	const struct remote_endpoint_info *info;
+	struct remote_endpoint_info *info;
 	struct remote_endpoint_info __maybe_unused fake_info = {0};
 	struct ipv4_ct_tuple *tuple;
 #ifdef ENABLE_ROUTING
