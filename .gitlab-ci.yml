@@ -54,7 +54,11 @@ before_script:
     # Replicate images
     IFS=$'\n'
     for arg_name in ${IMAGES_TO_MIRROR:-}; do
-      source_image_ref=$(grep "ARG ${arg_name}=" $DOCKERFILE_PATH | sed 's/^[^=]*=//')
+      source_image_ref=$(grep "ARG ${arg_name}=" $DOCKERFILE_PATH | sed 's/^[^=]*=//' || true)
+      if [ -z "$source_image_ref" ]; then
+        echo "Warning: ARG ${arg_name} not found in $DOCKERFILE_PATH, skipping"
+        continue
+      fi
       dest_image_ref="registry.ddbuild.io"$(echo $source_image_ref | sed 's|^[^/]*||')
       if ! crane manifest $dest_image_ref > /dev/null; then
         echo "Mirroring $source_image_ref to $dest_image_ref"
