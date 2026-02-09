@@ -179,9 +179,13 @@ func (d *Daemon) allocateDatapathIPs(family types.NodeAddressingFamily, fromK8s,
 		}
 	}
 
-	if (option.Config.IPAM == ipamOption.IPAMENI ||
-		option.Config.IPAM == ipamOption.IPAMAlibabaCloud ||
-		option.Config.IPAM == ipamOption.IPAMAzure) && result != nil {
+	// Configure routing if we have the necessary routing information,
+	// regardless of IPAM mode. This allows any IPAM mode (including kubernetes)
+	// to work with multi-VNIC setups by providing routing information.
+	if result != nil &&
+		result.GatewayIP != "" &&
+		result.PrimaryMAC != "" &&
+		len(result.CIDRs) > 0 {
 		var routingInfo *linuxrouting.RoutingInfo
 		routingInfo, err = linuxrouting.NewRoutingInfo(d.logger, result.GatewayIP, result.CIDRs,
 			result.PrimaryMAC, result.InterfaceNumber, option.Config.IPAM,
@@ -277,12 +281,12 @@ func (d *Daemon) allocateHealthIPs() error {
 
 		d.logger.Debug("IPv4 health endpoint address", logfields.IPAddr, result.IP)
 
-		// In ENI and AlibabaCloud ENI mode, we require the gateway, CIDRs, and the ENI MAC addr
-		// in order to set up rules and routes on the local node to direct
-		// endpoint traffic out of the ENIs.
-		if option.Config.IPAM == ipamOption.IPAMENI || option.Config.IPAM == ipamOption.IPAMAlibabaCloud {
+		// If routing information is available (gateway, CIDRs, MAC address),
+		// parse and store it for setting up health endpoint routing rules.
+		// This works with any IPAM mode that provides routing information.
+		if result.GatewayIP != "" && result.PrimaryMAC != "" && len(result.CIDRs) > 0 {
 			if d.healthEndpointRouting, err = parseRoutingInfo(d.logger, result); err != nil {
-				d.logger.Warn("Unable to allocate health information for ENI", logfields.Error, err)
+				d.logger.Warn("Unable to parse health endpoint routing information", logfields.Error, err)
 			}
 		}
 	}
@@ -361,12 +365,12 @@ func (d *Daemon) allocateIngressIPs() error {
 			node.SetIngressIPv4(result.IP)
 			d.logger.Info(fmt.Sprintf("  Ingress IPv4: %s", node.GetIngressIPv4(d.logger)))
 
-			// In ENI and AlibabaCloud ENI mode, we require the gateway, CIDRs, and the
-			// ENI MAC addr in order to set up rules and routes on the local node to
-			// direct ingress traffic out of the ENIs.
-			if option.Config.IPAM == ipamOption.IPAMENI || option.Config.IPAM == ipamOption.IPAMAlibabaCloud {
+			// If routing information is available (gateway, CIDRs, MAC address),
+			// configure ingress routing rules. This works with any IPAM mode that
+			// provides routing information.
+			if result.GatewayIP != "" && result.PrimaryMAC != "" && len(result.CIDRs) > 0 {
 				if ingressRouting, err := parseRoutingInfo(d.logger, result); err != nil {
-					d.logger.Warn("Unable to allocate ingress information for ENI", logfields.Error, err)
+					d.logger.Warn("Unable to parse ingress routing information", logfields.Error, err)
 				} else {
 					if err := ingressRouting.Configure(
 						result.IP,
