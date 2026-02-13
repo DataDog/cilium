@@ -219,7 +219,7 @@ image:
   # @schema
   override: ~
   repository: "quay.io/cilium/cilium"
-  tag: "v1.18.6"
+  tag: "v1.18.7"
   pullPolicy: "IfNotPresent"
   # cilium-digest
   digest: ""
@@ -1169,8 +1169,8 @@ certgen:
     # @schema
     override: ~
     repository: "quay.io/cilium/certgen"
-    tag: "v0.3.1"
-    digest: "sha256:2825dbfa6f89cbed882fd1d81e46a56c087e35885825139923aa29eb8aec47a9"
+    tag: "v0.3.2"
+    digest: "sha256:19921f48ee7e2295ea4dca955878a6cd8d70e6d4219d08f688e866ece9d95d4d"
     useDigest: true
     pullPolicy: "IfNotPresent"
   # -- Seconds after which the completed job pod will be deleted
@@ -1507,7 +1507,7 @@ hubble:
       # @schema
       override: ~
       repository: "quay.io/cilium/hubble-relay"
-      tag: "v1.18.6"
+      tag: "v1.18.7"
       # hubble-relay-digest
       digest: ""
       useDigest: false
@@ -1720,6 +1720,20 @@ hubble:
       address: localhost
       # -- Configure pprof listen port for hubble-relay
       port: 6062
+    # -- Logging configuration for hubble-relay.
+    logOptions:
+      # @schema
+      # type: [null, string]
+      # @schema
+      # -- Log format for hubble-relay. Valid values are: text, text-ts, json, json-ts.
+      # @default -- text-ts
+      format: ~
+      # @schema
+      # type: [null, string]
+      # @schema
+      # -- Log level for hubble-relay. Valid values are: debug, info, warn, error.
+      # @default -- info
+      level: ~
   ui:
     # -- Whether to enable the Hubble UI.
     enabled: false
@@ -2469,9 +2483,9 @@ envoy:
     # @schema
     override: ~
     repository: "quay.io/cilium/cilium-envoy"
-    tag: "v1.35.9-1767794330-db497dd19e346b39d81d7b5c0dedf6c812bcc5c9"
+    tag: "v1.35.9-1770554954-8ce3bb4eca04188f4a0a1bfbd0a06a40f90883de"
     pullPolicy: "IfNotPresent"
-    digest: "sha256:81398e449f2d3d0a6a70527e4f641aaa685d3156bea0bb30712fae3fd8822b86"
+    digest: "sha256:da85124deeb42c8e56e55e9e6e155740f5df00e1064759a244bc246c3addb45d"
     useDigest: true
   # -- Additional containers added to the cilium Envoy DaemonSet.
   extraContainers: []
@@ -2795,6 +2809,9 @@ tls:
 # @default -- `"vxlan"`
 tunnelProtocol: ""
 # -- IP family for the underlay.
+# Possible values:
+#   - "ipv4"
+#   - "ipv6"
 # @default -- `"ipv4"`
 underlayProtocol: ""
 # -- Enable native-routing mode or tunneling mode.
@@ -2845,7 +2862,7 @@ operator:
     # @schema
     override: ~
     repository: "quay.io/cilium/operator"
-    tag: "v1.18.6"
+    tag: "v1.18.7"
     # operator-generic-digest
     genericDigest: ""
     # operator-azure-digest
@@ -3154,7 +3171,7 @@ preflight:
     # @schema
     override: ~
     repository: "quay.io/cilium/cilium"
-    tag: "v1.18.6"
+    tag: "v1.18.7"
     # cilium-digest
     digest: ""
     useDigest: false
@@ -3167,9 +3184,9 @@ preflight:
       # @schema
       override: ~
       repository: "quay.io/cilium/cilium-envoy"
-      tag: "v1.35.9-1767794330-db497dd19e346b39d81d7b5c0dedf6c812bcc5c9"
+      tag: "v1.35.9-1770554954-8ce3bb4eca04188f4a0a1bfbd0a06a40f90883de"
       pullPolicy: "IfNotPresent"
-      digest: "sha256:81398e449f2d3d0a6a70527e4f641aaa685d3156bea0bb30712fae3fd8822b86"
+      digest: "sha256:da85124deeb42c8e56e55e9e6e155740f5df00e1064759a244bc246c3addb45d"
       useDigest: true
   # -- The priority class to use for the preflight pod.
   priorityClassName: ""
@@ -3323,7 +3340,7 @@ clustermesh:
       # @schema
       override: ~
       repository: "quay.io/cilium/clustermesh-apiserver"
-      tag: "v1.18.6"
+      tag: "v1.18.7"
       # clustermesh-apiserver-digest
       digest: ""
       useDigest: false
@@ -3855,7 +3872,7 @@ authentication:
           override: ~
           repository: "docker.io/library/busybox"
           tag: "1.37.0"
-          digest: "sha256:2383baad1860bbe9d8a7a843775048fd07d8afe292b94bd876df64a69aae7cb1"
+          digest: "sha256:b3255e7dfbcd10cb367af0d409747d511aeb66dfac98cf30e97e87e4207dd76f"
           useDigest: true
           pullPolicy: "IfNotPresent"
         # SPIRE agent configuration

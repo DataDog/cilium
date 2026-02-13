@@ -1154,7 +1154,7 @@ static __always_inline int lb6_local(const void *map, struct __ctx_buff *ctx,
 
 	if (lb6_svc_is_l7_punt_proxy(svc) &&
 	    __lookup_ip6_endpoint(&backend->address)) {
-		ctx_skip_nodeport_set(ctx);
+		ctx_set_xfer(ctx, XFER_PKT_NO_SVC);
 		return LB_PUNT_TO_STACK;
 	}
 	if (skip_xlate)
@@ -1958,7 +1958,7 @@ static __always_inline int lb4_local(const void *map, struct __ctx_buff *ctx,
 
 	if (lb4_svc_is_l7_punt_proxy(svc) &&
 	    __lookup_ip4_endpoint(backend->address)) {
-		ctx_skip_nodeport_set(ctx);
+		ctx_set_xfer(ctx, XFER_PKT_NO_SVC);
 		return LB_PUNT_TO_STACK;
 	}
 	if (skip_xlate)

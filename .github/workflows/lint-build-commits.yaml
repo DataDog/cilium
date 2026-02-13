@@ -41,7 +41,7 @@ jobs:
           git config --global user.email "github-actions@users.noreply.github.com"
 
       - name: Checkout code
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha }}
@@ -102,7 +102,7 @@ jobs:
           git config --global user.email "github-actions@users.noreply.github.com"
 
       - name: Checkout code
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha }}
@@ -112,14 +112,14 @@ jobs:
         uses: ./.github/actions/disk-cleanup
 
       - name: Install Go
-        uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
         with:
           cache: false
           # renovate: datasource=golang-version depName=go
-          go-version: 1.24.11
+          go-version: 1.24.13
 
       - name: Load Golang cache build from GitHub
-        uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
         id: go-cache
         with:
           path: /tmp/.cache/go
@@ -129,7 +129,7 @@ jobs:
             ${{ runner.os }}-go-
 
       - name: Load ccache cache build from GitHub
-        uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
         id: ccache-cache
         with:
           path: /tmp/.cache/ccache
@@ -188,7 +188,7 @@ jobs:
           git config --global user.email "github-actions@users.noreply.github.com"
 
       - name: Checkout code
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha }}
@@ -198,14 +198,14 @@ jobs:
         uses: ./.github/actions/disk-cleanup
 
       - name: Install Go
-        uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
         with:
           cache: false
           # renovate: datasource=golang-version depName=go
-          go-version: 1.24.11
+          go-version: 1.24.13
 
       - name: Load hubble-cli Golang cache build from GitHub
-        uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
         id: hubble-cache
         with:
           path: /tmp/.cache/hubble-cli
@@ -215,7 +215,7 @@ jobs:
             ${{ runner.os }}-go-
 
       - name: Load ccache cache build from GitHub
-        uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
         id: ccache-cache
         with:
           path: /tmp/.cache/ccache
@@ -282,7 +282,7 @@ jobs:
           git config --global user.email "github-actions@users.noreply.github.com"
 
       - name: Checkout code
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha }}
@@ -292,14 +292,14 @@ jobs:
         uses: ./.github/actions/disk-cleanup
 
       - name: Install Go
-        uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
         with:
           cache: false
           # renovate: datasource=golang-version depName=go
-          go-version: 1.24.11
+          go-version: 1.24.13
 
       - name: Load Golang cache build from GitHub
-        uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
         id: go-cache
         with:
           path: /tmp/.cache/go
@@ -309,7 +309,7 @@ jobs:
             ${{ runner.os }}-go-
 
       - name: Load ccache cache build from GitHub
-        uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
         id: ccache-cache
         with:
           path: /tmp/.cache/ccache
@@ -375,7 +375,7 @@ jobs:
           git config --global user.email "github-actions@users.noreply.github.com"
 
       - name: Checkout code
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha }}
@@ -385,11 +385,11 @@ jobs:
         uses: ./.github/actions/disk-cleanup
 
       - name: Install Go
-        uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
         with:
           cache: false
           # renovate: datasource=golang-version depName=go
-          go-version: 1.24.11
+          go-version: 1.24.13
 
       - name: Set clang directory
         id: set_clang_dir
@@ -401,7 +401,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends libtinfo6
 
       - name: Install LLVM and Clang
-        uses: KyleMayes/install-llvm-action@98e68e10c96dffcb7bfed8b2144541a66b49aa02 # v2.0.8
+        uses: KyleMayes/install-llvm-action@ebc0426251bc40c7cd31162802432c68818ab8f0 # v2.0.9
         with:
           version: "19.1.7"
           directory: ${{ steps.set_clang_dir.outputs.clang_dir }}
