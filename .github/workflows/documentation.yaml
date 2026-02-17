@@ -64,7 +64,7 @@ jobs:
           # Needed to detect missing redirects
           fetch-depth: 0
       - name: Build HTML
-        uses: docker://quay.io/cilium/docs-builder:c3cbf68c945e23a4a717eab7fd1448ceb99e1c8a@sha256:185913958528f99208d9efa6b76f8ef4b4f6559da0b6be2564163b7d2b5dc1e1
+        uses: docker://quay.io/cilium/docs-builder:8723479f7e04bf772dbbf18f6d86689753cfdfc7@sha256:5705ff1a99b1c3d7e9bff50d49a0be23cf5ea0e052c2c5d9ba3f65fa3da828d2
         with:
           entrypoint: ./Documentation/check-build.sh
           args: html
@@ -84,7 +84,7 @@ jobs:
         uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
         with:
           # renovate: datasource=golang-version depName=go
-          go-version: 1.25.6
+          go-version: 1.25.7
 
       # Building Cilium as precondition to generate documentation artifacts.
       - name: Build Cilium
