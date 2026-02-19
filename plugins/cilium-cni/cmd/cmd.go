@@ -729,19 +729,17 @@ func (cmd *Cmd) Add(args *skel.CmdArgs) (err error) {
 			res.Routes = append(res.Routes, routes...)
 		}
 
-		if needsEndpointRoutingOnHost(conf) {
-			if ipam.IPV4 != nil && ipConfig != nil {
-				err = interfaceAdd(scopedLogger, ipConfig, ipam.IPV4, conf)
-				if err != nil {
-					return fmt.Errorf("unable to setup interface datapath: %w", err)
-				}
+		if needsEndpointRoutingOnHost(conf, ipam.IPV4, ipConfig) {
+			err = interfaceAdd(scopedLogger, ipConfig, ipam.IPV4, conf)
+			if err != nil {
+				return fmt.Errorf("unable to setup interface datapath: %w", err)
 			}
+		}
 
-			if ipam.IPV6 != nil && ipv6Config != nil {
-				err = interfaceAdd(scopedLogger, ipv6Config, ipam.IPV6, conf)
-				if err != nil {
-					return fmt.Errorf("unable to setup interface datapath: %w", err)
-				}
+		if needsEndpointRoutingOnHost(conf, ipam.IPV6, ipv6Config) {
+			err = interfaceAdd(scopedLogger, ipv6Config, ipam.IPV6, conf)
+			if err != nil {
+				return fmt.Errorf("unable to setup interface datapath: %w", err)
 			}
 		}
 
@@ -1262,12 +1260,19 @@ func buildLogAttrsWithCNIArgs(logger *slog.Logger, cniArgs *types.ArgsSpec) *slo
 // on host for the Pod. This is needed for following IPAM modes:
 // - Cloud ENI IPAM modes.
 // - DelegatedPlugin mode with InstallUplinkRoutesForDelegatedIPAM set to true.
-func needsEndpointRoutingOnHost(conf *models.DaemonConfigurationStatus) bool {
+// - Some cases where we use Kubernetes IPAM with multiple NICs (eg. Oracle Cloud)
+func needsEndpointRoutingOnHost(conf *models.DaemonConfigurationStatus, ipam *models.IPAMAddressResponse, ipConfig *cniTypesV1.IPConfig) bool {
+	if ipam == nil || ipConfig == nil {
+		return false
+	}
+
 	switch conf.IpamMode {
 	case ipamOption.IPAMENI, ipamOption.IPAMAzure, ipamOption.IPAMAlibabaCloud:
 		return true
 	case ipamOption.IPAMDelegatedPlugin:
 		return conf.InstallUplinkRoutesForDelegatedIPAM
+	case ipamOption.IPAMKubernetes:
+		return ipam.Gateway != "" && ipam.MasterMac != ""
 	}
 	return false
 }
