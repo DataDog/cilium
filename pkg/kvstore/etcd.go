@@ -505,7 +505,7 @@ func connectEtcdClient(ctx context.Context, logger *slog.Logger, errChan chan er
 
 	leaseTTL := cmp.Or(opts.LeaseTTL, defaults.KVstoreLeaseTTL)
 	ec.leaseManager = newEtcdLeaseManager(ec.logger, c, leaseTTL, etcdMaxKeysPerLease, ec.expiredLeaseObserver)
-	ec.lockLeaseManager = newEtcdLeaseManager(ec.logger, c, defaults.LockLeaseTTL, etcdMaxKeysPerLease, ec.expiredLockLeaseObserver)
+	ec.lockLeaseManager = newEtcdLeaseManager(ec.logger, c, defaults.LockLeaseTTL, etcdMaxKeysPerLease, nil)
 
 	go ec.asyncConnectEtcdClient(errChan)
 
