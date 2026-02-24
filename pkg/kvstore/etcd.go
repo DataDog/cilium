@@ -239,6 +239,7 @@ func (e *etcdModule) newClient(ctx context.Context, logger *slog.Logger, opts Ex
 		// connectEtcdClient will close errChan when the connection attempt has
 		// been successful
 		backend, err := connectEtcdClient(ctx, logger, errChan, clientOptions, opts)
+		logger.Info("connectEtcdClient line 242", "err", err)
 		switch {
 		case os.IsNotExist(err):
 			logger.Info("Waiting for all etcd configuration files to be available",
@@ -246,10 +247,12 @@ func (e *etcdModule) newClient(ctx context.Context, logger *slog.Logger, opts Ex
 			)
 			time.Sleep(5 * time.Second)
 		case err != nil:
+			logger.Info("Case 2 error", "err", err)
 			errChan <- err
 			close(errChan)
 			return backend, errChan
 		default:
+			logger.Info("Case 3 default", "backend", backend)
 			return backend, errChan
 		}
 	}
@@ -504,8 +507,11 @@ func connectEtcdClient(ctx context.Context, logger *slog.Logger, errChan chan er
 	ec.logger.Info("Connecting to etcd server...")
 
 	leaseTTL := cmp.Or(opts.LeaseTTL, defaults.KVstoreLeaseTTL)
+	ec.logger.Info("Lease TTL", "leaseTTL", leaseTTL)
 	ec.leaseManager = newEtcdLeaseManager(ec.logger, c, leaseTTL, etcdMaxKeysPerLease, ec.expiredLeaseObserver)
+	ec.logger.Info("Lock Lease TTL", "lockLeaseTTL", defaults.LockLeaseTTL)
 	ec.lockLeaseManager = newEtcdLeaseManager(ec.logger, c, defaults.LockLeaseTTL, etcdMaxKeysPerLease, ec.expiredLockLeaseObserver)
+	ec.logger.Info("Lock Lease Manager", "lockLeaseManager", ec.lockLeaseManager)
 
 	go ec.asyncConnectEtcdClient(errChan)
 
@@ -538,8 +544,11 @@ func (e *etcdClient) asyncConnectEtcdClient(errChan chan<- error) {
 	// on the target etcd instance, considering that the session would never
 	// be used again. Instead, we'll just rely on the successful synchronization
 	// of the heartbeat watcher as a signal that we successfully connected.
+	e.logger.Info("[DEBUG] asyncConnect: NoLockQuorumCheck", "value", e.extraOptions.NoLockQuorumCheck)
 	if !e.extraOptions.NoLockQuorumCheck {
+		e.logger.Info("[DEBUG] asyncConnect: calling lockLeaseManager.GetSession for InitLockPath")
 		_, err := e.lockLeaseManager.GetSession(wctx, InitLockPath)
+		e.logger.Info("[DEBUG] asyncConnect: lockLeaseManager.GetSession returned", "err", err)
 		if err != nil {
 			wcancel()
 			if errors.Is(err, context.DeadlineExceeded) {
@@ -551,6 +560,7 @@ func (e *etcdClient) asyncConnectEtcdClient(errChan chan<- error) {
 		}
 	}
 
+	e.logger.Info("[DEBUG] asyncConnect: starting listDone goroutine and ListAndWatch")
 	go func() {
 		// Report connection established to the caller and start the status
 		// checker only after successfully starting the heatbeat watcher, as
@@ -560,6 +570,7 @@ func (e *etcdClient) asyncConnectEtcdClient(errChan chan<- error) {
 		// "clusterLock" interceptors.
 		select {
 		case <-wctx.Done():
+			e.logger.Info("[DEBUG] asyncConnect: wctx timed out waiting for listDone")
 			propagateError(fmt.Errorf("timed out while starting the heartbeat watcher. Ensure that etcd is running on %s", e.config.Endpoints))
 			return
 		case <-listDone:
@@ -571,7 +582,9 @@ func (e *etcdClient) asyncConnectEtcdClient(errChan chan<- error) {
 		e.statusChecker()
 	}()
 
+	e.logger.Info("[DEBUG] asyncConnect: calling ListAndWatch", "prefix", HeartbeatPath)
 	events := e.ListAndWatch(ctx, HeartbeatPath)
+	e.logger.Info("[DEBUG] asyncConnect: ListAndWatch returned, starting event loop")
 	for event := range events {
 		switch event.Typ {
 		case EventTypeDelete:

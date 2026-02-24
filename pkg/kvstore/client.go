@@ -45,7 +45,7 @@ func (cl *clientImpl) Start(hctx cell.HookContext) (err error) {
 
 	cl.logger.Info("Establishing connection to kvstore")
 	client, errCh := NewClient(context.Background(), cl.logger, cl.cfg.KVStore, cl.cfg.KVStoreOpt, cl.opts)
-
+	cl.logger.Info("NewClient line 48", "errCh", errCh)
 	select {
 	case err = <-errCh:
 	case <-hctx.Done():

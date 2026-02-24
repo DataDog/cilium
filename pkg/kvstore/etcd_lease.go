@@ -94,6 +94,7 @@ func (elm *etcdLeaseManager) GetLeaseID(ctx context.Context, key string) (client
 // the fact that the operation will fail (as the lease is no longer valid), triggering
 // a retry. At that point, a new (hopefully valid) session will be retrieved again.
 func (elm *etcdLeaseManager) GetSession(ctx context.Context, key string) (*concurrency.Session, error) {
+	elm.log.Info("[DEBUG] GetSession called", "key", key)
 	elm.mu.Lock()
 
 	// This key is already attached to a lease, hence just return it.
@@ -101,6 +102,7 @@ func (elm *etcdLeaseManager) GetSession(ctx context.Context, key string) (*concu
 		// The entry is guaranteed to exist if the lease is associated with a key
 		info := elm.leases[leaseID]
 		elm.mu.Unlock()
+		elm.log.Info("[DEBUG] GetSession: key already has lease", "key", key, "leaseID", leaseID)
 		return info.session, nil
 	}
 
@@ -110,6 +112,7 @@ func (elm *etcdLeaseManager) GetSession(ctx context.Context, key string) (*concu
 		elm.keys[key] = elm.current
 		elm.mu.Unlock()
 
+		elm.log.Info("[DEBUG] GetSession: reusing current lease", "key", key, "leaseID", elm.current)
 		return info.session, nil
 	}
 
@@ -121,6 +124,7 @@ func (elm *etcdLeaseManager) GetSession(ctx context.Context, key string) (*concu
 			elm.keys[key] = elm.current
 			elm.mu.Unlock()
 
+			elm.log.Info("[DEBUG] GetSession: reusing released lease", "key", key, "leaseID", lease)
 			return info.session, nil
 		}
 	}
@@ -140,18 +144,23 @@ func (elm *etcdLeaseManager) GetSession(ctx context.Context, key string) (*concu
 	// Someone else is already acquiring a new lease. Wait until
 	// it completes, and then retry again.
 	if acquiring != nil {
+		elm.log.Info("[DEBUG] GetSession: waiting for another goroutine to finish acquiring lease", "key", key)
 		select {
 		case <-acquiring:
 			return elm.GetSession(ctx, key)
 		case <-ctx.Done():
+			elm.log.Info("[DEBUG] GetSession: context cancelled while waiting for lease acquisition", "key", key, "err", ctx.Err())
 			return nil, ctx.Err()
 		case <-elm.client.Ctx().Done():
+			elm.log.Info("[DEBUG] GetSession: etcd client context cancelled while waiting for lease acquisition", "key", key, "err", elm.client.Ctx().Err())
 			return nil, elm.client.Ctx().Err()
 		}
 	}
 
 	// Otherwise, we can proceed to acquire a new lease.
+	elm.log.Info("[DEBUG] GetSession: no leases available, acquiring new lease", "key", key, "numLeases", len(elm.leases))
 	session, err := elm.newSession(ctx)
+	elm.log.Info("[DEBUG] GetSession: newSession returned", "key", key, "err", err)
 
 	elm.mu.Lock()
 
@@ -167,6 +176,8 @@ func (elm *etcdLeaseManager) GetSession(ctx context.Context, key string) (*concu
 	elm.current = session.Lease()
 	elm.leases[session.Lease()] = &leaseInfo{session: session}
 	elm.mu.Unlock()
+
+	elm.log.Info("[DEBUG] GetSession: new lease stored, recursing", "key", key, "leaseID", session.Lease())
 
 	// Kick off a goroutine that will remove the references to this lease when
 	// it expires. We add it to the map of leases before starting this goroutine,
@@ -239,11 +250,15 @@ func (elm *etcdLeaseManager) newSession(ctx context.Context) (session *concurren
 	defer func(duration *spanstat.SpanStat) {
 		increaseMetric("lease", metricSet, "AcquireLease", duration.EndError(err).Total(), err)
 	}(spanstat.Start())
+
+	elm.log.Info("[DEBUG] newSession: calling Grant", "ttlSeconds", int64(elm.ttl.Seconds()))
 	resp, err := elm.client.Grant(ctx, int64(elm.ttl.Seconds()))
 	if err != nil {
+		elm.log.Info("[DEBUG] newSession: Grant failed", "err", err)
 		return nil, err
 	}
 	leaseID := resp.ID
+	elm.log.Info("[DEBUG] newSession: Grant succeeded", "leaseID", leaseID, "grantedTTL", resp.TTL)
 
 	// Construct the session specifying the lease just acquired. This allows to
 	// split the possibly blocking operation (i.e., lease acquisition), from the
@@ -251,13 +266,16 @@ func (elm *etcdLeaseManager) newSession(ctx context.Context) (session *concurren
 	// different contexts. We want the lease acquisition to be controlled by the
 	// context associated with the given request, while the keepalive process should
 	// continue until either the etcd client is closed or the session is orphaned.
+	elm.log.Info("[DEBUG] newSession: calling concurrency.NewSession", "leaseID", leaseID)
 	session, err = concurrency.NewSession(elm.client,
 		concurrency.WithLease(leaseID),
 		concurrency.WithTTL(int(elm.ttl.Seconds())),
 	)
 	if err != nil {
+		elm.log.Info("[DEBUG] newSession: concurrency.NewSession failed", "leaseID", leaseID, "err", err)
 		return nil, err
 	}
+	elm.log.Info("[DEBUG] newSession: concurrency.NewSession succeeded", "leaseID", leaseID)
 
 	elm.log.Info(
 		"New lease successfully acquired",
@@ -268,9 +286,11 @@ func (elm *etcdLeaseManager) newSession(ctx context.Context) (session *concurren
 }
 
 func (elm *etcdLeaseManager) waitForExpiration(session *concurrency.Session) {
+	elm.log.Info("[DEBUG] waitForExpiration: started, waiting for session.Done()", logfields.LeaseID, session.Lease())
 	// Block until the session gets orphaned, either because it fails to be
 	// renewed or the etcd client is closed.
 	<-session.Done()
+	elm.log.Info("[DEBUG] waitForExpiration: session.Done() fired", logfields.LeaseID, session.Lease())
 
 	select {
 	case <-elm.client.Ctx().Done():
