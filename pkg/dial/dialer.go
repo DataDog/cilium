@@ -32,6 +32,7 @@ func NewContextDialer(log *slog.Logger, resolvers ...Resolver) dialContextFn {
 
 func newContextDialer(log *slog.Logger, dialContext dialContextFn, resolvers ...Resolver) dialContextFn {
 	return func(ctx context.Context, hostport string) (conn net.Conn, e error) {
+		log.Info("[DEBUG] ContextDialer: dial called", "hostport", hostport)
 		host, port, err := net.SplitHostPort(hostport)
 		if err != nil {
 			// Return the same error that DialContext would return in this case.
@@ -45,14 +46,19 @@ func newContextDialer(log *slog.Logger, dialContext dialContextFn, resolvers ...
 
 		if oldHost != host || oldPort != port {
 			hostport = net.JoinHostPort(host, port)
-			log.Debug(
-				"Resolved hostport via custom dialer",
+			log.Info(
+				"[DEBUG] ContextDialer: resolved to different address",
 				logfields.Address, oldHost,
 				logfields.Port, oldPort,
 				logfields.Target, hostport,
 			)
+		} else {
+			log.Info("[DEBUG] ContextDialer: no resolution change, dialing original", "hostport", hostport)
 		}
 
-		return dialContext(ctx, hostport)
+		log.Info("[DEBUG] ContextDialer: dialing", "hostport", hostport)
+		conn, e = dialContext(ctx, hostport)
+		log.Info("[DEBUG] ContextDialer: dial completed", "hostport", hostport, "err", e)
+		return conn, e
 	}
 }

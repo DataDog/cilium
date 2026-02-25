@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"log/slog"
 	"math/rand/v2"
 	"net/netip"
 	"slices"
@@ -127,12 +128,14 @@ var _ Resolver = (*lbServiceResolver)(nil)
 // lbServiceResolver maps DNS names matching Kubernetes services to the
 // corresponding ClusterIP address using Table[*Frontend].
 type lbServiceResolver struct {
+	log       *slog.Logger
 	db        *statedb.DB
 	frontends statedb.Table[*loadbalancer.Frontend]
 }
 
-func newLBServiceResolver(jg job.Group, db *statedb.DB, frontends statedb.Table[*loadbalancer.Frontend]) Resolver {
+func newLBServiceResolver(log *slog.Logger, jg job.Group, db *statedb.DB, frontends statedb.Table[*loadbalancer.Frontend]) Resolver {
 	return &lbServiceResolver{
+		log:       log,
 		db:        db,
 		frontends: frontends,
 	}
@@ -146,40 +149,58 @@ func (sr *lbServiceResolver) resolve(ctx context.Context, host string) string {
 	nsname, err := ServiceURLToNamespacedName(host)
 	if err != nil {
 		// The host does not look like a k8s service DNS name
+		sr.log.Info("[DEBUG] lbServiceResolver: host does not match k8s service pattern, passing through", "host", host, "err", err)
 		return host
 	}
+
+	sr.log.Info("[DEBUG] lbServiceResolver: parsed as k8s service", "host", host, "name", nsname.Name, "namespace", nsname.Namespace)
 
 	// Wait for the frontends table to be initialized from k8s. We can't check that
 	// the table has been initialized by all initializers since at least ClusterMesh
 	// uses [Resolve] to look up KVStore address.
 	txn := sr.db.ReadTxn()
 	init, waitInit := sr.frontends.Initialized(txn)
+	pollCount := 0
 	for !init {
 		pending := sr.frontends.PendingInitializers(txn)
+		if pollCount == 0 || pollCount%50 == 0 {
+			sr.log.Info("[DEBUG] lbServiceResolver: waiting for frontends table initialization",
+				"host", host, "initialized", init, "pendingInitializers", pending, "pollCount", pollCount)
+		}
 		if !slices.ContainsFunc(pending, func(s string) bool { return strings.HasPrefix(s, reflectors.K8sInitializerPrefix) }) {
+			sr.log.Info("[DEBUG] lbServiceResolver: no K8s initializers pending, proceeding", "host", host, "pendingInitializers", pending)
 			break
 		}
 		select {
 		case <-ctx.Done():
+			sr.log.Info("[DEBUG] lbServiceResolver: context cancelled while waiting for initialization", "host", host, "err", ctx.Err())
 			return host
 		case <-waitInit:
+			sr.log.Info("[DEBUG] lbServiceResolver: frontends table fully initialized", "host", host)
 			init = true
 		case <-time.After(100 * time.Millisecond):
 		}
+		pollCount++
 		txn = sr.db.ReadTxn()
 	}
+
+	sr.log.Info("[DEBUG] lbServiceResolver: looking up frontends", "host", host, "name", nsname.Name, "namespace", nsname.Namespace)
 
 	fes := sr.frontends.List(
 		txn,
 		loadbalancer.FrontendByServiceName(loadbalancer.NewServiceName(nsname.Namespace, nsname.Name)))
 
 	for fe := range fes {
+		sr.log.Info("[DEBUG] lbServiceResolver: found frontend", "host", host, "type", fe.Type, "address", fe.Address)
 		if fe.Type == loadbalancer.SVCTypeClusterIP {
-			return fe.Address.Addr().String()
+			resolved := fe.Address.Addr().String()
+			sr.log.Info("[DEBUG] lbServiceResolver: resolved to ClusterIP", "host", host, "clusterIP", resolved)
+			return resolved
 		}
 	}
 
 	// We could not find a ClusterIP frontend for this service
+	sr.log.Info("[DEBUG] lbServiceResolver: no ClusterIP frontend found, returning original host", "host", host)
 	return host
 }
 
