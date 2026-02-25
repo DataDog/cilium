@@ -1325,8 +1325,8 @@ github.com/x448/float16
 # github.com/xlab/treeprint v1.2.0
 ## explicit; go 1.13
 github.com/xlab/treeprint
-# go.etcd.io/etcd/api/v3 v3.6.7
-## explicit; go 1.24.0
+# go.etcd.io/etcd/api/v3 v3.6.4
+## explicit; go 1.23.0
 go.etcd.io/etcd/api/v3/authpb
 go.etcd.io/etcd/api/v3/etcdserverpb
 go.etcd.io/etcd/api/v3/membershippb
@@ -1334,8 +1334,8 @@ go.etcd.io/etcd/api/v3/mvccpb
 go.etcd.io/etcd/api/v3/v3rpc/rpctypes
 go.etcd.io/etcd/api/v3/version
 go.etcd.io/etcd/api/v3/versionpb
-# go.etcd.io/etcd/client/pkg/v3 v3.6.7
-## explicit; go 1.24.0
+# go.etcd.io/etcd/client/pkg/v3 v3.6.4
+## explicit; go 1.23.0
 go.etcd.io/etcd/client/pkg/v3/fileutil
 go.etcd.io/etcd/client/pkg/v3/logutil
 go.etcd.io/etcd/client/pkg/v3/systemd
@@ -1343,8 +1343,8 @@ go.etcd.io/etcd/client/pkg/v3/tlsutil
 go.etcd.io/etcd/client/pkg/v3/transport
 go.etcd.io/etcd/client/pkg/v3/types
 go.etcd.io/etcd/client/pkg/v3/verify
-# go.etcd.io/etcd/client/v3 v3.6.7
-## explicit; go 1.24.0
+# go.etcd.io/etcd/client/v3 v3.6.4
+## explicit; go 1.23.0
 go.etcd.io/etcd/client/v3
 go.etcd.io/etcd/client/v3/concurrency
 go.etcd.io/etcd/client/v3/credentials
@@ -1835,7 +1835,7 @@ k8s.io/api/storage/v1
 k8s.io/api/storage/v1alpha1
 k8s.io/api/storage/v1beta1
 k8s.io/api/storagemigration/v1beta1
-# k8s.io/apiextensions-apiserver v0.35.0
+# k8s.io/apiextensions-apiserver v0.35.0-alpha.2
 ## explicit; go 1.25.0
 k8s.io/apiextensions-apiserver/pkg/apis/apiextensions
 k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1
@@ -1925,7 +1925,7 @@ k8s.io/apimachinery/pkg/watch
 k8s.io/apimachinery/third_party/forked/golang/json
 k8s.io/apimachinery/third_party/forked/golang/netutil
 k8s.io/apimachinery/third_party/forked/golang/reflect
-# k8s.io/apiserver v0.35.0
+# k8s.io/apiserver v0.35.0-alpha.2
 ## explicit; go 1.25.0
 k8s.io/apiserver/pkg/apis/cel
 k8s.io/apiserver/pkg/authentication/serviceaccount

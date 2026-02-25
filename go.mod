@@ -96,9 +96,9 @@ require (
 	github.com/tidwall/sjson v1.2.5
 	github.com/vishvananda/netlink v1.3.2-0.20260109214200-c6faf428e8f8
 	github.com/vishvananda/netns v0.0.5
-	go.etcd.io/etcd/api/v3 v3.6.7
-	go.etcd.io/etcd/client/pkg/v3 v3.6.7
-	go.etcd.io/etcd/client/v3 v3.6.7
+	go.etcd.io/etcd/api/v3 v3.6.4
+	go.etcd.io/etcd/client/pkg/v3 v3.6.4
+	go.etcd.io/etcd/client/v3 v3.6.4
 	go.opentelemetry.io/otel v1.39.0
 	go.opentelemetry.io/otel/trace v1.39.0
 	go.uber.org/goleak v1.3.0
@@ -119,7 +119,7 @@ require (
 	google.golang.org/grpc v1.78.0
 	google.golang.org/protobuf v1.36.11
 	k8s.io/api v0.35.0
-	k8s.io/apiextensions-apiserver v0.35.0
+	k8s.io/apiextensions-apiserver v0.35.0-alpha.2
 	k8s.io/apimachinery v0.35.0
 	k8s.io/cli-runtime v0.35.0
 	k8s.io/client-go v0.35.0
@@ -277,7 +277,7 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	gotest.tools/v3 v3.5.0 // indirect
-	k8s.io/apiserver v0.35.0 // indirect
+	k8s.io/apiserver v0.35.0-alpha.2 // indirect
 	k8s.io/code-generator v0.35.0 // indirect
 	k8s.io/gengo/v2 v2.0.0-20250922181213-ec3ebc5fd46b // indirect
 	k8s.io/kube-openapi v0.0.0-20250910181357-589584f1c912 // indirect
