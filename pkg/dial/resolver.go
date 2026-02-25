@@ -152,19 +152,32 @@ func (sr *lbServiceResolver) resolve(ctx context.Context, host string) string {
 	// Wait for the frontends table to be initialized from k8s. We can't check that
 	// the table has been initialized by all initializers since at least ClusterMesh
 	// uses [Resolve] to look up KVStore address.
+	//
+	// A deadline is applied to avoid deadlocking when the agent is still
+	// initializing and needs this resolver to connect to the KVStore: k8s
+	// initializers may themselves depend on KVStore, creating a circular
+	// dependency. After the deadline we fall through and attempt the lookup
+	// with whatever state is already in the table; if the service is not
+	// found we return the original host so DNS can handle it.
 	txn := sr.db.ReadTxn()
-	init, waitInit := sr.frontends.Initialized(txn)
-	for !init {
-		pending := sr.frontends.PendingInitializers(txn)
-		if !slices.ContainsFunc(pending, func(s string) bool { return strings.HasPrefix(s, reflectors.K8sInitializerPrefix) }) {
-			break
-		}
-		select {
-		case <-ctx.Done():
-			return host
-		case <-waitInit:
-			init = true
-		case <-time.After(100 * time.Millisecond):
+	if init, waitInit := sr.frontends.Initialized(txn); !init {
+		deadline := time.NewTimer(5 * time.Second)
+		defer deadline.Stop()
+		for !init {
+			pending := sr.frontends.PendingInitializers(txn)
+			if !slices.ContainsFunc(pending, func(s string) bool { return strings.HasPrefix(s, reflectors.K8sInitializerPrefix) }) {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				return host
+			case <-deadline.C:
+				// Fall back to host DNS to avoid deadlocking during agent initialization.
+				return host
+			case <-waitInit:
+				init = true
+			case <-time.After(100 * time.Millisecond):
+			}
 		}
 		txn = sr.db.ReadTxn()
 	}
