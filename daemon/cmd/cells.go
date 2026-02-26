@@ -12,7 +12,8 @@ import (
 	"github.com/cilium/hive/job"
 	"github.com/cilium/hive/shell"
 	"github.com/cilium/statedb"
-	"google.golang.org/grpc"
+
+	// "google.golang.org/grpc"
 
 	healthApi "github.com/cilium/cilium/api/v1/health/server"
 	"github.com/cilium/cilium/api/v1/server"
@@ -442,8 +443,8 @@ func kvstoreExtraOptions(in struct {
 	Logger *slog.Logger
 
 	NodeManager nodeManager.NodeManager
-	ClientSet   k8sClient.Clientset
-	Resolver    dial.Resolver
+	// ClientSet   k8sClient.Clientset
+	// Resolver    dial.Resolver
 },
 ) (kvstore.ExtraOptions, kvstore.BootstrapStat) {
 	goopts := kvstore.ExtraOptions{
@@ -453,11 +454,11 @@ func kvstoreExtraOptions(in struct {
 	// If K8s is enabled we can do the service translation automagically by
 	// looking at services from k8s and retrieve the service IP from that.
 	// This makes cilium to not depend on kube dns to interact with etcd
-	if in.ClientSet.IsEnabled() {
-		goopts.DialOption = []grpc.DialOption{
-			grpc.WithContextDialer(dial.NewContextDialer(in.Logger, in.Resolver)),
-		}
-	}
+	// if in.ClientSet.IsEnabled() {
+	// 	goopts.DialOption = []grpc.DialOption{
+	// 		grpc.WithContextDialer(dial.NewContextDialer(in.Logger, in.Resolver)),
+	// 	}
+	// }
 
 	return goopts, &bootstrapStats.kvstore
 }
