@@ -59,6 +59,16 @@ const (
 	K8sInitializerPrefix = "k8s-"
 )
 
+// K8sReflectorRegistered is a sentinel type that indicates that the K8s
+// reflector has been registered. Used by the ServiceResolverCell to ensure
+// that the K8s reflector is initialized before the resolver.
+type K8sReflectorRegistered struct{}
+
+func provideK8sReflector(p reflectorParams) K8sReflectorRegistered {
+	RegisterK8sReflector(p)
+	return K8sReflectorRegistered{}
+}
+
 // K8sReflectorCell reflects Kubernetes Service and EndpointSlice objects to the
 // load-balancing tables.
 var K8sReflectorCell = cell.Module(
@@ -66,7 +76,9 @@ var K8sReflectorCell = cell.Module(
 	"Reflects load-balancing state from Kubernetes",
 
 	cell.ProvidePrivate(newEventStream),
-	cell.Invoke(RegisterK8sReflector),
+	cell.Provide(provideK8sReflector),
+	// Force eager registration of the reflector even if nothing depends on K8sReflectorRegistered.
+	cell.Invoke(func(_ K8sReflectorRegistered) {}),
 )
 
 type reflectorParams struct {
