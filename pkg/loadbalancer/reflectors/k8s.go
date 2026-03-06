@@ -65,8 +65,9 @@ var K8sReflectorCell = cell.Module(
 	"k8s-reflector",
 	"Reflects load-balancing state from Kubernetes",
 
+	cell.Provide(RegisterK8sReflector),
 	cell.ProvidePrivate(newEventStream),
-	cell.Invoke(RegisterK8sReflector),
+	cell.Invoke(func(_ K8sReflectorRegistered) {}),
 )
 
 type reflectorParams struct {
@@ -88,6 +89,8 @@ type reflectorParams struct {
 	SVCMetrics             SVCMetrics `optional:"true"`
 }
 
+type K8sReflectorRegistered struct{}
+
 func (p reflectorParams) waitTime() time.Duration {
 	if p.TestConfig != nil {
 		// Use a much lower wait time in tests to trigger more edge cases and make them faster.
@@ -96,9 +99,9 @@ func (p reflectorParams) waitTime() time.Duration {
 	return reflectorWaitTime
 }
 
-func RegisterK8sReflector(p reflectorParams) {
+func RegisterK8sReflector(p reflectorParams) K8sReflectorRegistered {
 	if !p.Writer.IsEnabled() || !p.Clientset.IsEnabled() {
-		return
+		return K8sReflectorRegistered{}
 	}
 	if p.SVCMetrics == nil {
 		p.SVCMetrics = NewSVCMetricsNoop()
@@ -115,6 +118,7 @@ func RegisterK8sReflector(p reflectorParams) {
 			return runPodReflector(ctx, health, p, podsComplete)
 		}),
 	)
+	return K8sReflectorRegistered{}
 }
 
 func runPodReflector(ctx context.Context, health cell.Health, p reflectorParams, initComplete func(writer.WriteTxn)) error {
