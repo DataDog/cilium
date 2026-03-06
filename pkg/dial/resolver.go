@@ -129,12 +129,14 @@ var _ Resolver = (*lbServiceResolver)(nil)
 type lbServiceResolver struct {
 	db        *statedb.DB
 	frontends statedb.Table[*loadbalancer.Frontend]
+	waitFunc  loadbalancer.InitWaitFunc
 }
 
-func newLBServiceResolver(jg job.Group, db *statedb.DB, frontends statedb.Table[*loadbalancer.Frontend]) Resolver {
+func newLBServiceResolver(waitFunc loadbalancer.InitWaitFunc, jg job.Group, db *statedb.DB, frontends statedb.Table[*loadbalancer.Frontend]) Resolver {
 	return &lbServiceResolver{
 		db:        db,
 		frontends: frontends,
+		waitFunc:  waitFunc,
 	}
 }
 
@@ -152,6 +154,10 @@ func (sr *lbServiceResolver) resolve(ctx context.Context, host string) string {
 	// Wait for the frontends table to be initialized from k8s. We can't check that
 	// the table has been initialized by all initializers since at least ClusterMesh
 	// uses [Resolve] to look up KVStore address.
+	if err := sr.waitFunc(ctx); err != nil {
+		return host
+	}
+
 	txn := sr.db.ReadTxn()
 	init, waitInit := sr.frontends.Initialized(txn)
 	for !init {
