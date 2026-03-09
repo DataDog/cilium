@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"log/slog"
 	"math/rand/v2"
 	"net/netip"
 	"slices"
@@ -17,9 +18,11 @@ import (
 	"github.com/cilium/hive/cell"
 	"github.com/cilium/hive/job"
 	"github.com/cilium/statedb"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	cmtypes "github.com/cilium/cilium/pkg/clustermesh/types"
+	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/k8s/resource"
 	slim_corev1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/core/v1"
 	"github.com/cilium/cilium/pkg/loadbalancer"
@@ -126,15 +129,21 @@ var _ Resolver = (*lbServiceResolver)(nil)
 
 // lbServiceResolver maps DNS names matching Kubernetes services to the
 // corresponding ClusterIP address using Table[*Frontend].
+// If the frontend table lookup fails, it falls back to fetching the service
+// directly from the kube-apiserver.
 type lbServiceResolver struct {
 	db        *statedb.DB
 	frontends statedb.Table[*loadbalancer.Frontend]
+	cs        k8sClient.Clientset
+	log       *slog.Logger
 }
 
-func newLBServiceResolver(_ reflectors.K8sReflectorRegistered, jg job.Group, db *statedb.DB, frontends statedb.Table[*loadbalancer.Frontend]) Resolver {
+func newLBServiceResolver(_ reflectors.K8sReflectorRegistered, jg job.Group, db *statedb.DB, frontends statedb.Table[*loadbalancer.Frontend], cs k8sClient.Clientset, log *slog.Logger) Resolver {
 	return &lbServiceResolver{
 		db:        db,
 		frontends: frontends,
+		cs:        cs,
+		log:       log,
 	}
 }
 
@@ -153,20 +162,24 @@ func (sr *lbServiceResolver) resolve(ctx context.Context, host string) string {
 	// the table has been initialized by all initializers since at least ClusterMesh
 	// uses [Resolve] to look up KVStore address.
 	txn := sr.db.ReadTxn()
-	init, waitInit := sr.frontends.Initialized(txn)
+	init, _ := sr.frontends.Initialized(txn)
+	initTimeout := time.After(1 * time.Second)
 	for !init {
-		pending := sr.frontends.PendingInitializers(txn)
-		if !slices.ContainsFunc(pending, func(s string) bool { return strings.HasPrefix(s, reflectors.K8sInitializerPrefix) }) {
-			break
-		}
+		// pending := sr.frontends.PendingInitializers(txn)
+		// if !slices.ContainsFunc(pending, func(s string) bool { return strings.HasPrefix(s, reflectors.K8sInitializerPrefix) }) {
+		// 	break
+		// }
 		select {
 		case <-ctx.Done():
 			return host
-		case <-waitInit:
-			init = true
+		// case <-waitInit:
+		// 	init = true
+		case <-initTimeout:
+			sr.log.Warn("Frontends table not initialized, falling back to kube-apiserver", "namespace", nsname.Namespace, "name", nsname.Name)
+			return sr.resolveFromAPIServer(ctx, host)
 		case <-time.After(100 * time.Millisecond):
 		}
-		txn = sr.db.ReadTxn()
+		// txn = sr.db.ReadTxn()
 	}
 
 	fes := sr.frontends.List(
@@ -181,6 +194,30 @@ func (sr *lbServiceResolver) resolve(ctx context.Context, host string) string {
 
 	// We could not find a ClusterIP frontend for this service
 	return host
+}
+
+// resolveFromAPIServer fetches the service directly from the kube-apiserver
+// as a fallback when the frontends table takes too long to be initialized.
+func (sr *lbServiceResolver) resolveFromAPIServer(ctx context.Context, host string) string {
+	nsname, err := ServiceURLToNamespacedName(host)
+	if err != nil {
+		return host
+	}
+
+	svc, err := sr.cs.Slim().CoreV1().Services(nsname.Namespace).Get(ctx, nsname.Name, metav1.GetOptions{})
+	if err != nil {
+		// If the service is not found, return the host
+		sr.log.Warn("Failed to fetch service from kube-apiserver", "namespace", nsname.Namespace, "name", nsname.Name, "error", err)
+		return host
+	}
+
+	if _, err := netip.ParseAddr(svc.Spec.ClusterIP); err != nil {
+		// The ClusterIP is not a valid IP address (e.g., headless service)
+		return host
+	}
+
+	sr.log.Info("Resolved service via kube-apiserver fallback", "namespace", nsname.Namespace, "name", nsname.Name, "clusterIP", svc.Spec.ClusterIP)
+	return svc.Spec.ClusterIP
 }
 
 func ServiceURLToNamespacedName(host string) (types.NamespacedName, error) {
