@@ -4,11 +4,13 @@
 package linuxrouting
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/netip"
+	"time"
 
 	"github.com/vishvananda/netlink"
 	"go4.org/netipx"
@@ -49,7 +51,7 @@ func (info *RoutingInfo) Configure(ip net.IP, mtu int, compat bool, host bool) e
 		return errors.New("IP not compatible")
 	}
 
-	ifindex, err := retrieveIfIndexFromMAC(info.MasterIfMAC, mtu)
+	ifindex, err := retrieveIfIndexFromMAC(info.logger, info.MasterIfMAC, mtu)
 	if err != nil {
 		return fmt.Errorf("unable to find ifindex for interface MAC: %w", err)
 	}
@@ -132,7 +134,7 @@ func (info *RoutingInfo) Configure(ip net.IP, mtu int, compat bool, host bool) e
 func (info *RoutingInfo) ReconcileGatewayRoutes(mtu int, compat bool, rx statedb.ReadTxn, routes statedb.Table[*tables.Route]) (*statedb.WatchSet, error) {
 	set := statedb.NewWatchSet()
 
-	ifindex, err := retrieveIfIndexFromMAC(info.MasterIfMAC, mtu)
+	ifindex, err := retrieveIfIndexFromMAC(info.logger, info.MasterIfMAC, mtu)
 	if err != nil {
 		return set, fmt.Errorf("unable to find ifindex for interface MAC: %w", err)
 	}
@@ -419,44 +421,83 @@ next:
 	return errors.Join(errs...)
 }
 
+// retrieveIfIndexFromMACRetryTimeout is the maximum time to wait for an
+// interface with the expected MAC address to become visible to the kernel.
+// On AWS, secondary ENIs are attached asynchronously: the CloudTrail
+// AttachNetworkInterface API call completes before the ENA driver finishes
+// probing the device, so the interface may not appear in LinkList for up to
+// ~30 seconds after the Cilium agent starts. Without a retry here the agent
+// exits immediately on any node that boots with a secondary ENI still
+// initializing, causing unnecessary container restarts.
+const retrieveIfIndexFromMACRetryTimeout = 2 * time.Minute
+
+// retrieveIfIndexFromMACRetryInterval is the poll interval when waiting for
+// the interface to appear.
+const retrieveIfIndexFromMACRetryInterval = 1 * time.Second
+
 // retrieveIfIndexFromMAC finds the corresponding device index (ifindex) for a
 // given MAC address, excluding Linux slave devices. This is useful for
 // creating rules and routes in order to specify the table. When the ifindex is
 // found, the device is brought up and its MTU is set.
-func retrieveIfIndexFromMAC(mac mac.MAC, mtu int) (int, error) {
-	var link netlink.Link
+//
+// If the interface is not immediately present (e.g. because the kernel ENA
+// driver is still probing a newly-attached ENI), this function retries with a
+// 1-second interval for up to retrieveIfIndexFromMACRetryTimeout before
+// returning an error.
+func retrieveIfIndexFromMAC(logger *slog.Logger, mac mac.MAC, mtu int) (int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), retrieveIfIndexFromMACRetryTimeout)
+	defer cancel()
 
-	links, err := safenetlink.LinkList()
-	if err != nil {
-		return -1, fmt.Errorf("unable to list interfaces: %w", err)
-	}
+	for attempt := 1; ; attempt++ {
+		var link netlink.Link
 
-	for _, l := range links {
-		// Linux slave devices have the same MAC address as their master
-		// device, but we want the master device.
-		if l.Attrs().RawFlags&unix.IFF_SLAVE != 0 {
-			continue
+		links, err := safenetlink.LinkList()
+		if err != nil {
+			return -1, fmt.Errorf("unable to list interfaces: %w", err)
 		}
-		if l.Attrs().HardwareAddr.String() == mac.String() {
-			if link != nil {
-				return -1, fmt.Errorf("several interfaces found with MAC %s: %s and %s", mac, link.Attrs().Name, l.Attrs().Name)
+
+		for _, l := range links {
+			// Linux slave devices have the same MAC address as their master
+			// device, but we want the master device.
+			if l.Attrs().RawFlags&unix.IFF_SLAVE != 0 {
+				continue
 			}
-			link = l
+			if l.Attrs().HardwareAddr.String() == mac.String() {
+				if link != nil {
+					return -1, fmt.Errorf("several interfaces found with MAC %s: %s and %s", mac, link.Attrs().Name, l.Attrs().Name)
+				}
+				link = l
+			}
+		}
+
+		if link != nil {
+			if attempt > 1 {
+				logger.Info("Interface appeared after waiting",
+					logfields.MACAddr, mac,
+					"attempt", attempt,
+				)
+			}
+			if err = netlink.LinkSetMTU(link, mtu); err != nil {
+				return -1, fmt.Errorf("unable to change MTU of link %s to %d: %w", link.Attrs().Name, mtu, err)
+			}
+			if err = netlink.LinkSetUp(link); err != nil {
+				return -1, fmt.Errorf("unable to up link %s: %w", link.Attrs().Name, err)
+			}
+			return link.Attrs().Index, nil
+		}
+
+		logger.Info("Interface with MAC not yet visible, retrying",
+			logfields.MACAddr, mac,
+			"attempt", attempt,
+			"retryInterval", retrieveIfIndexFromMACRetryInterval,
+		)
+
+		select {
+		case <-ctx.Done():
+			return -1, fmt.Errorf("interface with MAC %s not found after %s", mac, retrieveIfIndexFromMACRetryTimeout)
+		case <-time.After(retrieveIfIndexFromMACRetryInterval):
 		}
 	}
-
-	if link == nil {
-		return -1, fmt.Errorf("interface with MAC %s not found", mac)
-	}
-
-	if err = netlink.LinkSetMTU(link, mtu); err != nil {
-		return -1, fmt.Errorf("unable to change MTU of link %s to %d: %w", link.Attrs().Name, mtu, err)
-	}
-	if err = netlink.LinkSetUp(link); err != nil {
-		return -1, fmt.Errorf("unable to up link %s: %w", link.Attrs().Name, err)
-	}
-
-	return link.Attrs().Index, nil
 }
 
 // computeTableIDFromIfaceNumber returns a computed per-ENI route table ID for the given
