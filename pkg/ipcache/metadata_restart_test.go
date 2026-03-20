@@ -3,30 +3,30 @@
 
 package ipcache
 
-// TestHostIPWorldFallbackDuringRestartWindow and TestHostIdentityRestorationGap
-// reproduce a bug observed in production (us1.fed.dog, 2026-03-20) where node/host
-// IPs in a local-DC CIDR were misclassified as "world" identity during rolling
-// Cilium agent restarts, causing policy_denied drops against cluster-dns.
+// TestHostIPWorldFallbackDuringRestartWindow and related tests reproduce a bug
+// where node/host IPs that fall within a CiliumCIDRGroup CIDR are transiently
+// misclassified as "world" identity during rolling Cilium agent restarts.
 //
 // Root cause (two code paths, both required):
 //
 // 1. pkg/ipcache/restore/local_identity_restorer.go:128
-//    dumpOldIPCache() filters restored identities to IdentityScopeLocal and
-//    ReservedIdentityIngress only. ReservedIdentityHost (scope=global, id=1) is
-//    explicitly excluded. After ipcachemap.Recreate(), the new BPF map has no
-//    entry for host IPs.
+//    dumpOldIPCache() only restores IdentityScopeLocal and ReservedIdentityIngress
+//    identities. ReservedIdentityHost (scope=global, id=1) is explicitly excluded.
+//    After ipcachemap.Recreate(), the new BPF ipcache map has no entry for host IPs.
 //
 // 2. daemon/cmd/daemon.go startup ordering
 //    K8sWatcher.InitK8sSubsystem() starts at line 202 (begins processing
-//    CiliumCIDRGroups managed by fabric-k8s-controller). syncHostIPs.StartAndWaitFirst()
-//    is not called until line 249. During this window, a host IP in the local-DC
-//    CiliumCIDRGroup (e.g. 10.160.0.0/14) receives only a cidrgroup label.
+//    CiliumCIDRGroups). syncHostIPs.StartAndWaitFirst() is not called until
+//    line 249. During this window, a host IP covered by a CiliumCIDRGroup
+//    receives only a cidrgroup label — no reserved:host.
 //
 // 3. pkg/ipcache/metadata.go:798 (resolveLabels)
 //    Any IP without reserved:host, reserved:remote-node, reserved:health, or
-//    reserved:ingress label has AddWorldLabel() called on it. A host IP with only
-//    a cidrgroup label therefore becomes world — which is not covered by the
-//    cluster-dns CNP's "fromEntities: cluster" ingress rule, causing drops.
+//    reserved:ingress has AddWorldLabel() called on it. A host IP with only
+//    a cidrgroup label is therefore assigned world identity.
+//
+// Impact: CNPs using "fromEntities: cluster" do not cover world (id=2). Traffic
+// from the misclassified host IP is denied with policy_denied.
 
 import (
 	"net/netip"
@@ -42,9 +42,9 @@ import (
 	"github.com/cilium/cilium/pkg/source"
 )
 
-// cidrGroupLabels returns a Labels set simulating what the CiliumCIDRGroup reconciler
-// (fabric-k8s-controller) injects via UpsertMetadata for an IP that matches a
-// CiliumCIDRGroup (e.g. the "local-dc" group covering 10.160.0.0/14).
+// cidrGroupLabels returns a Labels set simulating what a CiliumCIDRGroup
+// reconciler injects via UpsertMetadata for an IP that matches a
+// CiliumCIDRGroup (e.g. a group covering a node-local subnet).
 func cidrGroupLabels(groupName string) labels.Labels {
 	return labels.Labels{
 		groupName: labels.NewLabel(groupName, "", labels.LabelSourceCIDRGroup),
@@ -52,12 +52,13 @@ func cidrGroupLabels(groupName string) labels.Labels {
 }
 
 // TestHostIPWorldFallbackDuringRestartWindow reproduces the bug where a host IP
-// is assigned world identity because resolveLabels() runs with only cidrgroup labels
-// — before syncHostIPs has inserted the reserved:host label.
+// covered by a CiliumCIDRGroup is assigned world identity because resolveLabels()
+// runs with only cidrgroup labels — before syncHostIPs has inserted reserved:host.
 //
-// This test asserts the CURRENT BUGGY BEHAVIOR. It is expected to fail once the
-// bug is fixed (e.g. by ensuring host IPs are seeded into ipcache metadata before
-// CiliumCIDRGroup processing can trigger resolveLabels for those prefixes).
+// This test asserts the CURRENT BUGGY BEHAVIOUR. It is expected to fail once
+// the root cause is fixed (e.g. by ensuring host IPs are seeded into ipcache
+// metadata before CiliumCIDRGroup processing can trigger resolveLabels for
+// those prefixes, or by restoring host identity entries in dumpOldIPCache).
 func TestHostIPWorldFallbackDuringRestartWindow(t *testing.T) {
 	s := setupIPCacheTestSuite(t)
 	ctx := t.Context()
@@ -67,54 +68,53 @@ func TestHostIPWorldFallbackDuringRestartWindow(t *testing.T) {
 	t.Cleanup(func() { option.Config.PolicyCIDRMatchMode = oldVal })
 	option.Config.PolicyCIDRMatchMode = []string{}
 
-	// The host IP observed in production: 10.161.39.126 (in 10.160.0.0/14, localDc CIDR).
-	// 8,258 drops were recorded against cluster-dns over 48h.
+	// A host IP that falls within a CiliumCIDRGroup subnet.
 	hostIPPrefix := cmtypes.NewLocalPrefixCluster(netip.MustParsePrefix("10.161.39.126/32"))
 
 	// ── Stage 1: Restart window ──────────────────────────────────────────────
-	// K8sWatcher has processed the "local-dc" CiliumCIDRGroup. The ipcache BPF
-	// map has been recreated empty (RestoreLocalIdentities skipped this IP since
-	// ReservedIdentityHost is not locally-scoped). syncHostIPs has NOT run yet.
-	//
-	// Only the cidrgroup label is present — no reserved:host.
+	// The K8s watcher has processed a CiliumCIDRGroup covering this IP's subnet.
+	// The ipcache BPF map has been recreated empty (dumpOldIPCache skipped this
+	// IP since ReservedIdentityHost is not locally-scoped). syncHostIPs has NOT
+	// run yet — only the cidrgroup label is present.
 	s.IPIdentityCache.metadata.upsertLocked(
 		hostIPPrefix,
 		source.Generated,
 		"cidrgroup-resource-uid",
-		cidrGroupLabels("local-dc"),
+		cidrGroupLabels("example-local-subnet"),
 	)
 
 	_, err := s.IPIdentityCache.doInjectLabels(ctx, []cmtypes.PrefixCluster{hostIPPrefix})
 	require.NoError(t, err)
 
 	entry, ok := s.IPIdentityCache.ipToIdentityCache["10.161.39.126/32"]
-	require.True(t, ok, "expected an identity entry for 10.161.39.126/32")
+	require.True(t, ok, "expected an identity entry for the host IP")
 
 	assignedID := entry.ID
 
 	// Verify the assigned identity is NOT reserved:host (id=1).
 	// This demonstrates the bug: the IP should be host but is not.
 	assert.NotEqual(t, identity.ReservedIdentityHost, assignedID,
-		"BUG REPRODUCED: host IP 10.161.39.126 was not assigned ReservedIdentityHost (id=1). "+
-			"Got id=%d. This occurs because resolveLabels() ran with only cidrgroup labels "+
-			"(no reserved:host) during the restart window before syncHostIPs executed.",
+		"BUG REPRODUCED: host IP was not assigned ReservedIdentityHost (id=1). "+
+			"Got id=%d. This occurs because resolveLabels() ran with only cidrgroup "+
+			"labels (no reserved:host) during the restart window before syncHostIPs "+
+			"executed.",
 		assignedID)
 
-	// Verify the assigned identity has a world label — the world fallback fired.
+	// Verify the assigned identity carries a world label — the world fallback fired.
 	resolvedIdentity := s.Allocator.LookupIdentityByID(ctx, assignedID)
 	require.NotNil(t, resolvedIdentity, "identity %d should be resolvable", assignedID)
 	assert.True(t,
 		resolvedIdentity.Labels.HasWorldLabel() || resolvedIdentity.Labels.HasWorldIPv4Label(),
-		"BUG: host IP 10.161.39.126/32 was assigned world identity (id=%d, labels=%v). "+
+		"BUG: host IP was assigned world identity (id=%d, labels=%v). "+
 			"resolveLabels() called AddWorldLabel() because HasHostLabel()=false. "+
-			"This causes policy_denied drops: the cluster-dns CNP allows 'fromEntities: cluster' "+
-			"but world (id=2) is not in the cluster entity.",
+			"Traffic from this IP will be denied by CNPs that use 'fromEntities: cluster' "+
+			"because world (id=2) is not in the cluster entity.",
 		assignedID, resolvedIdentity.Labels)
 
 	// ── Stage 2: syncHostIPs runs ────────────────────────────────────────────
-	// After daemon initialization completes (daemon.go:249), syncHostIPs inserts
-	// the reserved:host label for this IP. resolveLabels() now sees HasHostLabel()=true,
-	// sets isInCluster=true, removes the cidrgroup label, and does NOT add world.
+	// After daemon initialisation completes (daemon.go:249), syncHostIPs inserts
+	// the reserved:host label. resolveLabels() now sees HasHostLabel()=true,
+	// sets isInCluster=true, removes cidrgroup labels, and does NOT add world.
 	s.IPIdentityCache.metadata.upsertLocked(
 		hostIPPrefix,
 		source.Local,
@@ -135,7 +135,7 @@ func TestHostIPWorldFallbackDuringRestartWindow(t *testing.T) {
 }
 
 // TestWorldFallbackDoesNotOccurWhenHostLabelPresentFirst verifies the CORRECT
-// behaviour: when reserved:host is present before CIDRGroup labels are processed,
+// behaviour: when reserved:host is already present before CIDRGroup labels arrive,
 // resolveLabels() correctly identifies the IP as in-cluster and does not add
 // the world label.
 //
@@ -164,7 +164,7 @@ func TestWorldFallbackDoesNotOccurWhenHostLabelPresentFirst(t *testing.T) {
 		hostIPPrefix,
 		source.Generated,
 		"cidrgroup-resource-uid",
-		cidrGroupLabels("local-dc"),
+		cidrGroupLabels("example-local-subnet"),
 	)
 
 	_, err := s.IPIdentityCache.doInjectLabels(ctx, []cmtypes.PrefixCluster{hostIPPrefix})
@@ -173,10 +173,10 @@ func TestWorldFallbackDoesNotOccurWhenHostLabelPresentFirst(t *testing.T) {
 	entry, ok := s.IPIdentityCache.ipToIdentityCache["10.161.39.126/32"]
 	require.True(t, ok)
 
-	// When reserved:host is present, the identity must be ReservedIdentityHost.
+	// When reserved:host is present first, identity must be ReservedIdentityHost.
 	assert.Equal(t, identity.ReservedIdentityHost, entry.ID,
-		"When reserved:host is already in ipcache metadata before CIDRGroup labels "+
-			"arrive, the identity must be ReservedIdentityHost (id=1). Got id=%d.", entry.ID)
+		"When reserved:host is in ipcache metadata before CIDRGroup labels arrive, "+
+			"the identity must be ReservedIdentityHost (id=1). Got id=%d.", entry.ID)
 
 	resolvedIdentity := s.Allocator.LookupIdentityByID(ctx, entry.ID)
 	require.NotNil(t, resolvedIdentity)

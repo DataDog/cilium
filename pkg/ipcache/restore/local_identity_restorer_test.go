@@ -3,30 +3,28 @@
 
 package restoration
 
-// TestHostIdentityExcludedFromIPCacheRestoration tests that the ipcache
-// restoration logic (dumpOldIPCache) explicitly excludes ReservedIdentityHost
-// entries from the set of identities that survive an agent restart.
+// TestHostIdentityExcludedFromIPCacheRestoration and related tests document the
+// restoration filter in dumpOldIPCache that contributes to the host-IP-as-world
+// misclassification bug (see pkg/ipcache/metadata_restart_test.go for the full
+// reproduction).
 //
-// This is one of two root causes for the host-IP-as-world misclassification bug:
+// The filter at local_identity_restorer.go:128:
 //
-//   dumpOldIPCache() at local_identity_restorer.go:128:
+//   if nid.Scope() == identity.IdentityScopeLocal ||
+//      nid == identity.ReservedIdentityIngress {
+//       localPrefixes[k.Prefix()] = nid
+//   }
 //
-//     if nid.Scope() == identity.IdentityScopeLocal ||
-//        nid == identity.ReservedIdentityIngress {
-//         localPrefixes[k.Prefix()] = nid  // host identity NEVER matches
-//     }
+// ReservedIdentityHost (id=1) has IdentityScopeGlobal (scope bits = 0).
+// It does not satisfy either condition and is therefore never included in the
+// restored set. After ipcachemap.Recreate() (cell.go:118) wipes the ipcache BPF
+// map, host IP entries are absent until syncHostIPs.StartAndWaitFirst() runs
+// (daemon.go:249).
 //
-// Because ReservedIdentityHost (id=1) has IdentityScopeGlobal (scope bits = 0),
-// it does not pass the IdentityScopeLocal check. It is also not
-// ReservedIdentityIngress. The host IP entry from the OLD ipcache BPF map is
-// therefore NEVER written into localPrefixes and is NEVER restored into the new
-// ipcache metadata.
-//
-// Consequence: after ipcachemap.Recreate() wipes the BPF map (cell.go:118),
-// there is a window before syncHostIPs runs (daemon.go:249) during which host
-// IPs have no ipcache metadata entry. If a CiliumCIDRGroup covering the host IP
-// is processed during this window, resolveLabels() sees only the cidrgroup label,
-// calls AddWorldLabel(), and assigns world identity — causing policy_denied drops.
+// If a CiliumCIDRGroup covering the host IP is processed between those two
+// points, resolveLabels() in metadata.go receives only the cidrgroup label,
+// finds isInCluster=false, and calls AddWorldLabel() — assigning world identity
+// to what should be a host IP.
 
 import (
 	"testing"
@@ -38,32 +36,27 @@ import (
 
 // TestHostIdentityExcludedFromIPCacheRestoration documents the restoration
 // filter condition that causes host IPs to lose their identity on restart.
-//
-// The filter in dumpOldIPCache (local_identity_restorer.go:128) is:
-//
-//	nid.Scope() == identity.IdentityScopeLocal || nid == identity.ReservedIdentityIngress
-//
-// This test verifies the scope/identity values used by the filter and shows
-// which identities are retained vs dropped during restoration.
+// It tests the exact predicate used by dumpOldIPCache at
+// local_identity_restorer.go:128.
 func TestHostIdentityExcludedFromIPCacheRestoration(t *testing.T) {
 	type testCase struct {
-		name           string
-		id             identity.NumericIdentity
-		wantRestored   bool
-		explanation    string
+		name         string
+		id           identity.NumericIdentity
+		wantRestored bool
+		explanation  string
 	}
 
-	// These cases mirror the exact filter condition at local_identity_restorer.go:128.
 	cases := []testCase{
 		{
 			name:         "ReservedIdentityHost is NOT restored",
 			id:           identity.ReservedIdentityHost, // id=1, scope=global
 			wantRestored: false,
-			explanation: "ReservedIdentityHost (id=1) has IdentityScopeGlobal (scope bits = 0). " +
-				"It does not satisfy Scope()==IdentityScopeLocal and is not ReservedIdentityIngress. " +
-				"BUG: after ipcachemap.Recreate(), host IP entries are missing from the new ipcache " +
-				"until syncHostIPs runs. If CiliumCIDRGroup processing happens first, " +
-				"resolveLabels() assigns world identity to the host IP.",
+			explanation: "ReservedIdentityHost (id=1) has IdentityScopeGlobal (scope=0). " +
+				"It does not satisfy Scope()==IdentityScopeLocal and is not " +
+				"ReservedIdentityIngress. Host IP entries are therefore absent from " +
+				"the new ipcache BPF map until syncHostIPs runs. If a CiliumCIDRGroup " +
+				"covering the host IP is processed during this window, resolveLabels() " +
+				"assigns world identity instead of host.",
 		},
 		{
 			name:         "ReservedIdentityWorld is NOT restored",
@@ -116,8 +109,8 @@ func TestHostIdentityExcludedFromIPCacheRestoration(t *testing.T) {
 }
 
 // TestHostIdentityScopeIsGlobal explicitly verifies that ReservedIdentityHost
-// has global scope, which is why it is excluded from the restoration filter.
-// This is the direct mechanical reason for the misclassification bug.
+// has global scope — the direct mechanical reason it is excluded from the
+// dumpOldIPCache restoration filter and why the world fallback can fire.
 func TestHostIdentityScopeIsGlobal(t *testing.T) {
 	hostScope := identity.ReservedIdentityHost.Scope()
 
@@ -125,11 +118,11 @@ func TestHostIdentityScopeIsGlobal(t *testing.T) {
 		"ReservedIdentityHost must have IdentityScopeGlobal (scope=0). "+
 			"This means it is excluded by the dumpOldIPCache filter "+
 			"(local_identity_restorer.go:128) which only retains IdentityScopeLocal "+
-			"and ReservedIdentityIngress. As a result, host IP entries are lost from "+
-			"the ipcache BPF map after ipcachemap.Recreate() and are not re-inserted "+
-			"until syncHostIPs.StartAndWaitFirst() completes (daemon.go:249).")
+			"and ReservedIdentityIngress. Host IP entries are therefore absent from "+
+			"the new ipcache BPF map after Recreate() until syncHostIPs completes.")
 
 	assert.NotEqual(t, identity.IdentityScopeLocal, hostScope,
 		"If this assertion fails, the bug would be self-healing: "+
-			"host identity would be restored and the world fallback would not occur.")
+			"host identity would be restored from the old BPF map and the world fallback "+
+			"would not occur during the CiliumCIDRGroup processing window.")
 }
