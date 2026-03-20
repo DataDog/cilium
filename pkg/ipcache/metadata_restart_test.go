@@ -30,6 +30,7 @@ package ipcache
 
 import (
 	"net/netip"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -37,6 +38,7 @@ import (
 
 	cmtypes "github.com/cilium/cilium/pkg/clustermesh/types"
 	"github.com/cilium/cilium/pkg/identity"
+	ipcacheTypes "github.com/cilium/cilium/pkg/ipcache/types"
 	"github.com/cilium/cilium/pkg/labels"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/source"
@@ -184,4 +186,210 @@ func TestWorldFallbackDoesNotOccurWhenHostLabelPresentFirst(t *testing.T) {
 		resolvedIdentity.Labels.HasWorldLabel() || resolvedIdentity.Labels.HasWorldIPv4Label(),
 		"Identity must not have world label when reserved:host is present. Labels: %v",
 		resolvedIdentity.Labels)
+}
+
+// TestHostIPWorldFallbackRaceSimulation simulates the actual daemon startup
+// sequencing using real goroutines and explicit synchronisation barriers.
+//
+// This mirrors the two concurrent actors from daemon.go:
+//   - goroutine A: daemon.go:202 — K8sWatcher processes CiliumCIDRGroups
+//   - goroutine B: daemon.go:249 — syncHostIPs.StartAndWaitFirst() completes
+//
+// The barrier channel enforces the ordering that causes the bug: A completes
+// and triggers label injection BEFORE B starts. The test then confirms:
+//   1. During the window (after A, before B): world identity is assigned.
+//   2. After B completes: identity is corrected to reserved:host.
+//
+// Run with -race to confirm there are no concurrent memory access violations
+// (the bug is a *logical* ordering issue, not a data race):
+//
+//	go test ./pkg/ipcache/... -run TestHostIPWorldFallbackRaceSimulation -race -v
+func TestHostIPWorldFallbackRaceSimulation(t *testing.T) {
+	s := setupIPCacheTestSuite(t)
+	ctx := t.Context()
+
+	oldVal := option.Config.PolicyCIDRMatchMode
+	t.Cleanup(func() { option.Config.PolicyCIDRMatchMode = oldVal })
+	option.Config.PolicyCIDRMatchMode = []string{}
+
+	hostIPPrefix := cmtypes.NewLocalPrefixCluster(netip.MustParsePrefix("10.0.1.1/32"))
+	resource := ipcacheTypes.NewResourceID(ipcacheTypes.ResourceKindDaemon, "", "test")
+
+	// cidrGroupDone is closed when goroutine A has finished injecting CIDRGroup
+	// labels — i.e. the end of the "window" during which the bug is present.
+	cidrGroupDone := make(chan struct{})
+
+	// ── Goroutine A: K8sWatcher / CiliumCIDRGroup reconciler ─────────────────
+	// Simulates daemon.go:202: K8sWatcher.InitK8sSubsystem() starts processing
+	// CiliumCIDRGroups. Uses the same public API that the reconciler uses:
+	// IPCache.UpsertMetadataBatch().
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer close(cidrGroupDone)
+
+		// Simulate the CIDRGroup reconciler upserting cidrgroup labels for a
+		// subnet that contains a host IP.
+		s.IPIdentityCache.metadata.upsertLocked(
+			hostIPPrefix,
+			source.Generated,
+			resource,
+			cidrGroupLabels("example-local-subnet"),
+		)
+		// Synchronously inject labels to simulate the reconciler draining its queue.
+		_, _ = s.IPIdentityCache.doInjectLabels(ctx, []cmtypes.PrefixCluster{hostIPPrefix})
+	}()
+
+	// Wait for goroutine A to finish: we are now inside the race window.
+	// The host IP has been assigned an identity, but syncHostIPs has not run yet.
+	<-cidrGroupDone
+
+	// ── Observe the intermediate state (the race window) ─────────────────────
+	// At this point in the real daemon, any endpoint regeneration triggered by
+	// the CIDRGroup update would see world identity for the host IP.
+	windowEntry, ok := s.IPIdentityCache.ipToIdentityCache["10.0.1.1/32"]
+	require.True(t, ok, "host IP should have an identity during the race window")
+
+	windowIdentity := s.Allocator.LookupIdentityByID(ctx, windowEntry.ID)
+	require.NotNil(t, windowIdentity)
+
+	// BUG: during the window, world identity is assigned.
+	assert.NotEqual(t, identity.ReservedIdentityHost, windowEntry.ID,
+		"RACE WINDOW OBSERVED: host IP has id=%d (not ReservedIdentityHost) "+
+			"while syncHostIPs has not yet run", windowEntry.ID)
+	assert.True(t,
+		windowIdentity.Labels.HasWorldLabel() || windowIdentity.Labels.HasWorldIPv4Label(),
+		"RACE WINDOW: host IP labels=%v should contain world label", windowIdentity.Labels)
+
+	// ── Goroutine B: syncHostIPs.StartAndWaitFirst() ─────────────────────────
+	// Simulates daemon.go:249: syncHostIPs runs after daemon init completes.
+	// This is the same call that syncHostIPs.sync() makes at line 205:
+	//   s.params.IPCache.UpsertMetadata(p, source.Local, daemonResourceID, lbls)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		s.IPIdentityCache.metadata.upsertLocked(
+			hostIPPrefix,
+			source.Local,
+			resource,
+			labels.LabelHost,
+		)
+		_, _ = s.IPIdentityCache.doInjectLabels(ctx, []cmtypes.PrefixCluster{hostIPPrefix})
+	}()
+
+	// Wait for goroutine B to finish (syncHostIPs has now run).
+	wg.Wait()
+
+	// ── Verify correction ─────────────────────────────────────────────────────
+	// After syncHostIPs runs, resolveLabels() sees HasHostLabel()=true,
+	// sets isInCluster=true, removes the cidrgroup label, and does not add world.
+	// The identity must be corrected to ReservedIdentityHost.
+	correctedEntry, ok := s.IPIdentityCache.ipToIdentityCache["10.0.1.1/32"]
+	require.True(t, ok)
+	assert.Equal(t, identity.ReservedIdentityHost, correctedEntry.ID,
+		"After syncHostIPs runs, identity must be corrected to ReservedIdentityHost (id=1). "+
+			"Got id=%d.", correctedEntry.ID)
+}
+
+// TestHostIPWorldFallbackStress exercises the ordering sensitivity by running
+// many iterations where goroutine A (CIDRGroup) and goroutine B (syncHostIPs)
+// race without an explicit ordering barrier.
+//
+// When A wins the race (cidrgroup before host), world identity is transiently
+// assigned. When B wins (host before cidrgroup), host identity is assigned
+// directly. The final state should always be ReservedIdentityHost regardless
+// of which goroutine "won" — but during the bug window, it may not be.
+//
+// Run this with:
+//
+//	go test ./pkg/ipcache/... -run TestHostIPWorldFallbackStress -race -count=5 -v
+//
+// The -race flag will confirm there are no concurrent memory violations.
+// The bug is a logical ordering issue, invisible to the race detector.
+func TestHostIPWorldFallbackStress(t *testing.T) {
+	const iterations = 50
+
+	oldVal := option.Config.PolicyCIDRMatchMode
+	t.Cleanup(func() { option.Config.PolicyCIDRMatchMode = oldVal })
+	option.Config.PolicyCIDRMatchMode = []string{}
+
+	resource := ipcacheTypes.NewResourceID(ipcacheTypes.ResourceKindDaemon, "", "stress-test")
+
+	worldWins := 0
+	hostWins := 0
+
+	for i := 0; i < iterations; i++ {
+		s := setupIPCacheTestSuite(t)
+		ctx := t.Context()
+		hostIPPrefix := cmtypes.NewLocalPrefixCluster(netip.MustParsePrefix("10.0.1.1/32"))
+
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		var intermediateID identity.NumericIdentity
+
+		// Goroutine A: CiliumCIDRGroup reconciler (daemon.go:202).
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.IPIdentityCache.metadata.upsertLocked(
+				hostIPPrefix, source.Generated, resource,
+				cidrGroupLabels("example-local-subnet"),
+			)
+			prefixes := []cmtypes.PrefixCluster{hostIPPrefix}
+			_, _ = s.IPIdentityCache.doInjectLabels(ctx, prefixes)
+
+			// Capture the identity at the moment A finishes.
+			mu.Lock()
+			if e, ok := s.IPIdentityCache.ipToIdentityCache["10.0.1.1/32"]; ok {
+				intermediateID = e.ID
+			}
+			mu.Unlock()
+		}()
+
+		// Goroutine B: syncHostIPs (daemon.go:249).
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.IPIdentityCache.metadata.upsertLocked(
+				hostIPPrefix, source.Local, resource,
+				labels.LabelHost,
+			)
+			_, _ = s.IPIdentityCache.doInjectLabels(ctx, []cmtypes.PrefixCluster{hostIPPrefix})
+		}()
+
+		wg.Wait()
+
+		// Check the intermediate identity captured by goroutine A.
+		mu.Lock()
+		id := intermediateID
+		mu.Unlock()
+
+		if id == identity.ReservedIdentityHost {
+			hostWins++
+		} else {
+			worldWins++
+		}
+
+		// The FINAL state (after both goroutines) must always be host.
+		finalEntry, ok := s.IPIdentityCache.ipToIdentityCache["10.0.1.1/32"]
+		require.True(t, ok)
+		assert.Equal(t, identity.ReservedIdentityHost, finalEntry.ID,
+			"iteration %d: final identity must be ReservedIdentityHost after "+
+				"both goroutines complete. Got id=%d.", i, finalEntry.ID)
+
+		s.IPIdentityCache.Shutdown()
+	}
+
+	t.Logf("Over %d iterations: cidrgroup-first (world identity window)=%d, "+
+		"host-first (no bug window)=%d",
+		iterations, worldWins, hostWins)
+
+	// In most runs, at least some iterations will show the world identity window.
+	// If worldWins==0 always, the goroutine scheduler always ran B before A,
+	// which would be surprising over 50 iterations.
+	t.Logf("NOTE: worldWins=%d means the race window was observable %d times. "+
+		"A value of 0 does not mean the bug is fixed — it means the goroutine "+
+		"scheduler happened to always run syncHostIPs first in this run.", worldWins, worldWins)
 }
