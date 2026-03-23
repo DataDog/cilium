@@ -906,9 +906,9 @@ data:
 {{- end }}
 {{- if hasKey .Values.loadBalancer "serviceTopology" }}
   enable-service-topology: {{ .Values.loadBalancer.serviceTopology | quote }}
-# {{- end }}
-
 {{- end }}
+{{- end }}
+
 {{- if hasKey .Values.maglev "tableSize" }}
   bpf-lb-maglev-table-size: {{ .Values.maglev.tableSize | quote}}
 {{- end }}
@@ -1380,11 +1380,7 @@ data:
 
 {{- if .Values.operator.unmanagedPodWatcher.restart }}
   {{- $interval := .Values.operator.unmanagedPodWatcher.intervalSeconds }}
-  {{- if kindIs "float64" $interval }}
   unmanaged-pod-watcher-interval: {{ printf "%ds" (int $interval) | quote }}
-  {{- else }}
-  unmanaged-pod-watcher-interval: {{ $interval | quote }}
-  {{- end }}
 {{- else }}
   unmanaged-pod-watcher-interval: "0"
 {{- end }}

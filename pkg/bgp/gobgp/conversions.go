@@ -5,6 +5,7 @@ package gobgp
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -561,7 +562,6 @@ func ToGoBGPPeer(n *types.Neighbor, oldPeer *gobgp.Peer, v4 bool) *gobgp.Peer {
 
 	newPeer.Conf = toGoBGPPeerConf(n, oldPeer)
 	newPeer.EbgpMultihop = toGoBGPEbgpMultihop(n.EbgpMultihop)
-	newPeer.RouteReflector = toGoBGPRouteReflector(n.RouteReflector)
 	newPeer.Timers = toGoBGPTimers(n.Timers)
 	newPeer.Transport = toGoBGPTransport(n.Transport, oldPeer, v4)
 	newPeer.GracefulRestart = toGoBGPGracefulRestart(n.GracefulRestart)
@@ -570,12 +570,32 @@ func ToGoBGPPeer(n *types.Neighbor, oldPeer *gobgp.Peer, v4 bool) *gobgp.Peer {
 	return newPeer
 }
 
+type peerDescription struct {
+	Name string `json:"name"`
+}
+
 func toGoBGPPeerConf(n *types.Neighbor, oldPeer *gobgp.Peer) *gobgp.PeerConf {
 	conf := &gobgp.PeerConf{}
 
 	// Inherit the default values from existing peer configuration
 	if oldPeer != nil && oldPeer.Conf != nil {
 		conf = oldPeer.Conf
+	}
+
+	// Encode neighbor name (inherited from the CRD) into the description
+	// field as JSON (for future extensibility). This is useful for the
+	// discovered peers where we cannot obtain IP address from the CRD.
+	if n.Name != "" {
+		pd := peerDescription{
+			Name: n.Name,
+		}
+		desc, err := json.Marshal(pd)
+		if err == nil {
+			// We ignore error here because this field is not
+			// critical for operation. Caller should handle the
+			// case when description is not set.
+			conf.Description = string(desc)
+		}
 	}
 
 	if n.Address.IsValid() {
@@ -599,16 +619,6 @@ func toGoBGPEbgpMultihop(n *types.NeighborEbgpMultihop) *gobgp.EbgpMultihop {
 	return &gobgp.EbgpMultihop{
 		Enabled:     true,
 		MultihopTtl: n.TTL,
-	}
-}
-
-func toGoBGPRouteReflector(n *types.NeighborRouteReflector) *gobgp.RouteReflector {
-	if n == nil {
-		return nil
-	}
-	return &gobgp.RouteReflector{
-		RouteReflectorClient:    n.Client,
-		RouteReflectorClusterId: n.ClusterID,
 	}
 }
 
@@ -677,7 +687,18 @@ func toGoBGPGracefulRestart(n *types.NeighborGracefulRestart) *gobgp.GracefulRes
 
 func toGoBGPAfiSafi(fams []*types.Family, gr *gobgp.GracefulRestart) []*gobgp.AfiSafi {
 	if len(fams) == 0 {
-		return defaultSafiAfi
+		res := make([]*gobgp.AfiSafi, len(defaultAfiSafi))
+		for i, v := range defaultAfiSafi {
+			res[i] = &gobgp.AfiSafi{
+				Config: &gobgp.AfiSafiConfig{
+					Family: &gobgp.Family{
+						Afi:  gobgp.Family_Afi(v.Config.Family.Afi),
+						Safi: gobgp.Family_Safi(v.Config.Family.Safi),
+					},
+				},
+			}
+		}
+		return res
 	}
 	afisafis := make([]*gobgp.AfiSafi, 0, len(fams))
 	for _, fam := range fams {

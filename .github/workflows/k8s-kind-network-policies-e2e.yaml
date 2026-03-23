@@ -145,7 +145,7 @@ jobs:
           echo sha=${{ steps.default_vars.outputs.sha }} >> $GITHUB_OUTPUT
 
       - name: Install Cilium CLI
-        uses: cilium/cilium-cli@e3a20f4df0e49da32a381e8c91748f311d404134 # v0.19.1
+        uses: cilium/cilium-cli@3ce83aa3b4ea3ce6d97023c4d83c22b73a4ed3b4 # v0.19.2
         with:
           skip-build: ${{ env.CILIUM_CLI_SKIP_BUILD }}
           image-repo: ${{ env.CILIUM_CLI_IMAGE_REPO }}
@@ -237,7 +237,7 @@ jobs:
 
       - name: Upload cluster logs
         if: ${{ !success() }}
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: kind-logs
           path: ./_artifacts/logs

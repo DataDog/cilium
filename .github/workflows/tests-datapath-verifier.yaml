@@ -57,7 +57,7 @@ concurrency:
 
 env:
   # renovate: datasource=golang-version depName=go
-  go-version: 1.25.7
+  go-version: 1.25.8
 
 jobs:
   echo-inputs:
@@ -134,17 +134,17 @@ jobs:
           KERNEL="${{ matrix.kernel }}"
           case "$KERNEL" in
             # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-            "5.10") FULL_KERNEL="5.10-20260211.084719" ;;
+            "5.10") FULL_KERNEL="5.10-20260217.190018" ;;
             # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-            "5.15") FULL_KERNEL="5.15-20260211.084719" ;;
+            "5.15") FULL_KERNEL="5.15-20260217.190018" ;;
             # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-            "6.1") FULL_KERNEL="6.1-20260211.084719" ;;
+            "6.1") FULL_KERNEL="6.1-20260217.190018" ;;
             # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-            "6.6") FULL_KERNEL="6.6-20260211.084719" ;;
+            "6.6") FULL_KERNEL="6.6-20260217.190018" ;;
             # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-            "6.12") FULL_KERNEL="6.12-20260211.084719" ;;
+            "6.12") FULL_KERNEL="6.12-20260217.190018" ;;
             # renovate: datasource=docker depName=quay.io/lvh-images/complexity-test
-            "6.18") FULL_KERNEL="6.18-20260211.084719" ;;
+            "6.18") FULL_KERNEL="6.18-20260217.190018" ;;
             *) FULL_KERNEL="$KERNEL" ;;
           esac
           echo "full=${FULL_KERNEL}" >> $GITHUB_OUTPUT
@@ -204,7 +204,7 @@ jobs:
 
       - name: Upload artifacts
         if: ${{ always() }}
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: datapath-verifier_${{ matrix.kernel }}
           path: datapath-verifier
@@ -222,7 +222,7 @@ jobs:
         persist-credentials: false
 
     - name: Download per-kernel results
-      uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
         path: ./artifacts
         pattern: datapath-verifier_*
@@ -242,7 +242,7 @@ jobs:
         rm -Rf ./artifacts/datapath-verifier*
 
     - name: Upload merged
-      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
       with:
         name: verifier-complexity
         path: ./artifacts

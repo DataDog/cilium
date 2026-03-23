@@ -24,7 +24,7 @@ To install Cilium with MCS-API support, run:
 
 .. cilium-helm-install::
    :namespace: kube-system
-   :set: clustermesh.mcsapi.enabdled=true
+   :set: clustermesh.mcsapi.enabled=true
 
 To enable MCS-API support on an existing Cilium installation, run:
 
@@ -40,22 +40,22 @@ If you set ``clustermesh.mcsapi.corednsAutoConfigure.enabled`` to ``true``, Cili
 will automatically configure and rollout CoreDNS for MCS-API support. Otherwise to
 configure CoreDNS manually, you need to execute the following steps:
 
-   .. code-block:: shell-session
+   .. parsed-literal::
 
       # (optional) Install MCS-API CRDs if Cilium has not yet started or automatic CRDs installation is disabled
       kubectl apply -f |SCM_WEB|\/vendor/sigs.k8s.io/mcs-api/config/crd/multicluster.x-k8s.io_serviceexports.yaml
       kubectl apply -f |SCM_WEB|\/vendor/sigs.k8s.io/mcs-api/config/crd/multicluster.x-k8s.io_serviceimports.yaml
 
       # Adding RBAC to read ServiceImports
-      kubectl create clusterrole coredns-mcsapi \
+      kubectl create clusterrole coredns-mcsapi \\
          --verb=list,watch --resource=serviceimports.multicluster.x-k8s.io
-      kubectl create clusterrolebinding coredns-mcsapi \
+      kubectl create clusterrolebinding coredns-mcsapi \\
          --clusterrole=coredns-mcsapi --serviceaccount=kube-system:coredns
 
       # Configure CoreDNS to support MCS-API
-      kubectl get configmap -n kube-system coredns -o yaml | \
-         sed -e 's/cluster\.local/cluster.local clusterset.local/g' | \
-         sed -E 's/^(.*)kubernetes(.*)\{/\1kubernetes\2{\n\1   multicluster clusterset.local/' | \
+      kubectl get configmap -n kube-system coredns -o yaml | \\
+         sed -e 's/cluster\.local/cluster.local clusterset.local/g' | \\
+         sed -E 's/^(.*)kubernetes(.*)\{/\1kubernetes\2{\n\1   multicluster clusterset.local/' | \\
          kubectl replace -f-
 
       # Rollout CoreDNS to apply the change

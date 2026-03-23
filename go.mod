@@ -18,7 +18,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/cilium/coverbee v0.3.3-0.20240723084546-664438750fce
 	github.com/cilium/dns v1.1.51-0.20240603182237-af788769786a
-	github.com/cilium/ebpf v0.20.1-0.20260108141042-f7e80f49188b
+	github.com/cilium/ebpf v0.20.1-0.20260218191617-ee67e7f43dd9
 	github.com/cilium/endpointslice-controller v0.0.0-20250410163339-ffb33e27879c
 	github.com/cilium/fake v0.7.0
 	github.com/cilium/hive v0.0.0-20260108104938-97756f6ff54c
@@ -118,20 +118,20 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251222181119-0a764e51fe1b
 	google.golang.org/grpc v1.78.0
 	google.golang.org/protobuf v1.36.11
-	k8s.io/api v0.35.0
-	k8s.io/apiextensions-apiserver v0.35.0
-	k8s.io/apimachinery v0.35.0
-	k8s.io/cli-runtime v0.35.0
-	k8s.io/client-go v0.35.0
-	k8s.io/component-base v0.35.0
-	k8s.io/endpointslice v0.35.0
+	k8s.io/api v0.35.2
+	k8s.io/apiextensions-apiserver v0.35.2
+	k8s.io/apimachinery v0.35.2
+	k8s.io/cli-runtime v0.35.2
+	k8s.io/client-go v0.35.2
+	k8s.io/component-base v0.35.2
+	k8s.io/endpointslice v0.35.2
 	k8s.io/klog/v2 v2.130.1
-	k8s.io/kubectl v0.35.0
-	k8s.io/utils v0.0.0-20260108192941-914a6e750570
-	sigs.k8s.io/controller-runtime v0.22.4
+	k8s.io/kubectl v0.35.2
+	k8s.io/utils v0.0.0-20260210185600-b8788abfbbc2
+	sigs.k8s.io/controller-runtime v0.23.3
 	sigs.k8s.io/gateway-api v1.4.0-rc.2
-	sigs.k8s.io/mcs-api v0.3.1-0.20251224112231-f4767b9e5a04
-	sigs.k8s.io/mcs-api/controllers v0.0.0-20251224112231-f4767b9e5a04
+	sigs.k8s.io/mcs-api v0.3.1-0.20260224125735-0f775a3eff97
+	sigs.k8s.io/mcs-api/controllers v0.0.0-20260311160536-15301c2b6a81
 	sigs.k8s.io/yaml v1.6.0
 )
 
@@ -276,9 +276,8 @@ require (
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	gotest.tools/v3 v3.5.0 // indirect
-	k8s.io/apiserver v0.35.0 // indirect
-	k8s.io/code-generator v0.35.0 // indirect
+	k8s.io/apiserver v0.35.2 // indirect
+	k8s.io/code-generator v0.35.2 // indirect
 	k8s.io/gengo/v2 v2.0.0-20250922181213-ec3ebc5fd46b // indirect
 	k8s.io/kube-openapi v0.0.0-20250910181357-589584f1c912 // indirect
 	sigs.k8s.io/controller-tools v0.19.0 // indirect
@@ -286,7 +285,7 @@ require (
 	sigs.k8s.io/kustomize/api v0.20.1 // indirect
 	sigs.k8s.io/kustomize/kyaml v0.20.1 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
-	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
+	sigs.k8s.io/structured-merge-diff/v6 v6.3.2-0.20260122202528-d9cc6641c482 // indirect
 )
 
 // Using private fork of controller-tools. See commit msg for more context

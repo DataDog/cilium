@@ -270,7 +270,7 @@ jobs:
             envsubst < ./.github/kind-config.yaml.tmpl > ./.github/kind-config-cluster2.yaml
 
       - name: Create Kind cluster 1
-        uses: helm/kind-action@92086f6be054225fa813e0a4b13787fc9088faab # v1.13.0
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
         with:
           cluster_name: ${{ env.clusterName1 }}
           version: ${{ env.KIND_VERSION }}
@@ -280,7 +280,7 @@ jobs:
           wait: 0 # The control-plane never becomes ready, since no CNI is present
 
       - name: Create Kind cluster 2
-        uses: helm/kind-action@92086f6be054225fa813e0a4b13787fc9088faab # v1.13.0
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
         with:
           cluster_name: ${{ env.clusterName2 }}
           version: ${{ env.KIND_VERSION }}
@@ -290,7 +290,7 @@ jobs:
           wait: 0 # The control-plane never becomes ready, since no CNI is present
 
       - name: Install Cilium CLI
-        uses: cilium/cilium-cli@e3a20f4df0e49da32a381e8c91748f311d404134 # v0.19.1
+        uses: cilium/cilium-cli@3ce83aa3b4ea3ce6d97023c4d83c22b73a4ed3b4 # v0.19.2
         with:
           skip-build: ${{ env.CILIUM_CLI_SKIP_BUILD }}
           image-repo: ${{ env.CILIUM_CLI_IMAGE_REPO }}

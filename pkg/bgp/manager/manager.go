@@ -214,8 +214,31 @@ func (m *BGPRouterManager) reconcileStateWithRetry(ctx context.Context) error {
 	return wait.ExponentialBackoffWithContext(ctx, bo, retryFn)
 }
 
-// GetPeers gets peering state from previously initialized bgp instances.
-func (m *BGPRouterManager) GetPeers(ctx context.Context) ([]*models.BgpPeer, error) {
+func (m *BGPRouterManager) GetPeers(ctx context.Context, req *agent.GetPeersRequest) (*agent.GetPeersResponse, error) {
+	m.RLock()
+	defer m.RUnlock()
+
+	if !m.running {
+		return nil, fmt.Errorf("bgp router manager is not running")
+	}
+
+	var res agent.GetPeersResponse
+	for _, i := range m.BGPInstances {
+		r, err := i.Router.GetPeerState(ctx, &types.GetPeerStateRequest{})
+		if err != nil {
+			return nil, err
+		}
+		res.Instances = append(res.Instances, agent.InstancePeerStates{
+			Name:  i.Name,
+			Peers: r.Peers,
+		})
+	}
+
+	return &res, nil
+}
+
+// GetPeersLegacy gets peering state from previously initialized bgp instances.
+func (m *BGPRouterManager) GetPeersLegacy(ctx context.Context) ([]*models.BgpPeer, error) {
 	m.RLock()
 	defer m.RUnlock()
 
@@ -225,7 +248,7 @@ func (m *BGPRouterManager) GetPeers(ctx context.Context) ([]*models.BgpPeer, err
 
 	var res []*models.BgpPeer
 	for _, i := range m.BGPInstances {
-		getPeerResp, err := i.Router.GetPeerState(ctx)
+		getPeerResp, err := i.Router.GetPeerStateLegacy(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -234,8 +257,60 @@ func (m *BGPRouterManager) GetPeers(ctx context.Context) ([]*models.BgpPeer, err
 	return res, nil
 }
 
-// GetRoutes retrieves routes from the RIB of underlying router
-func (m *BGPRouterManager) GetRoutes(ctx context.Context, params restapi.GetBgpRoutesParams) ([]*models.BgpRoute, error) {
+// GetRoutes retrieves routes from the RIB of underlying routers.
+func (m *BGPRouterManager) GetRoutes(ctx context.Context, req *agent.GetRoutesRequest) (*agent.GetRoutesResponse, error) {
+	m.RLock()
+	defer m.RUnlock()
+
+	if !m.running {
+		return nil, fmt.Errorf("BGP router manager is not running")
+	}
+	if req == nil {
+		return nil, fmt.Errorf("get routes request is nil")
+	}
+
+	var res agent.GetRoutesResponse
+	for _, i := range m.BGPInstances {
+		switch req.TableType {
+		case types.TableTypeAdjRIBIn, types.TableTypeAdjRIBOut:
+			peerState, err := i.Router.GetPeerState(ctx, &types.GetPeerStateRequest{})
+			if err != nil {
+				return nil, err
+			}
+			for _, peer := range peerState.Peers {
+				rs, err := i.Router.GetRoutes(ctx, &types.GetRoutesRequest{
+					TableType: req.TableType,
+					Family:    req.Family,
+					Neighbor:  peer.Address,
+				})
+				if err != nil {
+					return nil, err
+				}
+				res.Instances = append(res.Instances, agent.InstanceRoutes{
+					InstanceName: i.Name,
+					NeighborName: peer.Name,
+					Routes:       rs.Routes,
+				})
+			}
+		default:
+			rs, err := i.Router.GetRoutes(ctx, &types.GetRoutesRequest{
+				TableType: req.TableType,
+				Family:    req.Family,
+			})
+			if err != nil {
+				return nil, err
+			}
+			res.Instances = append(res.Instances, agent.InstanceRoutes{
+				InstanceName: i.Name,
+				Routes:       rs.Routes,
+			})
+		}
+	}
+	return &res, nil
+}
+
+// GetRoutesLegacy retrieves routes from the RIB of underlying router
+func (m *BGPRouterManager) GetRoutesLegacy(ctx context.Context, params restapi.GetBgpRoutesParams) ([]*models.BgpRoute, error) {
 	m.RLock()
 	defer m.RUnlock()
 
@@ -266,13 +341,13 @@ func (m *BGPRouterManager) GetRoutes(ctx context.Context, params restapi.GetBgpR
 		}
 		if allPeers {
 			// get routes for each peer of the server
-			getPeerResp, err := i.Router.GetPeerState(ctx)
+			getPeerResp, err := i.Router.GetPeerStateLegacy(ctx)
 			if err != nil {
 				return nil, err
 			}
 			for _, peer := range getPeerResp.Peers {
 				params.Neighbor = &peer.PeerAddress
-				routes, err := m.getRoutesFromInstance(ctx, i, params)
+				routes, err := m.getRoutesFromInstanceLegacy(ctx, i, params)
 				if err != nil {
 					return nil, err
 				}
@@ -280,7 +355,7 @@ func (m *BGPRouterManager) GetRoutes(ctx context.Context, params restapi.GetBgpR
 			}
 		} else {
 			// get routes with provided params
-			routes, err := m.getRoutesFromInstance(ctx, i, params)
+			routes, err := m.getRoutesFromInstanceLegacy(ctx, i, params)
 			if err != nil {
 				return nil, err
 			}
@@ -290,8 +365,8 @@ func (m *BGPRouterManager) GetRoutes(ctx context.Context, params restapi.GetBgpR
 	return res, nil
 }
 
-// getRoutesFromInstance retrieves routes from the RIB of the specified BGP instance
-func (m *BGPRouterManager) getRoutesFromInstance(ctx context.Context, i *instance.BGPInstance, params restapi.GetBgpRoutesParams) ([]*models.BgpRoute, error) {
+// getRoutesFromInstanceLegacy retrieves routes from the RIB of the specified BGP instance
+func (m *BGPRouterManager) getRoutesFromInstanceLegacy(ctx context.Context, i *instance.BGPInstance, params restapi.GetBgpRoutesParams) ([]*models.BgpRoute, error) {
 	if i.Config.LocalASN == nil {
 		return nil, fmt.Errorf("local ASN not set for instance")
 	}

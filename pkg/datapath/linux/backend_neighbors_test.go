@@ -16,16 +16,10 @@ import (
 	"github.com/cilium/cilium/pkg/datapath/neighbor"
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/loadbalancer"
-	"github.com/cilium/cilium/pkg/testutils"
 	"github.com/cilium/cilium/pkg/time"
 )
 
 func TestBackendNeighborSync(t *testing.T) {
-	// Ignore all the currently running goroutines spawned
-	// by prior tests or by package init() functions.
-	goleakOpt := testutils.GoleakIgnoreCurrent()
-	t.Cleanup(func() { testutils.GoleakVerifyNone(t, goleakOpt) })
-
 	var (
 		db             *statedb.DB
 		backends       statedb.RWTable[*loadbalancer.Backend]
@@ -38,7 +32,7 @@ func TestBackendNeighborSync(t *testing.T) {
 			statedb.RWTable[*loadbalancer.Backend].ToTable,
 		),
 		neighbor.ForwardableIPCell,
-		cell.Provide(neighbor.NewCommonTestConfig(true, false)),
+		cell.Provide(neighbor.NewCommonTestConfig(true, false, 100)),
 		linux.BackendNeighborSyncCell,
 		cell.Invoke(func(db_ *statedb.DB, backends_ statedb.RWTable[*loadbalancer.Backend], forwardableIPs_ statedb.Table[*neighbor.ForwardableIP]) {
 			db = db_

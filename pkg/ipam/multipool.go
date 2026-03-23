@@ -823,6 +823,27 @@ func (m *multiPoolManager) Allocator(family Family) Allocator {
 	}
 }
 
+func (m *multiPoolManager) capacity(family Family) uint64 {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	var cap uint64
+	for _, pool := range m.pools {
+		var p *podCIDRPool
+		switch family {
+		case IPv4:
+			p = pool.v4
+		case IPv6:
+			p = pool.v6
+		}
+		if p == nil {
+			continue
+		}
+		cap += uint64(p.capacity())
+	}
+	return uint64(cap)
+}
+
 type multiPoolAllocator struct {
 	manager *multiPoolManager
 	family  Family
@@ -853,21 +874,7 @@ func (c *multiPoolAllocator) Dump() (map[Pool]map[string]string, string) {
 }
 
 func (c *multiPoolAllocator) Capacity() uint64 {
-	var capacity uint64
-	for _, pool := range c.manager.pools {
-		var p *podCIDRPool
-		switch c.family {
-		case IPv4:
-			p = pool.v4
-		case IPv6:
-			p = pool.v6
-		}
-		if p == nil {
-			continue
-		}
-		capacity += uint64(p.capacity())
-	}
-	return uint64(capacity)
+	return c.manager.capacity(c.family)
 }
 
 func (c *multiPoolAllocator) RestoreFinished() {

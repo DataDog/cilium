@@ -29,9 +29,9 @@ authenticated using mutual TLS before being sent to the destination.
 Generating secrets for authentication
 =====================================
 
-Cilium's ztunnel integration requires a set a set of private keys and
-accompanying to certificates be present via Kubernetes secrets. This follows the
-same pattern as IPsec key injections.
+Cilium's ztunnel integration requires a set of private keys and accompanying
+to certificates be present via Kubernetes secrets. This follows the same pattern
+as IPsec key injections.
 
 These keys can be generated with the following bash script prior to deploying
 Cilium.
@@ -62,8 +62,8 @@ Before you install Cilium with ztunnel enabled, ensure that:
 
        .. parsed-literal::
 
-          cilium install |CHART_VERSION| \
-             --set encryption.enabled=true \
+          cilium install |CHART_VERSION| \\
+             --set encryption.enabled=true \\
              --set encryption.type=ztunnel
 
     .. group-tab:: Helm
