@@ -36,11 +36,11 @@ jobs:
 
       - name: Install Go
         if: ${{ steps.cache.outputs.cache-hit != 'true' }}
-        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
         with:
           cache-dependency-path: "src/github.com/cilium/cilium/*.sum"
           # renovate: datasource=golang-version depName=go
-          go-version: 1.24.13
+          go-version: 1.25.8
 
       - name: Build Ginkgo
         if: ${{ steps.cache.outputs.cache-hit != 'true' }}
@@ -288,7 +288,7 @@ jobs:
       - name: Setup actionlint matcher
         run: echo "::add-matcher::.github/actionlint-matcher.json"
       - name: Check workflow files
-        uses: docker://rhysd/actionlint:1.7.10@sha256:ef8299f97635c4c30e2298f48f30763ab782a4ad2c95b744649439a039421e36
+        uses: docker://rhysd/actionlint:1.7.11@sha256:6f03470d0152251d7f07f7c4dc019dbe7024c72cd952f839544c7798843efa8f
         env:
           SHELLCHECK_OPTS: --exclude=SC2086,SC2129,SC2185,SC2162,SC2090,SC2089,SC2001,SC2002
         with:
