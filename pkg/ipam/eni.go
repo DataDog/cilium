@@ -22,10 +22,13 @@ import (
 	"github.com/cilium/cilium/pkg/datapath/linux/safenetlink"
 	"github.com/cilium/cilium/pkg/datapath/linux/sysctl"
 	"github.com/cilium/cilium/pkg/defaults"
+	"github.com/cilium/cilium/pkg/ipam/types"
 	"github.com/cilium/cilium/pkg/ipmasq"
 	ciliumv2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
+	cilium_v2 "github.com/cilium/cilium/pkg/k8s/client/clientset/versioned/typed/cilium.io/v2"
 	"github.com/cilium/cilium/pkg/k8s/resource"
 	"github.com/cilium/cilium/pkg/logging/logfields"
+	"github.com/cilium/cilium/pkg/node"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/time"
 )
@@ -337,6 +340,7 @@ func configureENINetlinkDevice(link netlink.Link, cfg eniDeviceConfig, sysctl sy
 func buildENIAllocationResult(
 	logger *slog.Logger,
 	allocatedIP net.IP,
+	pool Pool,
 	node *ciliumv2.CiliumNode,
 	conf *option.DaemonConfig,
 	ipMasqAgent *ipmasq.IPMasqAgent,
@@ -348,6 +352,7 @@ func buildENIAllocationResult(
 
 		result := &AllocationResult{
 			IP:         allocatedIP,
+			IPPoolName: pool,
 			PrimaryMAC: eni.MAC,
 			CIDRs:      []string{eni.VPC.PrimaryCIDR},
 		}
@@ -406,4 +411,102 @@ func eniContainsIP(eni eniTypes.ENI, ip net.IP) bool {
 	}
 
 	return false
+}
+
+// eniMultiPoolAllocator wraps multiPoolAllocator to enrich AllocationResult
+// with ENI-specific metadata.
+type eniMultiPoolAllocator struct {
+	multiPoolAllocator
+	logger      *slog.Logger
+	conf        *option.DaemonConfig
+	ipMasqAgent *ipmasq.IPMasqAgent
+}
+
+func (a *eniMultiPoolAllocator) enrichResult(result *AllocationResult, err error) (*AllocationResult, error) {
+	if err != nil || result == nil {
+		return result, err
+	}
+
+	a.manager.nodeMutex.Lock()
+	node := a.manager.node
+	a.manager.nodeMutex.Unlock()
+
+	if node == nil {
+		return result, nil
+	}
+
+	return buildENIAllocationResult(a.logger, result.IP, result.IPPoolName, node, a.conf, a.ipMasqAgent)
+}
+
+func (a *eniMultiPoolAllocator) Allocate(ip net.IP, owner string, pool Pool) (*AllocationResult, error) {
+	return a.enrichResult(a.multiPoolAllocator.Allocate(ip, owner, pool))
+}
+
+func (a *eniMultiPoolAllocator) AllocateWithoutSyncUpstream(ip net.IP, owner string, pool Pool) (*AllocationResult, error) {
+	return a.enrichResult(a.multiPoolAllocator.AllocateWithoutSyncUpstream(ip, owner, pool))
+}
+
+func (a *eniMultiPoolAllocator) AllocateNext(owner string, pool Pool) (*AllocationResult, error) {
+	return a.enrichResult(a.multiPoolAllocator.AllocateNext(owner, pool))
+}
+
+func (a *eniMultiPoolAllocator) AllocateNextWithoutSyncUpstream(owner string, pool Pool) (*AllocationResult, error) {
+	return a.enrichResult(a.multiPoolAllocator.AllocateNextWithoutSyncUpstream(owner, pool))
+}
+
+// ENIMultiPoolAllocatorParams contains the parameters for creating ENI
+// multi-pool allocators.
+type ENIMultiPoolAllocatorParams struct {
+	Logger *slog.Logger
+
+	IPv4Enabled          bool
+	IPv6Enabled          bool
+	CiliumNodeUpdateRate time.Duration
+
+	Node           agentK8s.LocalCiliumNodeResource
+	LocalNodeStore *node.LocalNodeStore
+	CNClient       cilium_v2.CiliumNodeInterface
+	JobGroup       job.Group
+
+	Conf        *option.DaemonConfig
+	IPMasqAgent *ipmasq.IPMasqAgent
+}
+
+func newENIMultiPoolAllocators(p ENIMultiPoolAllocatorParams) (Allocator, Allocator) {
+	preallocMap := preAllocatePerPool{
+		Pool(defaults.IPAMDefaultIPPool): defaults.IPAMPreAllocation,
+	}
+
+	mgr := newMultiPoolManager(MultiPoolManagerParams{
+		Logger:               p.Logger,
+		IPv4Enabled:          p.IPv4Enabled,
+		IPv6Enabled:          p.IPv6Enabled,
+		CiliumNodeUpdateRate: p.CiliumNodeUpdateRate,
+		PreallocMap:          preallocMap,
+		Node:                 p.Node,
+		CNClient:             p.CNClient,
+		JobGroup:             p.JobGroup,
+		PoolsFromResource: func(cn *ciliumv2.CiliumNode) *types.IPAMPoolSpec {
+			return &cn.Spec.IPAM.Pools
+		},
+		AllowFirstLastIPs: true,
+		LinearPreAlloc:    true,
+	})
+
+	startLocalNodeAllocCIDRsSync(p.IPv4Enabled, p.IPv6Enabled, p.JobGroup, p.Node, p.LocalNodeStore)
+
+	// Wait for local node to be updated to avoid propagating spurious updates.
+	waitForLocalNodeUpdate(p.Logger, mgr)
+
+	return &eniMultiPoolAllocator{
+			multiPoolAllocator: multiPoolAllocator{manager: mgr, family: IPv4},
+			logger:             p.Logger,
+			conf:               p.Conf,
+			ipMasqAgent:        p.IPMasqAgent,
+		}, &eniMultiPoolAllocator{
+			multiPoolAllocator: multiPoolAllocator{manager: mgr, family: IPv6},
+			logger:             p.Logger,
+			conf:               p.Conf,
+			ipMasqAgent:        p.IPMasqAgent,
+		}
 }
