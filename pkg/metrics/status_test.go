@@ -4,11 +4,16 @@
 package metrics
 
 import (
+	"context"
+	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 
 	"github.com/cilium/hive/hivetest"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/cilium/cilium/api/v1/client/daemon"
@@ -109,6 +114,7 @@ cilium_unreachable_nodes 0
 
 type fakeDaemonClient struct {
 	response *daemon.GetHealthzOK
+	err      error
 }
 
 type fakeConnectivityClient struct {
@@ -120,7 +126,41 @@ func (f *fakeConnectivityClient) GetStatus(params *connectivity.GetStatusParams,
 }
 
 func (f *fakeDaemonClient) GetHealthz(params *daemon.GetHealthzParams, opts ...daemon.ClientOption) (*daemon.GetHealthzOK, error) {
-	return f.response, nil
+	return f.response, f.err
+}
+
+type logRecord struct {
+	Level   slog.Level
+	Message string
+}
+
+type capturingHandler struct {
+	records []logRecord
+}
+
+func (h *capturingHandler) Enabled(context.Context, slog.Level) bool { return true }
+func (h *capturingHandler) Handle(_ context.Context, r slog.Record) error {
+	h.records = append(h.records, logRecord{Level: r.Level, Message: r.Message})
+	return nil
+}
+func (h *capturingHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *capturingHandler) WithGroup(string) slog.Handler       { return h }
+
+// Collect must not log errors when the daemon health endpoint is
+// unreachable — the API socket does not exist yet during startup.
+func TestCollectDoesNotLogOnHealthzFailure(t *testing.T) {
+	handler := &capturingHandler{}
+	logger := slog.New(handler)
+
+	collector := newStatusCollectorWithClients(logger,
+		&fakeDaemonClient{err: fmt.Errorf("dial unix /var/run/cilium/cilium.sock: connect: no such file or directory")},
+		nil,
+	)
+
+	ch := make(chan prometheus.Metric, 10)
+	collector.Collect(ch)
+
+	assert.Empty(t, handler.records, "Collect should not log when healthz is unavailable")
 }
 
 func Test_statusCollector_Collect(t *testing.T) {
