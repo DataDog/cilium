@@ -147,7 +147,8 @@ func (h *capturingHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
 func (h *capturingHandler) WithGroup(string) slog.Handler       { return h }
 
 // Collect must not log errors when the daemon health endpoint is
-// unreachable — the API socket does not exist yet during startup.
+// unreachable before the hive lifecycle has active — the API socket
+// does not exist yet during startup.
 func TestCollectDoesNotLogOnHealthzFailure(t *testing.T) {
 	handler := &capturingHandler{}
 	logger := slog.New(handler)
@@ -156,11 +157,13 @@ func TestCollectDoesNotLogOnHealthzFailure(t *testing.T) {
 		&fakeDaemonClient{err: fmt.Errorf("dial unix /var/run/cilium/cilium.sock: connect: no such file or directory")},
 		nil,
 	)
+	// Simulate pre-startup state.
+	collector.active.Store(false)
 
 	ch := make(chan prometheus.Metric, 10)
 	collector.Collect(ch)
 
-	assert.Empty(t, handler.records, "Collect should not log when healthz is unavailable")
+	assert.Empty(t, handler.records, "Collect should not log when healthz is unavailable before startup")
 }
 
 func Test_statusCollector_Collect(t *testing.T) {

@@ -5,7 +5,9 @@ package metrics
 
 import (
 	"log/slog"
+	"sync/atomic"
 
+	"github.com/cilium/hive/cell"
 	"github.com/prometheus/client_golang/prometheus"
 
 	clientPkg "github.com/cilium/cilium/pkg/client"
@@ -19,6 +21,7 @@ type statusCollector struct {
 	logger                   *slog.Logger
 	daemonHealthGetter       daemonHealthGetter
 	connectivityStatusGetter connectivityStatusGetter
+	active                  atomic.Bool
 
 	controllersFailingDesc         *prometheus.Desc
 	ipAddressesDesc                *prometheus.Desc
@@ -26,26 +29,39 @@ type statusCollector struct {
 	unreachableHealthEndpointsDesc *prometheus.Desc
 }
 
-func newStatusCollector(logger *slog.Logger) *statusCollector {
+func newStatusCollector(logger *slog.Logger, lc cell.Lifecycle) *statusCollector {
 	ciliumClient, err := clientPkg.NewClient("")
 	if err != nil {
 		logging.Fatal(logger, "Error while creating Cilium API client", logfields.Error, err)
 	}
 
+	var connectivityClient connectivityStatusGetter
 	if option.Config.EnableHealthChecking {
 		healthClient, err := healthClientPkg.NewClient("")
 		if err != nil {
 			logging.Fatal(logger, "Error while creating cilium-health API client", logfields.Error, err)
 		}
-		return newStatusCollectorWithClients(logger, ciliumClient.Daemon, healthClient.Connectivity)
+		connectivityClient = healthClient.Connectivity
 	}
 
-	return newStatusCollectorWithClients(logger, ciliumClient.Daemon, nil)
+	sc := newStatusCollectorWithClients(logger, ciliumClient.Daemon, connectivityClient)
+	lc.Append(cell.Hook{
+		OnStart: func(cell.HookContext) error {
+			sc.active.Store(true)
+			return nil
+		},
+		OnStop: func(cell.HookContext) error {
+			sc.active.Store(false)
+			return nil
+		},
+	})
+	return sc
 }
 
-// newStatusCollectorWithClients provides a constructor with injected clients
+// newStatusCollectorWithClients provides a constructor with injected clients.
+// The collector is marked as active since the caller is providing ready clients.
 func newStatusCollectorWithClients(logger *slog.Logger, d daemonHealthGetter, c connectivityStatusGetter) *statusCollector {
-	return &statusCollector{
+	sc := &statusCollector{
 		logger:                   logger,
 		daemonHealthGetter:       d,
 		connectivityStatusGetter: c,
@@ -70,6 +86,8 @@ func newStatusCollectorWithClients(logger *slog.Logger, d daemonHealthGetter, c 
 			nil, nil,
 		),
 	}
+	sc.active.Store(true)
+	return sc
 }
 
 func (s *statusCollector) Describe(ch chan<- *prometheus.Desc) {
@@ -82,6 +100,10 @@ func (s *statusCollector) Describe(ch chan<- *prometheus.Desc) {
 }
 
 func (s *statusCollector) Collect(ch chan<- prometheus.Metric) {
+	if !s.active.Load() {
+		return
+	}
+
 	statusResponse, err := s.daemonHealthGetter.GetHealthz(nil)
 	if err != nil {
 		s.logger.Error("Error while getting Cilium status", logfields.Error, err)

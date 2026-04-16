@@ -46,11 +46,11 @@ var AgentCell = cell.Group(
 	Cell,
 	Metric(NewLegacyMetrics),
 	cell.Invoke(
-		func(logger *slog.Logger, reg *Registry) {
+		func(logger *slog.Logger, reg *Registry, lc cell.Lifecycle) {
 			// Register the agent status and BPF metrics.
 			// Don't register status and BPF collectors into the [r.collectors] as it is
 			// expensive to sample and currently not terrible useful to keep data on.
-			reg.inner.MustRegister(pkgmetric.EnabledCollector{C: newStatusCollector(logger)})
+			reg.inner.MustRegister(pkgmetric.EnabledCollector{C: newStatusCollector(logger, lc)})
 			reg.inner.MustRegister(pkgmetric.EnabledCollector{C: newbpfCollector(logger)})
 
 			// Resolve the global registry variable for as long as we still have global functions
