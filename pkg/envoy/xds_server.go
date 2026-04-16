@@ -97,14 +97,25 @@ type XDSServer interface {
 
 	// UpsertEnvoyResources inserts or updates Envoy resources in 'resources' to the xDS cache,
 	// from where they will be delivered to Envoy via xDS streaming gRPC.
+	// 'ctx' is used in Wait for Envoy N/ACK if resources contains both listeners and
+	// clusters. This is needed due to the possible dependency between them. If this is possible
+	// that caller MUST pass a context with a timeout to prevent indefinite blocking in case
+	// Envoy never responds.
 	UpsertEnvoyResources(ctx context.Context, resources Resources) error
 	// UpdateEnvoyResources removes any resources in 'old' that are not
 	// present in 'new' and then adds or updates all resources in 'new'.
 	// Envoy does not support changing the listening port of an existing
 	// listener, so if the port changes we have to delete the old listener
 	// and then add the new one with the new port number.
+	// Uses 'ctx' in Wait for Envoy N/ACK if resources contains listeners. This is needed due to
+	// the possible dependency between listeners and listeners and clusters. If resources
+	// includes listeners the caller MUST pass a context with a timeout to prevent indefinite
+	// blocking in case Envoy never responds.
 	UpdateEnvoyResources(ctx context.Context, old, new Resources) error
-	// DeleteEnvoyResources deletes all Envoy resources in 'resources'.
+	// DeleteEnvoyResources deletes all Envoy resources in 'resources'.  Uses 'ctx' in Wait for
+	// Envoy N/ACK if resources contains listeners. If resources includes listeners the caller
+	// MUST pass a context with a timeout to prevent indefinite blocking in case Envoy never
+	// responds.
 	DeleteEnvoyResources(ctx context.Context, resources Resources) error
 
 	// GetNetworkPolicies returns the current version of the network policies with the given names.
@@ -112,8 +123,6 @@ type XDSServer interface {
 	//
 	// Only used for testing
 	GetNetworkPolicies(resourceNames []string) (map[string]*cilium.NetworkPolicy, error)
-	// UseCurrentNetworkPolicy waits for any pending update on NetworkPolicy to be acked.
-	UseCurrentNetworkPolicy(ep endpoint.EndpointUpdater, policy *policy.EndpointPolicy, wg *completion.WaitGroup)
 	// UpdateNetworkPolicy adds or updates a network policy in the set published to L7 proxies.
 	// When the proxy acknowledges the network policy update, it will result in
 	// a subsequent call to the endpoint's OnProxyPolicyUpdate() function.
@@ -167,20 +176,20 @@ type xdsServer struct {
 	// Value holds the number of redirects using the listener named by the key.
 	listenerCount map[string]uint
 
-	// proxyListeners is the count of redirection proxy listeners in 'listeners'.
-	// When this is zero, cilium should not wait for NACKs/ACKs from envoy.
-	// This value is different from len(listeners) due to non-proxy listeners
-	// (e.g., prometheus listener)
-	proxyListeners int
+	// npdsListeners tracks the set of listener names configured to start an NPDS client
+	// for network policy enforcement.
+	// When this set is empty, cilium should not wait for NACKs/ACKs from envoy for
+	// network policy mutations.
+	// mutex must be held during access.
+	npdsListeners npdsListenersTracker
 
 	// networkPolicyCache publishes network policy configuration updates to
 	// Envoy proxies.
 	networkPolicyCache *xds.Cache
 
-	// NetworkPolicyMutator wraps networkPolicyCache to publish policy
+	// networkPolicyMutator wraps networkPolicyCache to publish policy
 	// updates to Envoy proxies.
-	// Exported for testing only!
-	NetworkPolicyMutator xds.AckingResourceMutator
+	networkPolicyMutator xds.AckingResourceMutator
 
 	resourceConfig map[string]*xds.ResourceTypeConfiguration
 
@@ -197,6 +206,37 @@ type xdsServer struct {
 
 	l7RulesTranslator envoypolicy.EnvoyL7RulesTranslator
 	secretManager     certificatemanager.SecretManager
+}
+
+// npdsListenersTracker tracks the set of listener names that require NPDS.
+type npdsListenersTracker map[string]struct{}
+
+// Add inserts name into the tracker and returns a function that reverts the change.
+func (t npdsListenersTracker) Add(name string) func() {
+	if _, ok := t[name]; ok {
+		return func() {}
+	}
+
+	t[name] = struct{}{}
+	return func() { delete(t, name) }
+}
+
+// Delete removes name from the tracker and returns a function that reverts the removal.
+// If name was not present the returned revert is a no-op.
+func (t npdsListenersTracker) Delete(name string) func() {
+	if _, ok := t[name]; !ok {
+		return func() {}
+	}
+
+	delete(t, name)
+	return func() {
+		t[name] = struct{}{}
+	}
+}
+
+// Empty returns true when no listeners are tracked.
+func (t npdsListenersTracker) Empty() bool {
+	return len(t) == 0
 }
 
 func toAny(pb proto.Message) *anypb.Any {
@@ -232,6 +272,7 @@ func newXDSServer(logger *slog.Logger, restorerPromise promise.Promise[endpoints
 		logger:             logger,
 		restorerPromise:    restorerPromise,
 		listenerCount:      make(map[string]uint),
+		npdsListeners:      make(npdsListenersTracker),
 		ipCache:            ipCache,
 		localEndpointStore: localEndpointStore,
 
@@ -305,7 +346,7 @@ func (s *xdsServer) initializeXdsConfigs() {
 	s.endpointMutator = edsMutator
 	s.secretMutator = sdsMutator
 	s.networkPolicyCache = npdsCache
-	s.NetworkPolicyMutator = npdsMutator
+	s.networkPolicyMutator = npdsMutator
 
 	s.resourceConfig = map[string]*xds.ResourceTypeConfiguration{
 		ListenerTypeURL:           ldsConfig,
@@ -843,7 +884,7 @@ func (s *xdsServer) addListener(name string, listenerConf func() *envoy_config_l
 	count := s.listenerCount[name]
 	if count == 0 {
 		if isProxyListener {
-			s.proxyListeners++
+			_ = s.npdsListeners.Add(name)
 		}
 		s.logger.Info("Envoy: Upserting new listener",
 			logfields.Listener, name,
@@ -851,8 +892,7 @@ func (s *xdsServer) addListener(name string, listenerConf func() *envoy_config_l
 	}
 	count++
 	s.listenerCount[name] = count
-
-	s.listenerMutator.Upsert(ListenerTypeURL, name, listenerConfig, []string{"127.0.0.1"}, wg,
+	_ = s.listenerMutator.Upsert(ListenerTypeURL, name, listenerConfig, []string{"127.0.0.1"}, wg,
 		func(err error) {
 			if cb != nil {
 				cb(err)
@@ -865,16 +905,47 @@ func (s *xdsServer) addListener(name string, listenerConf func() *envoy_config_l
 func (s *xdsServer) upsertListener(name string, listenerConf *envoy_config_listener.Listener, wg *completion.WaitGroup, callback func(error)) xds.AckingResourceMutatorRevertFunc {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+
+	var revertNPDSTracking func()
+
+	requireNPDS := listenerRequiresNPDS(listenerConf)
+	if requireNPDS {
+		revertNPDSTracking = s.npdsListeners.Add(name)
+	} else {
+		revertNPDSTracking = s.npdsListeners.Delete(name)
+		if s.npdsListeners.Empty() {
+			s.networkPolicyMutator.CancelCompletions(NetworkPolicyTypeURL)
+		}
+	}
+
 	// 'callback' is not called if there is no change and this configuration has already been acked.
-	return s.listenerMutator.Upsert(ListenerTypeURL, name, listenerConf, []string{"127.0.0.1"}, wg, callback)
+	revertFunc := s.listenerMutator.Upsert(ListenerTypeURL, name, listenerConf, []string{"127.0.0.1"}, wg, callback)
+	return func() {
+		s.mutex.Lock()
+		revertFunc()
+		revertNPDSTracking()
+		s.mutex.Unlock()
+	}
 }
 
 // deleteListener deletes an LDS Envoy Listener.
 func (s *xdsServer) deleteListener(name string, wg *completion.WaitGroup, callback func(error)) xds.AckingResourceMutatorRevertFunc {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+
+	revertNPDSTracking := s.npdsListeners.Delete(name)
+	if s.npdsListeners.Empty() {
+		s.networkPolicyMutator.CancelCompletions(NetworkPolicyTypeURL)
+	}
+
 	// 'callback' is not called if there is no change and this configuration has already been acked.
-	return s.listenerMutator.Delete(ListenerTypeURL, name, []string{"127.0.0.1"}, wg, callback)
+	revertFunc := s.listenerMutator.Delete(ListenerTypeURL, name, []string{"127.0.0.1"}, wg, callback)
+	return func() {
+		s.mutex.Lock()
+		revertNPDSTracking()
+		revertFunc()
+		s.mutex.Unlock()
+	}
 }
 
 // upsertRoute either updates an existing RDS route with 'name', or creates a new one.
@@ -1043,6 +1114,7 @@ func (s *xdsServer) removeListener(name string, wg *completion.WaitGroup, isProx
 	)
 
 	var listenerRevertFunc xds.AckingResourceMutatorRevertFunc
+	var revertNPDSTracking func()
 
 	s.mutex.Lock()
 	count := s.listenerCount[name]
@@ -1050,13 +1122,19 @@ func (s *xdsServer) removeListener(name string, wg *completion.WaitGroup, isProx
 		count--
 		if count == 0 {
 			if isProxyListener {
-				s.proxyListeners--
+				revertNPDSTracking = s.npdsListeners.Delete(name)
 			}
 			delete(s.listenerCount, name)
 			s.logger.Info("Envoy: Deleting listener",
 				logfields.Listener, name,
 			)
 			listenerRevertFunc = s.listenerMutator.Delete(ListenerTypeURL, name, []string{"127.0.0.1"}, wg, nil)
+
+			// cancel all pending network policy completions if this was the last
+			// listener with bpf metadata listener filter with bpf path configured.
+			if s.npdsListeners.Empty() {
+				s.networkPolicyMutator.CancelCompletions(NetworkPolicyTypeURL)
+			}
 		} else {
 			s.listenerCount[name] = count
 		}
@@ -1068,13 +1146,13 @@ func (s *xdsServer) removeListener(name string, wg *completion.WaitGroup, isProx
 	}
 	s.mutex.Unlock()
 
-	return func(completion *completion.Completion) {
+	return func() {
 		s.mutex.Lock()
 		if listenerRevertFunc != nil {
-			listenerRevertFunc(completion)
-			if isProxyListener {
-				s.proxyListeners++
-			}
+			listenerRevertFunc()
+		}
+		if revertNPDSTracking != nil {
+			revertNPDSTracking()
 		}
 		s.listenerCount[name] = s.listenerCount[name] + 1
 		s.mutex.Unlock()
@@ -1716,23 +1794,6 @@ func getNodeIDs(ep endpoint.EndpointUpdater, policy *policy.L4Policy) []string {
 	return nodeIDs
 }
 
-func (s *xdsServer) UseCurrentNetworkPolicy(ep endpoint.EndpointUpdater, policy *policy.EndpointPolicy, wg *completion.WaitGroup) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
-	// If there are no listeners configured, the local node's Envoy proxy won't
-	// query for network policies and therefore will never ACK them, and we'd
-	// wait forever.
-	if s.proxyListeners == 0 {
-		wg = nil
-	}
-
-	nodeIDs := getNodeIDs(ep, &policy.SelectorPolicy.L4Policy)
-
-	// only wait for the most current policy to be acked when no (new) policy is given
-	s.NetworkPolicyMutator.UseCurrent(NetworkPolicyTypeURL, nodeIDs, wg)
-}
-
 // ErrNotImplemented is the error returned by gRPC methods that are not
 // implemented by Cilium.
 var ErrNilPolicy = errors.New("nil EndpointPolicy")
@@ -1782,7 +1843,7 @@ func (s *xdsServer) UpdateNetworkPolicy(ep endpoint.EndpointUpdater, epp *policy
 	// If there are no listeners configured, the local node's Envoy proxy won't
 	// query for network policies and therefore will never ACK them, and we'd
 	// wait forever.
-	if s.proxyListeners == 0 {
+	if s.npdsListeners.Empty() {
 		wg = nil
 	}
 
@@ -1798,7 +1859,7 @@ func (s *xdsServer) UpdateNetworkPolicy(ep endpoint.EndpointUpdater, epp *policy
 	epID := ep.GetID()
 	nodeIDs := getNodeIDs(ep, l4policy)
 	resourceName := strconv.FormatUint(epID, 10)
-	revertFunc := s.NetworkPolicyMutator.Upsert(NetworkPolicyTypeURL, resourceName, networkPolicy, nodeIDs, wg, callback)
+	revertFunc := s.networkPolicyMutator.Upsert(NetworkPolicyTypeURL, resourceName, networkPolicy, nodeIDs, wg, callback)
 	revertUpdatedNetworkPolicyEndpoints := make(map[string]endpoint.EndpointUpdater, len(ips))
 	for _, ip := range ips {
 		revertUpdatedNetworkPolicyEndpoints[ip] = s.localEndpointStore.getLocalEndpoint(ip)
@@ -1819,9 +1880,7 @@ func (s *xdsServer) UpdateNetworkPolicy(ep endpoint.EndpointUpdater, epp *policy
 			}
 		}
 
-		// Don't wait for an ACK for the reverted xDS updates.
-		// This is best-effort.
-		revertFunc(nil)
+		revertFunc()
 
 		s.logger.Debug("Finished reverting xDS network policy update")
 
@@ -1835,7 +1894,10 @@ func (s *xdsServer) RemoveNetworkPolicy(ep endpoint.EndpointInfoSource) {
 
 	epID := ep.GetID()
 	resourceName := strconv.FormatUint(epID, 10)
-	s.networkPolicyCache.Delete(NetworkPolicyTypeURL, resourceName)
+
+	// Safe to pass nodeIPs as nil when wg is also nil and the returned revert function is
+	// ignored.
+	s.networkPolicyMutator.Delete(NetworkPolicyTypeURL, resourceName, nil, nil, nil)
 
 	ip := ep.GetIPv6Address()
 	if ip != "" {
@@ -1845,7 +1907,7 @@ func (s *xdsServer) RemoveNetworkPolicy(ep endpoint.EndpointInfoSource) {
 	if ip != "" {
 		s.localEndpointStore.removeLocalEndpoint(ip)
 		// Delete node resources held in the cache for the endpoint
-		s.NetworkPolicyMutator.DeleteNode(ip)
+		s.networkPolicyMutator.DeleteNode(ip)
 	}
 }
 
@@ -1912,6 +1974,10 @@ func (old *Resources) ListenersAddedOrDeleted(new *Resources) bool {
 	return false
 }
 
+// UpsertEnvoyResources uses 'ctx' in Wait for Envoy N/ACK if resources contains both listeners and
+// clusters. This is needed due to the possible dependency between them. If this is the case the
+// caller MUST pass a context with a timeout to prevent indefinite blocking in case Envoy never
+// responds.
 func (s *xdsServer) UpsertEnvoyResources(ctx context.Context, resources Resources) error {
 	if option.Config.Debug {
 		msg := ""
@@ -1996,7 +2062,7 @@ func (s *xdsServer) UpsertEnvoyResources(ctx context.Context, resources Resource
 
 		// revert all changes in case of failure
 		if err != nil {
-			revertFuncs.Revert(nil)
+			revertFuncs.Revert()
 			s.logger.Debug("UpsertEnvoyResources: Finished reverting failed xDS transactions")
 			return err
 		}
@@ -2036,7 +2102,7 @@ func (s *xdsServer) UpsertEnvoyResources(ctx context.Context, resources Resource
 
 		// revert all changes in case of failure
 		if err != nil {
-			revertFuncs.Revert(nil)
+			revertFuncs.Revert()
 			s.logger.Debug("UpsertEnvoyResources: Finished reverting failed xDS transactions")
 		}
 		return err
@@ -2044,6 +2110,10 @@ func (s *xdsServer) UpsertEnvoyResources(ctx context.Context, resources Resource
 	return nil
 }
 
+// UpdateEnvoyResources uses 'ctx' in Wait for Envoy N/ACK if resources contains listeners. This is
+// needed due to the possible dependency between listeners and listeners and clusters. If resources
+// includes listeners the caller MUST pass a context with a timeout to prevent indefinite blocking
+// in case Envoy never responds.
 func (s *xdsServer) UpdateEnvoyResources(ctx context.Context, old, new Resources) error {
 	waitForDelete := false
 	var wg *completion.WaitGroup
@@ -2191,7 +2261,8 @@ func (s *xdsServer) UpdateEnvoyResources(ctx context.Context, old, new Resources
 		revertFuncs = append(revertFuncs, s.deleteSecret(secret.Name, nil))
 	}
 
-	// Have to wait for deletes to complete before adding new listeners if a listener's port number is changed.
+	// Have to wait for deletes to complete before adding new listeners if a listener's port
+	// number is changed.
 	if wg != nil && waitForDelete {
 		start := time.Now()
 		s.logger.Debug("UpdateEnvoyResources: Waiting for proxy deletes to complete...")
@@ -2266,7 +2337,7 @@ func (s *xdsServer) UpdateEnvoyResources(ctx context.Context, old, new Resources
 
 		// revert all changes in case of failure
 		if err != nil {
-			revertFuncs.Revert(nil)
+			revertFuncs.Revert()
 			s.logger.Debug("UpdateEnvoyResources: Finished reverting failed xDS transactions")
 		}
 		return err
@@ -2274,6 +2345,9 @@ func (s *xdsServer) UpdateEnvoyResources(ctx context.Context, old, new Resources
 	return nil
 }
 
+// DeleteEnvoyResources uses 'ctx' in Wait for Envoy N/ACK if resources contains listeners. If
+// resources includes listeners the caller MUST pass a context with a timeout to prevent indefinite
+// blocking in case Envoy never responds.
 func (s *xdsServer) DeleteEnvoyResources(ctx context.Context, resources Resources) error {
 	s.logger.Debug("DeleteEnvoyResources: Deleting Envoy resources",
 		logfields.ResourceListeners, len(resources.Listeners),
@@ -2284,7 +2358,7 @@ func (s *xdsServer) DeleteEnvoyResources(ctx context.Context, resources Resource
 	)
 	var wg *completion.WaitGroup
 	var revertFuncs xds.AckingResourceMutatorRevertFuncList
-	// Wait only if new Listeners are added, as they will always be acked.
+	// Wait only if new Listeners are removed, as they will always be acked.
 	// (unreferenced routes or endpoints (and maybe clusters) are not ACKed or NACKed).
 	if len(resources.Listeners) > 0 {
 		wg = completion.NewWaitGroup(ctx)
@@ -2334,7 +2408,7 @@ func (s *xdsServer) DeleteEnvoyResources(ctx context.Context, resources Resource
 
 		// revert all changes in case of failure
 		if err != nil {
-			revertFuncs.Revert(nil)
+			revertFuncs.Revert()
 			s.logger.Debug("DeleteEnvoyResources: Finished reverting failed xDS transactions")
 		}
 		return err

@@ -949,7 +949,6 @@ snat_v4_nat(struct __ctx_buff *ctx, struct ipv4_ct_tuple *tuple,
 	    int off, struct ipv4_nat_target *target,
 	    struct trace_ctx *trace, __s8 *ext_err)
 {
-	struct icmphdr icmphdr __align_stack_8;
 	struct ipv4_nat_entry *state = NULL;
 	__u16 port_off = 0;
 	int ret;
@@ -982,7 +981,9 @@ snat_v4_nat(struct __ctx_buff *ctx, struct ipv4_ct_tuple *tuple,
 			return NAT_PUNT_TO_STACK;
 
 		break;
-	case IPPROTO_ICMP:
+	case IPPROTO_ICMP: {
+		struct icmphdr icmphdr __align_stack_8;
+
 		/* Fragmented ECHO packets are not supported currently. Drop all
 		 * fragments, because letting the first fragment pass would be
 		 * useless anyway.
@@ -1030,6 +1031,7 @@ nat_icmp_v4:
 			return DROP_NAT_UNSUPP_PROTO;
 		}
 		break;
+	}
 	default:
 		return NAT_PUNT_TO_STACK;
 	};
@@ -1153,7 +1155,6 @@ static __always_inline __maybe_unused int
 snat_v4_rev_nat(struct __ctx_buff *ctx, const struct ipv4_nat_target *target,
 		struct trace_ctx *trace, __s8 *ext_err __maybe_unused)
 {
-	struct icmphdr icmphdr __align_stack_8;
 	struct ipv4_nat_entry *state = NULL;
 	struct ipv4_ct_tuple tuple = {};
 	void *data, *data_end;
@@ -1193,7 +1194,9 @@ snat_v4_rev_nat(struct __ctx_buff *ctx, const struct ipv4_nat_target *target,
 			return NAT_PUNT_TO_STACK;
 
 		break;
-	case IPPROTO_ICMP:
+	case IPPROTO_ICMP: {
+		struct icmphdr icmphdr __align_stack_8;
+
 		/* Fragmented ECHOREPLY packets are not supported currently.
 		 * Drop all fragments, because letting the first fragment pass
 		 * would be useless anyway.
@@ -1237,6 +1240,7 @@ rev_nat_icmp_v4:
 			return NAT_PUNT_TO_STACK;
 		}
 		break;
+	}
 	default:
 		return NAT_PUNT_TO_STACK;
 	};
@@ -1451,6 +1455,13 @@ struct {
 	__type(value, struct ipv6_nat_entry);
 } ipv6_nat_entry_storage __section_maps_btf;
 
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, int);
+	__type(value, struct ipv6_ct_tuple);
+} ipv6_ct_tuple_storage __section_maps_btf;
+
 static __always_inline int
 snat_v6_nat_handle_mapping(struct __ctx_buff *ctx,
 			   struct ipv6_ct_tuple *tuple,
@@ -1467,14 +1478,18 @@ snat_v6_nat_handle_mapping(struct __ctx_buff *ctx,
 	*state = snat_v6_lookup(tuple);
 
 	if (needs_ct) {
-		struct ipv6_ct_tuple tuple_snat;
+		struct ipv6_ct_tuple *tuple_snat;
 		int ret;
 
-		memcpy(&tuple_snat, tuple, sizeof(tuple_snat));
-		/* Lookup with SCOPE_FORWARD. Ports are already in correct layout: */
-		ipv6_ct_tuple_swap_addrs(&tuple_snat);
+		tuple_snat = map_lookup_elem(&ipv6_ct_tuple_storage, &zero);
+		if (!tuple_snat)
+			return DROP_INVALID;
 
-		ret = ct_lazy_lookup6(get_ct_map6(&tuple_snat), &tuple_snat, ctx,
+		memcpy(tuple_snat, tuple, sizeof(*tuple_snat));
+		/* Lookup with SCOPE_FORWARD. Ports are already in correct layout: */
+		ipv6_ct_tuple_swap_addrs(tuple_snat);
+
+		ret = ct_lazy_lookup6(get_ct_map6(tuple_snat), tuple_snat, ctx,
 				      fraginfo, off, CT_EGRESS, SCOPE_FORWARD,
 				      CT_ENTRY_ANY, NULL, &trace->monitor);
 		if (ret < 0)
@@ -1482,8 +1497,8 @@ snat_v6_nat_handle_mapping(struct __ctx_buff *ctx,
 
 		trace->reason = (enum trace_reason)ret;
 		if (ret == CT_NEW) {
-			ret = ct_create6(get_ct_map6(&tuple_snat), NULL,
-					 &tuple_snat, ctx, CT_EGRESS,
+			ret = ct_create6(get_ct_map6(tuple_snat), NULL,
+					 tuple_snat, ctx, CT_EGRESS,
 					 NULL, ext_err);
 			if (IS_ERR(ret))
 				return ret;
@@ -1492,9 +1507,13 @@ snat_v6_nat_handle_mapping(struct __ctx_buff *ctx,
 
 	if (*state) {
 		int ret;
-		struct ipv6_ct_tuple rtuple = {};
+		struct ipv6_ct_tuple *rtuple;
 
-		set_v6_rtuple(tuple, *state, &rtuple);
+		rtuple = map_lookup_elem(&ipv6_ct_tuple_storage, &zero);
+		if (!rtuple)
+			return DROP_INVALID;
+
+		set_v6_rtuple(tuple, *state, rtuple);
 		if (ipv6_addr_equals(&target->addr, &(*state)->to_saddr) &&
 		    needs_ct == (*state)->common.needs_ct) {
 			/* Check for the reverse SNAT entry. If it is missing (e.g. due to LRU
@@ -1503,7 +1522,7 @@ snat_v6_nat_handle_mapping(struct __ctx_buff *ctx,
 			struct ipv6_nat_entry *rstate;
 			struct ipv6_nat_entry *lookup_result;
 
-			lookup_result = snat_v6_lookup(&rtuple);
+			lookup_result = snat_v6_lookup(rtuple);
 			if (!lookup_result) {
 				rstate = map_lookup_elem(&ipv6_nat_entry_storage, &zero);
 				if (!rstate)
@@ -1514,7 +1533,7 @@ snat_v6_nat_handle_mapping(struct __ctx_buff *ctx,
 				rstate->to_dport = tuple->sport;
 				rstate->common.needs_ct = needs_ct;
 				rstate->common.created = bpf_mono_now();
-				ret = __snat_create(&cilium_snat_v6_external, &rtuple, rstate,
+				ret = __snat_create(&cilium_snat_v6_external, rtuple, rstate,
 						    false);
 				if (ret < 0) {
 					if (ext_err)
@@ -1531,9 +1550,9 @@ snat_v6_nat_handle_mapping(struct __ctx_buff *ctx,
 		if (IS_ERR(ret))
 			return ret;
 
-		*state = snat_v6_lookup(&rtuple);
+		*state = snat_v6_lookup(rtuple);
 		if (*state)
-			__snat_delete(&cilium_snat_v6_external, &rtuple);
+			__snat_delete(&cilium_snat_v6_external, rtuple);
 	}
 
 	*state = map_lookup_elem(&ipv6_nat_entry_storage, &zero);
@@ -1720,25 +1739,25 @@ static __always_inline void snat_v6_init_tuple(const struct ipv6hdr *ip6,
 }
 
 static __always_inline int
-snat_v6_needs_masquerade(struct __ctx_buff *ctx __maybe_unused,
-			 struct ipv6_ct_tuple *tuple __maybe_unused,
-			 struct ipv6hdr *ip6 __maybe_unused,
-			 fraginfo_t fraginfo __maybe_unused,
-			 int l4_off __maybe_unused,
-			 struct ipv6_nat_target *target __maybe_unused)
+__snat_v6_needs_masquerade(struct __ctx_buff *ctx, struct ipv6_ct_tuple *tuple,
+			   fraginfo_t fraginfo, int l4_off,
+			   struct ipv6_nat_target *target)
 {
-	union v6addr masq_addr __maybe_unused = CONFIG(nat_ipv6_masquerade);
-	const struct remote_endpoint_info *remote_ep __maybe_unused;
-	const struct endpoint_info *local_ep __maybe_unused;
+	union v6addr masq_addr = CONFIG(nat_ipv6_masquerade);
+	const struct remote_endpoint_info *remote_ep;
+	const struct endpoint_info *local_ep;
+	void *data, *data_end;
+	struct ipv6hdr *ip6;
 
-	/* See comments in snat_v4_needs_masquerade(). */
-#if defined(ENABLE_MASQUERADE_IPV6) && defined(IS_BPF_HOST)
 	if (ipv6_addr_equals(&tuple->saddr, &masq_addr)) {
 		ipv6_addr_copy(&target->addr, &masq_addr);
 		target->needs_ct = true;
 
 		return NAT_NEEDED;
 	}
+
+	if (!revalidate_data(ctx, &data, &data_end, &ip6))
+		return DROP_INVALID;
 
 	local_ep = __lookup_ip6_endpoint(&tuple->saddr);
 
@@ -1835,9 +1854,45 @@ snat_v6_needs_masquerade(struct __ctx_buff *ctx __maybe_unused,
 		ipv6_addr_copy(&target->addr, &masq_addr);
 		return NAT_NEEDED;
 	}
-#endif /* ENABLE_MASQUERADE_IPV6 && IS_BPF_HOST */
 
 	return NAT_PUNT_TO_STACK;
+}
+
+/* Store struct ipv6_ct_tuple and struct ipv6_nat_target objects in maps to
+ * optimize stack usage.
+ */
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, int);
+	__type(value, struct ipv6_ct_tuple);
+} ct_tuple_storage __section_maps_btf;
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, int);
+	__type(value, struct ipv6_nat_target);
+} nat_target_storage __section_maps_btf;
+
+__noinline __weak int
+snat_v6_needs_masquerade(struct __ctx_buff *ctx __maybe_unused,
+			 fraginfo_t fraginfo __maybe_unused,
+			 int l4_off __maybe_unused)
+{
+	struct ipv6_nat_target *target;
+	struct ipv6_ct_tuple *tuple;
+	int ret, zero = 0;
+
+	tuple = map_lookup_elem(&ct_tuple_storage, &zero);
+	if (!tuple)
+		return DROP_INVALID;
+	target = map_lookup_elem(&nat_target_storage, &zero);
+	if (!target)
+		return DROP_INVALID;
+
+	ret = __snat_v6_needs_masquerade(ctx, tuple, fraginfo, l4_off, target);
+
+	return ret;
 }
 
 static __always_inline __maybe_unused int
@@ -1963,7 +2018,6 @@ snat_v6_nat(struct __ctx_buff *ctx, struct ipv6_ct_tuple *tuple,
 	    int off, struct ipv6_nat_target *target,
 	    struct trace_ctx *trace, __s8 *ext_err)
 {
-	struct icmp6hdr icmp6hdr __align_stack_8;
 	struct ipv6_nat_entry *state = NULL;
 	__u16 port_off = 0;
 	int ret;
@@ -1996,9 +2050,12 @@ snat_v6_nat(struct __ctx_buff *ctx, struct ipv6_ct_tuple *tuple,
 			return NAT_PUNT_TO_STACK;
 
 		break;
-	case IPPROTO_ICMPV6:
+	case IPPROTO_ICMPV6: {
+		struct icmp6hdr icmp6hdr __align_stack_8;
+
 		if (ipfrag_is_fragment(fraginfo))
 			return DROP_INVALID;
+
 		if (ctx_load_bytes(ctx, off, &icmp6hdr, sizeof(icmp6hdr)) < 0)
 			return DROP_INVALID;
 
@@ -2044,6 +2101,7 @@ nat_icmp_v6:
 			return DROP_NAT_UNSUPP_PROTO;
 		}
 		break;
+	}
 	default:
 		return NAT_PUNT_TO_STACK;
 	};
@@ -2143,7 +2201,6 @@ static __always_inline __maybe_unused int
 snat_v6_rev_nat(struct __ctx_buff *ctx, const struct ipv6_nat_target *target,
 		struct trace_ctx *trace, __s8 *ext_err __maybe_unused)
 {
-	struct icmp6hdr icmp6hdr __align_stack_8;
 	struct ipv6_nat_entry *state = NULL;
 	struct ipv6_ct_tuple tuple = {};
 	__u32 off, inner_l3_off;
@@ -2185,7 +2242,9 @@ snat_v6_rev_nat(struct __ctx_buff *ctx, const struct ipv6_nat_target *target,
 			return NAT_PUNT_TO_STACK;
 
 		break;
-	case IPPROTO_ICMPV6:
+	case IPPROTO_ICMPV6: {
+		struct icmp6hdr icmp6hdr __align_stack_8;
+
 		if (ipfrag_is_fragment(fraginfo))
 			return DROP_INVALID;
 		if (ctx_load_bytes(ctx, off, &icmp6hdr, sizeof(icmp6hdr)) < 0)
@@ -2217,6 +2276,7 @@ snat_v6_rev_nat(struct __ctx_buff *ctx, const struct ipv6_nat_target *target,
 			return NAT_PUNT_TO_STACK;
 		}
 		break;
+	}
 	default:
 		return NAT_PUNT_TO_STACK;
 	};

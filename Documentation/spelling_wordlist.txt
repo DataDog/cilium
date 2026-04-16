@@ -840,6 +840,7 @@ udp
 ui
 uid
 uint
+unapplied
 unaudited
 uncommented
 uncordon

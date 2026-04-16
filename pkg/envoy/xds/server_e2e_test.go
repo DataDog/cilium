@@ -28,8 +28,9 @@ import (
 )
 
 const (
-	TestTimeout   = 10 * time.Second
-	StreamTimeout = 4 * time.Second
+	TestTimeout                 = 10 * time.Second
+	StreamTimeout               = 4 * time.Second
+	noResponseTestStreamTimeout = 1 * time.Second
 )
 
 var (
@@ -127,8 +128,9 @@ func TestRequestAllResources(t *testing.T) {
 	require.NoError(t, err)
 	require.Condition(t, responseCheck(resp, "1", nil, false, typeURL))
 	require.Equal(t, resp.VersionInfo, resp.Nonce)
-	require.Equal(t, 0, metrics.nack[typeURL])
 	require.Equal(t, 0, metrics.ack[typeURL])
+	require.Equal(t, 0, metrics.nack[typeURL])
+	require.Equal(t, 0, metrics.cancel[typeURL])
 
 	// Request the next version of resources.
 	req = &envoy_service_discovery.DiscoveryRequest{
@@ -151,16 +153,18 @@ func TestRequestAllResources(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, resp.VersionInfo, resp.Nonce)
 	require.Condition(t, responseCheck(resp, "2", []proto.Message{resources[0]}, false, typeURL))
-	require.Equal(t, 0, metrics.nack[typeURL])
 	require.Equal(t, 0, metrics.ack[typeURL])
+	require.Equal(t, 0, metrics.nack[typeURL])
+	require.Equal(t, 0, metrics.cancel[typeURL])
 
 	// Create version 3 with resources 0 and 1.
 	// This time, update the cache before sending the request.
 	v, mod, _ = cache.Upsert(typeURL, resources[1].Name, resources[1])
 	require.Equal(t, uint64(3), v)
 	require.True(t, mod)
-	require.Equal(t, 0, metrics.nack[typeURL])
 	require.Equal(t, 0, metrics.ack[typeURL])
+	require.Equal(t, 0, metrics.nack[typeURL])
+	require.Equal(t, 0, metrics.cancel[typeURL])
 
 	// Request the next version of resources.
 	req = &envoy_service_discovery.DiscoveryRequest{
@@ -178,8 +182,9 @@ func TestRequestAllResources(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, resp.VersionInfo, resp.Nonce)
 	require.Condition(t, responseCheck(resp, "3", []proto.Message{resources[0], resources[1]}, false, typeURL))
-	require.Equal(t, 0, metrics.nack[typeURL])
 	require.Equal(t, 0, metrics.ack[typeURL])
+	require.Equal(t, 0, metrics.nack[typeURL])
+	require.Equal(t, 0, metrics.cancel[typeURL])
 
 	// Request the next version of resources.
 	req = &envoy_service_discovery.DiscoveryRequest{
@@ -202,8 +207,9 @@ func TestRequestAllResources(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, resp.VersionInfo, resp.Nonce)
 	require.Condition(t, responseCheck(resp, "4", []proto.Message{resources[1]}, false, typeURL))
-	require.Equal(t, 0, metrics.nack[typeURL])
 	require.Equal(t, 0, metrics.ack[typeURL])
+	require.Equal(t, 0, metrics.nack[typeURL])
+	require.Equal(t, 0, metrics.cancel[typeURL])
 
 	// Close the stream.
 	closeStream()
@@ -278,7 +284,7 @@ func TestAck(t *testing.T) {
 	// Create version 2 with resource 0.
 	callback1, comp1 := newCompCallback(logger)
 	mutator.Upsert(typeURL, resources[0].Name, resources[0], []string{node0}, wg, callback1)
-	require.Condition(t, isNotCompletedComparison(comp1))
+	require.Condition(t, doesNotCompleteComparison(comp1))
 
 	// Expecting a response with that resource.
 	resp, err = stream.RecvResponse()
@@ -290,7 +296,7 @@ func TestAck(t *testing.T) {
 	// This time, update the cache before sending the request.
 	callback2, comp2 := newCompCallback(logger)
 	mutator.Upsert(typeURL, resources[1].Name, resources[1], []string{node0}, wg, callback2)
-	require.Condition(t, isNotCompletedComparison(comp2))
+	require.Condition(t, doesNotCompleteComparison(comp2))
 
 	// Request the next version of resources.
 	req = &envoy_service_discovery.DiscoveryRequest{
@@ -311,7 +317,7 @@ func TestAck(t *testing.T) {
 
 	// Version 2 was ACKed by the last request.
 	require.Condition(t, completedComparison(comp1))
-	require.Condition(t, isNotCompletedComparison(comp2))
+	require.Condition(t, doesNotCompleteComparison(comp2))
 
 	// Request the next version of resources.
 	req = &envoy_service_discovery.DiscoveryRequest{
@@ -385,8 +391,9 @@ func TestRequestSomeResources(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, resp.VersionInfo, resp.Nonce)
 	require.Condition(t, responseCheck(resp, "1", nil, false, typeURL))
-	require.Equal(t, 0, metrics.nack[typeURL])
 	require.Equal(t, 0, metrics.ack[typeURL])
+	require.Equal(t, 0, metrics.nack[typeURL])
+	require.Equal(t, 0, metrics.cancel[typeURL])
 
 	// Request the next version of resources.
 	req = &envoy_service_discovery.DiscoveryRequest{
@@ -409,8 +416,9 @@ func TestRequestSomeResources(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, resp.VersionInfo, resp.Nonce)
 	require.Condition(t, responseCheck(resp, "2", nil, false, typeURL))
-	require.Equal(t, 0, metrics.nack[typeURL])
 	require.Equal(t, 0, metrics.ack[typeURL])
+	require.Equal(t, 0, metrics.nack[typeURL])
+	require.Equal(t, 0, metrics.cancel[typeURL])
 
 	// Create version 3 with resource 0 and 1.
 	// This time, update the cache before sending the request.
@@ -434,8 +442,9 @@ func TestRequestSomeResources(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, resp.VersionInfo, resp.Nonce)
 	require.Condition(t, responseCheck(resp, "3", []proto.Message{resources[1]}, false, typeURL))
-	require.Equal(t, 0, metrics.nack[typeURL])
 	require.Equal(t, 0, metrics.ack[typeURL])
+	require.Equal(t, 0, metrics.nack[typeURL])
+	require.Equal(t, 0, metrics.cancel[typeURL])
 
 	// Request the next version of resources.
 	req = &envoy_service_discovery.DiscoveryRequest{
@@ -458,8 +467,9 @@ func TestRequestSomeResources(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, resp.VersionInfo, resp.Nonce)
 	require.Condition(t, responseCheck(resp, "4", []proto.Message{resources[1], resources[2]}, false, typeURL))
-	require.Equal(t, 0, metrics.nack[typeURL])
 	require.Equal(t, 0, metrics.ack[typeURL])
+	require.Equal(t, 0, metrics.nack[typeURL])
+	require.Equal(t, 0, metrics.cancel[typeURL])
 
 	// Request the next version of resources.
 	req = &envoy_service_discovery.DiscoveryRequest{
@@ -496,8 +506,9 @@ func TestRequestSomeResources(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, resp.VersionInfo, resp.Nonce)
 	require.Condition(t, responseCheck(resp, "6", []proto.Message{resources[2]}, false, typeURL))
-	require.Equal(t, 0, metrics.nack[typeURL])
 	require.Equal(t, 0, metrics.ack[typeURL])
+	require.Equal(t, 0, metrics.nack[typeURL])
+	require.Equal(t, 0, metrics.cancel[typeURL])
 
 	// Resource 1 has been deleted; Resource 2 exists. Confirm using Lookup().
 	rsrc, err := cache.Lookup(typeURL, resources[1].Name)
@@ -508,8 +519,9 @@ func TestRequestSomeResources(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, rsrc)
 	require.Equal(t, resources[2], rsrc.(*envoy_config_route.RouteConfiguration))
-	require.Equal(t, 0, metrics.nack[typeURL])
 	require.Equal(t, 0, metrics.ack[typeURL])
+	require.Equal(t, 0, metrics.nack[typeURL])
+	require.Equal(t, 0, metrics.cancel[typeURL])
 
 	// Close the stream.
 	closeStream()
@@ -577,8 +589,9 @@ func TestUpdateRequestResources(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, resp.VersionInfo, resp.Nonce)
 	require.Condition(t, responseCheck(resp, "2", []proto.Message{resources[1]}, false, typeURL))
-	require.Equal(t, 0, metrics.nack[typeURL])
 	require.Equal(t, 0, metrics.ack[typeURL])
+	require.Equal(t, 0, metrics.nack[typeURL])
+	require.Equal(t, 0, metrics.cancel[typeURL])
 
 	// Request the next version of resource 1.
 	req = &envoy_service_discovery.DiscoveryRequest{
@@ -614,8 +627,9 @@ func TestUpdateRequestResources(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, resp.VersionInfo, resp.Nonce)
 	require.Condition(t, responseCheck(resp, "3", []proto.Message{resources[1], resources[2]}, false, typeURL))
-	require.Equal(t, 0, metrics.nack[typeURL])
 	require.Equal(t, 0, metrics.ack[typeURL])
+	require.Equal(t, 0, metrics.nack[typeURL])
+	require.Equal(t, 0, metrics.cancel[typeURL])
 
 	// Close the stream.
 	closeStream()
@@ -675,8 +689,9 @@ func TestRequestStaleNonce(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, resp.VersionInfo, resp.Nonce)
 	require.Condition(t, responseCheck(resp, "1", nil, false, typeURL))
-	require.Equal(t, 0, metrics.nack[typeURL])
 	require.Equal(t, 0, metrics.ack[typeURL])
+	require.Equal(t, 0, metrics.nack[typeURL])
+	require.Equal(t, 0, metrics.cancel[typeURL])
 
 	// Request the next version of resources.
 	req = &envoy_service_discovery.DiscoveryRequest{
@@ -699,8 +714,9 @@ func TestRequestStaleNonce(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, resp.VersionInfo, resp.Nonce)
 	require.Condition(t, responseCheck(resp, "2", []proto.Message{resources[0]}, false, typeURL))
-	require.Equal(t, 0, metrics.nack[typeURL])
 	require.Equal(t, 0, metrics.ack[typeURL])
+	require.Equal(t, 0, metrics.nack[typeURL])
+	require.Equal(t, 0, metrics.cancel[typeURL])
 
 	// Create version 3 with resources 0 and 1.
 	// This time, update the cache before sending the request.
@@ -725,8 +741,9 @@ func TestRequestStaleNonce(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, resp.VersionInfo, resp.Nonce)
 	require.Condition(t, responseCheck(resp, "3", []proto.Message{resources[0], resources[1]}, false, typeURL))
-	require.Equal(t, 0, metrics.nack[typeURL])
 	require.Equal(t, 0, metrics.ack[typeURL])
+	require.Equal(t, 0, metrics.nack[typeURL])
+	require.Equal(t, 0, metrics.cancel[typeURL])
 
 	// Request the next version of resources.
 	req = &envoy_service_discovery.DiscoveryRequest{
@@ -749,8 +766,9 @@ func TestRequestStaleNonce(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, resp.VersionInfo, resp.Nonce)
 	require.Condition(t, responseCheck(resp, "4", []proto.Message{resources[1]}, false, typeURL))
-	require.Equal(t, 0, metrics.nack[typeURL])
 	require.Equal(t, 0, metrics.ack[typeURL])
+	require.Equal(t, 0, metrics.nack[typeURL])
+	require.Equal(t, 0, metrics.cancel[typeURL])
 
 	// Close the stream.
 	closeStream()
@@ -809,8 +827,9 @@ func TestNAck(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, resp.VersionInfo, resp.Nonce)
 	require.Condition(t, responseCheck(resp, "1", nil, false, typeURL))
-	require.Equal(t, 0, metrics.nack[typeURL])
 	require.Equal(t, 0, metrics.ack[typeURL])
+	require.Equal(t, 0, metrics.nack[typeURL])
+	require.Equal(t, 0, metrics.cancel[typeURL])
 
 	// Request the next version of resources.
 	req = &envoy_service_discovery.DiscoveryRequest{
@@ -827,15 +846,16 @@ func TestNAck(t *testing.T) {
 	// Create version 2 with resource 0.
 	callback1, comp1 := newCompCallback(logger)
 	mutator.Upsert(typeURL, resources[0].Name, resources[0], []string{node0}, wg, callback1)
-	require.Condition(t, isNotCompletedComparison(comp1))
+	require.Condition(t, doesNotCompleteComparison(comp1))
 
 	// Expecting a response with that resource.
 	resp, err = stream.RecvResponse()
 	require.NoError(t, err)
 	require.Equal(t, resp.VersionInfo, resp.Nonce)
 	require.Condition(t, responseCheck(resp, "2", []proto.Message{resources[0]}, false, typeURL))
-	require.Equal(t, 0, metrics.nack[typeURL])
 	require.Equal(t, 0, metrics.ack[typeURL])
+	require.Equal(t, 0, metrics.nack[typeURL])
+	require.Equal(t, 0, metrics.cancel[typeURL])
 
 	// NACK the received version of resources.
 	req = &envoy_service_discovery.DiscoveryRequest{
@@ -854,10 +874,10 @@ func TestNAck(t *testing.T) {
 	wg = completion.NewWaitGroup(ctx)
 	callback2, comp2 := newCompCallback(logger)
 	mutator.Upsert(typeURL, resources[1].Name, resources[1], []string{node0}, wg, callback2)
-	require.Condition(t, isNotCompletedComparison(comp2))
+	require.Condition(t, doesNotCompleteComparison(comp2))
 
 	// Version 2 was NACKed by the last request, so comp1 must NOT be completedInTime ever.
-	require.Condition(t, isNotCompletedComparison(comp1))
+	require.Condition(t, doesNotCompleteComparison(comp1))
 	require.EqualValues(t, &ProxyError{Err: ErrNackReceived, Detail: "NACKNACK"}, comp1.Err())
 
 	// Expecting a response with both resources.
@@ -867,10 +887,11 @@ func TestNAck(t *testing.T) {
 	require.Equal(t, resp.VersionInfo, resp.Nonce)
 	require.Condition(t, responseCheck(resp, "3", []proto.Message{resources[0], resources[1]}, false, typeURL))
 
-	require.Condition(t, isNotCompletedComparison(comp1))
-	require.Condition(t, isNotCompletedComparison(comp2))
-	require.Equal(t, 0, metrics.nack[typeURL])
-	require.Equal(t, 2, metrics.ack[typeURL])
+	require.Condition(t, doesNotCompleteComparison(comp1))
+	require.Condition(t, doesNotCompleteComparison(comp2))
+	require.Equal(t, 0, metrics.ack[typeURL])
+	require.Equal(t, 2, metrics.nack[typeURL])
+	require.Equal(t, 0, metrics.cancel[typeURL])
 
 	// Request the next version of resources.
 	req = &envoy_service_discovery.DiscoveryRequest{
@@ -883,10 +904,11 @@ func TestNAck(t *testing.T) {
 	err = stream.SendRequest(req)
 	require.NoError(t, err)
 
-	require.Condition(t, isNotCompletedComparison(comp1))
+	require.Condition(t, doesNotCompleteComparison(comp1))
 	require.Condition(t, completedComparison(comp2))
-	require.Equal(t, 1, metrics.nack[typeURL])
-	require.Equal(t, 2, metrics.ack[typeURL])
+	require.Equal(t, 1, metrics.ack[typeURL])
+	require.Equal(t, 2, metrics.nack[typeURL])
+	require.Equal(t, 0, metrics.cancel[typeURL])
 
 	// Close the stream.
 	closeStream()
@@ -945,13 +967,14 @@ func TestNAckFromTheStart(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, resp.VersionInfo, resp.Nonce)
 	require.Condition(t, responseCheck(resp, "1", nil, false, typeURL))
-	require.Equal(t, 0, metrics.nack[typeURL])
 	require.Equal(t, 0, metrics.ack[typeURL])
+	require.Equal(t, 0, metrics.nack[typeURL])
+	require.Equal(t, 0, metrics.cancel[typeURL])
 
 	// Create version 2 with resource 0.
 	callback1, comp1 := newCompCallback(logger)
 	mutator.Upsert(typeURL, resources[0].Name, resources[0], []string{node0}, wg, callback1)
-	require.Condition(t, isNotCompletedComparison(comp1))
+	require.Condition(t, doesNotCompleteComparison(comp1))
 
 	// Request the next version of resources.
 	req = &envoy_service_discovery.DiscoveryRequest{
@@ -969,8 +992,9 @@ func TestNAckFromTheStart(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, resp.VersionInfo, resp.Nonce)
 	require.Condition(t, responseCheck(resp, "2", []proto.Message{resources[0]}, false, typeURL))
-	require.Equal(t, 0, metrics.nack[typeURL])
-	require.Equal(t, 1, metrics.ack[typeURL])
+	require.Equal(t, 0, metrics.ack[typeURL])
+	require.Equal(t, 1, metrics.nack[typeURL])
+	require.Equal(t, 0, metrics.cancel[typeURL])
 
 	// NACK the received version of resources.
 	req = &envoy_service_discovery.DiscoveryRequest{
@@ -984,7 +1008,7 @@ func TestNAckFromTheStart(t *testing.T) {
 	require.NoError(t, err)
 
 	// Version 2 was NACKed by the last request, so it must NOT be completedInTime successfully.
-	require.Condition(t, isNotCompletedComparison(comp1))
+	require.Condition(t, doesNotCompleteComparison(comp1))
 
 	// Version 2 did not have a callback, so the completion was completedInTime with an error
 	require.Error(t, comp1.Err())
@@ -996,7 +1020,7 @@ func TestNAckFromTheStart(t *testing.T) {
 	// Create version 3 with resources 0 and 1.
 	callback2, comp2 := newCompCallback(logger)
 	mutator.Upsert(typeURL, resources[1].Name, resources[1], []string{node0}, wg, callback2)
-	require.Condition(t, isNotCompletedComparison(comp2))
+	require.Condition(t, doesNotCompleteComparison(comp2))
 
 	// Expecting a response with both resources.
 	// Note that the stream should not have a message that repeats the previous one!
@@ -1005,9 +1029,10 @@ func TestNAckFromTheStart(t *testing.T) {
 	require.Condition(t, responseCheck(resp, "3", []proto.Message{resources[0], resources[1]}, false, typeURL))
 	require.NotEmpty(t, resp.Nonce)
 
-	require.Condition(t, isNotCompletedComparison(comp2))
-	require.Equal(t, 0, metrics.nack[typeURL])
-	require.Equal(t, 3, metrics.ack[typeURL])
+	require.Condition(t, doesNotCompleteComparison(comp2))
+	require.Equal(t, 0, metrics.ack[typeURL])
+	require.Equal(t, 3, metrics.nack[typeURL])
+	require.Equal(t, 0, metrics.cancel[typeURL])
 
 	// Request the next version of resources.
 	req = &envoy_service_discovery.DiscoveryRequest{
@@ -1022,8 +1047,9 @@ func TestNAckFromTheStart(t *testing.T) {
 
 	// Version 3 was ACKed by the last request.
 	require.Condition(t, completedComparison(comp2))
-	require.Equal(t, 1, metrics.nack[typeURL])
-	require.Equal(t, 3, metrics.ack[typeURL])
+	require.Equal(t, 1, metrics.ack[typeURL])
+	require.Equal(t, 3, metrics.nack[typeURL])
+	require.Equal(t, 0, metrics.cancel[typeURL])
 
 	// Close the stream.
 	closeStream()
@@ -1069,7 +1095,7 @@ func TestRequestHighVersionFromTheStart(t *testing.T) {
 	// Create version 2 with resource 0.
 	callback1, comp1 := newCompCallback(logger)
 	mutator.Upsert(typeURL, resources[0].Name, resources[0], []string{node0}, wg, callback1)
-	require.Condition(t, isNotCompletedComparison(comp1))
+	require.Condition(t, doesNotCompleteComparison(comp1))
 
 	// Request all resources, with a version higher than the version currently
 	// in Cilium's cache. This happens after the server restarts but the
@@ -1089,8 +1115,9 @@ func TestRequestHighVersionFromTheStart(t *testing.T) {
 	require.NoError(t, err)
 	require.Condition(t, responseCheck(resp, "65", []proto.Message{resources[0]}, false, typeURL))
 	require.NotEmpty(t, resp.Nonce)
-	require.Equal(t, 0, metrics.nack[typeURL])
 	require.Equal(t, 0, metrics.ack[typeURL])
+	require.Equal(t, 0, metrics.nack[typeURL])
+	require.Equal(t, 0, metrics.cancel[typeURL])
 
 	// Close the stream.
 	closeStream()
@@ -1140,7 +1167,7 @@ func TestTheSameVersionOnRestart(t *testing.T) {
 	// Create version 2 with resource 0.
 	callback1, comp1 := newCompCallback(logger)
 	mutator.Upsert(typeURL, resources[0].Name, resources[0], []string{node0}, wg, callback1)
-	require.Condition(t, isNotCompletedComparison(comp1))
+	require.Condition(t, doesNotCompleteComparison(comp1))
 
 	// Close previous stream and create a new one.
 	closeStream()
@@ -1181,8 +1208,9 @@ func TestTheSameVersionOnRestart(t *testing.T) {
 	require.NoError(t, err)
 	require.Condition(t, responseCheck(resp, "3", []proto.Message{resources[0]}, false, typeURL))
 	require.NotEmpty(t, resp.Nonce)
-	require.Equal(t, 0, metrics.nack[typeURL])
 	require.Equal(t, 0, metrics.ack[typeURL])
+	require.Equal(t, 0, metrics.nack[typeURL])
+	require.Equal(t, 0, metrics.cancel[typeURL])
 
 	// Close the stream.
 	closeStream()
@@ -1213,7 +1241,7 @@ func TestNotAckedAfterRestart(t *testing.T) {
 	mutator := NewAckingResourceMutatorWrapper(logger, cache, metrics)
 
 	streamCtx, closeStream := context.WithCancel(ctx)
-	stream := NewMockStream(streamCtx, 1, 1, StreamTimeout, StreamTimeout)
+	stream := NewMockStream(streamCtx, 1, 1, noResponseTestStreamTimeout, noResponseTestStreamTimeout)
 	defer stream.Close()
 
 	server := NewServer(logger, map[string]*ResourceTypeConfiguration{typeURL: {Source: cache, AckObserver: mutator}}, nil, metrics)
@@ -1230,7 +1258,7 @@ func TestNotAckedAfterRestart(t *testing.T) {
 	// Create version 2 with resource 0.
 	callback1, comp1 := newCompCallback(logger)
 	mutator.Upsert(typeURL, resources[0].Name, resources[0], []string{node0}, wg, callback1)
-	require.Condition(t, isNotCompletedComparison(comp1))
+	require.Condition(t, doesNotCompleteComparison(comp1))
 
 	// Request all resources, with a version higher than the version currently
 	// in Cilium's cache. This happens after the server restarts but the
@@ -1252,7 +1280,7 @@ func TestNotAckedAfterRestart(t *testing.T) {
 	require.Condition(t, responseCheck(resp, "65", []proto.Message{resources[0]}, false, typeURL))
 
 	// Version 2 was not ACKED by the last request, so it must NOT be completedInTime successfully.
-	require.Condition(t, isNotCompletedComparison(comp1))
+	require.Condition(t, doesNotCompleteComparison(comp1))
 	// Check that the completion was not NACKed
 	require.NoError(t, comp1.Err())
 	// Simulate that first request on a new stream was NACKed.
@@ -1272,7 +1300,7 @@ func TestNotAckedAfterRestart(t *testing.T) {
 	_, err = stream.RecvResponse()
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	// IsCompleted is true only for completions without error
-	require.Condition(t, isNotCompletedComparison(comp1))
+	require.Condition(t, doesNotCompleteComparison(comp1))
 	// Check that the completion was NACKed
 	require.Error(t, comp1.Err())
 
@@ -1373,11 +1401,11 @@ func TestWaitForAck(t *testing.T) {
 
 	cdsCallback, cdsComp := newCompCallback(logger)
 	cdsMutator.Upsert(ClusterTypeURL, clusterConf.Name, clusterConf, []string{node0}, wg, cdsCallback)
-	require.Condition(t, isNotCompletedComparison(cdsComp))
+	require.Condition(t, doesNotCompleteComparison(cdsComp))
 
 	ldsCallback, ldsComp := newCompCallback(logger)
 	ldsMutator.Upsert(ListenerTypeURL, listenerConf.Name, listenerConf, []string{node0}, wg, ldsCallback)
-	require.Condition(t, isNotCompletedComparison(ldsComp))
+	require.Condition(t, doesNotCompleteComparison(ldsComp))
 
 	// Request listener resources, with a version higher than the version currently
 	// in Cilium's cache. This happens after the server restarts but the
@@ -1572,7 +1600,7 @@ func TestWaitForAckNoClusters(t *testing.T) {
 
 	ldsCallback, ldsComp := newCompCallback(logger)
 	ldsMutator.Upsert(ListenerTypeURL, listenerConf.Name, listenerConf, []string{node0}, wg, ldsCallback)
-	require.Condition(t, isNotCompletedComparison(ldsComp))
+	require.Condition(t, doesNotCompleteComparison(ldsComp))
 
 	// Request listener resources, with a version higher than the version currently
 	// in Cilium's cache. This happens after the server restarts but the

@@ -22,7 +22,7 @@ permissions:
 
 env:
   # renovate: datasource=github-releases depName=eksctl-io/eksctl
-  eksctl_version: v0.224.0
+  eksctl_version: v0.225.0
 
 jobs:
   generate-cleanup-matrix:
@@ -62,6 +62,13 @@ jobs:
           echo "empty=false" >> $GITHUB_OUTPUT
 
   cleanup-old-clusters:
+    permissions:
+      # To be able to trigger eks-cluster-delete.yaml workflow
+      actions: write
+      # To be able to access the repository with actions/checkout
+      contents: read
+      # To be able to request the JWT from GitHub's OIDC provider
+      id-token: write
     name: Cleanup clusters older than 6 hours
     runs-on: ubuntu-24.04
     needs: generate-cleanup-matrix
@@ -76,22 +83,18 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install eksctl CLI
-        run: |
-          curl -LO "https://github.com/eksctl-io/eksctl/releases/download/${{ env.eksctl_version }}/eksctl_$(uname -s)_amd64.tar.gz"
-          sudo tar -xzvf "eksctl_$(uname -s)_amd64.tar.gz" -C /usr/bin
-          rm "eksctl_$(uname -s)_amd64.tar.gz"
-
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6.0.0
+        uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
         with:
           role-to-assume: ${{ secrets.AWS_PR_ASSUME_ROLE }}
           aws-region: ${{ matrix.region }}
+
 
       - name: List and delete old clusters
         env:
           REGION: ${{ matrix.region }}
           MAX_AGE_HOURS: 6
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -e
 
@@ -163,7 +166,7 @@ jobs:
               S3_BUCKET="${{ format('{0}-{1}-eks-kubeconfig-pool', github.repository_owner, github.event.repository.name) }}"
               if [ -n "${S3_BUCKET}" ]; then
                 echo "Checking if kubeconfig for cluster ${cluster} exists in S3 bucket ${S3_BUCKET}"
-                KUBECONFIG_EXISTS=$(aws s3 ls "s3://${S3_BUCKET}/kubeconfig-pool/" --recursive --region ${REGION} | grep -c "${cluster}-" || echo "0")
+                KUBECONFIG_EXISTS=$(aws s3 ls "s3://${S3_BUCKET}/kubeconfig-pool/" --recursive --region ${REGION} | grep -c "${cluster}-" || true)
 
                 if [ "${KUBECONFIG_EXISTS}" -eq "0" ]; then
                   echo "Kubeconfig for cluster ${cluster} not found in S3 pool - cluster is being used, skipping deletion"
@@ -177,9 +180,12 @@ jobs:
                 aws s3 rm "s3://${S3_BUCKET}/kubeconfig-pool/" --recursive --exclude "*" --include "${cluster}-*" --region ${REGION} || true
               fi
 
-              # Delete the cluster
-              eksctl delete cluster --name ${cluster} --region ${REGION} --wait || {
-                echo "Failed to delete cluster ${cluster}, continuing..."
+              # Trigger the eks-cluster-delete workflow to delete the cluster
+              echo "Triggering eks-cluster-delete workflow for cluster ${cluster} in region ${REGION}"
+              gh workflow run eks-cluster-delete.yaml \
+                -f cluster_name="${cluster}" \
+                -f region="${REGION}" || {
+                echo "Failed to trigger delete workflow for cluster ${cluster}, continuing..."
               }
             else
               echo "Cluster ${cluster} is not old enough to delete (age: ${CLUSTER_AGE_HOURS} hours, threshold: ${MAX_AGE_HOURS} hours)"
@@ -254,7 +260,7 @@ jobs:
       fail-fast: false
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6.0.0
+        uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
         with:
           role-to-assume: ${{ secrets.AWS_PR_ASSUME_ROLE }}
           aws-region: ${{ matrix.region }}
@@ -332,7 +338,7 @@ jobs:
           rm "eksctl_$(uname -s)_amd64.tar.gz"
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6.0.0
+        uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
         with:
           role-to-assume: ${{ secrets.AWS_PR_ASSUME_ROLE }}
           aws-region: ${{ matrix.region }}
@@ -574,7 +580,7 @@ jobs:
       matrix: ${{ fromJson(needs.generate-cleanup-matrix.outputs.matrix) }}
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6.0.0
+        uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
         with:
           role-to-assume: ${{ secrets.AWS_PR_ASSUME_ROLE }}
           aws-region: ${{ matrix.region }}
