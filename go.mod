@@ -2,6 +2,8 @@ module github.com/cilium/cilium
 
 go 1.25.0
 
+toolchain go1.26.2
+
 require (
 	github.com/AdaLogics/go-fuzz-headers v0.0.0-20240806141605-e8a1dd7889d6
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.0
