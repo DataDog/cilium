@@ -148,6 +148,11 @@ const (
 	// primary IPConfiguration
 	AzureUsePrimaryAddress = "azure-use-primary-address"
 
+	// AzureReleaseExcessIPs allows releasing excess free IP addresses from Azure NICs.
+	// Enabling this option reduces waste of IP addresses but may increase
+	// the number of API calls to Azure.
+	AzureReleaseExcessIPs = "azure-release-excess-ips"
+
 	// LeaderElectionLeaseDuration is the duration that non-leader candidates will wait to
 	// force acquire leadership
 	LeaderElectionLeaseDuration = "leader-election-lease-duration"
@@ -349,6 +354,9 @@ type OperatorConfig struct {
 	// primary IPConfiguration
 	AzureUsePrimaryAddress bool
 
+	// AzureReleaseExcessIPs allows releasing excess free IP addresses from Azure NICs
+	AzureReleaseExcessIPs bool
+
 	// AlibabaCloud options
 
 	// AlibabaCloudVPCID allow user to specific vpc
@@ -466,6 +474,7 @@ func (c *OperatorConfig) Populate(logger *slog.Logger, vp *viper.Viper) {
 	c.AzureResourceGroup = vp.GetString(AzureResourceGroup)
 	c.AzureUsePrimaryAddress = vp.GetBool(AzureUsePrimaryAddress)
 	c.AzureUserAssignedIdentityID = vp.GetString(AzureUserAssignedIdentityID)
+	c.AzureReleaseExcessIPs = vp.GetBool(AzureReleaseExcessIPs)
 
 	// AlibabaCloud options
 
