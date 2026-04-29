@@ -17,6 +17,7 @@ cilium-operator-azure hive dot-graph [flags]
 ### Options inherited from parent commands
 
 ```
+      --azure-release-excess-ips                                   Enable releasing excess free IP addresses from Azure NICs.
       --azure-resource-group string                                Resource group to use for Azure IPAM
       --azure-subscription-id string                               Subscription ID to access Azure API
       --azure-use-primary-address                                  Use Azure IP address from interface's primary IPConfigurations
