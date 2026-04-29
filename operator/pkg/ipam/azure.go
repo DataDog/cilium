@@ -38,6 +38,7 @@ type AzureConfig struct {
 	AzureResourceGroup          string
 	AzureUserAssignedIdentityID string
 	AzureUsePrimaryAddress      bool
+	AzureReleaseExcessIPs       bool
 }
 
 var azureDefaultConfig = AzureConfig{
@@ -45,6 +46,7 @@ var azureDefaultConfig = AzureConfig{
 	AzureResourceGroup:          "",
 	AzureUserAssignedIdentityID: "",
 	AzureUsePrimaryAddress:      false,
+	AzureReleaseExcessIPs:       false,
 }
 
 func (cfg AzureConfig) Flags(flags *pflag.FlagSet) {
@@ -52,6 +54,7 @@ func (cfg AzureConfig) Flags(flags *pflag.FlagSet) {
 	flags.String(operatorOption.AzureResourceGroup, azureDefaultConfig.AzureResourceGroup, "Resource group to use for Azure IPAM")
 	flags.String(operatorOption.AzureUserAssignedIdentityID, azureDefaultConfig.AzureUserAssignedIdentityID, "ID of the user assigned identity used to auth with the Azure API")
 	flags.Bool(operatorOption.AzureUsePrimaryAddress, azureDefaultConfig.AzureUsePrimaryAddress, "Use Azure IP address from interface's primary IPConfigurations")
+	flags.Bool(operatorOption.AzureReleaseExcessIPs, azureDefaultConfig.AzureReleaseExcessIPs, "Enable releasing excess free IP addresses from Azure NICs.")
 }
 
 type azureParams struct {
@@ -80,6 +83,7 @@ func startAzureAllocator(p azureParams) {
 		AzureResourceGroup:          p.AzureCfg.AzureResourceGroup,
 		AzureUserAssignedIdentityID: p.AzureCfg.AzureUserAssignedIdentityID,
 		AzureUsePrimaryAddress:      p.AzureCfg.AzureUsePrimaryAddress,
+		AzureReleaseExcessIPs:       p.AzureCfg.AzureReleaseExcessIPs,
 		ParallelAllocWorkers:        p.Cfg.ParallelAllocWorkers,
 		LimitIPAMAPIBurst:           p.Cfg.LimitIPAMAPIBurst,
 		LimitIPAMAPIQPS:             p.Cfg.LimitIPAMAPIQPS,

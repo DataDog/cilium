@@ -50,6 +50,11 @@ const (
 	// primary IPConfiguration
 	AzureUsePrimaryAddress = "azure-use-primary-address"
 
+	// AzureReleaseExcessIPs allows releasing excess free IP addresses from Azure NICs.
+	// Enabling this option reduces waste of IP addresses but may increase
+	// the number of API calls to Azure.
+	AzureReleaseExcessIPs = "azure-release-excess-ips"
+
 	// AlibabaCloud options
 
 	// AlibabaCloudVPCID allows user to specific vpc
