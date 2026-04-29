@@ -201,7 +201,8 @@ Table-driven tests using the existing mock API (`pkg/azure/api/mock`), following
 ## Verification
 
 ```bash
-bzl test //pkg/azure/...:all
-bzl test //pkg/ipam/allocator/azure/...:all
-bzl test //operator/pkg/ipam/...:all
+CGO_ENABLED=0 go test -mod=vendor -vet=all ./pkg/azure/...
+CGO_ENABLED=0 go test -mod=vendor -vet=all ./pkg/ipam/allocator/azure/...
+# operator/pkg/ipam/azure.go requires the build tag:
+CGO_ENABLED=0 go test -mod=vendor -vet=all -tags ipam_provider_azure ./operator/pkg/ipam/...
 ```
