@@ -22,6 +22,7 @@ type AllocatorAzure struct {
 	AzureUserAssignedIdentityID string
 	AzureUsePrimaryAddress      bool
 	AzureReleaseExcessIPs       bool
+	ExcessIPReleaseDelay        int
 	ParallelAllocWorkers        int64
 	LimitIPAMAPIBurst           int
 	LimitIPAMAPIQPS             float64
@@ -74,7 +75,7 @@ func (a *AllocatorAzure) Start(ctx context.Context, getterUpdater ipam.CiliumNod
 		return nil, fmt.Errorf("unable to create Azure client: %w", err)
 	}
 	instances := azureIPAM.NewInstancesManager(a.rootLogger, azureClient)
-	nodeManager, err := ipam.NewNodeManager(a.logger, instances, getterUpdater, iMetrics, a.ParallelAllocWorkers, a.AzureReleaseExcessIPs, 0, false)
+	nodeManager, err := ipam.NewNodeManager(a.logger, instances, getterUpdater, iMetrics, a.ParallelAllocWorkers, a.AzureReleaseExcessIPs, a.ExcessIPReleaseDelay, false)
 	if err != nil {
 		return nil, fmt.Errorf("unable to initialize Azure node manager: %w", err)
 	}

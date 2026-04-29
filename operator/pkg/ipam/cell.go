@@ -33,18 +33,21 @@ type Config struct {
 	ParallelAllocWorkers int64
 	LimitIPAMAPIBurst    int
 	LimitIPAMAPIQPS      float64
+	ExcessIPReleaseDelay int
 }
 
 var defaultConfig = Config{
 	ParallelAllocWorkers: 50,
 	LimitIPAMAPIBurst:    20,
 	LimitIPAMAPIQPS:      4.0,
+	ExcessIPReleaseDelay: 180,
 }
 
 func (cfg Config) Flags(flags *pflag.FlagSet) {
 	flags.Int64(option.ParallelAllocWorkers, defaultConfig.ParallelAllocWorkers, "Maximum number of parallel IPAM workers")
 	flags.Int("limit-ipam-api-burst", defaultConfig.LimitIPAMAPIBurst, "Upper burst limit when accessing external APIs")
 	flags.Float64("limit-ipam-api-qps", defaultConfig.LimitIPAMAPIQPS, "Queries per second limit when accessing external IPAM APIs")
+	flags.Int("excess-ip-release-delay", defaultConfig.ExcessIPReleaseDelay, "Number of seconds operator would wait before it releases an IP previously marked as excess")
 }
 
 type nodeWatcherJobFactory func(nm allocator.NodeEventHandler) job.Job
