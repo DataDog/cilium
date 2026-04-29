@@ -37,5 +37,12 @@ func (hook *azureFlagsHooks) RegisterProviderFlag(cmd *cobra.Command, vp *viper.
 	flags.Bool(operatorOption.AzureReleaseExcessIPs, false, "Enable releasing excess free IP addresses from Azure NICs.")
 	option.BindEnvWithLegacyEnvFallback(vp, operatorOption.AzureReleaseExcessIPs, "AZURE_RELEASE_EXCESS_IPS")
 
+	// excess-ip-release-delay is shared with the AWS provider. Skip if AWS already registered it
+	// (multi-provider cilium-operator binary).
+	if flags.Lookup(operatorOption.ExcessIPReleaseDelay) == nil {
+		flags.Int(operatorOption.ExcessIPReleaseDelay, 180, "Number of seconds operator would wait before it releases an IP previously marked as excess")
+		option.BindEnv(vp, operatorOption.ExcessIPReleaseDelay)
+	}
+
 	vp.BindPFlags(flags)
 }
