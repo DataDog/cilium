@@ -41,6 +41,7 @@ const (
 
 	interfacesListVirtualMachineScaleSetNetworkInterfaces   = "Interfaces.ListVirtualMachineScaleSetNetworkInterfaces"
 	interfacesListVirtualMachineScaleSetVMNetworkInterfaces = "Interfaces.ListVirtualMachineScaleSetVMNetworkInterfaces"
+	interfacesGetVirtualMachineScaleSetNetworkInterface     = "Interfaces.GetVirtualMachineScaleSetNetworkInterface"
 )
 
 // Client represents an Azure API client
@@ -648,6 +649,180 @@ func (c *Client) AssignPrivateIpAddressesVM(ctx context.Context, subnetID, inter
 
 	if _, err := poller.PollUntilDone(ctx, nil); err != nil {
 		return fmt.Errorf("error while waiting for interface CreateOrUpdate to complete for %s: %w", interfaceName, err)
+	}
+
+	return nil
+}
+
+// UnassignPrivateIpAddressesVM removes the given private IPs from an interface attached to a standalone instance
+func (c *Client) UnassignPrivateIpAddressesVM(ctx context.Context, interfaceName string, addresses []string) error {
+	if len(addresses) == 0 {
+		return nil
+	}
+
+	c.limiter.Limit(ctx, interfacesGet)
+	sinceStart := spanstat.Start()
+
+	iface, err := c.interfaces.Get(ctx, c.resourceGroup, interfaceName, nil)
+
+	c.metricsAPI.ObserveAPICall(interfacesGet, deriveStatus(err), sinceStart.Seconds())
+	if err != nil {
+		return fmt.Errorf("failed to get standalone instance's interface %s: %w", interfaceName, err)
+	}
+
+	releaseSet := make(map[string]struct{}, len(addresses))
+	for _, ip := range addresses {
+		releaseSet[ip] = struct{}{}
+	}
+
+	kept := iface.Properties.IPConfigurations[:0]
+	for _, ipConfig := range iface.Properties.IPConfigurations {
+		if ipConfig.Properties != nil && ipConfig.Properties.Primary != nil && *ipConfig.Properties.Primary {
+			kept = append(kept, ipConfig)
+			continue
+		}
+		if ipConfig.Properties == nil || ipConfig.Properties.PrivateIPAddress == nil {
+			kept = append(kept, ipConfig)
+			continue
+		}
+		if _, drop := releaseSet[*ipConfig.Properties.PrivateIPAddress]; drop {
+			continue
+		}
+		kept = append(kept, ipConfig)
+	}
+	iface.Properties.IPConfigurations = kept
+
+	c.limiter.Limit(ctx, interfacesCreateOrUpdate)
+	sinceStart = spanstat.Start()
+
+	poller, err := c.interfaces.BeginCreateOrUpdate(ctx, c.resourceGroup, interfaceName, iface.Interface, nil)
+
+	defer func() {
+		c.metricsAPI.ObserveAPICall(interfacesCreateOrUpdate, deriveStatus(err), sinceStart.Seconds())
+	}()
+	if err != nil {
+		return fmt.Errorf("unable to update interface %s: %w", interfaceName, err)
+	}
+
+	if _, err := poller.PollUntilDone(ctx, nil); err != nil {
+		return fmt.Errorf("error while waiting for interface CreateOrUpdate to complete for %s: %w", interfaceName, err)
+	}
+
+	return nil
+}
+
+// UnassignPrivateIpAddressesVMSS removes the given private IPs from an interface attached to a VMSS instance.
+// Azure VMSS IP configurations don't carry the assigned IP on the desired-state model, so the underlying
+// network interface is fetched first to map IPs to IP configuration names; configs with matching names
+// (excluding primaries) are then dropped from the VMSS VM model and a VMSS update is issued.
+func (c *Client) UnassignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, interfaceName string, addresses []string) error {
+	if len(addresses) == 0 {
+		return nil
+	}
+
+	c.limiter.Limit(ctx, interfacesGetVirtualMachineScaleSetNetworkInterface)
+	sinceStart := spanstat.Start()
+
+	nicResp, err := c.interfaces.GetVirtualMachineScaleSetNetworkInterface(ctx, c.resourceGroup, vmssName, instanceID, interfaceName, nil)
+
+	c.metricsAPI.ObserveAPICall(interfacesGetVirtualMachineScaleSetNetworkInterface, deriveStatus(err), sinceStart.Seconds())
+	if err != nil {
+		return fmt.Errorf("failed to get VMSS %s instance %s interface %s: %w", vmssName, instanceID, interfaceName, err)
+	}
+
+	releaseSet := make(map[string]struct{}, len(addresses))
+	for _, ip := range addresses {
+		releaseSet[ip] = struct{}{}
+	}
+
+	dropNames := make(map[string]struct{})
+	if nicResp.Properties != nil {
+		for _, ipConfig := range nicResp.Properties.IPConfigurations {
+			if ipConfig.Properties == nil || ipConfig.Name == nil || ipConfig.Properties.PrivateIPAddress == nil {
+				continue
+			}
+			if ipConfig.Properties.Primary != nil && *ipConfig.Properties.Primary {
+				continue
+			}
+			if _, drop := releaseSet[*ipConfig.Properties.PrivateIPAddress]; drop {
+				dropNames[*ipConfig.Name] = struct{}{}
+			}
+		}
+	}
+
+	if len(dropNames) == 0 {
+		return nil
+	}
+
+	vmssGetOptions := &armcompute.VirtualMachineScaleSetVMsClientGetOptions{
+		Expand: to.Ptr(armcompute.InstanceViewTypesInstanceView),
+	}
+
+	c.limiter.Limit(ctx, virtualMachineScaleSetVMsGet)
+	sinceStart = spanstat.Start()
+
+	result, err := c.virtualMachineScaleSetVMs.Get(ctx, c.resourceGroup, vmssName, instanceID, vmssGetOptions)
+
+	c.metricsAPI.ObserveAPICall(virtualMachineScaleSetVMsGet, deriveStatus(err), sinceStart.Seconds())
+	if err != nil {
+		return fmt.Errorf("failed to get VM %s from VMSS %s: %w", instanceID, vmssName, err)
+	}
+
+	var netIfConfig *armcompute.VirtualMachineScaleSetNetworkConfiguration
+	if result.Properties.NetworkProfileConfiguration != nil {
+		for _, networkInterfaceConfiguration := range result.Properties.NetworkProfileConfiguration.NetworkInterfaceConfigurations {
+			if networkInterfaceConfiguration.Name != nil && *networkInterfaceConfiguration.Name == interfaceName {
+				netIfConfig = networkInterfaceConfiguration
+				break
+			}
+		}
+	}
+
+	if netIfConfig == nil {
+		return fmt.Errorf("interface %s does not exist in VM %s", interfaceName, instanceID)
+	}
+
+	kept := netIfConfig.Properties.IPConfigurations[:0]
+	for _, ipConfig := range netIfConfig.Properties.IPConfigurations {
+		if ipConfig.Properties != nil && ipConfig.Properties.Primary != nil && *ipConfig.Properties.Primary {
+			kept = append(kept, ipConfig)
+			continue
+		}
+		if ipConfig.Name == nil {
+			kept = append(kept, ipConfig)
+			continue
+		}
+		if _, drop := dropNames[*ipConfig.Name]; drop {
+			continue
+		}
+		kept = append(kept, ipConfig)
+	}
+	netIfConfig.Properties.IPConfigurations = kept
+
+	// Unset imageReference, because if this contains a reference to an image from the
+	// Azure Compute Gallery, including this reference in an update to the VMSS instance
+	// will cause a permissions error, because the reference includes an Azure-managed
+	// subscription ID.
+	// Removing the image reference indicates to the API that we don't want to change it.
+	// See https://github.com/Azure/AKS/issues/1819.
+	if result.Properties.StorageProfile != nil {
+		result.Properties.StorageProfile.ImageReference = nil
+	}
+
+	c.limiter.Limit(ctx, virtualMachineScaleSetVMsUpdate)
+	sinceStart = spanstat.Start()
+
+	poller, err := c.virtualMachineScaleSetVMs.BeginUpdate(ctx, c.resourceGroup, vmssName, instanceID, result.VirtualMachineScaleSetVM, nil)
+
+	defer func() {
+		c.metricsAPI.ObserveAPICall(virtualMachineScaleSetVMsUpdate, deriveStatus(err), sinceStart.Seconds())
+	}()
+	if err != nil {
+		return fmt.Errorf("unable to update virtualMachineScaleSetVMs: %w", err)
+	}
+
+	if _, err := poller.PollUntilDone(ctx, nil); err != nil {
+		return fmt.Errorf("error while waiting for virtualMachineScaleSetVMs Update to complete: %w", err)
 	}
 
 	return nil
