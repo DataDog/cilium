@@ -45,6 +45,7 @@ func newAzureInterface(t *testing.T, id, name string, ips []string) *types.Azure
 			IP:     ip,
 			Subnet: "subnet-1",
 			State:  types.StateSucceeded,
+			Name:   "Cilium-test-" + ip,
 		})
 	}
 	iface.SetID(id)
