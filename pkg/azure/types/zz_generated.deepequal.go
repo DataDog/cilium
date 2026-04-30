@@ -27,6 +27,9 @@ func (in *AzureAddress) DeepEqual(other *AzureAddress) bool {
 	if in.Name != other.Name {
 		return false
 	}
+	if in.Primary != other.Primary {
+		return false
+	}
 
 	return true
 }

@@ -75,6 +75,10 @@ type AzureAddress struct {
 	// where the desired-state model addresses configurations by name rather
 	// than IP.
 	Name string `json:"name,omitempty"`
+
+	// Primary indicates whether this is the primary IP configuration on the
+	// NIC. Primary IPs are never selected for release.
+	Primary bool `json:"primary,omitempty"`
 }
 
 // AzureInterface represents an Azure Interface

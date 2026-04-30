@@ -78,6 +78,9 @@ func (n *Node) PrepareIPRelease(excessIPs int, scopedLog *slog.Logger) *ipam.Rel
 		var free []string
 		var poolID ipamTypes.PoolID
 		for _, addr := range iface.Addresses {
+			if addr.Primary {
+				continue
+			}
 			if _, used := usedIPs[addr.IP]; used {
 				continue
 			}
@@ -131,22 +134,33 @@ func (n *Node) ReleaseIPs(ctx context.Context, r *ipam.ReleaseAction) error {
 
 	// VMSS path: the desired-state model addresses IP configurations by name, not IP.
 	// Translate using the cached AzureInterface so we can skip an extra Azure API call.
-	releaseSet := make(map[string]struct{}, len(r.IPsToRelease))
+	// Require a complete translation: a partial unassign would silently desync the
+	// framework's bookkeeping (it marks every IP in r.IPsToRelease as released after
+	// this call returns nil).
+	wantNames := make(map[string]string, len(r.IPsToRelease))
 	for _, ip := range r.IPsToRelease {
-		releaseSet[ip] = struct{}{}
+		wantNames[ip] = ""
 	}
-	ipConfigNames := make([]string, 0, len(r.IPsToRelease))
 	for _, addr := range iface.Addresses {
-		if _, drop := releaseSet[addr.IP]; !drop {
+		if _, want := wantNames[addr.IP]; !want {
 			continue
 		}
 		if addr.Name == "" {
 			continue
 		}
-		ipConfigNames = append(ipConfigNames, addr.Name)
+		wantNames[addr.IP] = addr.Name
 	}
-	if len(ipConfigNames) == 0 {
-		return fmt.Errorf("no cached IPConfiguration names found for IPs to release on interface %s", iface.Name)
+	ipConfigNames := make([]string, 0, len(r.IPsToRelease))
+	var missing []string
+	for ip, name := range wantNames {
+		if name == "" {
+			missing = append(missing, ip)
+			continue
+		}
+		ipConfigNames = append(ipConfigNames, name)
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("no cached IPConfiguration name for IPs %v on interface %s; will retry next cycle", missing, iface.Name)
 	}
 
 	return n.manager.api.UnassignPrivateIpAddressesVMSS(ctx, iface.GetVMID(), iface.GetVMScaleSetName(), iface.Name, ipConfigNames)
