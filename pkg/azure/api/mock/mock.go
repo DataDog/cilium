@@ -27,6 +27,7 @@ const (
 	GetInstances
 	GetVpcsAndSubnets
 	AssignPrivateIpAddressesVMSS
+	UnassignPrivateIpAddressesVMSS
 	MaxOperation
 )
 
@@ -234,8 +235,76 @@ func (a *API) AssignPrivateIpAddressesVMSS(ctx context.Context, vmName, vmssName
 				IP:     ip.String(),
 				Subnet: subnetID,
 				State:  types.StateSucceeded,
+				Name:   "Cilium-mock-" + ip.String(),
 			})
 		}
+
+		foundInterface = true
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	a.updateInstancesLocked(instances)
+
+	if !foundInterface {
+		return fmt.Errorf("interface %s not found", interfaceName)
+	}
+
+	return nil
+}
+
+func (a *API) UnassignPrivateIpAddressesVM(ctx context.Context, interfaceName string, addresses []string) error {
+	return nil
+}
+
+func (a *API) UnassignPrivateIpAddressesVMSS(ctx context.Context, vmName, vmssName, interfaceName string, ipConfigNames []string) error {
+	a.rateLimit()
+	a.delaySim.Delay(UnassignPrivateIpAddressesVMSS)
+
+	a.mutex.Lock()
+	defer a.mutex.Unlock()
+
+	if err, ok := a.errors[UnassignPrivateIpAddressesVMSS]; ok {
+		return err
+	}
+
+	if len(ipConfigNames) == 0 {
+		return nil
+	}
+
+	dropNames := make(map[string]struct{}, len(ipConfigNames))
+	for _, name := range ipConfigNames {
+		dropNames[name] = struct{}{}
+	}
+
+	foundInterface := false
+	instances := a.instances.DeepCopy()
+	err := instances.ForeachInterface("", func(id, _ string, iface ipamTypes.InterfaceRevision) error {
+		intf, ok := iface.Resource.(*types.AzureInterface)
+		if !ok {
+			return fmt.Errorf("invalid interface object")
+		}
+
+		if intf.Name != interfaceName || intf.GetVMID() != vmName {
+			return nil
+		}
+
+		kept := intf.Addresses[:0]
+		for _, addr := range intf.Addresses {
+			if _, drop := dropNames[addr.Name]; drop {
+				if s, ok := a.subnets[addr.Subnet]; ok {
+					_, ipNet, err := net.ParseCIDR(addr.IP + "/32")
+					if err == nil {
+						s.allocator.Release(ipNet.IP)
+					}
+				}
+				continue
+			}
+			kept = append(kept, addr)
+		}
+		intf.Addresses = kept
 
 		foundInterface = true
 		return nil
