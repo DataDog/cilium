@@ -345,6 +345,9 @@ func parseInterface(iface *armnetwork.Interface, subnets ipamTypes.SubnetMap, us
 				if ip.Name != nil {
 					addr.Name = *ip.Name
 				}
+				if ip.Properties.Primary != nil {
+					addr.Primary = *ip.Properties.Primary
+				}
 
 				if ip.Properties.Subnet != nil {
 					addr.Subnet = *ip.Properties.Subnet.ID

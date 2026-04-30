@@ -587,6 +587,18 @@ spec:
                               ip:
                                 description: IP is the ip address of the address
                                 type: string
+                              name:
+                                description: |-
+                                  Name is the name of the IPConfiguration on the underlying Azure NIC.
+                                  Used to identify the configuration when releasing IPs from a VMSS NIC,
+                                  where the desired-state model addresses configurations by name rather
+                                  than IP.
+                                type: string
+                              primary:
+                                description: |-
+                                  Primary indicates whether this is the primary IP configuration on the
+                                  NIC. Primary IPs are never selected for release.
+                                type: boolean
                               state:
                                 description: State is the provisioning state of the
                                   address
