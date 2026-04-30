@@ -75,6 +75,12 @@ type Rule struct {
 	// +kubebuilder:validation:OneOf
 	EndpointSelector EndpointSelector `json:"endpointSelector,omitzero"`
 
+	// EndpointSelectors is a set of endpoint selectors which should be subject to this rule.
+	// EndpointSelector and EndpointSelectors cannot be both empty and are mutually exclusive.
+	//
+	// +kubebuilder:validation:OneOf
+	EndpointSelectors []EndpointSelector `json:"endpointSelectors,omitempty"`
+
 	// NodeSelector selects all nodes which should be subject to this rule.
 	// EndpointSelector and NodeSelector cannot be both empty and are mutually
 	// exclusive. Can only be used in CiliumClusterwideNetworkPolicies.

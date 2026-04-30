@@ -379,7 +379,7 @@ func ParseToCiliumRule(logger *slog.Logger, clusterName, namespace, name string,
 			userNamespace, present := r.EndpointSelector.GetMatch(podPrefixLbl)
 			if present && !namespacesAreValid(namespace, userNamespace) {
 				logger.Warn("CiliumNetworkPolicy contains illegal namespace match in EndpointSelector."+
-					" EndpointSelector always applies in namespace of the policy resource, removing illegal namespace match'.",
+					" EndpointSelector always applies in namespace of the policy resource, overriding illegal namespace match'.",
 					logfields.K8sNamespace, namespace,
 					logfields.CiliumNetworkPolicyName, name,
 					logfields.K8sNamespaceIllegal, userNamespace,
@@ -387,10 +387,29 @@ func ParseToCiliumRule(logger *slog.Logger, clusterName, namespace, name string,
 			}
 			retRule.EndpointSelector.AddMatch(podPrefixLbl, namespace)
 		}
+	} else if r.EndpointSelectors != nil {
+		retRule.EndpointSelectors = make([]api.EndpointSelector, len(r.EndpointSelectors))
+		for i, es := range r.EndpointSelectors {
+			retRule.EndpointSelectors[i] = api.NewESFromK8sLabelSelector("", es.LabelSelector)
+
+			if namespace != "" {
+				userNamespace, present := es.GetMatch(podPrefixLbl)
+				if present && !namespacesAreValid(namespace, userNamespace) {
+					logger.Warn("CiliumNetworkPolicy contains illegal namespace match in EndpointSelector."+
+						" EndpointSelector always applies in namespace of the policy resource, overriding illegal namespace match'.",
+						logfields.K8sNamespace, namespace,
+						logfields.CiliumNetworkPolicyName, name,
+						logfields.K8sNamespaceIllegal, userNamespace,
+					)
+				}
+				retRule.EndpointSelectors[i].AddMatch(podPrefixLbl, namespace)
+			}
+		}
 	} else if r.NodeSelector.LabelSelector != nil {
 		retRule.NodeSelector = api.NewESFromK8sLabelSelector("", r.NodeSelector.LabelSelector)
 	}
 
+	// TODO: Handle EndpointSelectors
 	retRule.Ingress = parseToCiliumIngressRule(clusterName, namespace, r.EndpointSelector, r.Ingress)
 	retRule.IngressDeny = parseToCiliumIngressDenyRule(clusterName, namespace, r.EndpointSelector, r.IngressDeny)
 	retRule.Egress = parseToCiliumEgressRule(clusterName, namespace, r.EndpointSelector, r.Egress)

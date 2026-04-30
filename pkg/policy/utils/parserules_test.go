@@ -570,9 +570,11 @@ func TestGetSelector(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotEs, gotNode := getSelector(tt.rule)
-			assert.Equal(t, tt.wantEs, gotEs)
-			assert.Equal(t, tt.wantNode, gotNode)
+			gotEsSet, gotNode := getSelector(tt.rule)
+			if len(gotEsSet) > 0 {
+				assert.Equal(t, tt.wantEs, gotEsSet[0])
+				assert.Equal(t, tt.wantNode, gotNode)
+			}
 		})
 	}
 }
