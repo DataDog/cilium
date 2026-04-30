@@ -69,6 +69,12 @@ type AzureAddress struct {
 
 	// State is the provisioning state of the address
 	State string `json:"state,omitempty"`
+
+	// Name is the name of the IPConfiguration on the underlying Azure NIC.
+	// Used to identify the configuration when releasing IPs from a VMSS NIC,
+	// where the desired-state model addresses configurations by name rather
+	// than IP.
+	Name string `json:"name,omitempty"`
 }
 
 // AzureInterface represents an Azure Interface

@@ -128,7 +128,28 @@ func (n *Node) ReleaseIPs(ctx context.Context, r *ipam.ReleaseAction) error {
 	if iface.GetVMScaleSetName() == "" {
 		return n.manager.api.UnassignPrivateIpAddressesVM(ctx, iface.Name, r.IPsToRelease)
 	}
-	return n.manager.api.UnassignPrivateIpAddressesVMSS(ctx, iface.GetVMID(), iface.GetVMScaleSetName(), iface.Name, r.IPsToRelease)
+
+	// VMSS path: the desired-state model addresses IP configurations by name, not IP.
+	// Translate using the cached AzureInterface so we can skip an extra Azure API call.
+	releaseSet := make(map[string]struct{}, len(r.IPsToRelease))
+	for _, ip := range r.IPsToRelease {
+		releaseSet[ip] = struct{}{}
+	}
+	ipConfigNames := make([]string, 0, len(r.IPsToRelease))
+	for _, addr := range iface.Addresses {
+		if _, drop := releaseSet[addr.IP]; !drop {
+			continue
+		}
+		if addr.Name == "" {
+			continue
+		}
+		ipConfigNames = append(ipConfigNames, addr.Name)
+	}
+	if len(ipConfigNames) == 0 {
+		return fmt.Errorf("no cached IPConfiguration names found for IPs to release on interface %s", iface.Name)
+	}
+
+	return n.manager.api.UnassignPrivateIpAddressesVMSS(ctx, iface.GetVMID(), iface.GetVMScaleSetName(), iface.Name, ipConfigNames)
 }
 
 // PrepareIPAllocation returns the number of IPs that can be allocated/created.

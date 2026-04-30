@@ -235,6 +235,7 @@ func (a *API) AssignPrivateIpAddressesVMSS(ctx context.Context, vmName, vmssName
 				IP:     ip.String(),
 				Subnet: subnetID,
 				State:  types.StateSucceeded,
+				Name:   "Cilium-mock-" + ip.String(),
 			})
 		}
 
@@ -258,7 +259,7 @@ func (a *API) UnassignPrivateIpAddressesVM(ctx context.Context, interfaceName st
 	return nil
 }
 
-func (a *API) UnassignPrivateIpAddressesVMSS(ctx context.Context, vmName, vmssName, interfaceName string, addresses []string) error {
+func (a *API) UnassignPrivateIpAddressesVMSS(ctx context.Context, vmName, vmssName, interfaceName string, ipConfigNames []string) error {
 	a.rateLimit()
 	a.delaySim.Delay(UnassignPrivateIpAddressesVMSS)
 
@@ -269,13 +270,13 @@ func (a *API) UnassignPrivateIpAddressesVMSS(ctx context.Context, vmName, vmssNa
 		return err
 	}
 
-	if len(addresses) == 0 {
+	if len(ipConfigNames) == 0 {
 		return nil
 	}
 
-	releaseSet := make(map[string]struct{}, len(addresses))
-	for _, ip := range addresses {
-		releaseSet[ip] = struct{}{}
+	dropNames := make(map[string]struct{}, len(ipConfigNames))
+	for _, name := range ipConfigNames {
+		dropNames[name] = struct{}{}
 	}
 
 	foundInterface := false
@@ -292,7 +293,7 @@ func (a *API) UnassignPrivateIpAddressesVMSS(ctx context.Context, vmName, vmssNa
 
 		kept := intf.Addresses[:0]
 		for _, addr := range intf.Addresses {
-			if _, drop := releaseSet[addr.IP]; drop {
+			if _, drop := dropNames[addr.Name]; drop {
 				if s, ok := a.subnets[addr.Subnet]; ok {
 					_, ipNet, err := net.ParseCIDR(addr.IP + "/32")
 					if err == nil {

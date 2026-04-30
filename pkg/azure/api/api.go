@@ -41,7 +41,6 @@ const (
 
 	interfacesListVirtualMachineScaleSetNetworkInterfaces   = "Interfaces.ListVirtualMachineScaleSetNetworkInterfaces"
 	interfacesListVirtualMachineScaleSetVMNetworkInterfaces = "Interfaces.ListVirtualMachineScaleSetVMNetworkInterfaces"
-	interfacesGetVirtualMachineScaleSetNetworkInterface     = "Interfaces.GetVirtualMachineScaleSetNetworkInterface"
 )
 
 // Client represents an Azure API client
@@ -342,6 +341,9 @@ func parseInterface(iface *armnetwork.Interface, subnets ipamTypes.SubnetMap, us
 				addr := types.AzureAddress{
 					IP:    *ip.Properties.PrivateIPAddress,
 					State: strings.ToLower(string(*ip.Properties.ProvisioningState)),
+				}
+				if ip.Name != nil {
+					addr.Name = *ip.Name
 				}
 
 				if ip.Properties.Subnet != nil {
@@ -711,47 +713,18 @@ func (c *Client) UnassignPrivateIpAddressesVM(ctx context.Context, interfaceName
 	return nil
 }
 
-// UnassignPrivateIpAddressesVMSS removes the given private IPs from an interface attached to a VMSS instance.
-// Azure VMSS IP configurations don't carry the assigned IP on the desired-state model, so the underlying
-// network interface is fetched first to map IPs to IP configuration names; configs with matching names
-// (excluding primaries) are then dropped from the VMSS VM model and a VMSS update is issued.
-func (c *Client) UnassignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, interfaceName string, addresses []string) error {
-	if len(addresses) == 0 {
+// UnassignPrivateIpAddressesVMSS removes the IPConfigurations with the given names from
+// an interface attached to a VMSS instance. The caller is responsible for translating
+// IPs to IPConfiguration names — typically using the cached AzureInterface populated by
+// the InstancesManager — which avoids an additional Azure API call to fetch the NIC.
+func (c *Client) UnassignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, interfaceName string, ipConfigNames []string) error {
+	if len(ipConfigNames) == 0 {
 		return nil
 	}
 
-	c.limiter.Limit(ctx, interfacesGetVirtualMachineScaleSetNetworkInterface)
-	sinceStart := spanstat.Start()
-
-	nicResp, err := c.interfaces.GetVirtualMachineScaleSetNetworkInterface(ctx, c.resourceGroup, vmssName, instanceID, interfaceName, nil)
-
-	c.metricsAPI.ObserveAPICall(interfacesGetVirtualMachineScaleSetNetworkInterface, deriveStatus(err), sinceStart.Seconds())
-	if err != nil {
-		return fmt.Errorf("failed to get VMSS %s instance %s interface %s: %w", vmssName, instanceID, interfaceName, err)
-	}
-
-	releaseSet := make(map[string]struct{}, len(addresses))
-	for _, ip := range addresses {
-		releaseSet[ip] = struct{}{}
-	}
-
-	dropNames := make(map[string]struct{})
-	if nicResp.Properties != nil {
-		for _, ipConfig := range nicResp.Properties.IPConfigurations {
-			if ipConfig.Properties == nil || ipConfig.Name == nil || ipConfig.Properties.PrivateIPAddress == nil {
-				continue
-			}
-			if ipConfig.Properties.Primary != nil && *ipConfig.Properties.Primary {
-				continue
-			}
-			if _, drop := releaseSet[*ipConfig.Properties.PrivateIPAddress]; drop {
-				dropNames[*ipConfig.Name] = struct{}{}
-			}
-		}
-	}
-
-	if len(dropNames) == 0 {
-		return nil
+	dropNames := make(map[string]struct{}, len(ipConfigNames))
+	for _, name := range ipConfigNames {
+		dropNames[name] = struct{}{}
 	}
 
 	vmssGetOptions := &armcompute.VirtualMachineScaleSetVMsClientGetOptions{
@@ -759,7 +732,7 @@ func (c *Client) UnassignPrivateIpAddressesVMSS(ctx context.Context, instanceID,
 	}
 
 	c.limiter.Limit(ctx, virtualMachineScaleSetVMsGet)
-	sinceStart = spanstat.Start()
+	sinceStart := spanstat.Start()
 
 	result, err := c.virtualMachineScaleSetVMs.Get(ctx, c.resourceGroup, vmssName, instanceID, vmssGetOptions)
 
