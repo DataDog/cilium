@@ -4,6 +4,7 @@
 package ipam
 
 import (
+	"fmt"
 	"net/netip"
 	"testing"
 
@@ -164,7 +165,7 @@ func iteration2(t *testing.T, api *apimock.API, mngr *InstancesManager) {
 	mngr.Resync(t.Context())
 }
 
-func TestGetVpcsAndSubnets(t *testing.T) {
+func TestSubnetDiscovery(t *testing.T) {
 	api := apimock.NewAPI(subnets, vnets)
 	require.NotNil(t, api)
 
@@ -177,13 +178,126 @@ func TestGetVpcsAndSubnets(t *testing.T) {
 
 	iteration1(t, api, mngr)
 
+	// Only subnets referenced by actual instances should be discovered
+	// iteration1 creates instances using only subnet-1, not subnet-2 or subnet-3
 	require.NotNil(t, mngr.subnets["subnet-1"])
-	require.NotNil(t, mngr.subnets["subnet-2"])
-	require.Nil(t, mngr.subnets["subnet-3"])
+	require.Nil(t, mngr.subnets["subnet-2"]) // Should NOT be discovered (no instances use it)
+	require.Nil(t, mngr.subnets["subnet-3"]) // Should NOT be discovered (no instances use it)
 
 	iteration2(t, api, mngr)
 
+	// iteration2 uses subnet-1 and subnet-3, but still NOT subnet-2
 	require.NotNil(t, mngr.subnets["subnet-1"])
-	require.NotNil(t, mngr.subnets["subnet-2"])
+	require.Nil(t, mngr.subnets["subnet-2"]) // Still should NOT be discovered (no instances use it)
 	require.NotNil(t, mngr.subnets["subnet-3"])
+}
+
+func TestResyncInstancePreservesOtherNodesSubnets(t *testing.T) {
+	api := apimock.NewAPI(subnets2, vnets)
+	require.NotNil(t, api)
+
+	mngr := NewInstancesManager(hivetest.Logger(t), api)
+	require.NotNil(t, mngr)
+
+	instances := ipamTypes.NewInstanceMap()
+
+	iface1 := &types.AzureInterface{
+		SecurityGroup: "sg1",
+		Addresses: []types.AzureAddress{
+			{
+				IP:     "1.1.1.1",
+				Subnet: "subnet-1",
+				State:  types.StateSucceeded,
+			},
+		},
+		State: types.StateSucceeded,
+	}
+	iface1.SetID("intf-vm-1")
+	instances.Update("vm-1", ipamTypes.InterfaceRevision{
+		Resource: iface1.DeepCopy(),
+	})
+
+	iface2 := &types.AzureInterface{
+		SecurityGroup: "sg2",
+		Addresses: []types.AzureAddress{
+			{
+				IP:     "3.3.3.3",
+				Subnet: "subnet-3",
+				State:  types.StateSucceeded,
+			},
+		},
+		State: types.StateSucceeded,
+	}
+	iface2.SetID("intf-vm-2")
+	instances.Update("vm-2", ipamTypes.InterfaceRevision{
+		Resource: iface2.DeepCopy(),
+	})
+
+	api.UpdateInstances(instances)
+
+	mngr.Resync(t.Context())
+	require.NotNil(t, mngr.subnets["subnet-1"])
+	require.NotNil(t, mngr.subnets["subnet-3"])
+
+	mngr.InstanceSync(t.Context(), "vm-1")
+
+	require.NotNil(t, mngr.subnets["subnet-1"], "vm-1's subnet should still be present after its own per-instance resync")
+	require.NotNil(t, mngr.subnets["subnet-3"], "vm-2's subnet must not be evicted by a per-instance resync of vm-1")
+}
+
+func TestExtractSubnetIDs(t *testing.T) {
+	api := apimock.NewAPI(subnets, vnets)
+	require.NotNil(t, api)
+
+	mngr := NewInstancesManager(hivetest.Logger(t), api)
+	require.NotNil(t, mngr)
+
+	// Create 100 instances across only 2 different subnets to test deduplication
+	instances := ipamTypes.NewInstanceMap()
+
+	for i := 0; i < 100; i++ {
+		instanceID := fmt.Sprintf("vm-%d", i)
+		interfaceID := fmt.Sprintf("/subscriptions/xxx/resourceGroups/g1/providers/Microsoft.Compute/virtualMachineScaleSets/vmss1/virtualMachines/%s/networkInterfaces/eth0", instanceID)
+
+		// Alternate between subnet-1 and subnet-3 (50 instances each)
+		var subnetID string
+		if i%2 == 0 {
+			subnetID = "subnet-1"
+		} else {
+			subnetID = "subnet-3"
+		}
+
+		resource := &types.AzureInterface{
+			Name:          "eth0",
+			SecurityGroup: "sg1",
+			Addresses: []types.AzureAddress{
+				{
+					IP:     fmt.Sprintf("10.0.%d.%d", (i%254)+1, (i%254)+10),
+					Subnet: subnetID,
+					State:  types.StateSucceeded,
+				},
+			},
+		}
+		resource.SetID(interfaceID)
+
+		instances.Update(instanceID, ipamTypes.InterfaceRevision{
+			Resource: resource.DeepCopy(),
+		})
+	}
+
+	// Extract subnet IDs and verify deduplication
+	subnetIDs := mngr.extractSubnetIDs(instances)
+
+	// Should return exactly 2 unique subnet IDs despite 100 instances
+	require.Len(t, subnetIDs, 2, "Expected exactly 2 unique subnet IDs from 100 instances")
+
+	// Verify the correct subnet IDs are present
+	subnetSet := make(map[string]bool)
+	for _, subnetID := range subnetIDs {
+		subnetSet[subnetID] = true
+	}
+
+	require.True(t, subnetSet["subnet-1"], "Should contain subnet-1")
+	require.True(t, subnetSet["subnet-3"], "Should contain subnet-3")
+	require.False(t, subnetSet["subnet-2"], "Should NOT contain subnet-2 (no instances use it)")
 }

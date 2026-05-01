@@ -78,12 +78,12 @@ func (a *AllocatorAzure) Start(ctx context.Context, getterUpdater ipam.CiliumNod
 		iMetrics = &ipamMetrics.NoOpMetrics{}
 	}
 
-	azureClient, err := azureAPI.NewClient(azureCloudName, subscriptionID, resourceGroupName, operatorOption.Config.AzureUserAssignedIdentityID, azMetrics, operatorOption.Config.IPAMAPIQPSLimit, operatorOption.Config.IPAMAPIBurst, operatorOption.Config.AzureUsePrimaryAddress)
+	azureClient, err := azureAPI.NewClient(a.rootLogger, azureCloudName, subscriptionID, resourceGroupName, operatorOption.Config.AzureUserAssignedIdentityID, azMetrics, operatorOption.Config.IPAMAPIQPSLimit, operatorOption.Config.IPAMAPIBurst, operatorOption.Config.AzureUsePrimaryAddress)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create Azure client: %w", err)
 	}
 	instances := azureIPAM.NewInstancesManager(a.rootLogger, azureClient)
-	nodeManager, err := ipam.NewNodeManager(a.logger, instances, getterUpdater, iMetrics, operatorOption.Config.ParallelAllocWorkers, false, false)
+	nodeManager, err := ipam.NewNodeManager(a.logger, instances, getterUpdater, iMetrics, operatorOption.Config.ParallelAllocWorkers, operatorOption.Config.AzureReleaseExcessIPs, false)
 	if err != nil {
 		return nil, fmt.Errorf("unable to initialize Azure node manager: %w", err)
 	}

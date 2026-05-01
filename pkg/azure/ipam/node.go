@@ -59,7 +59,46 @@ func (n *Node) PopulateStatusFields(k8sObj *v2.CiliumNode) {
 
 // PrepareIPRelease prepares the release of IPs
 func (n *Node) PrepareIPRelease(excessIPs int, scopedLog *slog.Logger) *ipam.ReleaseAction {
-	return &ipam.ReleaseAction{}
+	r := &ipam.ReleaseAction{}
+	requiredIfaceName := n.k8sObj.Spec.Azure.InterfaceName
+	usedIPs := n.k8sObj.Status.IPAM.Used
+
+	n.manager.mutex.RLock()
+	defer n.manager.mutex.RUnlock()
+
+	n.manager.instances.ForeachInterface(n.node.InstanceID(), func(_, _ string, obj ipamTypes.InterfaceRevision) error {
+		iface, ok := obj.Resource.(*types.AzureInterface)
+		if !ok {
+			return nil
+		}
+		if requiredIfaceName != "" && iface.Name != requiredIfaceName {
+			return nil
+		}
+
+		var free []string
+		var poolID ipamTypes.PoolID
+		for _, addr := range iface.Addresses {
+			if addr.Primary {
+				continue
+			}
+			if _, used := usedIPs[addr.IP]; used {
+				continue
+			}
+			free = append(free, addr.IP)
+			if poolID == "" {
+				poolID = ipamTypes.PoolID(addr.Subnet)
+			}
+		}
+
+		maxRelease := min(len(free), excessIPs)
+		if maxRelease > len(r.IPsToRelease) {
+			r.InterfaceID = iface.ID
+			r.PoolID = poolID
+			r.IPsToRelease = free[:maxRelease]
+		}
+		return nil
+	})
+	return r
 }
 
 // ReleaseIPPrefixes is a no-op on Azure since Azure ENIs don't
@@ -71,7 +110,60 @@ func (n *Node) ReleaseIPPrefixes(ctx context.Context, r *ipam.ReleaseAction) err
 
 // ReleaseIPs performs the IP release operation
 func (n *Node) ReleaseIPs(ctx context.Context, r *ipam.ReleaseAction) error {
-	return fmt.Errorf("not implemented")
+	if len(r.IPsToRelease) == 0 {
+		return nil
+	}
+
+	var iface *types.AzureInterface
+	n.manager.mutex.RLock()
+	n.manager.instances.ForeachInterface(n.node.InstanceID(), func(_, interfaceID string, obj ipamTypes.InterfaceRevision) error {
+		if interfaceID == r.InterfaceID {
+			iface, _ = obj.Resource.(*types.AzureInterface)
+		}
+		return nil
+	})
+	n.manager.mutex.RUnlock()
+
+	if iface == nil {
+		return fmt.Errorf("interface %s not found for instance %s", r.InterfaceID, n.node.InstanceID())
+	}
+
+	if iface.GetVMScaleSetName() == "" {
+		return n.manager.api.UnassignPrivateIpAddressesVM(ctx, iface.Name, r.IPsToRelease)
+	}
+
+	// VMSS path: the desired-state model addresses IP configurations by name, not IP.
+	// Translate using the cached AzureInterface so we can skip an extra Azure API call.
+	// Require a complete translation: a partial unassign would silently desync the
+	// framework's bookkeeping (it marks every IP in r.IPsToRelease as released after
+	// this call returns nil).
+	wantNames := make(map[string]string, len(r.IPsToRelease))
+	for _, ip := range r.IPsToRelease {
+		wantNames[ip] = ""
+	}
+	for _, addr := range iface.Addresses {
+		if _, want := wantNames[addr.IP]; !want {
+			continue
+		}
+		if addr.Name == "" {
+			continue
+		}
+		wantNames[addr.IP] = addr.Name
+	}
+	ipConfigNames := make([]string, 0, len(r.IPsToRelease))
+	var missing []string
+	for ip, name := range wantNames {
+		if name == "" {
+			missing = append(missing, ip)
+			continue
+		}
+		ipConfigNames = append(ipConfigNames, name)
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("no cached IPConfiguration name for IPs %v on interface %s; will retry next cycle", missing, iface.Name)
+	}
+
+	return n.manager.api.UnassignPrivateIpAddressesVMSS(ctx, iface.GetVMID(), iface.GetVMScaleSetName(), iface.Name, ipConfigNames)
 }
 
 // PrepareIPAllocation returns the number of IPs that can be allocated/created.
