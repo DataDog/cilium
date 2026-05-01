@@ -192,6 +192,59 @@ func TestSubnetDiscovery(t *testing.T) {
 	require.NotNil(t, mngr.subnets["subnet-3"])
 }
 
+func TestResyncInstancePreservesOtherNodesSubnets(t *testing.T) {
+	api := apimock.NewAPI(subnets2, vnets)
+	require.NotNil(t, api)
+
+	mngr := NewInstancesManager(hivetest.Logger(t), api)
+	require.NotNil(t, mngr)
+
+	instances := ipamTypes.NewInstanceMap()
+
+	iface1 := &types.AzureInterface{
+		SecurityGroup: "sg1",
+		Addresses: []types.AzureAddress{
+			{
+				IP:     "1.1.1.1",
+				Subnet: "subnet-1",
+				State:  types.StateSucceeded,
+			},
+		},
+		State: types.StateSucceeded,
+	}
+	iface1.SetID("intf-vm-1")
+	instances.Update("vm-1", ipamTypes.InterfaceRevision{
+		Resource: iface1.DeepCopy(),
+	})
+
+	iface2 := &types.AzureInterface{
+		SecurityGroup: "sg2",
+		Addresses: []types.AzureAddress{
+			{
+				IP:     "3.3.3.3",
+				Subnet: "subnet-3",
+				State:  types.StateSucceeded,
+			},
+		},
+		State: types.StateSucceeded,
+	}
+	iface2.SetID("intf-vm-2")
+	instances.Update("vm-2", ipamTypes.InterfaceRevision{
+		Resource: iface2.DeepCopy(),
+	})
+
+	api.UpdateInstances(instances)
+
+	mngr.Resync(t.Context())
+	require.NotNil(t, mngr.subnets["subnet-1"])
+	require.NotNil(t, mngr.subnets["subnet-3"])
+
+	mngr.InstanceSync(t.Context(), "vm-1")
+
+	require.NotNil(t, mngr.subnets["subnet-1"], "vm-1's subnet should still be present after its own per-instance resync")
+	require.NotNil(t, mngr.subnets["subnet-3"], "vm-2's subnet must not be evicted by a per-instance resync of vm-1")
+}
+
 func TestExtractSubnetIDs(t *testing.T) {
 	api := apimock.NewAPI(subnets, vnets)
 	require.NotNil(t, api)
