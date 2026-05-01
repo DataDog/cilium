@@ -150,7 +150,19 @@ func (m *InstancesManager) resyncInstance(ctx context.Context, instanceID string
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	m.instances.UpdateInstance(instanceID, instance)
-	m.subnets = subnets
+	// Merge the freshly-fetched subnets into the cluster-wide map rather
+	// than replacing it. This per-instance resync only fetches the subnets
+	// referenced by *this* instance's interfaces, so a wholesale replace
+	// drops every other node's subnets and causes PrepareIPAllocation on
+	// other nodes to fall through to the wrong subnet (Azure rejects with
+	// VMScaleSetIpConfigurationsOnSameNicCannotUseDifferentSubnets). The
+	// full resync (resyncInstances) is authoritative and replaces wholesale.
+	if m.subnets == nil {
+		m.subnets = ipamTypes.SubnetMap{}
+	}
+	for id, s := range subnets {
+		m.subnets[id] = s
+	}
 
 	return resyncStart
 }
