@@ -224,7 +224,9 @@ func TestResyncInstancePreservesOtherNodesSubnets(t *testing.T) {
 		State: types.StateSucceeded,
 	}
 	iface1.SetID("intf-vm-1")
-	instances.Update("vm-1", iface1.DeepCopy())
+	instances.Update("vm-1", ipamTypes.InterfaceRevision{
+		Resource: iface1.DeepCopy(),
+	})
 
 	iface2 := &types.AzureInterface{
 		SecurityGroup: "sg2",
@@ -238,20 +240,20 @@ func TestResyncInstancePreservesOtherNodesSubnets(t *testing.T) {
 		State: types.StateSucceeded,
 	}
 	iface2.SetID("intf-vm-2")
-	instances.Update("vm-2", iface2.DeepCopy())
+	instances.Update("vm-2", ipamTypes.InterfaceRevision{
+		Resource: iface2.DeepCopy(),
+	})
 
 	api.UpdateInstances(instances)
 
 	// Initial full resync populates m.subnets with both subnets.
-	_, err := mngr.Resync(t.Context())
-	require.NoError(t, err)
+	require.False(t, mngr.Resync(t.Context()).IsZero(), "Resync should succeed")
 	require.NotNil(t, mngr.subnets["subnet-1"])
 	require.NotNil(t, mngr.subnets["subnet-3"])
 
 	// Per-instance resync for vm-1 only references subnet-1. It must not
 	// evict subnet-3 (owned by vm-2) from the cluster-wide map.
-	_, err = mngr.InstanceSync(t.Context(), "vm-1")
-	require.NoError(t, err)
+	require.False(t, mngr.InstanceSync(t.Context(), "vm-1").IsZero(), "InstanceSync should succeed")
 
 	require.NotNil(t, mngr.subnets["subnet-1"], "vm-1's subnet should still be present after its own per-instance resync")
 	require.NotNil(t, mngr.subnets["subnet-3"], "vm-2's subnet must not be evicted by a per-instance resync of vm-1")
