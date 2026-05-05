@@ -24,6 +24,12 @@ func (in *AzureAddress) DeepEqual(other *AzureAddress) bool {
 	if in.State != other.State {
 		return false
 	}
+	if in.ipConfigName != other.ipConfigName {
+		return false
+	}
+	if in.primary != other.primary {
+		return false
+	}
 
 	return true
 }
