@@ -34,5 +34,8 @@ func (hook *azureFlagsHooks) RegisterProviderFlag(cmd *cobra.Command, vp *viper.
 	flags.Bool(operatorOption.AzureUsePrimaryAddress, false, "Use Azure IP address from interface's primary IPConfigurations")
 	option.BindEnvWithLegacyEnvFallback(vp, operatorOption.AzureUsePrimaryAddress, "AZURE_USE_PRIMARY_ADDRESS")
 
+	flags.Bool(operatorOption.AzureReleaseExcessIPs, false, "Enable releasing excess free IP addresses from Azure network interfaces.")
+	option.BindEnv(vp, operatorOption.AzureReleaseExcessIPs)
+
 	vp.BindPFlags(flags)
 }

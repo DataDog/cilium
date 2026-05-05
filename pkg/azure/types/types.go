@@ -69,6 +69,47 @@ type AzureAddress struct {
 
 	// State is the provisioning state of the address
 	State string `json:"state,omitempty"`
+
+	// ipConfigName is the Azure IPConfiguration resource name (e.g. "pods",
+	// "pod-01", or "Cilium-AB12CD34"). Required to drop IPConfigurations from
+	// VMSS compute models, which expose name + primary but not
+	// privateIPAddress. Populated at parse time from the network model and
+	// preserved across DeepCopy via the slice-element value copy. Not
+	// serialized to the CRD.
+	ipConfigName string `json:"-"`
+
+	// primary mirrors IPConfiguration.Properties.Primary on the live Azure
+	// NIC. When --azure-use-primary-address=true the primary IP is added to
+	// the IPAM pool, so PrepareIPRelease has to filter it out — Azure ARM
+	// rejects updates that drop the primary IPConfiguration with an opaque
+	// 500 error, and that error is atomic for the entire batch (jamming any
+	// secondaries selected alongside it). Populated at parse time from the
+	// network model. Not serialized to the CRD.
+	primary bool `json:"-"`
+}
+
+// SetIPConfigName records the Azure IPConfiguration resource name backing
+// this address.
+func (a *AzureAddress) SetIPConfigName(name string) {
+	a.ipConfigName = name
+}
+
+// IPConfigName returns the Azure IPConfiguration resource name backing this
+// address, or "" if unknown.
+func (a AzureAddress) IPConfigName() string {
+	return a.ipConfigName
+}
+
+// SetPrimary records whether this address backs the NIC's primary
+// IPConfiguration.
+func (a *AzureAddress) SetPrimary(primary bool) {
+	a.primary = primary
+}
+
+// Primary returns whether this address backs the NIC's primary
+// IPConfiguration.
+func (a AzureAddress) Primary() bool {
+	return a.primary
 }
 
 // AzureInterface represents an Azure Interface

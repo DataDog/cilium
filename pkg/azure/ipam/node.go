@@ -57,9 +57,55 @@ func (n *Node) PopulateStatusFields(k8sObj *v2.CiliumNode) {
 	})
 }
 
-// PrepareIPRelease prepares the release of IPs
+// PrepareIPRelease selects up to excessIPs free IP addresses on a single
+// interface attached to this node and returns them as a ReleaseAction. An
+// IP is considered "free" if it is in Succeeded state, not the NIC's
+// primary IPConfiguration, and not present in CiliumNode.Status.IPAM.Used.
+//
+// Primary IPConfigurations are excluded here because Azure ARM rejects
+// updates that drop them with an opaque NetworkingInternalOperationError
+// 500 — and the failure is atomic for the entire batch, so a primary in
+// the release set jams every secondary selected alongside it. The
+// SDK-level Unassign* methods keep an additional pre-flight check as
+// defense-in-depth in case a stale cache slips a primary through.
 func (n *Node) PrepareIPRelease(excessIPs int, scopedLog *slog.Logger) *ipam.ReleaseAction {
-	return &ipam.ReleaseAction{}
+	r := &ipam.ReleaseAction{}
+	requiredIfaceName := n.k8sObj.Spec.Azure.InterfaceName
+	usedIPs := n.k8sObj.Status.IPAM.Used
+
+	n.manager.mutex.RLock()
+	defer n.manager.mutex.RUnlock()
+
+	_ = n.manager.instances.ForeachInterface(n.node.InstanceID(),
+		func(_, _ string, ifaceObj ipamTypes.InterfaceRevision) error {
+			iface, ok := ifaceObj.Resource.(*types.AzureInterface)
+			if !ok {
+				return nil
+			}
+			if requiredIfaceName != "" && iface.Name != requiredIfaceName {
+				return nil
+			}
+
+			free := freeIPsOnInterface(iface, usedIPs)
+			if len(free) == 0 {
+				return nil
+			}
+			maxRelease := min(len(free), excessIPs)
+			// Pick the interface with the most releasable IPs (matches AWS).
+			if r.IPsToRelease == nil || maxRelease > len(r.IPsToRelease) {
+				r.InterfaceID = iface.ID
+				r.PoolID = ipamTypes.PoolID(primarySubnetForRelease(iface, free[:maxRelease]))
+				r.IPsToRelease = free[:maxRelease]
+				scopedLog.Debug(
+					"Interface has unused IPs that can be released",
+					logfields.ID, iface.ID,
+					logfields.ExcessIPs, excessIPs,
+					logfields.IPAddrs, r.IPsToRelease,
+				)
+			}
+			return nil
+		})
+	return r
 }
 
 // ReleaseIPPrefixes is a no-op on Azure since Azure ENIs don't
@@ -69,9 +115,113 @@ func (n *Node) ReleaseIPPrefixes(ctx context.Context, r *ipam.ReleaseAction) err
 	return nil
 }
 
-// ReleaseIPs performs the IP release operation
+// ReleaseIPs performs the IP release operation. For VM (non-VMSS)
+// interfaces, the network model has the IP on each IPConfiguration so we
+// pass IPs to the SDK directly. For VMSS, the compute model only has
+// IPConfiguration names, so we translate IPs to names using the in-memory
+// mapping populated by parseInterface and pass the names to the SDK.
 func (n *Node) ReleaseIPs(ctx context.Context, r *ipam.ReleaseAction) error {
-	return fmt.Errorf("not implemented")
+	if len(r.IPsToRelease) == 0 {
+		return nil
+	}
+
+	iface, err := n.findInterface(r.InterfaceID)
+	if err != nil {
+		return err
+	}
+
+	if iface.GetVMScaleSetName() == "" {
+		return n.manager.api.UnassignPrivateIpAddressesVM(ctx, iface.Name, r.IPsToRelease)
+	}
+
+	names, missing := ipsToConfigNames(iface, r.IPsToRelease)
+	if len(missing) > 0 {
+		return fmt.Errorf("interface %s: missing IPConfig name mapping for IPs %v (cache out of sync, will retry after next resync)", iface.Name, missing)
+	}
+	return n.manager.api.UnassignPrivateIpAddressesVMSS(ctx, iface.GetVMID(), iface.GetVMScaleSetName(), iface.Name, names)
+}
+
+// freeIPsOnInterface returns the IPs on iface that are in Succeeded state,
+// not the NIC's primary IPConfiguration, and absent from used. Order is the
+// order returned by parseInterface, which is the order Azure listed the
+// IPConfigurations.
+func freeIPsOnInterface(iface *types.AzureInterface, used ipamTypes.AllocationMap) []string {
+	free := make([]string, 0, len(iface.Addresses))
+	for _, a := range iface.Addresses {
+		if a.State != types.StateSucceeded {
+			continue
+		}
+		if a.Primary() {
+			continue
+		}
+		if _, inUse := used[a.IP]; inUse {
+			continue
+		}
+		free = append(free, a.IP)
+	}
+	return free
+}
+
+// primarySubnetForRelease returns the subnet ID associated with the first
+// IP in toRelease that has a known subnet, or "" if none. The IPAM
+// framework uses PoolID for metric labelling and subnet pool accounting
+// only — it does not affect correctness of the release.
+func primarySubnetForRelease(iface *types.AzureInterface, toRelease []string) string {
+	wanted := make(map[string]struct{}, len(toRelease))
+	for _, ip := range toRelease {
+		wanted[ip] = struct{}{}
+	}
+	for _, a := range iface.Addresses {
+		if _, ok := wanted[a.IP]; !ok {
+			continue
+		}
+		if a.Subnet != "" {
+			return a.Subnet
+		}
+	}
+	return ""
+}
+
+// findInterface returns the AzureInterface with the given ID on this node,
+// or an error if not found. Caller does not need to hold the manager mutex.
+func (n *Node) findInterface(interfaceID string) (*types.AzureInterface, error) {
+	var found *types.AzureInterface
+	n.manager.mutex.RLock()
+	defer n.manager.mutex.RUnlock()
+	_ = n.manager.instances.ForeachInterface(n.node.InstanceID(),
+		func(_, _ string, ifaceObj ipamTypes.InterfaceRevision) error {
+			iface, ok := ifaceObj.Resource.(*types.AzureInterface)
+			if !ok {
+				return nil
+			}
+			if iface.ID == interfaceID {
+				found = iface
+			}
+			return nil
+		})
+	if found == nil {
+		return nil, fmt.Errorf("interface %s not found on instance %s", interfaceID, n.node.InstanceID())
+	}
+	return found, nil
+}
+
+// ipsToConfigNames maps each IP in ips to its IPConfiguration name on iface.
+// IPs without a known mapping are returned in missing.
+func ipsToConfigNames(iface *types.AzureInterface, ips []string) (names, missing []string) {
+	byIP := make(map[string]string, len(iface.Addresses))
+	for _, a := range iface.Addresses {
+		if name := a.IPConfigName(); name != "" {
+			byIP[a.IP] = name
+		}
+	}
+	for _, ip := range ips {
+		if name, ok := byIP[ip]; ok {
+			names = append(names, name)
+		} else {
+			missing = append(missing, ip)
+		}
+	}
+	return
 }
 
 // PrepareIPAllocation returns the number of IPs that can be allocated/created.
