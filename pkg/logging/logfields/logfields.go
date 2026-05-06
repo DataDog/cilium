@@ -1933,4 +1933,10 @@ const (
 	CiliumDatapathPluginAttachmentPolicy = "datapathPluginAttachmentPolicy"
 
 	CiliumDatapathPluginVersion = "datapathPluginVersion"
+
+	Description = "description"
+
+	Segment = "segment"
+
+	Policy = "policy"
 )
