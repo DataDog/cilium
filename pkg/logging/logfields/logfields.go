@@ -1865,4 +1865,10 @@ const (
 	AttachType = "attachType"
 
 	WithFrags = "withFrags"
+
+	Description = "description"
+
+	Segment = "segment"
+
+	Policy = "policy"
 )
