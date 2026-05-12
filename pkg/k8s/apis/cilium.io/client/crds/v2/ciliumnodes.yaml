@@ -121,6 +121,11 @@ spec:
               azure:
                 description: Azure is the Azure IPAM specific configuration.
                 properties:
+                  disable-prefix-delegation:
+                    description: |-
+                      DisablePrefixDelegation allows opting an individual node out of
+                      Azure Prefix on NIC even when the operator-wide flag is enabled.
+                    type: boolean
                   interface-name:
                     description: |-
                       InterfaceName is the name of the interface the cilium-operator
@@ -614,6 +619,14 @@ spec:
                         name:
                           description: Name is the name of the interface
                           type: string
+                        prefixes:
+                          description: |-
+                            Prefixes is the list of /28 CIDR blocks assigned to this interface via
+                            Azure Prefix on NIC. Each prefix yields 16 IPs which are also present
+                            in Addresses.
+                          items:
+                            type: string
+                          type: array
                         security-group:
                           description: SecurityGroup is the security group associated
                             with the interface

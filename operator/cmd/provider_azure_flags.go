@@ -34,5 +34,8 @@ func (hook *azureFlagsHooks) RegisterProviderFlag(cmd *cobra.Command, vp *viper.
 	flags.Bool(operatorOption.AzureUsePrimaryAddress, false, "Use Azure IP address from interface's primary IPConfigurations")
 	option.BindEnvWithLegacyEnvFallback(vp, operatorOption.AzureUsePrimaryAddress, "AZURE_USE_PRIMARY_ADDRESS")
 
+	flags.Bool(operatorOption.AzureEnablePrefixDelegation, false, "Allow operator to allocate /28 prefixes on Azure NICs (Prefix on NIC) instead of individual IPs")
+	option.BindEnvWithLegacyEnvFallback(vp, operatorOption.AzureEnablePrefixDelegation, "AZURE_ENABLE_PREFIX_DELEGATION")
+
 	vp.BindPFlags(flags)
 }
