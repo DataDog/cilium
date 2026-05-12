@@ -390,7 +390,15 @@ func parseInterface(iface *armnetwork.Interface, subnets ipamTypes.SubnetMap, us
 			}
 
 			if ipc.Properties.PrivateIPAddressPrefixLength != nil {
-				raw := fmt.Sprintf("%s/%d", *ipc.Properties.PrivateIPAddress, *ipc.Properties.PrivateIPAddressPrefixLength)
+				// Azure's NIC resource returns PrivateIPAddress as a CIDR
+				// string ("10.0.0.0/28") for Prefix on NIC configurations,
+				// while the VMSS VM model returns the bare address. Strip
+				// any "/length" suffix before composing the CIDR.
+				addrStr := *ipc.Properties.PrivateIPAddress
+				if idx := strings.IndexByte(addrStr, '/'); idx >= 0 {
+					addrStr = addrStr[:idx]
+				}
+				raw := fmt.Sprintf("%s/%d", addrStr, *ipc.Properties.PrivateIPAddressPrefixLength)
 				prefix, err := netip.ParsePrefix(raw)
 				if err != nil {
 					continue

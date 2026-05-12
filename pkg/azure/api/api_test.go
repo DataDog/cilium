@@ -309,3 +309,34 @@ func TestParseInterfaceWithPrefixNormalizesHostBits(t *testing.T) {
 	require.NotNil(t, az)
 	require.Equal(t, []string{"10.0.0.16/28"}, az.Prefixes, "host bits should be masked")
 }
+
+func TestParseInterfaceWithPrefixCIDRInAddress(t *testing.T) {
+	// Azure's NIC resource (armnetwork.InterfacesClient.Get / List) returns
+	// PrivateIPAddress as a CIDR string ("10.0.0.16/28") for Prefix on NIC
+	// configurations, while the VMSS VM model returns the bare address.
+	// parseInterface must strip the suffix before composing the prefix.
+	iface := &armnetwork.Interface{
+		ID:   to.Ptr("/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/networkInterfaces/iface0"),
+		Name: to.Ptr("iface0"),
+		Properties: &armnetwork.InterfacePropertiesFormat{
+			VirtualMachine: &armnetwork.SubResource{
+				ID: to.Ptr("/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm0"),
+			},
+			IPConfigurations: []*armnetwork.InterfaceIPConfiguration{
+				{
+					Name: to.Ptr("prefix0"),
+					Properties: &armnetwork.InterfaceIPConfigurationPropertiesFormat{
+						PrivateIPAddress:             to.Ptr("10.0.0.16/28"),
+						PrivateIPAddressPrefixLength: to.Ptr(int32(28)),
+						ProvisioningState:            to.Ptr(armnetwork.ProvisioningStateSucceeded),
+					},
+				},
+			},
+		},
+	}
+
+	_, az := parseInterface(iface, ipamTypes.SubnetMap{}, false)
+	require.NotNil(t, az)
+	require.Equal(t, []string{"10.0.0.16/28"}, az.Prefixes)
+	require.Len(t, az.Addresses, 16, "/28 expands to 16 addresses even when PrivateIPAddress is CIDR")
+}
