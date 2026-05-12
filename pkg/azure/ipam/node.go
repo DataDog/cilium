@@ -410,11 +410,9 @@ func (n *Node) GetMinimumAllocatableIPv4() int {
 }
 
 // IsPrefixDelegated reports whether Azure Prefix on NIC should be used for new
-// allocations on this node. Mirrors pkg/aws/eni/node.go IsPrefixDelegated:
-// false if the operator-wide flag is off, false if the per-node CRD opts out,
-// and false if any cached interface already carries secondary IPs that did not
-// come from a prefix (mixed-mode guard — Azure does not support mixing Prefix
-// on NIC with individually-allocated IPs on the same NIC).
+// allocations on this node. Returns false if the operator-wide flag is off or
+// if the per-node CRD opts out. Unlike AWS, Azure does not require an
+// all-or-nothing posture per NIC, so there is no mixed-mode guard here.
 //
 // Callers already holding n.manager.mutex must use isPrefixDelegatedLocked
 // instead; sync.RWMutex is not reentrant and a nested RLock can deadlock under
@@ -428,11 +426,11 @@ func (n *Node) IsPrefixDelegated() bool {
 // isPrefixDelegatedLocked is the lock-free body of IsPrefixDelegated. Callers
 // must hold n.manager.mutex (read or write).
 //
-// TODO: the mixed-mode guard assumes parseInterface ran with usePrimary=false
-// (the operator default), so primary IPs are excluded from Addresses. If a
-// future AzureSpec.UsePrimaryAddress field is added, this guard will falsely
-// trip on a freshly-prefix-delegated NIC because the primary IP would appear
-// in Addresses with no corresponding Prefixes entry.
+// Azure permits mixing single-IP secondary configurations and /28 Prefix on
+// NIC configurations on the same NIC at the REST layer (each secondary IP
+// config independently chooses between a single IP and a CIDR block per
+// learn.microsoft.com/.../private-ip-addresses), so no mixed-mode guard is
+// imposed here.
 func (n *Node) isPrefixDelegatedLocked() bool {
 	if n.node == nil || !n.node.IsPrefixDelegationEnabled() {
 		return false
@@ -440,22 +438,7 @@ func (n *Node) isPrefixDelegatedLocked() bool {
 	if n.k8sObj.Spec.Azure.DisablePrefixDelegation != nil && *n.k8sObj.Spec.Azure.DisablePrefixDelegation {
 		return false
 	}
-	// Mixed-mode guard. parseInterface (with usePrimary=false, the default)
-	// excludes the primary IP from Addresses, so any non-empty Addresses on an
-	// interface that has no Prefixes indicates pre-existing secondary IPs that
-	// were allocated individually.
-	allowed := true
-	_ = n.manager.instances.ForeachInterface(n.node.InstanceID(), func(instanceID, interfaceID string, interfaceObj ipamTypes.InterfaceRevision) error {
-		iface, ok := interfaceObj.Resource.(*types.AzureInterface)
-		if !ok {
-			return nil
-		}
-		if len(iface.Prefixes) == 0 && len(iface.Addresses) > 0 {
-			allowed = false
-		}
-		return nil
-	})
-	return allowed
+	return true
 }
 
 // isAvailableInterface returns whether interface is available and the number

@@ -99,9 +99,12 @@ func TestIsPrefixDelegated(t *testing.T) {
 		require.False(t, n.IsPrefixDelegated())
 	})
 
-	t.Run("flag on, mixed mode rejected", func(t *testing.T) {
+	t.Run("flag on, NIC with pre-existing individual secondaries still allowed", func(t *testing.T) {
+		// Azure permits mixing single-IP secondary configurations and Prefix on
+		// NIC configurations on the same NIC (see
+		// learn.microsoft.com/.../private-ip-addresses).
 		n := newPDTestNode(t, instanceID, true, mkSecondaryIface())
-		require.False(t, n.IsPrefixDelegated())
+		require.True(t, n.IsPrefixDelegated())
 	})
 }
 
