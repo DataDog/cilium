@@ -197,8 +197,17 @@ func (n *Node) ReleaseIPPrefixes(ctx context.Context, r *ipam.ReleaseAction) err
 	return n.manager.api.UnassignPrivatePrefixesVMSS(ctx, vmID, vmssName, ifaceName, r.IPPrefixesToRelease)
 }
 
-// ReleaseIPs performs the IP release operation
+// ReleaseIPs performs the IP release operation. Per-IP release is not
+// implemented for Azure (mirrors AWS's prefix-only release flow for v1.19);
+// when the IPAM framework chains ReleaseIPs after a successful
+// ReleaseIPPrefixes on the same ReleaseAction, all IPs in r.IPsToRelease are
+// prefix-expanded and were already unassigned by the Unassign*Prefixes call.
+// Returning nil in that case lets the framework complete the release
+// handshake.
 func (n *Node) ReleaseIPs(ctx context.Context, r *ipam.ReleaseAction) error {
+	if len(r.IPPrefixesToRelease) > 0 {
+		return nil
+	}
 	return fmt.Errorf("not implemented")
 }
 
