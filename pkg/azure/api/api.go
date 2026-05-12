@@ -24,6 +24,8 @@ import (
 
 	"github.com/cilium/cilium/pkg/api/helpers"
 	"github.com/cilium/cilium/pkg/azure/types"
+	pkgip "github.com/cilium/cilium/pkg/ip"
+	ipamOption "github.com/cilium/cilium/pkg/ipam/option"
 	ipamTypes "github.com/cilium/cilium/pkg/ipam/types"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/spanstat"
@@ -332,31 +334,61 @@ func parseInterface(iface *armnetwork.Interface, subnets ipamTypes.SubnetMap, us
 	}
 
 	if iface.Properties.IPConfigurations != nil {
-		for _, ip := range (*iface).Properties.IPConfigurations {
-			if !usePrimary && ip.Properties.Primary != nil && *ip.Properties.Primary {
+		for _, ipc := range (*iface).Properties.IPConfigurations {
+			if !usePrimary && ipc.Properties.Primary != nil && *ipc.Properties.Primary {
 				continue
 			}
-			if ip.Properties.PrivateIPAddress != nil {
-				addr := types.AzureAddress{
-					IP:    *ip.Properties.PrivateIPAddress,
-					State: strings.ToLower(string(*ip.Properties.ProvisioningState)),
-				}
+			if ipc.Properties.PrivateIPAddress == nil {
+				continue
+			}
 
-				if ip.Properties.Subnet != nil {
-					addr.Subnet = *ip.Properties.Subnet.ID
-					if subnet, ok := subnets[addr.Subnet]; ok {
-						if subnet.CIDR.IsValid() {
-							i.CIDR = subnet.CIDR.String()
-						}
-						if gateway := deriveGatewayIP(subnet.CIDR.Addr()); gateway != "" {
-							i.GatewayIP = gateway
-							i.Gateway = gateway
-						}
+			addr := types.AzureAddress{
+				IP:    *ipc.Properties.PrivateIPAddress,
+				State: strings.ToLower(string(*ipc.Properties.ProvisioningState)),
+			}
+
+			if ipc.Properties.Subnet != nil {
+				addr.Subnet = *ipc.Properties.Subnet.ID
+				if subnet, ok := subnets[addr.Subnet]; ok {
+					if subnet.CIDR.IsValid() {
+						i.CIDR = subnet.CIDR.String()
+					}
+					if gateway := deriveGatewayIP(subnet.CIDR.Addr()); gateway != "" {
+						i.GatewayIP = gateway
+						i.Gateway = gateway
 					}
 				}
-
-				i.Addresses = append(i.Addresses, addr)
 			}
+
+			if ipc.Properties.PrivateIPAddressPrefixLength != nil {
+				// Azure's NIC resource returns PrivateIPAddress as a CIDR
+				// string ("10.0.0.0/28") for Prefix on NIC configurations,
+				// while the VMSS VM model returns the bare address. Strip
+				// any "/length" suffix before composing the CIDR.
+				addrStr := *ipc.Properties.PrivateIPAddress
+				if idx := strings.IndexByte(addrStr, '/'); idx >= 0 {
+					addrStr = addrStr[:idx]
+				}
+				raw := fmt.Sprintf("%s/%d", addrStr, *ipc.Properties.PrivateIPAddressPrefixLength)
+				prefix, err := netip.ParsePrefix(raw)
+				if err != nil {
+					continue
+				}
+				cidr := prefix.Masked().String()
+				ips, err := pkgip.PrefixToIps(cidr, ipamOption.ENIPDBlockSizeIPv4)
+				if err != nil {
+					continue
+				}
+				i.Prefixes = append(i.Prefixes, cidr)
+				for _, expanded := range ips {
+					expandedAddr := addr
+					expandedAddr.IP = expanded
+					i.Addresses = append(i.Addresses, expandedAddr)
+				}
+				continue
+			}
+
+			i.Addresses = append(i.Addresses, addr)
 		}
 	}
 
