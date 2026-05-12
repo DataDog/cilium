@@ -57,3 +57,7 @@ type mockIPAMNode string
 func (m mockIPAMNode) InstanceID() string {
 	return string(m)
 }
+
+func (m mockIPAMNode) IsPrefixDelegationEnabled() bool {
+	return false
+}
