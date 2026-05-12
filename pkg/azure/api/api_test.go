@@ -340,3 +340,12 @@ func TestParseInterfaceWithPrefixCIDRInAddress(t *testing.T) {
 	require.Equal(t, []string{"10.0.0.16/28"}, az.Prefixes)
 	require.Len(t, az.Addresses, 16, "/28 expands to 16 addresses even when PrivateIPAddress is CIDR")
 }
+
+func TestComposePrefixCIDR(t *testing.T) {
+	// VMSS VM model returns bare address.
+	require.Equal(t, "10.0.0.16/28", composePrefixCIDR("10.0.0.16", 28))
+	// NIC resource returns CIDR-form PrivateIPAddress; existing suffix must be
+	// stripped before re-composing so the key matches the parsed Prefixes slice.
+	require.Equal(t, "10.0.0.16/28", composePrefixCIDR("10.0.0.16/28", 28))
+	require.Equal(t, "10.0.0.0/28", composePrefixCIDR("10.0.0.0/32", 28))
+}

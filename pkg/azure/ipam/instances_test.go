@@ -259,6 +259,87 @@ func TestResyncInstancePreservesOtherNodesSubnets(t *testing.T) {
 	require.NotNil(t, mngr.subnets["subnet-3"], "vm-2's subnet must not be evicted by a per-instance resync of vm-1")
 }
 
+// prefixIface builds an AzureInterface attached to a VMSS instance for prefix tests.
+func prefixIface(name, vmssName, vmID, subnetID string) *types.AzureInterface {
+	iface := &types.AzureInterface{
+		Name:          name,
+		SecurityGroup: "sg-prefix",
+		State:         types.StateSucceeded,
+	}
+	iface.SetID(fmt.Sprintf("/subscriptions/x/resourceGroups/g1/providers/Microsoft.Compute/virtualMachineScaleSets/%s/virtualMachines/%s/networkInterfaces/%s", vmssName, vmID, name))
+	return iface
+}
+
+func TestPrefixDelegationMockAssignAndUnassignVMSS(t *testing.T) {
+	prefixSubnet := &ipamTypes.Subnet{
+		ID:               "subnet-prefix",
+		CIDR:             netip.MustParsePrefix("10.10.0.0/24"),
+		VirtualNetworkID: "vpc-1",
+	}
+	api := apimock.NewAPI([]*ipamTypes.Subnet{prefixSubnet}, vnets)
+	mngr := NewInstancesManager(hivetest.Logger(t), api)
+
+	iface := prefixIface("eth0", "vmss1", "0", prefixSubnet.ID)
+	// instances are keyed by VM resource ID, not NIC ID
+	vmID := "/subscriptions/x/resourceGroups/g1/providers/Microsoft.Compute/virtualMachineScaleSets/vmss1/virtualMachines/0"
+	im := ipamTypes.NewInstanceMap()
+	im.Update(vmID, ipamTypes.InterfaceRevision{Resource: iface.DeepCopy()})
+	api.UpdateInstances(im)
+
+	require.NoError(t, api.AssignPrivatePrefixesVMSS(t.Context(), "0", "vmss1", prefixSubnet.ID, iface.Name, 2))
+
+	// Re-fetch via the mock by syncing through the manager.
+	require.False(t, mngr.Resync(t.Context()).IsZero())
+
+	collect := func() (prefixes []string, addrCount int) {
+		mngr.mutex.RLock()
+		defer mngr.mutex.RUnlock()
+		_ = mngr.instances.ForeachInterface(vmID, func(_, _ string, rev ipamTypes.InterfaceRevision) error {
+			az, ok := rev.Resource.(*types.AzureInterface)
+			if !ok {
+				return nil
+			}
+			prefixes = append(prefixes, az.Prefixes...)
+			addrCount += len(az.Addresses)
+			return nil
+		})
+		return
+	}
+
+	prefixCIDRs, addrCount := collect()
+	require.Len(t, prefixCIDRs, 2, "expected 2 /28 prefixes")
+	require.Equal(t, 32, addrCount, "expected 32 expanded IPs (2 * 16)")
+
+	require.NoError(t, api.UnassignPrivatePrefixesVMSS(t.Context(), "0", "vmss1", iface.Name, prefixCIDRs))
+	require.False(t, mngr.Resync(t.Context()).IsZero())
+
+	prefixCIDRs, addrCount = collect()
+	require.Empty(t, prefixCIDRs, "all prefixes should have been released")
+	require.Zero(t, addrCount, "all expanded addresses should have been removed")
+}
+
+func TestPrefixDelegationMockSubnetFull(t *testing.T) {
+	// Tiny /28 subnet: only one /28 block carve-able.
+	tinySubnet := &ipamTypes.Subnet{
+		ID:               "subnet-tiny",
+		CIDR:             netip.MustParsePrefix("10.20.0.0/28"),
+		VirtualNetworkID: "vpc-1",
+	}
+	api := apimock.NewAPI([]*ipamTypes.Subnet{tinySubnet}, vnets)
+
+	iface := prefixIface("eth0", "vmss-tiny", "0", tinySubnet.ID)
+	vmID := "/subscriptions/x/resourceGroups/g1/providers/Microsoft.Compute/virtualMachineScaleSets/vmss-tiny/virtualMachines/0"
+	im := ipamTypes.NewInstanceMap()
+	im.Update(vmID, ipamTypes.InterfaceRevision{Resource: iface.DeepCopy()})
+	api.UpdateInstances(im)
+
+	// First /28 allocation succeeds.
+	require.NoError(t, api.AssignPrivatePrefixesVMSS(t.Context(), "0", "vmss-tiny", tinySubnet.ID, iface.Name, 1))
+	// Second /28 allocation must fail (the /28 subnet only contains one /28).
+	err := api.AssignPrivatePrefixesVMSS(t.Context(), "0", "vmss-tiny", tinySubnet.ID, iface.Name, 1)
+	require.Error(t, err)
+}
+
 func TestExtractSubnetIDs(t *testing.T) {
 	api := apimock.NewAPI(subnets, vnets)
 	require.NotNil(t, api)
