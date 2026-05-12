@@ -29,6 +29,10 @@ const (
 	GetVpcsAndSubnets
 	GetSubnetsByIDs
 	AssignPrivateIpAddressesVMSS
+	AssignPrivatePrefixesVM
+	AssignPrivatePrefixesVMSS
+	UnassignPrivatePrefixesVM
+	UnassignPrivatePrefixesVMSS
 	MaxOperation
 )
 
@@ -222,6 +226,30 @@ func (a *API) GetSubnetsByIDs(ctx context.Context, nodeSubnetIDs []string) (ipam
 }
 
 func (a *API) AssignPrivateIpAddressesVM(ctx context.Context, subnetID, interfaceName string, addresses int) error {
+	return nil
+}
+
+// AssignPrivatePrefixesVM is a placeholder; the full mock allocator behavior
+// lands in a follow-up commit alongside the Prefix on NIC tests.
+func (a *API) AssignPrivatePrefixesVM(ctx context.Context, subnetID, interfaceName string, prefixes int) error {
+	return nil
+}
+
+// AssignPrivatePrefixesVMSS is a placeholder; the full mock allocator behavior
+// lands in a follow-up commit alongside the Prefix on NIC tests.
+func (a *API) AssignPrivatePrefixesVMSS(ctx context.Context, instanceID, vmssName, subnetID, interfaceName string, prefixes int) error {
+	return nil
+}
+
+// UnassignPrivatePrefixesVM is a placeholder; the full mock allocator behavior
+// lands in a follow-up commit alongside the Prefix on NIC tests.
+func (a *API) UnassignPrivatePrefixesVM(ctx context.Context, interfaceName string, prefixes []string) error {
+	return nil
+}
+
+// UnassignPrivatePrefixesVMSS is a placeholder; the full mock allocator behavior
+// lands in a follow-up commit alongside the Prefix on NIC tests.
+func (a *API) UnassignPrivatePrefixesVMSS(ctx context.Context, instanceID, vmssName, interfaceName string, prefixes []string) error {
 	return nil
 }
 
