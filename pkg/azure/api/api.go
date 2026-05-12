@@ -5,6 +5,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -16,6 +17,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	azruntime "github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v7"
@@ -60,9 +63,16 @@ type Client struct {
 	subnets                   *armnetwork.SubnetsClient
 	virtualMachineScaleSetVMs *armcompute.VirtualMachineScaleSetVMsClient
 	virtualMachineScaleSets   *armcompute.VirtualMachineScaleSetsClient
-	limiter                   *helpers.APILimiter
-	metricsAPI                MetricsAPI
-	usePrimary                bool
+	// armPipeline is an azcore pipeline targeting ARM directly, used when the
+	// typed SDK does not yet expose a field we need (e.g. Prefix on NIC's
+	// privateIPAddressPrefixLength on VMSS IP configurations).
+	armPipeline azruntime.Pipeline
+	// armEndpoint is the ARM endpoint host for the configured cloud
+	// (e.g. https://management.azure.com).
+	armEndpoint string
+	limiter     *helpers.APILimiter
+	metricsAPI  MetricsAPI
+	usePrimary  bool
 }
 
 // MetricsAPI represents the metrics maintained by the Azure API client
@@ -165,6 +175,23 @@ func NewClient(logger *slog.Logger, cloudName, subscriptionID, resourceGroup, us
 		return nil, err
 	}
 
+	armService, ok := clientOptions.Cloud.Services[cloud.ResourceManager]
+	if !ok {
+		return nil, fmt.Errorf("Azure Resource Manager service configuration missing for cloud %q", cloudName)
+	}
+	armPipeline := azruntime.NewPipeline(
+		"cilium-azure", version.Version,
+		azruntime.PipelineOptions{
+			PerRetry: []policy.Policy{
+				azruntime.NewBearerTokenPolicy(credential, []string{armService.Audience + "/.default"}, nil),
+			},
+		},
+		&policy.ClientOptions{
+			Cloud:     clientOptions.Cloud,
+			Transport: clientOptions.Transport,
+		},
+	)
+
 	c := &Client{
 		logger:                    logger,
 		subscriptionID:            subscriptionID,
@@ -176,6 +203,8 @@ func NewClient(logger *slog.Logger, cloudName, subscriptionID, resourceGroup, us
 		subnets:                   subnetsClient,
 		virtualMachineScaleSetVMs: virtualMachineScaleSetVMsClient,
 		virtualMachineScaleSets:   virtualMachineScaleSetsClient,
+		armPipeline:               armPipeline,
+		armEndpoint:               armService.Endpoint,
 		metricsAPI:                metrics,
 		limiter:                   helpers.NewAPILimiter(metrics, rateLimit, burst),
 		usePrimary:                usePrimary,
@@ -727,90 +756,176 @@ func generateIpConfigName() string {
 	return "Cilium-" + rand.String(8)
 }
 
-// AssignPrivateIpAddressesVMSS assign a private IP to an interface attached to a VMSS instance
-func (c *Client) AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, subnetID, interfaceName string, addresses int) error {
-	var netIfConfig *armcompute.VirtualMachineScaleSetNetworkConfiguration
+// vmssVMAPIVersion pins the ARM REST API version used by updateVMSSVMRaw.
+// 2023-09-01 exposes privateIPAddressPrefixLength on VMSS IP configurations,
+// which the typed armcompute SDK does not yet model. Revisit when the SDK
+// catches up — see plan abstract-crunching-patterson.md.
+const vmssVMAPIVersion = "2023-09-01"
 
-	vmssGetOptions := &armcompute.VirtualMachineScaleSetVMsClientGetOptions{
-		Expand: to.Ptr(armcompute.InstanceViewTypesInstanceView),
-	}
+// updateVMSSVMRaw GETs a VMSS VM as raw JSON (preserving fields unknown to the
+// typed SDK), applies mutate to the decoded map, then PATCHes the result and
+// polls the long-running operation.
+//
+// Going raw on the read path is required: the typed
+// VirtualMachineScaleSetVMsClient.Get silently drops fields the SDK does not
+// model (notably privateIPAddressPrefixLength), so a typed get/update
+// round-trip would clobber any pre-existing Prefix on NIC configurations on
+// the NIC.
+func (c *Client) updateVMSSVMRaw(ctx context.Context, vmssName, instanceID string, mutate func(vm map[string]any) error) error {
+	url := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Compute/virtualMachineScaleSets/%s/virtualMachines/%s?api-version=%s",
+		c.armEndpoint, c.subscriptionID, c.resourceGroup, vmssName, instanceID, vmssVMAPIVersion)
 
 	c.limiter.Limit(ctx, virtualMachineScaleSetVMsGet)
-	sinceStart := spanstat.Start()
-
-	result, err := c.virtualMachineScaleSetVMs.Get(ctx, c.resourceGroup, vmssName, instanceID, vmssGetOptions)
-
-	c.metricsAPI.ObserveAPICall(virtualMachineScaleSetVMsGet, deriveStatus(err), sinceStart.Seconds())
+	getStart := spanstat.Start()
+	getReq, err := azruntime.NewRequest(ctx, http.MethodGet, url)
+	if err != nil {
+		c.metricsAPI.ObserveAPICall(virtualMachineScaleSetVMsGet, deriveStatus(err), getStart.Seconds())
+		return err
+	}
+	getResp, err := c.armPipeline.Do(getReq)
+	c.metricsAPI.ObserveAPICall(virtualMachineScaleSetVMsGet, deriveStatus(err), getStart.Seconds())
 	if err != nil {
 		return fmt.Errorf("failed to get VM %s from VMSS %s: %w", instanceID, vmssName, err)
 	}
+	defer getResp.Body.Close()
+	if getResp.StatusCode >= 400 {
+		return azruntime.NewResponseError(getResp)
+	}
+	var vm map[string]any
+	if err := json.NewDecoder(getResp.Body).Decode(&vm); err != nil {
+		return fmt.Errorf("failed to decode VM %s from VMSS %s: %w", instanceID, vmssName, err)
+	}
 
-	// Search for the existing network interface configuration
-	if result.Properties.NetworkProfileConfiguration != nil {
-		for _, networkInterfaceConfiguration := range result.Properties.NetworkProfileConfiguration.NetworkInterfaceConfigurations {
-			if networkInterfaceConfiguration.Name != nil && *networkInterfaceConfiguration.Name == interfaceName {
-				netIfConfig = networkInterfaceConfiguration
-				break
-			}
+	// Strip storageProfile.imageReference: when this references an Azure
+	// Compute Gallery image, including it in an update fails with a
+	// permissions error because the reference encodes an Azure-managed
+	// subscription ID. Removing it tells the API to leave the image alone.
+	// See https://github.com/Azure/AKS/issues/1819.
+	if props, ok := vm["properties"].(map[string]any); ok {
+		if sp, ok := props["storageProfile"].(map[string]any); ok {
+			delete(sp, "imageReference")
 		}
 	}
 
-	if netIfConfig == nil {
-		return fmt.Errorf("interface %s does not exist in VM %s", interfaceName, instanceID)
-	}
-
-	// All IPConfigurations on the NIC should reference the same set of Application Security Groups (ASGs).
-	// So we should first fetch the set of ASGs referenced by other IPConfigurations so that it can be
-	// added to the new IPConfigurations.
-	var appSecurityGroups []*armcompute.SubResource
-	if ipConfigs := netIfConfig.Properties.IPConfigurations; len(ipConfigs) > 0 {
-		appSecurityGroups = ipConfigs[0].Properties.ApplicationSecurityGroups
-	}
-
-	ipConfigurations := make([]*armcompute.VirtualMachineScaleSetIPConfiguration, 0, addresses)
-	for range addresses {
-		ipConfigurations = append(ipConfigurations,
-			&armcompute.VirtualMachineScaleSetIPConfiguration{
-				Name: to.Ptr(generateIpConfigName()),
-				Properties: &armcompute.VirtualMachineScaleSetIPConfigurationProperties{
-					ApplicationSecurityGroups: appSecurityGroups,
-					PrivateIPAddressVersion:   to.Ptr(armcompute.IPVersionIPv4),
-					Subnet:                    &armcompute.APIEntityReference{ID: to.Ptr(subnetID)},
-				},
-			},
-		)
-	}
-
-	ipConfigurations = append(netIfConfig.Properties.IPConfigurations, ipConfigurations...)
-	netIfConfig.Properties.IPConfigurations = ipConfigurations
-
-	// Unset imageReference, because if this contains a reference to an image from the
-	// Azure Compute Gallery, including this reference in an update to the VMSS instance
-	// will cause a permissions error, because the reference includes an Azure-managed
-	// subscription ID.
-	// Removing the image reference indicates to the API that we don't want to change it.
-	// See https://github.com/Azure/AKS/issues/1819.
-	if result.Properties.StorageProfile != nil {
-		result.Properties.StorageProfile.ImageReference = nil
+	if err := mutate(vm); err != nil {
+		return err
 	}
 
 	c.limiter.Limit(ctx, virtualMachineScaleSetVMsUpdate)
-	sinceStart = spanstat.Start()
-
-	poller, err := c.virtualMachineScaleSetVMs.BeginUpdate(ctx, c.resourceGroup, vmssName, instanceID, result.VirtualMachineScaleSetVM, nil)
-
-	defer func() {
-		c.metricsAPI.ObserveAPICall(virtualMachineScaleSetVMsUpdate, deriveStatus(err), sinceStart.Seconds())
-	}()
+	patchStart := spanstat.Start()
+	// Azure's VMSS VM "Update" operation is HTTP PUT on the wire (despite the
+	// API name); PATCH returns 405 Method Not Allowed. We re-send the full
+	// VMSS VM body we GET'd, so PUT's replace semantics are correct.
+	patchReq, err := azruntime.NewRequest(ctx, http.MethodPut, url)
 	if err != nil {
+		c.metricsAPI.ObserveAPICall(virtualMachineScaleSetVMsUpdate, deriveStatus(err), patchStart.Seconds())
+		return err
+	}
+	if err := azruntime.MarshalAsJSON(patchReq, vm); err != nil {
+		c.metricsAPI.ObserveAPICall(virtualMachineScaleSetVMsUpdate, deriveStatus(err), patchStart.Seconds())
+		return err
+	}
+	patchResp, err := c.armPipeline.Do(patchReq)
+	if patchResp != nil {
+		defer patchResp.Body.Close()
+	}
+	if err != nil {
+		c.metricsAPI.ObserveAPICall(virtualMachineScaleSetVMsUpdate, deriveStatus(err), patchStart.Seconds())
 		return fmt.Errorf("unable to update virtualMachineScaleSetVMs: %w", err)
 	}
-
-	if _, err := poller.PollUntilDone(ctx, nil); err != nil {
+	if patchResp.StatusCode >= 400 {
+		respErr := azruntime.NewResponseError(patchResp)
+		c.metricsAPI.ObserveAPICall(virtualMachineScaleSetVMsUpdate, deriveStatus(respErr), patchStart.Seconds())
+		return respErr
+	}
+	poller, err := azruntime.NewPoller[any](patchResp, c.armPipeline, nil)
+	if err != nil {
+		c.metricsAPI.ObserveAPICall(virtualMachineScaleSetVMsUpdate, deriveStatus(err), patchStart.Seconds())
+		return err
+	}
+	_, err = poller.PollUntilDone(ctx, nil)
+	c.metricsAPI.ObserveAPICall(virtualMachineScaleSetVMsUpdate, deriveStatus(err), patchStart.Seconds())
+	if err != nil {
 		return fmt.Errorf("error while waiting for virtualMachineScaleSetVMs Update to complete: %w", err)
 	}
-
 	return nil
+}
+
+// vmssNICProperties returns the "properties" map of the named NIC config
+// inside a VMSS VM map decoded from JSON.
+func vmssNICProperties(vm map[string]any, interfaceName string) (map[string]any, error) {
+	props, _ := vm["properties"].(map[string]any)
+	netProfile, _ := props["networkProfileConfiguration"].(map[string]any)
+	netIfConfigs, _ := netProfile["networkInterfaceConfigurations"].([]any)
+	for _, raw := range netIfConfigs {
+		cfg, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		name, _ := cfg["name"].(string)
+		if name != interfaceName {
+			continue
+		}
+		cfgProps, _ := cfg["properties"].(map[string]any)
+		if cfgProps == nil {
+			return nil, fmt.Errorf("interface %s has no properties", interfaceName)
+		}
+		return cfgProps, nil
+	}
+	return nil, fmt.Errorf("interface %s not found", interfaceName)
+}
+
+// firstIPConfigASGs returns the applicationSecurityGroups slice referenced by
+// the first existing IP configuration on a NIC, or nil if absent or empty.
+// New IP configurations on the NIC must reference the same ASGs.
+func firstIPConfigASGs(ipConfigs []any) any {
+	if len(ipConfigs) == 0 {
+		return nil
+	}
+	first, ok := ipConfigs[0].(map[string]any)
+	if !ok {
+		return nil
+	}
+	firstProps, _ := first["properties"].(map[string]any)
+	if firstProps == nil {
+		return nil
+	}
+	asg, ok := firstProps["applicationSecurityGroups"].([]any)
+	if !ok || len(asg) == 0 {
+		return nil
+	}
+	return asg
+}
+
+// AssignPrivateIpAddressesVMSS assigns private IPs to an interface attached to
+// a VMSS instance. The VMSS VM is updated via a raw ARM PATCH so that any
+// pre-existing privateIPAddressPrefixLength entries on the NIC are preserved
+// across the round-trip — the typed armcompute SDK does not model that field
+// and would drop it. See updateVMSSVMRaw for details.
+func (c *Client) AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, subnetID, interfaceName string, addresses int) error {
+	return c.updateVMSSVMRaw(ctx, vmssName, instanceID, func(vm map[string]any) error {
+		netIfProps, err := vmssNICProperties(vm, interfaceName)
+		if err != nil {
+			return fmt.Errorf("interface %s does not exist in VM %s: %w", interfaceName, instanceID, err)
+		}
+		existing, _ := netIfProps["ipConfigurations"].([]any)
+		asgs := firstIPConfigASGs(existing)
+		for range addresses {
+			ipConfigProps := map[string]any{
+				"privateIPAddressVersion": "IPv4",
+				"subnet":                  map[string]any{"id": subnetID},
+			}
+			if asgs != nil {
+				ipConfigProps["applicationSecurityGroups"] = asgs
+			}
+			existing = append(existing, map[string]any{
+				"name":       generateIpConfigName(),
+				"properties": ipConfigProps,
+			})
+		}
+		netIfProps["ipConfigurations"] = existing
+		return nil
+	})
 }
 
 // AssignPrivateIpAddressesVM assign a private IP to an interface attached to a standalone instance
