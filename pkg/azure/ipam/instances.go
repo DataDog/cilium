@@ -27,6 +27,10 @@ type AzureAPI interface {
 	GetSubnetsByIDs(ctx context.Context, nodeSubnetIDs []string) (ipamTypes.SubnetMap, error)
 	AssignPrivateIpAddressesVM(ctx context.Context, subnetID, interfaceName string, addresses int) error
 	AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, subnetID, interfaceName string, addresses int) error
+	AssignPrivatePrefixesVM(ctx context.Context, subnetID, interfaceName string, prefixes int) error
+	AssignPrivatePrefixesVMSS(ctx context.Context, instanceID, vmssName, subnetID, interfaceName string, prefixes int) error
+	UnassignPrivatePrefixesVM(ctx context.Context, interfaceName string, prefixes []string) error
+	UnassignPrivatePrefixesVMSS(ctx context.Context, instanceID, vmssName, interfaceName string, prefixes []string) error
 	AssignPublicIPAddressesVM(ctx context.Context, instanceID string, publicIpTags ipamTypes.Tags) (string, error)
 	AssignPublicIPAddressesVMSS(ctx context.Context, instanceID, vmssName string, publicIpTags ipamTypes.Tags) (string, error)
 	// New methods for optimization: fetch network interfaces once and parse multiple times

@@ -759,12 +759,30 @@ func generateIpConfigName() string {
 // vmssVMAPIVersion pins the ARM REST API version used by updateVMSSVMRaw.
 // 2023-09-01 exposes privateIPAddressPrefixLength on VMSS IP configurations,
 // which the typed armcompute SDK does not yet model. Revisit when the SDK
-// catches up — see plan abstract-crunching-patterson.md.
+// catches up.
 const vmssVMAPIVersion = "2023-09-01"
 
+// prefixOnNICPrefixLength is the IPv4 prefix length Azure assigns for each
+// Prefix on NIC IP configuration. Azure only supports /28 today, matching
+// AWS Prefix Delegation's fixed block size of 16 IPs.
+const prefixOnNICPrefixLength = 28
+
+// composePrefixCIDR returns "addr/length" for a Prefix on NIC IP configuration.
+// Azure's NIC (armnetwork) resource returns PrivateIPAddress as a CIDR string
+// ("10.0.0.16/28"), while the VMSS VM model returns the bare address; strip any
+// existing "/length" suffix first so the resulting CIDR is canonical.
+func composePrefixCIDR(privateIPAddress string, prefixLength int32) string {
+	addr := privateIPAddress
+	if idx := strings.IndexByte(addr, '/'); idx >= 0 {
+		addr = addr[:idx]
+	}
+	return fmt.Sprintf("%s/%d", addr, prefixLength)
+}
+
 // updateVMSSVMRaw GETs a VMSS VM as raw JSON (preserving fields unknown to the
-// typed SDK), applies mutate to the decoded map, then PATCHes the result and
-// polls the long-running operation.
+// typed SDK), applies mutate to the decoded map, then PUTs the result and polls
+// the long-running operation. The VMSS VM Update endpoint requires HTTP PUT
+// despite the LRO semantics suggesting PATCH.
 //
 // Going raw on the read path is required: the typed
 // VirtualMachineScaleSetVMsClient.Get silently drops fields the SDK does not
@@ -982,6 +1000,223 @@ func (c *Client) AssignPrivateIpAddressesVM(ctx context.Context, subnetID, inter
 	}
 
 	return nil
+}
+
+// AssignPrivatePrefixesVM assigns one or more /28 Prefix on NIC prefixes to a
+// standalone-VM NIC by appending IP configurations with PrivateIPAddressPrefixLength=28.
+// Azure auto-allocates the prefix CIDR from the supplied subnet.
+func (c *Client) AssignPrivatePrefixesVM(ctx context.Context, subnetID, interfaceName string, prefixes int) error {
+	c.limiter.Limit(ctx, interfacesGet)
+	sinceStart := spanstat.Start()
+
+	iface, err := c.interfaces.Get(ctx, c.resourceGroup, interfaceName, nil)
+
+	c.metricsAPI.ObserveAPICall(interfacesGet, deriveStatus(err), sinceStart.Seconds())
+	if err != nil {
+		return fmt.Errorf("failed to get standalone instance's interface %s: %w", interfaceName, err)
+	}
+
+	var appSecurityGroups []*armnetwork.ApplicationSecurityGroup
+	if ipConfigs := iface.Properties.IPConfigurations; len(ipConfigs) > 0 {
+		appSecurityGroups = ipConfigs[0].Properties.ApplicationSecurityGroups
+	}
+
+	newConfigs := make([]*armnetwork.InterfaceIPConfiguration, 0, prefixes)
+	for range prefixes {
+		newConfigs = append(newConfigs, &armnetwork.InterfaceIPConfiguration{
+			Name: to.Ptr(generateIpConfigName()),
+			Properties: &armnetwork.InterfaceIPConfigurationPropertiesFormat{
+				ApplicationSecurityGroups:    appSecurityGroups,
+				PrivateIPAllocationMethod:    to.Ptr(armnetwork.IPAllocationMethodDynamic),
+				PrivateIPAddressPrefixLength: to.Ptr(int32(prefixOnNICPrefixLength)),
+				Subnet: &armnetwork.Subnet{
+					ID: to.Ptr(subnetID),
+				},
+			},
+		})
+	}
+	iface.Properties.IPConfigurations = append(iface.Properties.IPConfigurations, newConfigs...)
+
+	c.limiter.Limit(ctx, interfacesCreateOrUpdate)
+	sinceStart = spanstat.Start()
+
+	poller, err := c.interfaces.BeginCreateOrUpdate(ctx, c.resourceGroup, interfaceName, iface.Interface, nil)
+
+	defer func() {
+		c.metricsAPI.ObserveAPICall(interfacesCreateOrUpdate, deriveStatus(err), sinceStart.Seconds())
+	}()
+	if err != nil {
+		c.logger.Warn("Failed to assign Prefix on NIC to standalone NIC",
+			logfields.Interface, interfaceName,
+			logfields.Error, err,
+		)
+		return fmt.Errorf("unable to update interface %s: %w", interfaceName, err)
+	}
+
+	if _, err := poller.PollUntilDone(ctx, nil); err != nil {
+		c.logger.Warn("Prefix on NIC assignment poll failed",
+			logfields.Interface, interfaceName,
+			logfields.Error, err,
+		)
+		return fmt.Errorf("error while waiting for interface CreateOrUpdate to complete for %s: %w", interfaceName, err)
+	}
+
+	return nil
+}
+
+// UnassignPrivatePrefixesVM removes the IP configurations whose CIDR
+// (privateIPAddress/privateIPAddressPrefixLength) matches any element of
+// prefixes from a standalone-VM NIC.
+func (c *Client) UnassignPrivatePrefixesVM(ctx context.Context, interfaceName string, prefixes []string) error {
+	if len(prefixes) == 0 {
+		return nil
+	}
+	toDrop := make(map[string]struct{}, len(prefixes))
+	for _, p := range prefixes {
+		toDrop[p] = struct{}{}
+	}
+
+	c.limiter.Limit(ctx, interfacesGet)
+	sinceStart := spanstat.Start()
+
+	iface, err := c.interfaces.Get(ctx, c.resourceGroup, interfaceName, nil)
+
+	c.metricsAPI.ObserveAPICall(interfacesGet, deriveStatus(err), sinceStart.Seconds())
+	if err != nil {
+		return fmt.Errorf("failed to get standalone instance's interface %s: %w", interfaceName, err)
+	}
+
+	kept := iface.Properties.IPConfigurations[:0]
+	for _, ipc := range iface.Properties.IPConfigurations {
+		if ipc.Properties != nil &&
+			ipc.Properties.PrivateIPAddress != nil &&
+			ipc.Properties.PrivateIPAddressPrefixLength != nil {
+			cidr := composePrefixCIDR(*ipc.Properties.PrivateIPAddress, *ipc.Properties.PrivateIPAddressPrefixLength)
+			if _, drop := toDrop[cidr]; drop {
+				continue
+			}
+		}
+		kept = append(kept, ipc)
+	}
+	iface.Properties.IPConfigurations = kept
+
+	c.limiter.Limit(ctx, interfacesCreateOrUpdate)
+	sinceStart = spanstat.Start()
+
+	poller, err := c.interfaces.BeginCreateOrUpdate(ctx, c.resourceGroup, interfaceName, iface.Interface, nil)
+
+	defer func() {
+		c.metricsAPI.ObserveAPICall(interfacesCreateOrUpdate, deriveStatus(err), sinceStart.Seconds())
+	}()
+	if err != nil {
+		return fmt.Errorf("unable to update interface %s: %w", interfaceName, err)
+	}
+	if _, err := poller.PollUntilDone(ctx, nil); err != nil {
+		return fmt.Errorf("error while waiting for interface CreateOrUpdate to complete for %s: %w", interfaceName, err)
+	}
+	return nil
+}
+
+// AssignPrivatePrefixesVMSS assigns one or more /28 Prefix on NIC prefixes to a
+// VMSS instance NIC by appending IP configurations with privateIPAddressPrefixLength=28
+// via a raw ARM round-trip (the typed armcompute SDK does not model this field).
+func (c *Client) AssignPrivatePrefixesVMSS(ctx context.Context, instanceID, vmssName, subnetID, interfaceName string, prefixes int) error {
+	err := c.updateVMSSVMRaw(ctx, vmssName, instanceID, func(vm map[string]any) error {
+		netIfProps, err := vmssNICProperties(vm, interfaceName)
+		if err != nil {
+			return fmt.Errorf("interface %s does not exist in VM %s: %w", interfaceName, instanceID, err)
+		}
+		existing, _ := netIfProps["ipConfigurations"].([]any)
+		asgs := firstIPConfigASGs(existing)
+		for range prefixes {
+			ipConfigProps := map[string]any{
+				"primary":                      false,
+				"privateIPAddressVersion":      "IPv4",
+				"privateIPAddressPrefixLength": int32(prefixOnNICPrefixLength),
+				"subnet":                       map[string]any{"id": subnetID},
+			}
+			if asgs != nil {
+				ipConfigProps["applicationSecurityGroups"] = asgs
+			}
+			existing = append(existing, map[string]any{
+				"name":       generateIpConfigName(),
+				"properties": ipConfigProps,
+			})
+		}
+		netIfProps["ipConfigurations"] = existing
+		return nil
+	})
+	if err != nil {
+		c.logger.Warn("Failed to assign Prefix on NIC to VMSS NIC",
+			logfields.Interface, interfaceName,
+			logfields.Error, err,
+		)
+	}
+	return err
+}
+
+// UnassignPrivatePrefixesVMSS removes the IP configurations whose CIDR matches
+// any element of prefixes from a VMSS instance NIC.
+func (c *Client) UnassignPrivatePrefixesVMSS(ctx context.Context, instanceID, vmssName, interfaceName string, prefixes []string) error {
+	if len(prefixes) == 0 {
+		return nil
+	}
+	toDrop := make(map[string]struct{}, len(prefixes))
+	for _, p := range prefixes {
+		toDrop[p] = struct{}{}
+	}
+
+	return c.updateVMSSVMRaw(ctx, vmssName, instanceID, func(vm map[string]any) error {
+		netIfProps, err := vmssNICProperties(vm, interfaceName)
+		if err != nil {
+			return fmt.Errorf("interface %s does not exist in VM %s: %w", interfaceName, instanceID, err)
+		}
+		existing, _ := netIfProps["ipConfigurations"].([]any)
+		kept := existing[:0]
+		for _, raw := range existing {
+			cfg, ok := raw.(map[string]any)
+			if !ok {
+				kept = append(kept, raw)
+				continue
+			}
+			props, _ := cfg["properties"].(map[string]any)
+			if props == nil {
+				kept = append(kept, raw)
+				continue
+			}
+			addr, _ := props["privateIPAddress"].(string)
+			prefixLen, ok := asInt(props["privateIPAddressPrefixLength"])
+			if addr == "" || !ok {
+				kept = append(kept, raw)
+				continue
+			}
+			cidr := composePrefixCIDR(addr, int32(prefixLen))
+			if _, drop := toDrop[cidr]; drop {
+				continue
+			}
+			kept = append(kept, raw)
+		}
+		netIfProps["ipConfigurations"] = kept
+		return nil
+	})
+}
+
+// asInt coerces an interface value decoded from JSON to an int. encoding/json
+// decodes every JSON number into float64, so a literal 28 read back from a map
+// is a float64(28), not an int. Callers should use this helper at every site
+// that reads a numeric field from a raw VMSS VM map.
+func asInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case float64:
+		return int(n), true
+	case int:
+		return n, true
+	case int32:
+		return int(n), true
+	case int64:
+		return int(n), true
+	}
+	return 0, false
 }
 
 // AssignPublicIPAddressesVMSS assigns a public IP to a VMSS instance.
