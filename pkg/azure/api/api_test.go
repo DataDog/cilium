@@ -230,3 +230,82 @@ func TestParseSubnetID(t *testing.T) {
 		})
 	}
 }
+
+func TestParseInterfaceWithPrefix(t *testing.T) {
+	subnetID := "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/default"
+	subnetCIDR := netip.MustParsePrefix("10.0.0.0/24")
+	subnets := ipamTypes.SubnetMap{
+		subnetID: {
+			ID:   subnetID,
+			CIDR: subnetCIDR,
+		},
+	}
+
+	iface := &armnetwork.Interface{
+		ID:   to.Ptr("/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/networkInterfaces/iface0"),
+		Name: to.Ptr("iface0"),
+		Properties: &armnetwork.InterfacePropertiesFormat{
+			MacAddress: to.Ptr("AA-BB-CC-DD-EE-FF"),
+			VirtualMachine: &armnetwork.SubResource{
+				ID: to.Ptr("/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm0"),
+			},
+			IPConfigurations: []*armnetwork.InterfaceIPConfiguration{
+				{
+					Name: to.Ptr("primary"),
+					Properties: &armnetwork.InterfaceIPConfigurationPropertiesFormat{
+						Primary:           to.Ptr(true),
+						PrivateIPAddress:  to.Ptr("10.0.0.4"),
+						ProvisioningState: to.Ptr(armnetwork.ProvisioningStateSucceeded),
+						Subnet:            &armnetwork.Subnet{ID: to.Ptr(subnetID)},
+					},
+				},
+				{
+					Name: to.Ptr("prefix0"),
+					Properties: &armnetwork.InterfaceIPConfigurationPropertiesFormat{
+						Primary:                      to.Ptr(false),
+						PrivateIPAddress:             to.Ptr("10.0.0.16"),
+						PrivateIPAddressPrefixLength: to.Ptr(int32(28)),
+						ProvisioningState:            to.Ptr(armnetwork.ProvisioningStateSucceeded),
+						Subnet:                       &armnetwork.Subnet{ID: to.Ptr(subnetID)},
+					},
+				},
+			},
+		},
+	}
+
+	_, az := parseInterface(iface, subnets, false)
+	require.NotNil(t, az)
+	require.Equal(t, []string{"10.0.0.16/28"}, az.Prefixes)
+	require.Len(t, az.Addresses, 16, "/28 should expand to 16 addresses (primary excluded since usePrimary=false)")
+	for _, addr := range az.Addresses {
+		require.Equal(t, subnetID, addr.Subnet)
+	}
+}
+
+func TestParseInterfaceWithPrefixNormalizesHostBits(t *testing.T) {
+	// Azure may return PrivateIPAddress mid-prefix; the network address should
+	// be normalized so downstream comparisons are stable.
+	iface := &armnetwork.Interface{
+		ID:   to.Ptr("/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/networkInterfaces/iface0"),
+		Name: to.Ptr("iface0"),
+		Properties: &armnetwork.InterfacePropertiesFormat{
+			VirtualMachine: &armnetwork.SubResource{
+				ID: to.Ptr("/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm0"),
+			},
+			IPConfigurations: []*armnetwork.InterfaceIPConfiguration{
+				{
+					Name: to.Ptr("prefix0"),
+					Properties: &armnetwork.InterfaceIPConfigurationPropertiesFormat{
+						PrivateIPAddress:             to.Ptr("10.0.0.21"),
+						PrivateIPAddressPrefixLength: to.Ptr(int32(28)),
+						ProvisioningState:            to.Ptr(armnetwork.ProvisioningStateSucceeded),
+					},
+				},
+			},
+		},
+	}
+
+	_, az := parseInterface(iface, ipamTypes.SubnetMap{}, false)
+	require.NotNil(t, az)
+	require.Equal(t, []string{"10.0.0.16/28"}, az.Prefixes, "host bits should be masked")
+}

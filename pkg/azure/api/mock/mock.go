@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v8"
@@ -14,6 +15,9 @@ import (
 
 	"github.com/cilium/cilium/pkg/api/helpers"
 	"github.com/cilium/cilium/pkg/azure/types"
+	pkgip "github.com/cilium/cilium/pkg/ip"
+	"github.com/cilium/cilium/pkg/ipam/cidrset"
+	ipamOption "github.com/cilium/cilium/pkg/ipam/option"
 	"github.com/cilium/cilium/pkg/ipam/service/ipallocator"
 	ipamTypes "github.com/cilium/cilium/pkg/ipam/types"
 	"github.com/cilium/cilium/pkg/lock"
@@ -37,8 +41,9 @@ const (
 )
 
 type subnet struct {
-	subnet    *ipamTypes.Subnet
-	allocator *ipallocator.Range
+	subnet      *ipamTypes.Subnet
+	allocator   *ipallocator.Range
+	pdAllocator *cidrset.CidrSet
 }
 
 type API struct {
@@ -75,9 +80,14 @@ func (a *API) UpdateSubnets(subnets []*ipamTypes.Subnet) {
 	for _, s := range subnets {
 		_, cidr, _ := net.ParseCIDR(s.CIDR.String())
 
+		pdSet, err := cidrset.NewCIDRSet(cidr, 28)
+		if err != nil {
+			panic(fmt.Sprintf("mock: unable to build /28 allocator for subnet %s: %v", s.ID, err))
+		}
 		a.subnets[s.ID] = &subnet{
-			subnet:    s.DeepCopy(),
-			allocator: ipallocator.NewCIDRRange(cidr),
+			subnet:      s.DeepCopy(),
+			allocator:   ipallocator.NewCIDRRange(cidr),
+			pdAllocator: pdSet,
 		}
 	}
 	a.mutex.Unlock()
@@ -229,27 +239,231 @@ func (a *API) AssignPrivateIpAddressesVM(ctx context.Context, subnetID, interfac
 	return nil
 }
 
-// AssignPrivatePrefixesVM is a placeholder; the full mock allocator behavior
-// lands in a follow-up commit alongside the Prefix on NIC tests.
+// AssignPrivatePrefixesVM allocates `prefixes` /28 CIDRs from the mock subnet
+// allocator and appends them (plus 16 expanded IPs each) to the matching
+// AzureInterface on a standalone VM.
 func (a *API) AssignPrivatePrefixesVM(ctx context.Context, subnetID, interfaceName string, prefixes int) error {
-	return nil
+	a.rateLimit()
+	a.delaySim.Delay(AssignPrivatePrefixesVM)
+
+	a.mutex.Lock()
+	defer a.mutex.Unlock()
+
+	if err, ok := a.errors[AssignPrivatePrefixesVM]; ok {
+		return err
+	}
+	return a.assignPrefixesLocked(subnetID, "", interfaceName, prefixes, false, "")
 }
 
-// AssignPrivatePrefixesVMSS is a placeholder; the full mock allocator behavior
-// lands in a follow-up commit alongside the Prefix on NIC tests.
+// AssignPrivatePrefixesVMSS allocates `prefixes` /28 CIDRs and appends them to
+// the matching AzureInterface on a VMSS instance.
 func (a *API) AssignPrivatePrefixesVMSS(ctx context.Context, instanceID, vmssName, subnetID, interfaceName string, prefixes int) error {
+	a.rateLimit()
+	a.delaySim.Delay(AssignPrivatePrefixesVMSS)
+
+	a.mutex.Lock()
+	defer a.mutex.Unlock()
+
+	if err, ok := a.errors[AssignPrivatePrefixesVMSS]; ok {
+		return err
+	}
+	return a.assignPrefixesLocked(subnetID, vmssName, interfaceName, prefixes, true, instanceID)
+}
+
+func (a *API) assignPrefixesLocked(subnetID, vmssName, interfaceName string, prefixes int, isVMSS bool, instanceID string) (err error) {
+	s, ok := a.subnets[subnetID]
+	if !ok {
+		return fmt.Errorf("subnet %s does not exist", subnetID)
+	}
+
+	allocated := make([]*net.IPNet, 0, prefixes)
+	defer func() {
+		// Roll back the /28s we carved out of pdAllocator on any error exit.
+		if err == nil {
+			return
+		}
+		for _, pfx := range allocated {
+			s.pdAllocator.Release(pfx)
+		}
+	}()
+
+	for range prefixes {
+		pfx, allocErr := s.pdAllocator.AllocateNext()
+		if allocErr != nil {
+			return fmt.Errorf("subnet %s has no free /28 prefixes: %w", subnetID, allocErr)
+		}
+		allocated = append(allocated, pfx)
+	}
+
+	foundInterface := false
+	instances := a.instances.DeepCopy()
+	walkErr := instances.ForeachInterface("", func(id, _ string, iface ipamTypes.InterfaceRevision) error {
+		intf, ok := iface.Resource.(*types.AzureInterface)
+		if !ok {
+			return fmt.Errorf("invalid interface object")
+		}
+		if intf.Name != interfaceName {
+			return nil
+		}
+		if isVMSS {
+			if intf.GetVMID() != instanceID || intf.GetVMScaleSetName() != vmssName {
+				return nil
+			}
+		} else if intf.GetVMScaleSetName() != "" {
+			return nil
+		}
+		if len(intf.Addresses)+prefixes*ipamOption.ENIPDBlockSizeIPv4 > types.InterfaceAddressLimit*ipamOption.ENIPDBlockSizeIPv4 {
+			return fmt.Errorf("exceeded interface limit")
+		}
+		for _, pfx := range allocated {
+			cidr := pfx.String()
+			intf.Prefixes = append(intf.Prefixes, cidr)
+			ips, err := pkgip.PrefixToIps(cidr, ipamOption.ENIPDBlockSizeIPv4)
+			if err != nil {
+				return err
+			}
+			for _, expanded := range ips {
+				intf.Addresses = append(intf.Addresses, types.AzureAddress{
+					IP:     expanded,
+					Subnet: subnetID,
+					State:  types.StateSucceeded,
+				})
+			}
+		}
+		foundInterface = true
+		return nil
+	})
+	if walkErr != nil {
+		return walkErr
+	}
+	if !foundInterface {
+		return fmt.Errorf("interface %s not found", interfaceName)
+	}
+	a.updateInstancesLocked(instances)
 	return nil
 }
 
-// UnassignPrivatePrefixesVM is a placeholder; the full mock allocator behavior
-// lands in a follow-up commit alongside the Prefix on NIC tests.
+// UnassignPrivatePrefixesVM removes the named /28 CIDR entries (and their
+// expanded IPs) from the matching standalone-VM AzureInterface in the mock.
 func (a *API) UnassignPrivatePrefixesVM(ctx context.Context, interfaceName string, prefixes []string) error {
-	return nil
+	a.rateLimit()
+	a.delaySim.Delay(UnassignPrivatePrefixesVM)
+
+	a.mutex.Lock()
+	defer a.mutex.Unlock()
+
+	if err, ok := a.errors[UnassignPrivatePrefixesVM]; ok {
+		return err
+	}
+	return a.unassignPrefixesLocked("", interfaceName, prefixes, false, "")
 }
 
-// UnassignPrivatePrefixesVMSS is a placeholder; the full mock allocator behavior
-// lands in a follow-up commit alongside the Prefix on NIC tests.
+// UnassignPrivatePrefixesVMSS removes the named /28 CIDR entries from the
+// matching VMSS AzureInterface in the mock.
 func (a *API) UnassignPrivatePrefixesVMSS(ctx context.Context, instanceID, vmssName, interfaceName string, prefixes []string) error {
+	a.rateLimit()
+	a.delaySim.Delay(UnassignPrivatePrefixesVMSS)
+
+	a.mutex.Lock()
+	defer a.mutex.Unlock()
+
+	if err, ok := a.errors[UnassignPrivatePrefixesVMSS]; ok {
+		return err
+	}
+	return a.unassignPrefixesLocked(vmssName, interfaceName, prefixes, true, instanceID)
+}
+
+func (a *API) unassignPrefixesLocked(vmssName, interfaceName string, prefixes []string, isVMSS bool, instanceID string) error {
+	toDrop := make(map[string]struct{}, len(prefixes))
+	for _, p := range prefixes {
+		toDrop[p] = struct{}{}
+	}
+
+	// Subnet allocator releases are committed only after the interface walk
+	// succeeds; otherwise we'd corrupt the allocator if the walk errored.
+	type pendingRelease struct {
+		ipNet *net.IPNet
+		s     *subnet
+	}
+	var pendingReleases []pendingRelease
+
+	foundInterface := false
+	instances := a.instances.DeepCopy()
+	walkErr := instances.ForeachInterface("", func(id, _ string, iface ipamTypes.InterfaceRevision) error {
+		intf, ok := iface.Resource.(*types.AzureInterface)
+		if !ok {
+			return fmt.Errorf("invalid interface object")
+		}
+		if intf.Name != interfaceName {
+			return nil
+		}
+		if isVMSS {
+			if intf.GetVMID() != instanceID || intf.GetVMScaleSetName() != vmssName {
+				return nil
+			}
+		} else if intf.GetVMScaleSetName() != "" {
+			return nil
+		}
+
+		ipsToDrop := make(map[string]struct{})
+		keptPrefixes := intf.Prefixes[:0]
+		for _, prefix := range intf.Prefixes {
+			if _, drop := toDrop[prefix]; !drop {
+				keptPrefixes = append(keptPrefixes, prefix)
+				continue
+			}
+			pfx, err := netip.ParsePrefix(prefix)
+			if err != nil {
+				return fmt.Errorf("invalid prefix %s: %w", prefix, err)
+			}
+			pfx = pfx.Masked()
+			_, ipNet, err := net.ParseCIDR(pfx.String())
+			if err != nil {
+				return fmt.Errorf("invalid prefix %s: %w", prefix, err)
+			}
+			ips, err := pkgip.PrefixToIps(pfx.String(), ipamOption.ENIPDBlockSizeIPv4)
+			if err != nil {
+				return fmt.Errorf("unable to expand prefix %s: %w", prefix, err)
+			}
+			for _, ip := range ips {
+				ipsToDrop[ip] = struct{}{}
+			}
+			// Stage a release back to the subnet whose CIDR contains the prefix.
+			for _, s := range a.subnets {
+				if s.pdAllocator == nil {
+					continue
+				}
+				if s.subnet.CIDR.Contains(pfx.Addr()) {
+					pendingReleases = append(pendingReleases, pendingRelease{ipNet: ipNet, s: s})
+					break
+				}
+			}
+		}
+		intf.Prefixes = keptPrefixes
+
+		keptAddresses := intf.Addresses[:0]
+		for _, addr := range intf.Addresses {
+			if _, drop := ipsToDrop[addr.IP]; drop {
+				continue
+			}
+			keptAddresses = append(keptAddresses, addr)
+		}
+		intf.Addresses = keptAddresses
+
+		foundInterface = true
+		return nil
+	})
+	if walkErr != nil {
+		return walkErr
+	}
+	if !foundInterface {
+		return fmt.Errorf("interface %s not found", interfaceName)
+	}
+	// Walk succeeded; commit allocator releases.
+	for _, pr := range pendingReleases {
+		pr.s.pdAllocator.Release(pr.ipNet)
+	}
+	a.updateInstancesLocked(instances)
 	return nil
 }
 
