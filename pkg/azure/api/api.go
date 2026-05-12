@@ -810,7 +810,10 @@ func (c *Client) updateVMSSVMRaw(ctx context.Context, vmssName, instanceID strin
 
 	c.limiter.Limit(ctx, virtualMachineScaleSetVMsUpdate)
 	patchStart := spanstat.Start()
-	patchReq, err := azruntime.NewRequest(ctx, http.MethodPatch, url)
+	// Azure's VMSS VM "Update" operation is HTTP PUT on the wire (despite the
+	// API name); PATCH returns 405 Method Not Allowed. We re-send the full
+	// VMSS VM body we GET'd, so PUT's replace semantics are correct.
+	patchReq, err := azruntime.NewRequest(ctx, http.MethodPut, url)
 	if err != nil {
 		c.metricsAPI.ObserveAPICall(virtualMachineScaleSetVMsUpdate, deriveStatus(err), patchStart.Seconds())
 		return err
