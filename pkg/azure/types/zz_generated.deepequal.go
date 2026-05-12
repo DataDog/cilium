@@ -64,6 +64,23 @@ func (in *AzureInterface) DeepEqual(other *AzureInterface) bool {
 		}
 	}
 
+	if ((in.Prefixes != nil) && (other.Prefixes != nil)) || ((in.Prefixes == nil) != (other.Prefixes == nil)) {
+		in, other := &in.Prefixes, &other.Prefixes
+		if other == nil {
+			return false
+		}
+
+		if len(*in) != len(*other) {
+			return false
+		} else {
+			for i, inElement := range *in {
+				if inElement != (*other)[i] {
+					return false
+				}
+			}
+		}
+	}
+
 	if in.SecurityGroup != other.SecurityGroup {
 		return false
 	}
@@ -98,6 +115,13 @@ func (in *AzureSpec) DeepEqual(other *AzureSpec) bool {
 
 	if in.InterfaceName != other.InterfaceName {
 		return false
+	}
+	if (in.DisablePrefixDelegation == nil) != (other.DisablePrefixDelegation == nil) {
+		return false
+	} else if in.DisablePrefixDelegation != nil {
+		if *in.DisablePrefixDelegation != *other.DisablePrefixDelegation {
+			return false
+		}
 	}
 
 	return true

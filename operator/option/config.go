@@ -148,6 +148,10 @@ const (
 	// primary IPConfiguration
 	AzureUsePrimaryAddress = "azure-use-primary-address"
 
+	// AzureEnablePrefixDelegation allows operator to allocate /28 prefixes on
+	// Azure NICs (Prefix on NIC) instead of individual IP addresses.
+	AzureEnablePrefixDelegation = "azure-enable-prefix-delegation"
+
 	// LeaderElectionLeaseDuration is the duration that non-leader candidates will wait to
 	// force acquire leadership
 	LeaderElectionLeaseDuration = "leader-election-lease-duration"
@@ -349,6 +353,10 @@ type OperatorConfig struct {
 	// primary IPConfiguration
 	AzureUsePrimaryAddress bool
 
+	// AzureEnablePrefixDelegation allows operator to allocate /28 prefixes on
+	// Azure NICs (Prefix on NIC) instead of individual IP addresses.
+	AzureEnablePrefixDelegation bool
+
 	// AlibabaCloud options
 
 	// AlibabaCloudVPCID allow user to specific vpc
@@ -466,6 +474,7 @@ func (c *OperatorConfig) Populate(logger *slog.Logger, vp *viper.Viper) {
 	c.AzureResourceGroup = vp.GetString(AzureResourceGroup)
 	c.AzureUsePrimaryAddress = vp.GetBool(AzureUsePrimaryAddress)
 	c.AzureUserAssignedIdentityID = vp.GetString(AzureUserAssignedIdentityID)
+	c.AzureEnablePrefixDelegation = vp.GetBool(AzureEnablePrefixDelegation)
 
 	// AlibabaCloud options
 

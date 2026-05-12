@@ -46,6 +46,12 @@ type AzureSpec struct {
 	//
 	// +kubebuilder:validation:Optional
 	InterfaceName string `json:"interface-name,omitempty"`
+
+	// DisablePrefixDelegation allows opting an individual node out of
+	// Azure Prefix on NIC even when the operator-wide flag is enabled.
+	//
+	// +kubebuilder:validation:Optional
+	DisablePrefixDelegation *bool `json:"disable-prefix-delegation,omitempty"`
 }
 
 // AzureStatus is the status of Azure addressing of the node.
@@ -100,6 +106,13 @@ type AzureInterface struct {
 	//
 	// +optional
 	Addresses []AzureAddress `json:"addresses,omitempty"`
+
+	// Prefixes is the list of /28 CIDR blocks assigned to this interface via
+	// Azure Prefix on NIC. Each prefix yields 16 IPs which are also present
+	// in Addresses.
+	//
+	// +optional
+	Prefixes []string `json:"prefixes,omitempty"`
 
 	// SecurityGroup is the security group associated with the interface
 	SecurityGroup string `json:"security-group,omitempty"`
