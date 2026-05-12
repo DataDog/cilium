@@ -415,8 +415,8 @@ func (n *Node) GetMinimumAllocatableIPv4() int {
 // all-or-nothing posture per NIC, so there is no mixed-mode guard here.
 //
 // Callers already holding n.manager.mutex must use isPrefixDelegatedLocked
-// instead; sync.RWMutex is not reentrant and a nested RLock can deadlock under
-// writer contention.
+// instead; the manager's read-write mutex is not reentrant and a nested RLock
+// can deadlock under writer contention.
 func (n *Node) IsPrefixDelegated() bool {
 	n.manager.mutex.RLock()
 	defer n.manager.mutex.RUnlock()
