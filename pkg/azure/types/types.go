@@ -64,11 +64,30 @@ type AzureAddress struct {
 	// IP is the ip address of the address
 	IP string `json:"ip,omitempty"`
 
-	// Subnet is the subnet the address belongs to
+	// Subnet is the subnet the address belongs to.
+	//
+	// Deprecated: use AzureInterface.Subnet.ID instead. All IP configurations
+	// on an Azure NIC share the same subnet, so this per-address field is
+	// redundant. It is retained as a populated mirror for one release so
+	// external consumers of CiliumNode.Status.Azure can migrate to reading
+	// status.azure.interfaces[].subnet.id.
+	// TODO: Open tracking issue
 	Subnet string `json:"subnet,omitempty"`
 
 	// State is the provisioning state of the address
 	State string `json:"state,omitempty"`
+}
+
+// AzureSubnet stores information about the Azure subnet associated with an
+// AzureInterface. All IP configurations on an Azure network interface must
+// belong to the same subnet, so the subnet is tracked once per interface
+// (mirroring the AWS AwsSubnet and Alibaba VSwitch patterns).
+type AzureSubnet struct {
+	// ID is the resource ID of the subnet
+	ID string `json:"id,omitempty"`
+
+	// CIDR is the CIDR range associated with the subnet
+	CIDR string `json:"cidr,omitempty"`
 }
 
 // AzureInterface represents an Azure Interface
@@ -118,12 +137,23 @@ type AzureInterface struct {
 	// +optional
 	GatewayIP string `json:"GatewayIP"`
 
+	// Subnet is the subnet the interface is attached to. All IP configurations
+	// on an Azure NIC share the same subnet.
+	//
+	// +optional
+	Subnet AzureSubnet `json:"subnet,omitempty"`
+
 	// Gateway is the interface's subnet's default route
 	//
 	// +optional
 	Gateway string `json:"gateway"`
 
 	// CIDR is the range that the interface belongs to.
+	//
+	// Deprecated: use Subnet.CIDR instead. This field is a transitional
+	// duplicate maintained so that operator and agent rolling upgrades work
+	// in either order; it will be removed in a future release.
+	// TODO: Open tracking issue
 	//
 	// +optional
 	CIDR string `json:"cidr,omitempty"`
@@ -206,10 +236,14 @@ func (a *AzureInterface) GetVMID() string {
 	return a.vmID
 }
 
-// ForeachAddress iterates over all addresses and calls fn
+// ForeachAddress iterates over all addresses and calls fn.
+//
+// The subnet is tracked at the interface level (AzureInterface.Subnet), not
+// per address, so the poolID argument is always empty — matching the AWS and
+// Alibaba implementations.
 func (a *AzureInterface) ForeachAddress(id string, fn types.AddressIterator) error {
 	for _, address := range a.Addresses {
-		if err := fn(id, a.ID, address.IP, address.Subnet, address); err != nil {
+		if err := fn(id, a.ID, address.IP, "", address); err != nil {
 			return err
 		}
 	}

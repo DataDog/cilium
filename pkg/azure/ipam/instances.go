@@ -11,6 +11,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v8"
 
+	azureTypes "github.com/cilium/cilium/pkg/azure/types"
 	"github.com/cilium/cilium/pkg/ipam"
 	ipamTypes "github.com/cilium/cilium/pkg/ipam/types"
 	v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
@@ -166,9 +167,9 @@ func (m *InstancesManager) extractSubnetIDs(instances *ipamTypes.InstanceMap) []
 	// Use map[string]struct{} as a set for efficient deduplication (O(1) insertion, zero memory overhead)
 	subnetIDs := make(map[string]struct{})
 
-	instances.ForeachAddress("", func(instanceID, interfaceID, ip, poolID string, address ipamTypes.Address) error {
-		if poolID != "" {
-			subnetIDs[poolID] = struct{}{}
+	instances.ForeachInterface("", func(instanceID, interfaceID string, rev ipamTypes.InterfaceRevision) error {
+		if azIface, ok := rev.Resource.(*azureTypes.AzureInterface); ok && azIface.Subnet.ID != "" {
+			subnetIDs[azIface.Subnet.ID] = struct{}{}
 		}
 		return nil
 	})

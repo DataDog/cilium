@@ -579,7 +579,9 @@ spec:
                         addresses:
                           description: |-
                             Addresses is the list of secondary IPs associated with the interface.
-                            The primary IP is tracked separately in the IP field.
+                            The primary IP is tracked separately in the IP field, but is also
+                            included here when the operator is configured to expose it for
+                            allocation.
                           items:
                             description: AzureAddress is an IP address assigned to
                               an AzureInterface
@@ -592,14 +594,24 @@ spec:
                                   address
                                 type: string
                               subnet:
-                                description: Subnet is the subnet the address belongs
-                                  to
+                                description: |-
+                                  Subnet is the subnet the address belongs to.
+
+                                  Deprecated: use AzureInterface.Subnet.ID instead. All IP configurations
+                                  on an Azure NIC share the same subnet, so this per-address field is
+                                  redundant. It is retained as a populated mirror for one release so
+                                  external consumers of CiliumNode.Status.Azure can migrate to reading
+                                  status.azure.interfaces[].subnet.id.
                                 type: string
                             type: object
                           type: array
                         cidr:
-                          description: CIDR is the range that the interface belongs
-                            to.
+                          description: |-
+                            CIDR is the range that the interface belongs to.
+
+                            Deprecated: use Subnet.CIDR instead. This field is a transitional
+                            duplicate maintained so that operator and agent rolling upgrades work
+                            in either order; it will be removed in a future release.
                           type: string
                         gateway:
                           description: Gateway is the interface's subnet's default
@@ -624,6 +636,19 @@ spec:
                         state:
                           description: State is the provisioning state
                           type: string
+                        subnet:
+                          description: |-
+                            Subnet is the subnet the interface is attached to. All IP configurations
+                            on an Azure NIC share the same subnet.
+                          properties:
+                            cidr:
+                              description: CIDR is the CIDR range associated with
+                                the subnet
+                              type: string
+                            id:
+                              description: ID is the resource ID of the subnet
+                              type: string
+                          type: object
                       type: object
                     type: array
                 type: object

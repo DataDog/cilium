@@ -336,6 +336,29 @@ func parseInterface(iface *armnetwork.Interface, subnets ipamTypes.SubnetMap, us
 			if ip.Properties.PrivateIPAddress == nil {
 				continue
 			}
+
+			// Subnet info is identical for every IPConfig on a NIC (Azure
+			// enforces this at the API level), so record it on the first
+			// IPConfig that exposes it. Doing this before the primary-skip
+			// below also covers NICs whose only IPConfig is the primary.
+			if ip.Properties.Subnet != nil && i.Subnet.ID == "" {
+				i.Subnet.ID = *ip.Properties.Subnet.ID
+				if subnet, ok := subnets[i.Subnet.ID]; ok {
+					if subnet.CIDR.IsValid() {
+						i.Subnet.CIDR = subnet.CIDR.String()
+						// Mirror the CIDR onto the deprecated
+						// AzureInterface.CIDR field so that agents
+						// predating the Subnet.CIDR migration can still
+						// derive routing CIDRs during rolling upgrades.
+						i.CIDR = i.Subnet.CIDR //nolint:staticcheck // transitional, TODO: Open tracking issue
+					}
+					if gateway := deriveGatewayIP(subnet.CIDR.Addr()); gateway != "" {
+						i.Gateway = gateway
+						i.GatewayIP = gateway //nolint:staticcheck // obsolete v1.19 mirror of Gateway
+					}
+				}
+			}
+
 			isPrimary := ip.Properties.Primary != nil && *ip.Properties.Primary
 			if isPrimary {
 				i.IP = *ip.Properties.PrivateIPAddress
@@ -348,20 +371,12 @@ func parseInterface(iface *armnetwork.Interface, subnets ipamTypes.SubnetMap, us
 				IP:    *ip.Properties.PrivateIPAddress,
 				State: strings.ToLower(string(*ip.Properties.ProvisioningState)),
 			}
-
 			if ip.Properties.Subnet != nil {
-				addr.Subnet = *ip.Properties.Subnet.ID
-				if subnet, ok := subnets[addr.Subnet]; ok {
-					if subnet.CIDR.IsValid() {
-						i.CIDR = subnet.CIDR.String()
-					}
-					if gateway := deriveGatewayIP(subnet.CIDR.Addr()); gateway != "" {
-						i.GatewayIP = gateway
-						i.Gateway = gateway
-					}
-				}
+				// Mirror the subnet ID on the deprecated AzureAddress.Subnet
+				// field so external consumers of CiliumNode.Status.Azure have
+				// one release to migrate their reads to AzureInterface.Subnet.
+				addr.Subnet = *ip.Properties.Subnet.ID //nolint:staticcheck // transitional, TODO: Open tracking issue
 			}
-
 			i.Addresses = append(i.Addresses, addr)
 		}
 	}

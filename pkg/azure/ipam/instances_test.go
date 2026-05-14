@@ -74,11 +74,11 @@ func iteration1(t *testing.T, api *apimock.API, mngr *InstancesManager) {
 
 	resource := &types.AzureInterface{
 		SecurityGroup: "sg1",
+		Subnet:        types.AzureSubnet{ID: "subnet-1"},
 		Addresses: []types.AzureAddress{
 			{
-				IP:     "1.1.1.1",
-				Subnet: "subnet-1",
-				State:  types.StateSucceeded,
+				IP:    "1.1.1.1",
+				State: types.StateSucceeded,
 			},
 		},
 		State: types.StateSucceeded,
@@ -90,11 +90,11 @@ func iteration1(t *testing.T, api *apimock.API, mngr *InstancesManager) {
 
 	resource = &types.AzureInterface{
 		SecurityGroup: "sg3",
+		Subnet:        types.AzureSubnet{ID: "subnet-1"},
 		Addresses: []types.AzureAddress{
 			{
-				IP:     "1.1.3.3",
-				Subnet: "subnet-1",
-				State:  types.StateSucceeded,
+				IP:    "1.1.3.3",
+				State: types.StateSucceeded,
 			},
 		},
 		State: types.StateSucceeded,
@@ -115,11 +115,11 @@ func iteration2(t *testing.T, api *apimock.API, mngr *InstancesManager) {
 
 	resource := &types.AzureInterface{
 		SecurityGroup: "sg1",
+		Subnet:        types.AzureSubnet{ID: "subnet-1"},
 		Addresses: []types.AzureAddress{
 			{
-				IP:     "1.1.1.1",
-				Subnet: "subnet-1",
-				State:  types.StateSucceeded,
+				IP:    "1.1.1.1",
+				State: types.StateSucceeded,
 			},
 		},
 		State: types.StateSucceeded,
@@ -131,11 +131,11 @@ func iteration2(t *testing.T, api *apimock.API, mngr *InstancesManager) {
 
 	resource = &types.AzureInterface{
 		SecurityGroup: "sg2",
+		Subnet:        types.AzureSubnet{ID: "subnet-3"},
 		Addresses: []types.AzureAddress{
 			{
-				IP:     "3.3.3.3",
-				Subnet: "subnet-3",
-				State:  types.StateSucceeded,
+				IP:    "3.3.3.3",
+				State: types.StateSucceeded,
 			},
 		},
 		State: types.StateSucceeded,
@@ -147,11 +147,11 @@ func iteration2(t *testing.T, api *apimock.API, mngr *InstancesManager) {
 
 	resource = &types.AzureInterface{
 		SecurityGroup: "sg3",
+		Subnet:        types.AzureSubnet{ID: "subnet-1"},
 		Addresses: []types.AzureAddress{
 			{
-				IP:     "1.1.3.3",
-				Subnet: "subnet-1",
-				State:  types.StateSucceeded,
+				IP:    "1.1.3.3",
+				State: types.StateSucceeded,
 			},
 		},
 		State: types.StateSucceeded,
@@ -214,11 +214,11 @@ func TestResyncInstancePreservesOtherNodesSubnets(t *testing.T) {
 
 	iface1 := &types.AzureInterface{
 		SecurityGroup: "sg1",
+		Subnet:        types.AzureSubnet{ID: "subnet-1"},
 		Addresses: []types.AzureAddress{
 			{
-				IP:     "1.1.1.1",
-				Subnet: "subnet-1",
-				State:  types.StateSucceeded,
+				IP:    "1.1.1.1",
+				State: types.StateSucceeded,
 			},
 		},
 		State: types.StateSucceeded,
@@ -230,11 +230,11 @@ func TestResyncInstancePreservesOtherNodesSubnets(t *testing.T) {
 
 	iface2 := &types.AzureInterface{
 		SecurityGroup: "sg2",
+		Subnet:        types.AzureSubnet{ID: "subnet-3"},
 		Addresses: []types.AzureAddress{
 			{
-				IP:     "3.3.3.3",
-				Subnet: "subnet-3",
-				State:  types.StateSucceeded,
+				IP:    "3.3.3.3",
+				State: types.StateSucceeded,
 			},
 		},
 		State: types.StateSucceeded,
@@ -284,11 +284,11 @@ func TestExtractSubnetIDs(t *testing.T) {
 		resource := &types.AzureInterface{
 			Name:          "eth0",
 			SecurityGroup: "sg1",
+			Subnet:        types.AzureSubnet{ID: subnetID},
 			Addresses: []types.AzureAddress{
 				{
-					IP:     fmt.Sprintf("10.0.%d.%d", (i%254)+1, (i%254)+10),
-					Subnet: subnetID,
-					State:  types.StateSucceeded,
+					IP:    fmt.Sprintf("10.0.%d.%d", (i%254)+1, (i%254)+10),
+					State: types.StateSucceeded,
 				},
 			},
 		}

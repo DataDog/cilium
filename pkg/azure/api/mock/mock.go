@@ -264,7 +264,7 @@ func (a *API) AssignPrivateIpAddressesVMSS(ctx context.Context, vmName, vmssName
 			}
 			intf.Addresses = append(intf.Addresses, types.AzureAddress{
 				IP:     ip.String(),
-				Subnet: subnetID,
+				Subnet: subnetID, //nolint:staticcheck // deprecated mirror; matches parseInterface, TODO: Open tracking issue
 				State:  types.StateSucceeded,
 			})
 		}
