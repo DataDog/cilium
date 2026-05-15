@@ -116,9 +116,11 @@ func (e *Endpoint) proxyID(l4 *policy.L4Filter, listener string) (string, uint16
 // Must be called with the endpoint lock held for at least reading
 func (e *Endpoint) setNextPolicyRevision(revision uint64) {
 	e.nextPolicyRevision = revision
-	e.UpdateLogger(map[string]any{
-		logfields.DesiredPolicyRevision: e.nextPolicyRevision,
-	})
+	if e.Options != nil && e.Options.IsEnabled(option.Debug) {
+		e.UpdateLogger(map[string]any{
+			logfields.DesiredPolicyRevision: e.nextPolicyRevision,
+		})
+	}
 }
 
 type policyGenerateResult struct {
@@ -394,7 +396,6 @@ func (e *Endpoint) regenerate(ctx *regenerationContext) (retErr error) {
 	var revision uint64
 	var err error
 
-	ctx.Stats = regenerationStatistics{}
 	stats := &ctx.Stats
 	stats.totalTime.Start()
 
@@ -757,7 +758,6 @@ func (e *Endpoint) RegenerateIfAlive(regenMetadata *regeneration.ExternalRegener
 // Should only be called with e.state at StateWaitingToRegenerate,
 // StateWaitingForIdentity, or StateRestoring
 func (e *Endpoint) Regenerate(regenMetadata *regeneration.ExternalRegenerationMetadata) <-chan bool {
-	hr := e.GetReporter("datapath-regenerate")
 	done := make(chan bool, 1)
 
 	var (
@@ -808,14 +808,22 @@ func (e *Endpoint) Regenerate(regenMetadata *regeneration.ExternalRegenerationMe
 			regenError = regenResult.err
 			buildSuccess = regenError == nil
 
-			if regenError != nil && !errors.Is(regenError, context.Canceled) {
-				e.getLogger().Error(
-					"endpoint regeneration failed",
-					logfields.Error, regenError,
-				)
-				hr.Degraded("Endpoint regeneration failed", regenError)
-			} else {
+			hr := e.GetReporter("datapath-regenerate")
+			if buildSuccess {
 				hr.OK("Endpoint regeneration successful")
+			} else {
+				// It is possible that Endpoint was disconnected but the error from regeneration
+				// does not indicate the same(eg. Link deleted from CNI DEL).
+				canceled = errors.Is(regenError, context.Canceled) || errors.Is(regenError, ErrNotAlive) || !e.IsAlive()
+				if canceled {
+					e.getLogger().Debug("Regeneration failed due to cancellation", logfields.Error, regenError)
+				} else {
+					e.getLogger().Error(
+						"Endpoint regeneration failed",
+						logfields.Error, regenError,
+					)
+					hr.Degraded("Endpoint regeneration failed", regenError)
+				}
 			}
 		} else {
 			// This may be unnecessary(?) since 'closing' of the results

@@ -57,7 +57,7 @@ concurrency:
 
 env:
   # renovate: datasource=golang-version depName=go
-  go-version: 1.25.9
+  go-version: 1.25.10
 
 jobs:
   echo-inputs:
@@ -74,7 +74,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Set initial commit status
-        uses: cilium/cilium/.github/actions/set-commit-status@main
+        uses: cilium/cilium/.github/actions/set-commit-status@380de320e1536b28487b0af6e9e0cac14c078b8e # main
         with:
           sha: ${{ inputs.SHA || github.sha }}
 
@@ -89,24 +89,24 @@ jobs:
             kernel-name: '510'
             ci-kernel: '510'
           - kernel: '5.15'
-            kernel-name: '515'
+            kernel-name: 'v5.15'
             ci-kernel: '510'
           - kernel: '6.1'
-            kernel-name: '61'
+            kernel-name: 'v6.1'
             ci-kernel: '61'
           - kernel: '6.6'
-            kernel-name: '66'
+            kernel-name: 'v6.6'
             ci-kernel: '61'
           - kernel: '6.12'
-            kernel-name: '612'
+            kernel-name: 'v6.12'
             ci-kernel: '61'
           - kernel: '6.18'
-            kernel-name: '618'
+            kernel-name: 'v6.18'
             ci-kernel: '61'
     timeout-minutes: 60
     steps:
       - name: Set commit status to pending
-        uses: cilium/cilium/.github/actions/set-commit-status@main
+        uses: cilium/cilium/.github/actions/set-commit-status@380de320e1536b28487b0af6e9e0cac14c078b8e # main
         with:
           sha: ${{ inputs.SHA || github.sha }}
 
@@ -276,7 +276,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Set final commit status
-        uses: cilium/cilium/.github/actions/set-commit-status@main
+        uses: cilium/cilium/.github/actions/set-commit-status@380de320e1536b28487b0af6e9e0cac14c078b8e # main
         with:
           sha: ${{ inputs.SHA || github.sha }}
           status: ${{ needs.setup-and-test.result }}

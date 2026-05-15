@@ -36,22 +36,20 @@ func (p *policyWatcher) onUpsertCIDRGroup(
 	p.applyCIDRGroup(name)
 }
 
-// applyCIDRGroup inserts / removes prefixes in the ipcache
-// labelled as belonging to the CIDR group.
-//
-// If the CIDRGroup in question is not referenced by any policies,
-// this treats it as being deleted.
-func (p *policyWatcher) applyCIDRGroup(name string) {
-	oldCIDRs, ok := p.cidrGroupCIDRs[name]
-	if !ok {
-		oldCIDRs = make(sets.Set[netip.Prefix])
-	}
+func (p *policyWatcher) cidrsAndLabelsForCIDRGroup(name string) (sets.Set[netip.Prefix], labels.Labels) {
 	newCIDRs := make(sets.Set[netip.Prefix])
-	lbls := labels.Labels{}
+	var lbls labels.Labels
 
 	// If CIDRGroup isn't deleted; populate newCIDRs
 	if cidrGroup, ok := p.cidrGroupCache[name]; ok {
-		lbls = labels.Map2Labels(utils.RemoveCiliumLabels(cidrGroup.Labels), labels.LabelSourceCIDRGroup)
+		filtered := utils.RemoveCiliumLabels(cidrGroup.Labels)
+		lbls = make(labels.Labels, len(filtered)*2+1) // +1 for CIDRGroupRef label
+		for k, v := range filtered {
+			l := labels.NewLabel(k, v, labels.LabelSourceCIDRGroup)
+			lbls[l.Key] = l // may collide; only used for Exists
+			encoded := labels.EncodedCIDRGroupLabel(l.Key, l.Value, l.Source)
+			lbls[encoded.Key] = encoded
+		}
 		lbl := api.LabelForCIDRGroupRef(name)
 		lbls[lbl.Key] = lbl
 
@@ -70,6 +68,21 @@ func (p *policyWatcher) applyCIDRGroup(name string) {
 		}
 	}
 
+	return newCIDRs, lbls
+}
+
+// applyCIDRGroup inserts / removes prefixes in the ipcache
+// labelled as belonging to the CIDR group.
+//
+// If the CIDRGroup in question is not referenced by any policies,
+// this treats it as being deleted.
+func (p *policyWatcher) applyCIDRGroup(name string) {
+	oldCIDRs, ok := p.cidrGroupCIDRs[name]
+	if !ok {
+		oldCIDRs = make(sets.Set[netip.Prefix])
+	}
+
+	newCIDRs, lbls := p.cidrsAndLabelsForCIDRGroup(name)
 	if len(newCIDRs) == 0 {
 		delete(p.cidrGroupCIDRs, name)
 	} else {

@@ -80,7 +80,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Set initial commit status
-        uses: cilium/cilium/.github/actions/set-commit-status@main
+        uses: cilium/cilium/.github/actions/set-commit-status@380de320e1536b28487b0af6e9e0cac14c078b8e # main
         with:
           sha: ${{ inputs.SHA || github.sha }}
 
@@ -152,7 +152,7 @@ jobs:
 
     steps:
       - name: Set commit status to pending
-        uses: cilium/cilium/.github/actions/set-commit-status@main
+        uses: cilium/cilium/.github/actions/set-commit-status@380de320e1536b28487b0af6e9e0cac14c078b8e # main
         with:
           sha: ${{ inputs.SHA || github.sha }}
 
@@ -433,7 +433,7 @@ jobs:
         shell: bash
         run: |
           for image in cilium-ci operator-generic-ci clustermesh-apiserver-ci ; do
-            until docker manifest inspect quay.io/${{ env.QUAY_ORGANIZATION_DEV }}/$image:${{ steps.downgrade-branch.outputs.sha }} &> /dev/null; do sleep 45s; done
+            until docker manifest inspect ${{ env.REGISTRY_DEV }}/${{ env.ORGANIZATION_DEV }}/$image:${{ steps.downgrade-branch.outputs.sha }} &> /dev/null; do sleep 45s; done
           done
 
 

@@ -29,6 +29,8 @@ type verifierComplexityRecord struct {
 
 	VerificationTimeMicroseconds int `json:"verification_time_microseconds"`
 	StackDepth                   int `json:"stack_depth"`
+
+	MapCount int `json:"map_count"`
 }
 
 func main() {
@@ -61,6 +63,11 @@ func main() {
 	})
 	printTop15MinMax("largest differences by stack depth", minMaxStackDepth, percentStackDepth, colorRelativeChange)
 
+	minMaxMapCount := calcMinMax(diffRecords, func(r verifierComplexityRecord) int {
+		return r.MapCount
+	})
+	printTop15MinMax("largest differences by map count", minMaxMapCount, percentMapCount, colorRelativeChange)
+
 	var sortedNewRecords []verifierComplexityRecord
 	for _, key := range slices.Sorted(maps.Keys(newRecords)) {
 		sortedNewRecords = append(sortedNewRecords, newRecords[key])
@@ -69,12 +76,17 @@ func main() {
 	minMaxInsnsProcessed = calcMinMax(sortedNewRecords, func(r verifierComplexityRecord) int {
 		return r.InsnsProcessed
 	})
-	printTop15MinMax("largest instructions processed", minMaxInsnsProcessed, percentInsnsProcessed, colorAbsoluteValue)
+	printTop15MinMax("largest instructions processed", minMaxInsnsProcessed, percentInsnsProcessed, colorAbsoluteValueExponential)
 
 	minMaxStackDepth = calcMinMax(sortedNewRecords, func(r verifierComplexityRecord) int {
 		return r.StackDepth
 	})
 	printTop15MinMax("largest stack depth", minMaxStackDepth, percentStackDepth, colorAbsoluteValue)
+
+	minMaxMapCount = calcMinMax(sortedNewRecords, func(r verifierComplexityRecord) int {
+		return r.MapCount
+	})
+	printTop15MinMax("largest map count", minMaxMapCount, percentMapCount, colorAbsoluteValue)
 
 	diffRecords = calcDiffRecords(oldRecords, newRecords, false)
 
@@ -141,8 +153,12 @@ func percentStackDepth(i int) float64 {
 	return float64(i) / float64(512) * 100
 }
 
+func percentMapCount(i int) float64 {
+	return float64(i) / float64(64) * 100
+}
+
 func colorRelativeChange(program string, i int, p float64) string {
-	s := fmt.Sprintf("%s %+d (%.2f\\\\%%)", program, i, p)
+	s := fmt.Sprintf("%+d (%.2f\\\\%%) for %s", i, p, program)
 	if p == 0 {
 		return texNoColor(s)
 	}
@@ -155,12 +171,27 @@ func colorRelativeChange(program string, i int, p float64) string {
 }
 
 func colorAbsoluteValue(program string, i int, p float64) string {
-	s := fmt.Sprintf("%s %d (%.2f\\\\%%)", program, i, p)
-	if p > 80 {
+	s := fmt.Sprintf("%d (%.2f\\\\%%) for %s", i, p, program)
+	if p > 90 {
 		return texRed(s)
 	}
+	if p > 75 {
+		return texOrange(s)
+	}
 
-	return texGreen(s)
+	return texNoColor(s)
+}
+
+func colorAbsoluteValueExponential(program string, i int, p float64) string {
+	s := fmt.Sprintf("%d (%.2f\\\\%%) for %s", i, p, program)
+	if p > 70 {
+		return texRed(s)
+	}
+	if p > 50 {
+		return texOrange(s)
+	}
+
+	return texNoColor(s)
 }
 
 func texNoColor(s string) string {
@@ -173,6 +204,10 @@ func texGreen(s string) string {
 
 func texRed(s string) string {
 	return "$\\color{red}{\\textsf{" + s + "}}$"
+}
+
+func texOrange(s string) string {
+	return "$\\color{orange}{\\textsf{" + s + "}}$"
 }
 
 type minMax struct {
@@ -266,6 +301,8 @@ func calcDiffRecords(oldRecords, newRecords map[string]verifierComplexityRecord,
 
 			VerificationTimeMicroseconds: newRecord.VerificationTimeMicroseconds - oldRecord.VerificationTimeMicroseconds,
 			StackDepth:                   newRecord.StackDepth - oldRecord.StackDepth,
+
+			MapCount: newRecord.MapCount - oldRecord.MapCount,
 		})
 	}
 
@@ -289,6 +326,8 @@ func calcDiffRecords(oldRecords, newRecords map[string]verifierComplexityRecord,
 
 					VerificationTimeMicroseconds: -oldRecord.VerificationTimeMicroseconds,
 					StackDepth:                   -oldRecord.StackDepth,
+
+					MapCount: -oldRecord.MapCount,
 				})
 			}
 		}
