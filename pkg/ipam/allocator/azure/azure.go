@@ -9,7 +9,6 @@ import (
 	"log/slog"
 
 	operatorOption "github.com/cilium/cilium/operator/option"
-	apiMetrics "github.com/cilium/cilium/pkg/api/metrics"
 	azureAPI "github.com/cilium/cilium/pkg/azure/api"
 	azureIPAM "github.com/cilium/cilium/pkg/azure/ipam"
 	"github.com/cilium/cilium/pkg/ipam"
@@ -71,10 +70,10 @@ func (a *AllocatorAzure) Start(ctx context.Context, getterUpdater ipam.CiliumNod
 	}
 
 	if operatorOption.Config.EnableMetrics {
-		azMetrics = apiMetrics.NewPrometheusMetrics(metrics.Namespace, "azure", reg)
+		azMetrics = NewMetrics(reg)
 		iMetrics = ipamMetrics.NewPrometheusMetrics(metrics.Namespace, reg)
 	} else {
-		azMetrics = &apiMetrics.NoOpMetrics{}
+		azMetrics = &NoOpMetrics{}
 		iMetrics = &ipamMetrics.NoOpMetrics{}
 	}
 

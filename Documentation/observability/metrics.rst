@@ -904,6 +904,19 @@ Name                                     Labels                                 
 ``ipam_needed_ips``                      ``target_node``                                                   Enabled    Number of IPs needed to satisfy allocation on a node.
 ======================================== ================================================================= ========== ========================================================
 
+The following metrics are emitted by the Azure IPAM allocator and report the
+remaining Azure API request budget extracted from response headers. See
+`Azure Resource Manager throttling
+<https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/request-limits-and-throttling#remaining-requests>`__
+for the meaning of each header.
+
+========================================== ================================================================= ========== ========================================================
+Name                                       Labels                                                            Default    Description
+========================================== ================================================================= ========== ========================================================
+``azure_ratelimit_remaining``              ``description``, ``subscription_id``                              Enabled    Remaining Azure API rate-limit budget reported by ``X-Ms-Ratelimit-Remaining-*`` response headers.
+``azure_ratelimit_remaining_resource``     ``policy``, ``subscription_id``                                   Enabled    Remaining Azure API rate-limit budget per resource policy reported by ``X-Ms-Ratelimit-Remaining-Resource`` response header.
+========================================== ================================================================= ========== ========================================================
+
 LB-IPAM
 ~~~~~~~
 

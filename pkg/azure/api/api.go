@@ -16,6 +16,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v7"
@@ -67,6 +68,8 @@ type Client struct {
 type MetricsAPI interface {
 	ObserveAPICall(call, status string, duration float64)
 	ObserveRateLimit(operation string, duration time.Duration)
+	ObserveRateLimitRemaining(description, subscriptionID string, value float64)
+	ObserveRateLimitRemainingResource(policyName, subscriptionID string, value float64)
 }
 
 // net/http Client with a custom cilium user agent
@@ -89,9 +92,10 @@ func newTokenCredential(clientOptions *azcore.ClientOptions, userAssignedIdentit
 	})
 }
 
-func newClientOptions(cloudName string) (*azcore.ClientOptions, error) {
+func newClientOptions(cloudName string, perRetry policy.Policy) (*azcore.ClientOptions, error) {
 	clientOptions := &azcore.ClientOptions{
-		Transport: &httpClient{},
+		Transport:        &httpClient{},
+		PerRetryPolicies: []policy.Policy{perRetry},
 	}
 
 	// See possible values here:
@@ -114,7 +118,7 @@ func newClientOptions(cloudName string) (*azcore.ClientOptions, error) {
 
 // NewClient returns a new Azure client
 func NewClient(logger *slog.Logger, cloudName, subscriptionID, resourceGroup, userAssignedIdentityID string, metrics MetricsAPI, rateLimit float64, burst int, usePrimary bool) (*Client, error) {
-	clientOptions, err := newClientOptions(cloudName)
+	clientOptions, err := newClientOptions(cloudName, newRateLimitMetricsExtractor(logger, subscriptionID, metrics))
 	if err != nil {
 		return nil, err
 	}
