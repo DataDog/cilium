@@ -1,0 +1,66 @@
+meta:
+  name: context-function-tracing
+  description: Automatically instrument all functions that take a context.Context as argument
+aspects:
+  - id: "context-function-tracing"
+    join-point:
+      all-of:
+        # Only instrument packages belonging to the root module
+        # (github.com/cilium/cilium/...). Vendored dependencies keep their
+        # original import paths, so this naturally excludes vendor/ — including
+        # dd-trace-go itself, which previously caused recursive instrumentation.
+        - package-filter:
+            root: true
+        # Match by declared type, not interface satisfaction. Some Cilium
+        # types (e.g. *ipcache.IPCache) transitively embed context.Context and
+        # would otherwise be mis-identified as the context argument.
+        - function-body:
+            function:
+              - signature-contains:
+                  args: [context.Context]
+        # Skip anonymous functions / closures. Their declared name is empty,
+        # so they would all collapse to the same resource name and add noise
+        # on hot paths (goroutine bodies, defers, http.HandlerFuncs, etc.).
+        - not:
+            function-body:
+              function:
+                - name: ""
+    advice:
+      # The template has no access to package name or receiver type, so we resolve
+      # the fully qualified function name at runtime via runtime.Caller + FuncForPC,
+      # then split the cilium-relative path:
+      #   "github.com/cilium/cilium/pkg/foo.Bar"        -> pkg=pkg/foo, resource=Bar
+      #   "github.com/cilium/cilium/pkg/foo.(*Baz).Bar" -> pkg=pkg/foo, resource=(*Baz).Bar
+      # runtime.Caller(0) returns the PC of the function we're inlined into.
+      - prepend-statements:
+          imports:
+            fmt: fmt
+            runtime: runtime
+            strings: strings
+            tracer: github.com/DataDog/dd-trace-go/v2/ddtrace/tracer
+          template: |-
+            {{ $ctx := .Function.ArgumentOfType "context.Context" -}}
+            __dd_pc, _, _, _ := runtime.Caller(0)
+            __dd_funcName := runtime.FuncForPC(__dd_pc).Name()
+            __dd_funcName = strings.TrimPrefix(__dd_funcName, "github.com/cilium/cilium/")
+            __dd_funcParts := strings.Split(__dd_funcName, ".")
+            __dd_pkg := __dd_funcParts[0]
+            __dd_resource := "placeholder"
+            if len(__dd_funcParts) == 2 {
+              __dd_resource = __dd_funcParts[1]
+            } else if len(__dd_funcParts) > 2 {
+              __dd_resource = fmt.Sprintf("%s.%s", __dd_funcParts[1], __dd_funcParts[2])
+            }
+            var __dd_span *tracer.Span
+            __dd_span, {{ $ctx }} = tracer.StartSpanFromContext(
+              {{ $ctx }},
+              __dd_pkg,
+              tracer.ResourceName(__dd_resource),
+            )
+            {{ with .Function.LastResultThatImplements "error" -}}
+              defer func(){
+                __dd_span.Finish(tracer.WithError({{ . }}))
+              }()
+            {{ else -}}
+              defer __dd_span.Finish()
+            {{- end -}}
