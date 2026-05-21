@@ -1,0 +1,46 @@
+meta:
+  name: context-function-tracing
+  description: Automatically instrument all functions that take a context.Context as argument
+aspects:
+  - id: 'context-function-tracing'
+    join-point:
+      all-of:
+        # Only instrument packages belonging to the root module
+        # (github.com/cilium/cilium/...). Vendored dependencies keep their
+        # original import paths, so this naturally excludes vendor/ — including
+        # dd-trace-go itself, which previously caused recursive instrumentation.
+        - package-filter:
+            root: true
+        # Match by declared type, not interface satisfaction. Some Cilium
+        # types (e.g. *ipcache.IPCache) transitively embed context.Context and
+        # would otherwise be mis-identified as the context argument.
+        - function-body:
+            function:
+              - signature-contains:
+                  args: [context.Context]
+        # Skip anonymous functions / closures. Their declared name is empty,
+        # so they would all collapse to the same resource name and add noise
+        # on hot paths (goroutine bodies, defers, http.HandlerFuncs, etc.).
+        - not:
+            function-body:
+              function:
+                - name: ""
+    advice:
+      - prepend-statements:
+          imports:
+            tracer: github.com/DataDog/dd-trace-go/v2/ddtrace/tracer
+          template: |-
+            {{ $ctx := .Function.ArgumentOfType "context.Context" -}}
+            var __dd_span *tracer.Span
+            __dd_span, {{ $ctx }} = tracer.StartSpanFromContext(
+              {{ $ctx }},
+              "cilium.function",
+              tracer.ResourceName("{{ .Function.Name }}"),
+            )
+            {{ with .Function.LastResultThatImplements "error" -}}
+              defer func(){
+                __dd_span.Finish(tracer.WithError({{ . }}))
+              }()
+            {{ else -}}
+              defer __dd_span.Finish()
+            {{- end -}}
