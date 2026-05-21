@@ -1,0 +1,47 @@
+meta:
+  name: context-function-tracing
+  description: Automatically instrument all functions that take a context.Context as argument
+aspects:
+  - id: 'context-function-tracing'
+    join-point:
+      all-of:
+        # Only instrument packages belonging to the root module
+        # (github.com/cilium/cilium/...). Vendored dependencies keep their
+        # original import paths, so this naturally excludes vendor/ — including
+        # dd-trace-go itself, which previously caused recursive instrumentation.
+        - package-filter:
+            root: true
+        - function-body:
+            function:
+              - argument-implements: context.Context
+    advice:
+      - prepend-statements:
+          imports:
+            context: context
+            tracer: github.com/DataDog/dd-trace-go/v2/ddtrace/tracer
+          template: |-
+            {{ $ctx := .Function.ArgumentOfType "context.Context" }}
+            {{- if (eq $ctx "") -}}
+              {{- $ctx = "ctx" -}}
+              ctx := context.TODO()
+            {{ end -}}
+
+            {{ $functionName := .Function.Name -}}
+            {{- if eq $functionName "" -}}
+              {{ $functionName = "placeholder" }}
+            {{- end -}}
+
+            var span *tracer.Span
+            span, {{ $ctx }} = tracer.StartSpanFromContext(
+              {{ $ctx }},
+              "test",
+              tracer.ResourceName("{{ $functionName }}"),
+            )
+
+            {{ with .Function.ResultOfType "error" -}}
+              defer func(){
+                span.Finish(tracer.WithError({{ . }}))
+              }()
+            {{ else -}}
+              defer span.Finish()
+            {{- end -}}
