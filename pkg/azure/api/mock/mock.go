@@ -322,8 +322,9 @@ func (a *API) ParseInterfacesIntoInstanceMap(networkInterfaces []*armnetwork.Int
 	return a.instances.DeepCopy()
 }
 
-// ListVMNetworkInterfaces returns a dummy slice since mock doesn't use real network interfaces
-// The mock API uses instances directly rather than armnetwork.Interface objects
+// ListVMNetworkInterfaces returns a single sentinel armnetwork.Interface whose
+// ID carries the requested instanceID, so ParseInterfacesIntoInstance can
+// recover which instance to return without making another API call.
 func (a *API) ListVMNetworkInterfaces(ctx context.Context, instanceID string) ([]*armnetwork.Interface, error) {
 	a.rateLimit()
 	a.delaySim.Delay(GetInstance)
@@ -335,22 +336,29 @@ func (a *API) ListVMNetworkInterfaces(ctx context.Context, instanceID string) ([
 		return nil, err
 	}
 
-	// Check if instance exists
 	if !a.instances.Exists(instanceID) {
 		return nil, fmt.Errorf("instance %s not found", instanceID)
 	}
 
-	// Return an empty slice - the mock doesn't use actual armnetwork.Interface objects
-	// ParseInterfacesIntoInstance will handle returning the mock instance
-	return []*armnetwork.Interface{}, nil
+	id := instanceID
+	return []*armnetwork.Interface{{ID: &id}}, nil
 }
 
-// ParseInterfacesIntoInstance ignores the input and returns the mock's instance
-// The mock API doesn't use real armnetwork.Interface objects
+// ParseInterfacesIntoInstance recovers the instanceID from the sentinel
+// produced by ListVMNetworkInterfaces and returns the mock's instance.
 func (a *API) ParseInterfacesIntoInstance(networkInterfaces []*armnetwork.Interface, subnets ipamTypes.SubnetMap) *ipamTypes.Instance {
 	a.mutex.RLock()
 	defer a.mutex.RUnlock()
-	// The instance will be populated by the caller based on the mock's data
-	// Return a basic structure that will be filled in
-	return &ipamTypes.Instance{Interfaces: map[string]ipamTypes.InterfaceRevision{}}
+
+	instance := ipamTypes.Instance{Interfaces: map[string]ipamTypes.InterfaceRevision{}}
+	if len(networkInterfaces) == 0 || networkInterfaces[0].ID == nil {
+		return &instance
+	}
+	instanceID := *networkInterfaces[0].ID
+
+	_ = a.instances.ForeachInterface(instanceID, func(_, interfaceID string, iface ipamTypes.InterfaceRevision) error {
+		instance.Interfaces[interfaceID] = iface
+		return nil
+	})
+	return instance.DeepCopy()
 }

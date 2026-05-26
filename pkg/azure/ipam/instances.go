@@ -95,13 +95,11 @@ func (m *InstancesManager) Resync(ctx context.Context) time.Time {
 }
 
 // resyncInstance only resyncs a given instance
-// Note: This function uses GetInstance directly (not optimized with separate fetch/parse)
-// because it already queries per-instance APIs which are relatively lightweight
 func (m *InstancesManager) resyncInstance(ctx context.Context, instanceID string) time.Time {
 	resyncStart := time.Now()
 
-	// First get the instance with empty subnet map to extract subnet IDs
-	instance, err := m.api.GetInstance(ctx, ipamTypes.SubnetMap{}, instanceID)
+	// Fetch network interfaces once from Azure API
+	networkInterfaces, err := m.api.ListVMNetworkInterfaces(ctx, instanceID)
 	if err != nil {
 		m.logger.Warn("Unable to synchronize Azure instance interface list",
 			logfields.Error, err,
@@ -110,7 +108,8 @@ func (m *InstancesManager) resyncInstance(ctx context.Context, instanceID string
 		return time.Time{}
 	}
 
-	// Extract subnet IDs from this instance
+	// Parse with empty subnets to discover which subnets are actually in use
+	instance := m.api.ParseInterfacesIntoInstance(networkInterfaces, ipamTypes.SubnetMap{})
 	instanceMap := ipamTypes.NewInstanceMap()
 	instanceMap.UpdateInstance(instanceID, instance)
 	nodeSubnetIDs := m.extractSubnetIDs(instanceMap)
@@ -126,16 +125,10 @@ func (m *InstancesManager) resyncInstance(ctx context.Context, instanceID string
 		subnets = ipamTypes.SubnetMap{}
 	}
 
-	// Re-query instance with discovered subnets for complete information
+	// Re-parse the SAME network interface data with subnet details to populate
+	// CIDR and gateway info without making another Azure API call
 	if len(subnets) > 0 {
-		instance, err = m.api.GetInstance(ctx, subnets, instanceID)
-		if err != nil {
-			m.logger.Warn("Unable to re-synchronize Azure instance with subnet details",
-				logfields.Error, err,
-				logfields.InstanceID, instanceID,
-			)
-			return time.Time{}
-		}
+		instance = m.api.ParseInterfacesIntoInstance(networkInterfaces, subnets)
 	}
 
 	m.logger.Info(
