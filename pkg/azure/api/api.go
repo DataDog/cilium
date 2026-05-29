@@ -36,6 +36,8 @@ const (
 	interfacesGet                   = "Interfaces.Get"
 	interfacesList                  = "Interfaces.List"
 	publicIPPrefixesList            = "PublicIPPrefixes.List"
+	publicIPAddressesGet            = "PublicIPAddresses.Get"
+	publicIPAddressesListVMSS       = "PublicIPAddresses.ListVirtualMachineScaleSetVMPublicIPAddresses"
 	virtualMachinesGet              = "VirtualMachines.Get"
 	virtualMachineScaleSetsList     = "VirtualMachineScaleSets.List"
 	virtualMachineScaleSetVMsGet    = "VirtualMachineScaleSetVMs.Get"
@@ -55,6 +57,7 @@ type Client struct {
 	interfaces                *armnetwork.InterfacesClient
 	publicIPPrefixes          *armnetwork.PublicIPPrefixesClient
 	virtualNetworks           *armnetwork.VirtualNetworksClient
+	publicIPAddresses         *armnetwork.PublicIPAddressesClient
 	virtualMachines           *armcompute.VirtualMachinesClient
 	subnets                   *armnetwork.SubnetsClient
 	virtualMachineScaleSetVMs *armcompute.VirtualMachineScaleSetVMsClient
@@ -167,6 +170,11 @@ func NewClient(logger *slog.Logger, cloudName, subscriptionID, resourceGroup, us
 		return nil, err
 	}
 
+	publicIPAddressesClient, err := armnetwork.NewPublicIPAddressesClient(subscriptionID, credential, armClientOptions)
+	if err != nil {
+		return nil, err
+	}
+
 	c := &Client{
 		logger:                    logger,
 		subscriptionID:            subscriptionID,
@@ -174,6 +182,7 @@ func NewClient(logger *slog.Logger, cloudName, subscriptionID, resourceGroup, us
 		interfaces:                interfacesClient,
 		publicIPPrefixes:          publicIPPrefixesClient,
 		virtualNetworks:           virtualNetworksClient,
+		publicIPAddresses:         publicIPAddressesClient,
 		virtualMachines:           virtualMachinesClient,
 		subnets:                   subnetsClient,
 		virtualMachineScaleSetVMs: virtualMachineScaleSetVMsClient,
@@ -819,6 +828,85 @@ func (c *Client) AssignPrivateIpAddressesVM(ctx context.Context, subnetID, inter
 	return nil
 }
 
+// getVMSSPublicIP returns the public IP address assigned to the primary NIC of a VMSS VM instance.
+// It lists the instance's NICs to locate the primary IP configuration, then queries the Azure
+// public IP addresses API scoped to that VMSS VM.
+func (c *Client) getVMSSPublicIP(ctx context.Context, vmssName, instanceNum string) (ip string, err error) {
+	nics, err := c.listVirtualMachineScaleSetVMNetworkInterfaces(ctx, vmssName, instanceNum)
+	if err != nil {
+		return "", fmt.Errorf("failed to list NICs for instance %s in VMSS %s: %w", instanceNum, vmssName, err)
+	}
+
+	var primaryNICName, primaryIPConfigName string
+	for _, nic := range nics {
+		if nic.Properties == nil || nic.Properties.Primary == nil || !*nic.Properties.Primary || nic.Name == nil {
+			continue
+		}
+		primaryNICName = *nic.Name
+		for _, ipConfig := range nic.Properties.IPConfigurations {
+			if ipConfig.Properties == nil || ipConfig.Properties.Primary == nil || !*ipConfig.Properties.Primary || ipConfig.Name == nil {
+				continue
+			}
+			primaryIPConfigName = *ipConfig.Name
+			break
+		}
+		break
+	}
+
+	if primaryNICName == "" {
+		return "", fmt.Errorf("no primary NIC found for instance %s in VMSS %s", instanceNum, vmssName)
+	}
+	if primaryIPConfigName == "" {
+		return "", fmt.Errorf("no primary IP configuration found on NIC %s for instance %s in VMSS %s", primaryNICName, instanceNum, vmssName)
+	}
+
+	c.limiter.Limit(ctx, publicIPAddressesListVMSS)
+	sinceStart := spanstat.Start()
+	pager := c.publicIPAddresses.NewListVirtualMachineScaleSetVMPublicIPAddressesPager(c.resourceGroup, vmssName, instanceNum, primaryNICName, primaryIPConfigName, nil)
+
+	defer func() {
+		c.metricsAPI.ObserveAPICall(publicIPAddressesListVMSS, deriveStatus(err), sinceStart.Seconds())
+	}()
+
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return "", fmt.Errorf("failed to list public IPs for instance %s in VMSS %s: %w", instanceNum, vmssName, err)
+		}
+		for _, pip := range page.Value {
+			if pip.Properties != nil && pip.Properties.IPAddress != nil {
+				return *pip.Properties.IPAddress, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("no public IP address found for instance %s in VMSS %s", instanceNum, vmssName)
+}
+
+// getVMPublicIP resolves a public IP address reference to its actual IP address string.
+// publicIPRef must carry a valid resource ID; a Get call is made to retrieve the full resource.
+func (c *Client) getVMPublicIP(ctx context.Context, publicIPRef *armnetwork.PublicIPAddress) (string, error) {
+	if publicIPRef.ID == nil {
+		return "", fmt.Errorf("public IP reference has no resource ID")
+	}
+	resourceID, err := arm.ParseResourceID(*publicIPRef.ID)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse public IP resource ID %q: %w", *publicIPRef.ID, err)
+	}
+
+	c.limiter.Limit(ctx, publicIPAddressesGet)
+	sinceStart := spanstat.Start()
+
+	pip, err := c.publicIPAddresses.Get(ctx, c.resourceGroup, resourceID.Name, nil)
+	c.metricsAPI.ObserveAPICall(publicIPAddressesGet, deriveStatus(err), sinceStart.Seconds())
+	if err != nil {
+		return "", fmt.Errorf("failed to get public IP %s: %w", resourceID.Name, err)
+	}
+	if pip.Properties == nil || pip.Properties.IPAddress == nil {
+		return "", fmt.Errorf("public IP %s has no IP address assigned", resourceID.Name)
+	}
+	return *pip.Properties.IPAddress, nil
+}
+
 // AssignPublicIPAddressesVMSS assigns a public IP to a VMSS instance.
 // The public IP is allocated from a Public IP Prefix matching publicIpTags
 func (c *Client) AssignPublicIPAddressesVMSS(ctx context.Context, instanceID, vmssName string, publicIpTags ipamTypes.Tags) (string, error) {
@@ -893,13 +981,9 @@ func (c *Client) AssignPublicIPAddressesVMSS(ctx context.Context, instanceID, vm
 				return "", fmt.Errorf("failed to delete public IP address configuration for VM %s from VMSS %s: %w", instanceID, vmssName, err)
 			}
 		} else {
-			// Public IP already successfully provisioned, return the existing prefix ID
+			// Public IP already successfully provisioned, look up and return the actual IP address
 			// so the caller can record the assignment without re-attempting allocation.
-			cfg := primaryIPConfig.Properties.PublicIPAddressConfiguration
-			if cfg.Properties != nil && cfg.Properties.PublicIPPrefix != nil && cfg.Properties.PublicIPPrefix.ID != nil {
-				return *cfg.Properties.PublicIPPrefix.ID, nil
-			}
-			return "", fmt.Errorf("public IP already assigned to VM %s from VMSS %s but prefix ID is unavailable", instanceID, vmssName)
+			return c.getVMSSPublicIP(ctx, vmssName, instanceNum)
 		}
 	}
 
@@ -944,10 +1028,7 @@ func (c *Client) AssignPublicIPAddressesVMSS(ctx context.Context, instanceID, vm
 		return "", fmt.Errorf("error while waiting for virtualMachineScaleSetVMs Update to complete: %w", err)
 	}
 
-	// TODO return the actual public IP address
-	// This would require additional API call(s) and polling, so the
-	// Public IP Prefix ID is good enough to start with
-	return publicIPPrefixID, nil
+	return c.getVMSSPublicIP(ctx, vmssName, instanceNum)
 }
 
 // AssignPublicIPAddressesVM assigns a public IP to a VM instance.
@@ -1034,12 +1115,9 @@ func (c *Client) AssignPublicIPAddressesVM(ctx context.Context, instanceID strin
 				return "", fmt.Errorf("failed to delete public IP address configuration for interface %s for VM %s: %w", interfaceName, vmName, err)
 			}
 		} else {
-			// Public IP already successfully provisioned, return the existing IP resource
-			// ID so the caller can record the assignment without re-attempting allocation.
-			if primaryIPConfig.Properties.PublicIPAddress.ID != nil {
-				return *primaryIPConfig.Properties.PublicIPAddress.ID, nil
-			}
-			return "", fmt.Errorf("public IP already assigned to VM %s but resource ID is unavailable", vmName)
+			// Public IP already successfully provisioned — look up and return the actual IP address
+			// so the caller can record the assignment without re-attempting allocation.
+			return c.getVMPublicIP(ctx, primaryIPConfig.Properties.PublicIPAddress)
 		}
 	}
 
@@ -1069,16 +1147,24 @@ func (c *Client) AssignPublicIPAddressesVM(ctx context.Context, instanceID strin
 		return "", fmt.Errorf("unable to update interface %s for VM %s: %w", interfaceName, vmName, err)
 	}
 
-	_, err = poller.PollUntilDone(ctx, nil)
+	updatedIface, err := poller.PollUntilDone(ctx, nil)
 	c.metricsAPI.ObserveAPICall(interfacesCreateOrUpdate, deriveStatus(err), sinceStart.Seconds())
 	if err != nil {
 		return "", fmt.Errorf("error while waiting for interface CreateOrUpdate to complete for VM %s: %w", vmName, err)
 	}
 
-	// TODO return the actual public IP address
-	// This would require additional API call(s) and polling, so the
-	// Public IP Prefix ID is good enough to start with
-	return publicIPPrefixID, nil
+	if updatedIface.Properties != nil {
+		for _, ipConfig := range updatedIface.Properties.IPConfigurations {
+			if ipConfig.Properties == nil || ipConfig.Properties.Primary == nil || !*ipConfig.Properties.Primary {
+				continue
+			}
+			if ipConfig.Properties.PublicIPAddress == nil {
+				return "", fmt.Errorf("no public IP reference on updated NIC for VM %s", vmName)
+			}
+			return c.getVMPublicIP(ctx, ipConfig.Properties.PublicIPAddress)
+		}
+	}
+	return "", fmt.Errorf("no primary IP configuration found on updated NIC for VM %s", vmName)
 }
 
 // deletePublicIPAddressConfigurationVMSS deletes the public IP address configuration from a VMSS instance
