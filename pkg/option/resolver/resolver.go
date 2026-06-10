@@ -253,6 +253,16 @@ func readConfigMap(ctx context.Context, logger *slog.Logger, client client.Clien
 	return cm.Data, []ConfigSource{source}, nil
 }
 
+// cncNotAvailable returns true for errors that indicate the CiliumNodeConfig
+// CRD or its v2 version is not yet available in the cluster (e.g. during an
+// upgrade where the operator hasn't finished updating the CRD). In those cases
+// build-config should proceed with an empty override set rather than failing.
+func cncNotAvailable(err error) bool {
+	return apierrors.IsNotFound(err) ||
+		apierrors.IsServiceUnavailable(err) ||
+		apierrors.IsInternalError(err)
+}
+
 // readNodeConfigs reads all the CiliumNodeConfig v2 objects and returns a flattened map
 // of any key overrides that apply to this node.
 func readNodeConfigs(ctx context.Context, logger *slog.Logger, client client.Clientset, nodeName, namespace, name string) (map[string]string, []ConfigSource, error) {
@@ -262,7 +272,8 @@ func readNodeConfigs(ctx context.Context, logger *slog.Logger, client client.Cli
 	if name == "" {
 		l, err := client.CiliumV2().CiliumNodeConfigs(namespace).List(ctx, metav1.ListOptions{})
 		if err != nil {
-			if apierrors.IsNotFound(err) { // Tolerate the CRD not existing
+			if cncNotAvailable(err) {
+				logger.Warn("CiliumNodeConfig v2 not available, skipping", logfields.Error, err)
 				return nil, nil, nil
 			}
 			return nil, nil, fmt.Errorf("could not list CiliumNodeConfig objects: %w", err)
@@ -271,14 +282,14 @@ func readNodeConfigs(ctx context.Context, logger *slog.Logger, client client.Cli
 	} else {
 		// Retrieve CNCs with the given name
 		o, err := client.CiliumV2().CiliumNodeConfigs(namespace).Get(ctx, name, metav1.GetOptions{})
-		if err != nil && !apierrors.IsNotFound(err) {
-			if apierrors.IsNotFound(err) { // Tolerate the CRD not existing
+		if err != nil {
+			if cncNotAvailable(err) {
+				logger.Warn("CiliumNodeConfig v2 not available, skipping", logfields.Error, err)
 				return nil, nil, nil
 			}
 			return nil, nil, fmt.Errorf("could not retrieve CiliumNodeConfig %s/%s: %w", namespace, name, err)
-		} else if err == nil {
-			overrides = append(overrides, *o)
 		}
+		overrides = append(overrides, *o)
 	}
 
 	if len(overrides) == 0 {

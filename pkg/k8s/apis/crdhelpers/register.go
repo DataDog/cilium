@@ -5,6 +5,7 @@ package crdhelpers
 
 import (
 	"context"
+	"encoding/json"
 	goerrors "errors"
 	"fmt"
 	"log/slog"
@@ -15,6 +16,8 @@ import (
 	v1client "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/cilium/cilium/pkg/logging/logfields"
@@ -95,6 +98,62 @@ func NeedsUpdateV1Factory(
 	}
 }
 
+// pruneStoredVersions removes versions from status.storedVersions that are no
+// longer present in targetCRD.Spec.Versions. Kubernetes rejects a spec update
+// that would leave orphaned storedVersions, so we must patch the status first.
+func pruneStoredVersions(
+	ctx context.Context,
+	scopedLog *slog.Logger,
+	targetCRD, currentCRD *apiextensionsv1.CustomResourceDefinition,
+	client v1client.CustomResourceDefinitionsGetter,
+) error {
+	targetVersions := sets.New[string]()
+	for _, v := range targetCRD.Spec.Versions {
+		targetVersions.Insert(v.Name)
+	}
+
+	var keep []string
+	var pruned []string
+	for _, sv := range currentCRD.Status.StoredVersions {
+		if targetVersions.Has(sv) {
+			keep = append(keep, sv)
+		} else {
+			pruned = append(pruned, sv)
+		}
+	}
+	if len(pruned) == 0 {
+		return nil
+	}
+
+	scopedLog.Info("Removing stale stored versions from CRD status before spec update",
+		"pruned", pruned,
+		"keeping", keep,
+	)
+
+	type statusPatch struct {
+		StoredVersions []string `json:"storedVersions"`
+	}
+	patch, err := json.Marshal(struct {
+		Status statusPatch `json:"status"`
+	}{Status: statusPatch{StoredVersions: keep}})
+	if err != nil {
+		return fmt.Errorf("marshalling storedVersions patch: %w", err)
+	}
+
+	_, err = client.CustomResourceDefinitions().Patch(
+		ctx,
+		currentCRD.Name,
+		types.MergePatchType,
+		patch,
+		metav1.PatchOptions{},
+		"status",
+	)
+	if err != nil {
+		return fmt.Errorf("patching CRD storedVersions: %w", err)
+	}
+	return nil
+}
+
 func updateV1CRD(
 	scopedLog *slog.Logger,
 	targetCRD, currentCRD *apiextensionsv1.CustomResourceDefinition,
@@ -131,6 +190,13 @@ func updateV1CRD(
 			}
 			if needsUpdate {
 				scopedLog.Debug("CRD validation is different, updating it...")
+
+				// Kubernetes rejects a spec update that removes a version still
+				// listed in status.storedVersions. Patch the status first to
+				// remove any versions being dropped from the spec.
+				if err := pruneStoredVersions(context.TODO(), scopedLog, targetCRD, currentCRD, client); err != nil {
+					return false, err
+				}
 
 				currentCRD.ObjectMeta.Labels = targetCRD.ObjectMeta.Labels
 				currentCRD.Spec = targetCRD.Spec
