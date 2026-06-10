@@ -63,14 +63,16 @@ type NodeOperations interface {
 	ResyncInterfacesAndIPs(ctx context.Context, scopedLog *slog.Logger) (ipamTypes.AllocationMap, ipamStats.InterfaceStats, error)
 
 	// PrepareIPAllocation is called to calculate the number of IPs that
-	// can be allocated on the node and whether a new network interface
-	// must be attached to the node.
-	PrepareIPAllocation(scopedLog *slog.Logger) (*AllocationAction, error)
+	// can be allocated on the node for the given address family and whether a
+	// new network interface must be attached to the node.
+	PrepareIPAllocation(family ipamTypes.Family, scopedLog *slog.Logger) (*AllocationAction, error)
 
 	// AllocateIPs is called after invoking PrepareIPAllocation and needs
 	// to perform the actual allocation.
 	AllocateIPs(ctx context.Context, allocation *AllocationAction) error
 
+	// AllocateStaticIP associates a static IP (e.g. an AWS Elastic IP) with the
+	// node. (IPv4 only)
 	AllocateStaticIP(ctx context.Context, staticIPTags ipamTypes.Tags) (string, error)
 
 	// PrepareIPRelease is called to calculate whether any IP excess needs
@@ -86,16 +88,18 @@ type NodeOperations interface {
 	// perform the release of IPs.
 	ReleaseIPs(ctx context.Context, release *ReleaseAction) error
 
-	// GetMaximumAllocatableIPv4 returns the maximum amount of IPv4 addresses
-	// that can be allocated to the instance
-	GetMaximumAllocatableIPv4() int
+	// GetMaximumAllocatable returns the maximum amount of addresses of the
+	// given family that can be allocated to the instance.
+	GetMaximumAllocatable(family ipamTypes.Family) int
 
-	// GetMinimumAllocatableIPv4 returns the minimum amount of IPv4 addresses that
-	// must be allocated to the instance.
-	GetMinimumAllocatableIPv4() int
+	// GetMinimumAllocatable returns the minimum amount of addresses of the
+	// given family that must be allocated to the instance.
+	GetMinimumAllocatable(family ipamTypes.Family) int
 
 	// IsPrefixDelegated helps identify if a node supports prefix delegation
-	IsPrefixDelegated() bool
+	// for the given address family. Prefix delegation can be configured
+	// independently per family.
+	IsPrefixDelegated(family ipamTypes.Family) bool
 
 	// GetAttachedCIDRs returns the CIDRs currently attached to the node's
 	// network interfaces, as observed by the cloud-specific implementation.
@@ -194,6 +198,20 @@ type NodeManager struct {
 	excessIPReleaseDelay int
 	stableInstancesAPI   bool
 	prefixDelegation     bool
+
+	// enableIPv4 and enableIPv6 control which address families the node
+	// maintenance loop operates on. IPv4 is enabled by default; IPv6 is opt-in
+	// (only AWS ENI supports it) and wired via SetIPFamilies.
+	enableIPv4 bool
+	enableIPv6 bool
+}
+
+// SetIPFamilies configures which address families the maintenance loop operates
+// on. It must be called before the NodeManager is started. IPv6 is only
+// supported by the AWS ENI implementation.
+func (n *NodeManager) SetIPFamilies(enableIPv4, enableIPv6 bool) {
+	n.enableIPv4 = enableIPv4
+	n.enableIPv6 = enableIPv6
 }
 
 func (n *NodeManager) ClusterSizeDependantInterval(baseInterval time.Duration) time.Duration {
@@ -222,6 +240,10 @@ func NewNodeManager(logger *slog.Logger, instancesAPI AllocationImplementation, 
 		releaseExcessIPs:     releaseExcessIPs,
 		excessIPReleaseDelay: excessIPReleaseDelay,
 		prefixDelegation:     prefixDelegation,
+		// IPv4 is enabled by default to preserve existing behavior; IPv6 is
+		// opt-in via SetIPFamilies (AWS ENI only).
+		enableIPv4: true,
+		enableIPv6: false,
 	}
 
 	// Assume readiness, the initial blocking resync in Start() will update

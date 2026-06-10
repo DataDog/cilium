@@ -12,6 +12,15 @@ import (
 	"github.com/cilium/cilium/pkg/lock"
 )
 
+// Family represents an IP address family. It is used by the IPAM node
+// operations to perform allocation and release in a family-agnostic manner.
+type Family string
+
+const (
+	IPv4 Family = "ipv4"
+	IPv6 Family = "ipv6"
+)
+
 // Limits specifies the IPAM relevant instance limits
 type Limits struct {
 	// Adapters specifies the maximum number of interfaces that can be

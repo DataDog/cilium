@@ -114,6 +114,11 @@ type ENI struct {
 	// +optional
 	IP iputil.Addr `json:"ip,omitzero"`
 
+	// IPv6 is the primary IPv6 address of the ENI
+	//
+	// +optional
+	IPv6 iputil.Addr `json:"ipv6,omitzero"`
+
 	// MAC is the mac address of the ENI
 	//
 	// +optional
@@ -150,10 +155,21 @@ type ENI struct {
 	// +optional
 	Addresses []iputil.Addr `json:"addresses,omitempty"`
 
+	// IPv6Addresses is the list of all secondary IPv6 addresses associated
+	// with the ENI
+	//
+	// +optional
+	IPv6Addresses []iputil.Addr `json:"ipv6-addresses,omitempty"`
+
 	// Prefixes is the list of all /28 prefixes associated with the ENI
 	//
 	// +optional
 	Prefixes []iputil.Prefix `json:"prefixes,omitempty"`
+
+	// IPv6Prefixes is the list of all /80 IPv6 prefixes associated with the ENI
+	//
+	// +optional
+	IPv6Prefixes []iputil.Prefix `json:"ipv6-prefixes,omitempty"`
 
 	// SecurityGroups are the security groups associated with the ENI
 	SecurityGroups []string `json:"security-groups,omitempty"`

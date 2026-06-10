@@ -44,6 +44,8 @@ const (
 	ModifyNetworkInterface
 	AssignPrivateIpAddresses
 	UnassignPrivateIpAddresses
+	AssignIpv6Addresses
+	UnassignIpv6Addresses
 	TagENI
 	AssociateEIP
 	MaxOperation
@@ -51,20 +53,22 @@ const (
 
 // API represents a mocked EC2 API
 type API struct {
-	mutex          lock.RWMutex
-	unattached     map[string]*eniTypes.ENI
-	enis           map[string]ENIMap
-	subnets        map[string]*ipamTypes.Subnet
-	vpcs           map[string]*ipamTypes.VirtualNetwork
-	routeTables    map[string]*ipamTypes.RouteTable
-	securityGroups map[string]*types.SecurityGroup
-	instanceTypes  []ec2_types.InstanceTypeInfo
-	errors         map[Operation]error
-	allocator      *ipallocator.Range
-	pdAllocator    *cidrset.CidrSet
-	limiter        *rate.Limiter
-	delaySim       *helpers.DelaySimulator
-	pdSubnet       netip.Prefix
+	mutex           lock.RWMutex
+	unattached      map[string]*eniTypes.ENI
+	enis            map[string]ENIMap
+	subnets         map[string]*ipamTypes.Subnet
+	vpcs            map[string]*ipamTypes.VirtualNetwork
+	routeTables     map[string]*ipamTypes.RouteTable
+	securityGroups  map[string]*types.SecurityGroup
+	instanceTypes   []ec2_types.InstanceTypeInfo
+	errors          map[Operation]error
+	allocator       *ipallocator.Range
+	pdAllocator     *cidrset.CidrSet
+	ipv6Allocator   *cidrset.CidrSet
+	ipv6PdAllocator *cidrset.CidrSet
+	limiter         *rate.Limiter
+	delaySim        *helpers.DelaySimulator
+	pdSubnet        netip.Prefix
 }
 
 // NewAPI returns a new mocked EC2 API
@@ -81,6 +85,18 @@ func NewAPI(subnets []*ipamTypes.Subnet, vpcs []*ipamTypes.VirtualNetwork, secur
 	// Use 10.10.128.0/17 for prefix allocations
 	pdCidr, _ := cidrSet.AllocateNext()
 	pdCidrRange, err := cidrset.NewCIDRSet(pdCidr, 28)
+	if err != nil {
+		panic(err)
+	}
+
+	// Use fd00:0:0:1::/112 for secondary IPv6 addresses (allocated as /128s)
+	// and fd00:0:0:2::/64 for IPv6 prefixes (allocated as /80s). The cidrset
+	// caps the cluster/subnet mask difference at 16 bits.
+	ipv6CidrRange, err := cidrset.NewCIDRSet(netip.MustParsePrefix("fd00:0:0:1::/112"), 128)
+	if err != nil {
+		panic(err)
+	}
+	ipv6PdCidrRange, err := cidrset.NewCIDRSet(netip.MustParsePrefix("fd00:0:0:2::/64"), 80)
 	if err != nil {
 		panic(err)
 	}
@@ -169,18 +185,20 @@ func NewAPI(subnets []*ipamTypes.Subnet, vpcs []*ipamTypes.VirtualNetwork, secur
 	}
 
 	api := &API{
-		unattached:     map[string]*eniTypes.ENI{},
-		enis:           map[string]ENIMap{},
-		subnets:        map[string]*ipamTypes.Subnet{},
-		vpcs:           map[string]*ipamTypes.VirtualNetwork{},
-		routeTables:    map[string]*ipamTypes.RouteTable{},
-		securityGroups: map[string]*types.SecurityGroup{},
-		instanceTypes:  []ec2_types.InstanceTypeInfo{},
-		allocator:      podCidrRange,
-		pdAllocator:    pdCidrRange,
-		errors:         map[Operation]error{},
-		delaySim:       helpers.NewDelaySimulator(),
-		pdSubnet:       pdCidr,
+		unattached:      map[string]*eniTypes.ENI{},
+		enis:            map[string]ENIMap{},
+		subnets:         map[string]*ipamTypes.Subnet{},
+		vpcs:            map[string]*ipamTypes.VirtualNetwork{},
+		routeTables:     map[string]*ipamTypes.RouteTable{},
+		securityGroups:  map[string]*types.SecurityGroup{},
+		instanceTypes:   []ec2_types.InstanceTypeInfo{},
+		allocator:       podCidrRange,
+		pdAllocator:     pdCidrRange,
+		ipv6Allocator:   ipv6CidrRange,
+		ipv6PdAllocator: ipv6PdCidrRange,
+		errors:          map[Operation]error{},
+		delaySim:        helpers.NewDelaySimulator(),
+		pdSubnet:        pdCidr,
 	}
 
 	api.UpdateSubnets(subnets)
@@ -633,6 +651,139 @@ func (e *API) UnassignENIPrefixes(ctx context.Context, eniID string, prefixes []
 			}
 		}
 		eni.Addresses = addressesAfterRelease
+		return nil
+	}
+	return fmt.Errorf("Unable to find ENI with ID %s", eniID)
+}
+
+func (e *API) AssignENIIPv6Addresses(ctx context.Context, eniID string, addresses int32) ([]string, error) {
+	e.rateLimit()
+	e.delaySim.Delay(AssignIpv6Addresses)
+
+	e.mutex.Lock()
+	defer e.mutex.Unlock()
+
+	if err, ok := e.errors[AssignIpv6Addresses]; ok {
+		return nil, err
+	}
+
+	for _, enis := range e.enis {
+		if eni, ok := enis[eniID]; ok {
+			assigned := make([]string, 0, addresses)
+			for range addresses {
+				pfx, err := e.ipv6Allocator.AllocateNext()
+				if err != nil {
+					return nil, fmt.Errorf("unable to allocate IPv6 address: %w", err)
+				}
+				addr := iputil.AddrFrom(pfx.Addr())
+				eni.IPv6Addresses = append(eni.IPv6Addresses, addr)
+				assigned = append(assigned, addr.String())
+			}
+			return assigned, nil
+		}
+	}
+	return nil, fmt.Errorf("Unable to find ENI with ID %s", eniID)
+}
+
+func (e *API) UnassignENIIPv6Addresses(ctx context.Context, eniID string, addresses []string) error {
+	e.rateLimit()
+	e.delaySim.Delay(UnassignIpv6Addresses)
+
+	e.mutex.Lock()
+	defer e.mutex.Unlock()
+
+	if err, ok := e.errors[UnassignIpv6Addresses]; ok {
+		return err
+	}
+
+	releaseMap := make(map[string]struct{})
+	for _, addr := range addresses {
+		if _, err := netip.ParseAddr(addr); err != nil {
+			return fmt.Errorf("Invalid IP address %s", addr)
+		}
+		releaseMap[addr] = struct{}{}
+	}
+
+	for _, enis := range e.enis {
+		eni, ok := enis[eniID]
+		if !ok {
+			continue
+		}
+
+		var addressesAfterRelease []iputil.Addr
+		for _, address := range eni.IPv6Addresses {
+			if _, ok := releaseMap[address.String()]; !ok {
+				addressesAfterRelease = append(addressesAfterRelease, address)
+			} else {
+				e.ipv6Allocator.Release(netip.PrefixFrom(address.Addr, 128))
+			}
+		}
+		eni.IPv6Addresses = addressesAfterRelease
+		return nil
+	}
+	return fmt.Errorf("Unable to find ENI with ID %s", eniID)
+}
+
+func (e *API) AssignENIIPv6Prefixes(ctx context.Context, eniID string, prefixes int32) error {
+	e.rateLimit()
+	e.delaySim.Delay(AssignIpv6Addresses)
+
+	e.mutex.Lock()
+	defer e.mutex.Unlock()
+
+	if err, ok := e.errors[AssignIpv6Addresses]; ok {
+		return err
+	}
+
+	for _, enis := range e.enis {
+		if eni, ok := enis[eniID]; ok {
+			for range prefixes {
+				pfx, err := e.ipv6PdAllocator.AllocateNext()
+				if err != nil {
+					return fmt.Errorf("unable to allocate IPv6 prefix: %w", err)
+				}
+				eni.IPv6Prefixes = append(eni.IPv6Prefixes, iputil.PrefixFrom(pfx))
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("Unable to find ENI with ID %s", eniID)
+}
+
+func (e *API) UnassignENIIPv6Prefixes(ctx context.Context, eniID string, prefixes []string) error {
+	e.rateLimit()
+	e.delaySim.Delay(UnassignIpv6Addresses)
+
+	e.mutex.Lock()
+	defer e.mutex.Unlock()
+
+	if err, ok := e.errors[UnassignIpv6Addresses]; ok {
+		return err
+	}
+
+	releaseMap := make(map[string]struct{})
+	for _, prefix := range prefixes {
+		pfx, err := netip.ParsePrefix(prefix)
+		if err != nil {
+			return fmt.Errorf("Invalid CIDR block %s", prefix)
+		}
+		e.ipv6PdAllocator.Release(pfx)
+		releaseMap[prefix] = struct{}{}
+	}
+
+	for _, enis := range e.enis {
+		eni, ok := enis[eniID]
+		if !ok {
+			continue
+		}
+
+		var prefixesAfterRelease []iputil.Prefix
+		for _, prefix := range eni.IPv6Prefixes {
+			if _, ok := releaseMap[prefix.String()]; !ok {
+				prefixesAfterRelease = append(prefixesAfterRelease, prefix)
+			}
+		}
+		eni.IPv6Prefixes = prefixesAfterRelease
 		return nil
 	}
 	return fmt.Errorf("Unable to find ENI with ID %s", eniID)

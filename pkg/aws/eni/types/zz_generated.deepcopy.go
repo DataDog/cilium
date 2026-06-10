@@ -57,6 +57,7 @@ func (in *AwsVPC) DeepCopy() *AwsVPC {
 func (in *ENI) DeepCopyInto(out *ENI) {
 	*out = *in
 	in.IP.DeepCopyInto(&out.IP)
+	in.IPv6.DeepCopyInto(&out.IPv6)
 	in.Subnet.DeepCopyInto(&out.Subnet)
 	in.VPC.DeepCopyInto(&out.VPC)
 	if in.Addresses != nil {
@@ -66,8 +67,22 @@ func (in *ENI) DeepCopyInto(out *ENI) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.IPv6Addresses != nil {
+		in, out := &in.IPv6Addresses, &out.IPv6Addresses
+		*out = make([]ip.Addr, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
 	if in.Prefixes != nil {
 		in, out := &in.Prefixes, &out.Prefixes
+		*out = make([]ip.Prefix, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
+	if in.IPv6Prefixes != nil {
+		in, out := &in.IPv6Prefixes, &out.IPv6Prefixes
 		*out = make([]ip.Prefix, len(*in))
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])

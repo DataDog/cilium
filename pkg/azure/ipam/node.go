@@ -76,8 +76,12 @@ func (n *Node) ReleaseIPs(ctx context.Context, r *nodemanager.ReleaseAction) err
 }
 
 // PrepareIPAllocation returns the number of IPs that can be allocated/created.
-func (n *Node) PrepareIPAllocation(scopedLog *slog.Logger) (a *nodemanager.AllocationAction, err error) {
-	a = &nodemanager.AllocationAction{}
+// Azure only supports IPv4.
+func (n *Node) PrepareIPAllocation(family ipamTypes.Family, scopedLog *slog.Logger) (a *nodemanager.AllocationAction, err error) {
+	a = &nodemanager.AllocationAction{Family: family}
+	if family != ipamTypes.IPv4 {
+		return a, nil
+	}
 	requiredIfaceName := n.k8sObj.Spec.Azure.InterfaceName
 	n.manager.mutex.RLock()
 	defer n.manager.mutex.RUnlock()
@@ -93,7 +97,7 @@ func (n *Node) PrepareIPAllocation(scopedLog *slog.Logger) (a *nodemanager.Alloc
 			return nil
 		}
 
-		a.IPv4.InterfaceCandidates++
+		a.IPs.InterfaceCandidates++
 
 		if a.InterfaceID == "" {
 			scopedLog.Debug(
@@ -118,7 +122,7 @@ func (n *Node) PrepareIPAllocation(scopedLog *slog.Logger) (a *nodemanager.Alloc
 				a.InterfaceID = iface.ID
 				a.Interface = interfaceObj
 				a.PoolID = poolID
-				a.IPv4.AvailableForAllocation = min(available, availableOnInterface)
+				a.IPs.AvailableForAllocation = min(available, availableOnInterface)
 			}
 		}
 		return nil
@@ -135,9 +139,9 @@ func (n *Node) AllocateIPs(ctx context.Context, a *nodemanager.AllocationAction)
 	}
 
 	if iface.GetVMScaleSetName() == "" {
-		return n.manager.api.AssignPrivateIpAddressesVM(ctx, string(a.PoolID), iface.Name, a.IPv4.AvailableForAllocation)
+		return n.manager.api.AssignPrivateIpAddressesVM(ctx, string(a.PoolID), iface.Name, a.IPs.AvailableForAllocation)
 	} else {
-		return n.manager.api.AssignPrivateIpAddressesVMSS(ctx, iface.GetVMID(), iface.GetVMScaleSetName(), string(a.PoolID), iface.Name, a.IPv4.AvailableForAllocation)
+		return n.manager.api.AssignPrivateIpAddressesVMSS(ctx, iface.GetVMID(), iface.GetVMScaleSetName(), string(a.PoolID), iface.Name, a.IPs.AvailableForAllocation)
 	}
 }
 
@@ -216,21 +220,27 @@ func (n *Node) ResyncInterfacesAndIPs(ctx context.Context, scopedLog *slog.Logge
 	return available, stats, nil
 }
 
-// GetMaximumAllocatableIPv4 returns the maximum amount of IPv4 addresses
-// that can be allocated to the instance
-func (n *Node) GetMaximumAllocatableIPv4() int {
+// GetMaximumAllocatable returns the maximum amount of addresses of the given
+// family that can be allocated to the instance. Azure only supports IPv4.
+func (n *Node) GetMaximumAllocatable(family ipamTypes.Family) int {
+	if family != ipamTypes.IPv4 {
+		return 0
+	}
 	// An Azure node can allocate up to 256 private IP addresses
 	// source: https://github.com/MicrosoftDocs/azure-docs/blob/master/includes/azure-virtual-network-limits.md#networking-limits---azure-resource-manager
 	return types.InterfaceAddressLimit
 }
 
-// GetMinimumAllocatableIPv4 returns the minimum amount of IPv4 addresses that
-// must be allocated to the instance.
-func (n *Node) GetMinimumAllocatableIPv4() int {
+// GetMinimumAllocatable returns the minimum amount of addresses of the given
+// family that must be allocated to the instance. Azure only supports IPv4.
+func (n *Node) GetMinimumAllocatable(family ipamTypes.Family) int {
+	if family != ipamTypes.IPv4 {
+		return 0
+	}
 	return defaults.IPAMPreAllocation
 }
 
-func (n *Node) IsPrefixDelegated() bool {
+func (n *Node) IsPrefixDelegated(family ipamTypes.Family) bool {
 	return false
 }
 

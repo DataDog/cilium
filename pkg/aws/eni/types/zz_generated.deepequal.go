@@ -73,6 +73,10 @@ func (in *ENI) DeepEqual(other *ENI) bool {
 		return false
 	}
 
+	if !in.IPv6.DeepEqual(&other.IPv6) {
+		return false
+	}
+
 	if in.MAC != other.MAC {
 		return false
 	}
@@ -110,8 +114,42 @@ func (in *ENI) DeepEqual(other *ENI) bool {
 		}
 	}
 
+	if ((in.IPv6Addresses != nil) && (other.IPv6Addresses != nil)) || ((in.IPv6Addresses == nil) != (other.IPv6Addresses == nil)) {
+		in, other := &in.IPv6Addresses, &other.IPv6Addresses
+		if other == nil {
+			return false
+		}
+
+		if len(*in) != len(*other) {
+			return false
+		} else {
+			for i, inElement := range *in {
+				if !inElement.DeepEqual(&(*other)[i]) {
+					return false
+				}
+			}
+		}
+	}
+
 	if ((in.Prefixes != nil) && (other.Prefixes != nil)) || ((in.Prefixes == nil) != (other.Prefixes == nil)) {
 		in, other := &in.Prefixes, &other.Prefixes
+		if other == nil {
+			return false
+		}
+
+		if len(*in) != len(*other) {
+			return false
+		} else {
+			for i, inElement := range *in {
+				if !inElement.DeepEqual(&(*other)[i]) {
+					return false
+				}
+			}
+		}
+	}
+
+	if ((in.IPv6Prefixes != nil) && (other.IPv6Prefixes != nil)) || ((in.IPv6Prefixes == nil) != (other.IPv6Prefixes == nil)) {
+		in, other := &in.IPv6Prefixes, &other.IPv6Prefixes
 		if other == nil {
 			return false
 		}

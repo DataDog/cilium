@@ -280,7 +280,17 @@ func (n *Node) GetAttachedCIDRs() []netip.Prefix {
 				attached = append(attached, prefix.Prefix)
 			}
 		}
+		for _, prefix := range eni.IPv6Prefixes {
+			if prefix.IsValid() {
+				attached = append(attached, prefix.Prefix)
+			}
+		}
 		for _, addr := range eni.Addresses {
+			if addr.IsValid() {
+				attached = append(attached, netip.PrefixFrom(addr.Addr, addr.BitLen()))
+			}
+		}
+		for _, addr := range eni.IPv6Addresses {
 			if addr.IsValid() {
 				attached = append(attached, netip.PrefixFrom(addr.Addr, addr.BitLen()))
 			}
@@ -308,20 +318,21 @@ func (n *Node) PrepareCIDRRelease(releasedCIDRs []netip.Prefix) []*nodemanager.R
 			}
 
 			// Never release an ENI's primary IP. AWS rejects the
-			// UnassignPrivateIpAddresses call for primary IPs, which
-			// would leave the CIDR stuck in the release-marked map.
-			// Only reachable when UsePrimaryAddress is true, since
-			// otherwise the primary is filtered out of eni.Addresses
-			// at the EC2 layer.
-			if prefix.IsSingleIP() && prefix.Addr() == eni.IP.Addr {
+			// unassign call for primary IPs, which would leave the CIDR
+			// stuck in the release-marked map. Only reachable when
+			// UsePrimaryAddress is true, since otherwise the primary is
+			// filtered out at the EC2 layer.
+			if prefix.IsSingleIP() && (prefix.Addr() == eni.IP.Addr || prefix.Addr() == eni.IPv6.Addr) {
 				break
 			}
 
 			var found bool
 			if prefix.IsSingleIP() {
-				found = slices.ContainsFunc(eni.Addresses, func(a iputil.Addr) bool { return a.Addr == prefix.Addr() })
+				found = slices.ContainsFunc(eni.Addresses, func(a iputil.Addr) bool { return a.Addr == prefix.Addr() }) ||
+					slices.ContainsFunc(eni.IPv6Addresses, func(a iputil.Addr) bool { return a.Addr == prefix.Addr() })
 			} else {
-				found = slices.ContainsFunc(eni.Prefixes, func(p iputil.Prefix) bool { return p.Prefix == prefix })
+				found = slices.ContainsFunc(eni.Prefixes, func(p iputil.Prefix) bool { return p.Prefix == prefix }) ||
+					slices.ContainsFunc(eni.IPv6Prefixes, func(p iputil.Prefix) bool { return p.Prefix == prefix })
 			}
 			if !found {
 				continue
@@ -356,32 +367,55 @@ func (n *Node) PrepareCIDRRelease(releasedCIDRs []netip.Prefix) []*nodemanager.R
 // the CIDRs that were successfully released so the caller can prune its
 // tracking state even on partial failure.
 func (n *Node) ReleaseCIDRs(ctx context.Context, r *nodemanager.ReleaseAction) ([]netip.Prefix, error) {
-	var prefixes, ips []netip.Prefix
+	// Bucket the CIDRs to release by address family and by single-IP vs prefix,
+	// since each combination maps to a different EC2 API.
+	var v4Prefixes, v6Prefixes, v4IPs, v6IPs []netip.Prefix
 	for _, c := range r.CIDRsToRelease {
-		if c.IsSingleIP() {
-			ips = append(ips, c)
-		} else {
-			prefixes = append(prefixes, c)
+		switch {
+		case c.IsSingleIP() && c.Addr().Is6():
+			v6IPs = append(v6IPs, c)
+		case c.IsSingleIP():
+			v4IPs = append(v4IPs, c)
+		case c.Addr().Is6():
+			v6Prefixes = append(v6Prefixes, c)
+		default:
+			v4Prefixes = append(v4Prefixes, c)
 		}
 	}
 
 	released := make([]netip.Prefix, 0, len(r.CIDRsToRelease))
 
-	if len(prefixes) > 0 {
-		strs := cslices.Map(prefixes, netip.Prefix.String)
+	if len(v4Prefixes) > 0 {
+		strs := cslices.Map(v4Prefixes, netip.Prefix.String)
 		if err := n.manager.ec2api.UnassignENIPrefixes(ctx, r.InterfaceID, strs); err != nil {
 			return released, err
 		}
-		released = append(released, prefixes...)
+		released = append(released, v4Prefixes...)
 	}
 
-	if len(ips) > 0 {
-		strs := cslices.Map(ips, func(p netip.Prefix) string { return p.Addr().String() })
+	if len(v6Prefixes) > 0 {
+		strs := cslices.Map(v6Prefixes, netip.Prefix.String)
+		if err := n.manager.ec2api.UnassignENIIPv6Prefixes(ctx, r.InterfaceID, strs); err != nil {
+			return released, err
+		}
+		released = append(released, v6Prefixes...)
+	}
+
+	if len(v4IPs) > 0 {
+		strs := cslices.Map(v4IPs, func(p netip.Prefix) string { return p.Addr().String() })
 		if err := n.manager.ec2api.UnassignPrivateIpAddresses(ctx, r.InterfaceID, strs); err != nil {
 			return released, err
 		}
 		n.manager.RemoveIPsFromENI(n.node.InstanceID(), r.InterfaceID, strs)
-		released = append(released, ips...)
+		released = append(released, v4IPs...)
+	}
+
+	if len(v6IPs) > 0 {
+		strs := cslices.Map(v6IPs, func(p netip.Prefix) string { return p.Addr().String() })
+		if err := n.manager.ec2api.UnassignENIIPv6Addresses(ctx, r.InterfaceID, strs); err != nil {
+			return released, err
+		}
+		released = append(released, v6IPs...)
 	}
 
 	return released, nil
@@ -460,13 +494,17 @@ func (n *Node) ReleaseIPs(ctx context.Context, r *nodemanager.ReleaseAction) err
 
 // PrepareIPAllocation returns the number of ENI IPs and interfaces that can be
 // allocated/created.
-func (n *Node) PrepareIPAllocation(scopedLog *slog.Logger) (a *nodemanager.AllocationAction, err error) {
+func (n *Node) PrepareIPAllocation(family ipamTypes.Family, scopedLog *slog.Logger) (a *nodemanager.AllocationAction, err error) {
+	if family == ipamTypes.IPv6 {
+		return n.prepareIPv6PrefixAllocation(scopedLog)
+	}
+
+	a = &nodemanager.AllocationAction{Family: family}
+
 	limits, limitsAvailable := n.getLimits()
 	if !limitsAvailable {
 		return nil, errors.New(errUnableToDetermineLimits)
 	}
-
-	a = &nodemanager.AllocationAction{}
 
 	n.mutex.RLock()
 	defer n.mutex.RUnlock()
@@ -494,7 +532,7 @@ func (n *Node) PrepareIPAllocation(scopedLog *slog.Logger) (a *nodemanager.Alloc
 		if availableOnENI <= 0 {
 			continue
 		} else {
-			a.IPv4.InterfaceCandidates++
+			a.IPs.InterfaceCandidates++
 		}
 
 		scopedLog.Debug(
@@ -513,13 +551,58 @@ func (n *Node) PrepareIPAllocation(scopedLog *slog.Logger) (a *nodemanager.Alloc
 
 				a.InterfaceID = key
 				a.PoolID = ipamTypes.PoolID(subnet.ID)
-				a.IPv4.AvailableForAllocation = min(subnet.AvailableAddresses, availableOnENI)
+				a.IPs.AvailableForAllocation = min(subnet.AvailableAddresses, availableOnENI)
 			}
 		}
 	}
 	a.EmptyInterfaceSlots = limits.Adapters - len(n.enis)
 
 	return
+}
+
+// prepareIPv6PrefixAllocation selects an existing ENI on which to attach a
+// single delegated IPv6 prefix. IPv6 is prefix-delegation only and a single
+// prefix satisfies all of a node's address demand, so we never create a new ENI
+// solely for IPv6 - any existing, non-excluded ENI with room for an IPv6 prefix
+// will do.
+func (n *Node) prepareIPv6PrefixAllocation(scopedLog *slog.Logger) (*nodemanager.AllocationAction, error) {
+	limits, limitsAvailable := n.getLimits()
+	if !limitsAvailable {
+		return nil, errors.New(errUnableToDetermineLimits)
+	}
+
+	a := &nodemanager.AllocationAction{Family: ipamTypes.IPv6}
+
+	n.mutex.RLock()
+	defer n.mutex.RUnlock()
+
+	for key, e := range n.enis {
+		if e.IsExcludedBySpec(n.k8sObj.Spec.ENI) {
+			continue
+		}
+		// An IPv6 prefix occupies one of the interface's IPv6 slots. Skip ENIs
+		// that have no room for an additional IPv6 prefix.
+		if limits.IPv6 > 0 && len(e.IPv6Prefixes) >= limits.IPv6 {
+			continue
+		}
+		a.IPs.InterfaceCandidates++
+
+		if a.InterfaceID == "" {
+			a.InterfaceID = key
+			a.PoolID = ipamTypes.PoolID(e.Subnet.ID)
+			// A single /80 prefix is sufficient for the whole node.
+			a.IPs.AvailableForAllocation = 1
+			scopedLog.Debug(
+				"Selected ENI for IPv6 prefix allocation",
+				fieldEniID, e.ID,
+			)
+		}
+	}
+
+	// We never create a new ENI solely to satisfy IPv6 demand.
+	a.EmptyInterfaceSlots = 0
+
+	return a, nil
 }
 
 // isSubnetAtPrefixCapacity parses error from AWS SDK to understand if the subnet is out of capacity for /28 prefixes.
@@ -535,13 +618,25 @@ func isSubnetAtPrefixCapacity(err error) bool {
 
 // AllocateIPs performs the ENI allocation operation
 func (n *Node) AllocateIPs(ctx context.Context, a *nodemanager.AllocationAction) error {
+	if a.Family == ipamTypes.IPv6 {
+		// IPv6 is prefix-delegation only: assign the requested number of /80
+		// prefixes (normally one). The local ENI cache is refreshed by the
+		// next resync; the operator's resyncNeeded gate prevents a duplicate
+		// allocation in the meantime.
+		numPrefixes := a.IPs.AvailableForAllocation
+		if numPrefixes <= 0 {
+			return nil
+		}
+		return n.manager.ec2api.AssignENIIPv6Prefixes(ctx, a.InterfaceID, int32(numPrefixes))
+	}
+
 	// Check if the interface to allocate on is prefix delegated
 	n.mutex.RLock()
-	isPrefixDelegated := n.node.Ops().IsPrefixDelegated()
+	isPrefixDelegated := n.node.Ops().IsPrefixDelegated(a.Family)
 	n.mutex.RUnlock()
 
 	if isPrefixDelegated {
-		numPrefixes := iputil.PrefixCeil(a.IPv4.AvailableForAllocation, option.ENIPDBlockSizeIPv4)
+		numPrefixes := iputil.PrefixCeil(a.IPs.AvailableForAllocation, option.ENIPDBlockSizeIPv4)
 		err := n.manager.ec2api.AssignENIPrefixes(ctx, a.InterfaceID, int32(numPrefixes))
 		if !isSubnetAtPrefixCapacity(err) {
 			return err
@@ -553,7 +648,7 @@ func (n *Node) AllocateIPs(ctx context.Context, a *nodemanager.AllocationAction)
 			logfields.Node, n.k8sObj.Name,
 		)
 	}
-	assignedIPs, err := n.manager.ec2api.AssignPrivateIpAddresses(ctx, a.InterfaceID, int32(a.IPv4.AvailableForAllocation))
+	assignedIPs, err := n.manager.ec2api.AssignPrivateIpAddresses(ctx, a.InterfaceID, int32(a.IPs.AvailableForAllocation))
 	if err != nil {
 		return err
 	}
@@ -694,7 +789,7 @@ func (n *Node) CreateInterface(ctx context.Context, allocation *nodemanager.Allo
 
 	n.mutex.RLock()
 	resource := *n.k8sObj
-	isPrefixDelegated := n.node.Ops().IsPrefixDelegated()
+	isPrefixDelegated := n.node.Ops().IsPrefixDelegated(allocation.Family)
 	n.mutex.RUnlock()
 
 	subnet := n.findSuitableSubnet(resource.Spec.ENI, limits)
@@ -729,10 +824,10 @@ func (n *Node) CreateInterface(ctx context.Context, allocation *nodemanager.Allo
 		// (limits.IPv4 - 1) * ENIPDBlockSizeIPv4.
 		// See https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-prefix-eni.html#prefix-limit for more details.
 		maxIPsPerENI := (limits.IPv4 - 1) * option.ENIPDBlockSizeIPv4
-		toAllocate = min(allocation.IPv4.MaxIPsToAllocate, maxIPsPerENI)
+		toAllocate = min(allocation.IPs.MaxIPsToAllocate, maxIPsPerENI)
 	} else {
 		// For secondary IP mode, we allocate up to ENI instance limit - 1 (reserve 1 for primary IP).
-		toAllocate = min(allocation.IPv4.MaxIPsToAllocate, limits.IPv4-1)
+		toAllocate = min(allocation.IPs.MaxIPsToAllocate, limits.IPv4-1)
 	}
 	// Validate whether request has already been fulfilled in the meantime
 	if toAllocate == 0 {
@@ -872,6 +967,11 @@ func (n *Node) ResyncInterfacesAndIPs(ctx context.Context, scopedLog *slog.Logge
 	// * Any excluded interfaces will be subtracted from this total.
 	stats.NodeCapacity *= limits.Adapters
 
+	// IPv6 (prefix-delegation only) capacity is informational: it is the total
+	// number of IPv6 prefix slots across all adapters. A single attached prefix
+	// already satisfies a node's IPv6 demand (see recalculateFamilyLocked).
+	stats.NodeIPv6Capacity = limits.Adapters * limits.IPv6
+
 	n.manager.ForeachInstance(instanceID,
 		func(instanceID, interfaceID string, iface ipamTypes.Interface) error {
 			e, ok := iface.(*eniTypes.ENI)
@@ -888,6 +988,7 @@ func (n *Node) ResyncInterfacesAndIPs(ctx context.Context, scopedLog *slog.Logge
 				// If this ENI is excluded by the CN Spec, we remove it from the total
 				// capacity.
 				stats.NodeCapacity -= effectiveLimits
+				stats.NodeIPv6Capacity -= limits.IPv6
 				return nil
 			} else {
 				stats.NodeCapacity += leftoverPrefixCapcity
@@ -900,6 +1001,18 @@ func (n *Node) ResyncInterfacesAndIPs(ctx context.Context, scopedLog *slog.Logge
 
 			for _, addr := range e.Addresses {
 				available[addr.String()] = ipamTypes.AllocationIP{Resource: e.ID}
+			}
+
+			// IPv6 prefix-delegation accounting. Each attached /80 prefix is
+			// surfaced as a single available CIDR (keyed by the prefix); the
+			// agent manages individual addresses within it.
+			for _, prefix := range e.IPv6Prefixes {
+				if prefix.IsValid() {
+					available[prefix.String()] = ipamTypes.AllocationIP{Resource: e.ID}
+				}
+			}
+			if limits.IPv6 > 0 && len(e.IPv6Prefixes) < limits.IPv6 {
+				stats.RemainingAvailableIPv6InterfaceCount++
 			}
 
 			// If the primary ENI has a public IP, we store it
@@ -918,13 +1031,24 @@ func (n *Node) ResyncInterfacesAndIPs(ctx context.Context, scopedLog *slog.Logge
 	}
 
 	stats.RemainingAvailableInterfaceCount += limits.Adapters - len(n.enis)
+	if limits.IPv6 > 0 {
+		stats.RemainingAvailableIPv6InterfaceCount += limits.Adapters - len(n.enis)
+	}
 	return available, stats, nil
 }
 
-// GetMaximumAllocatableIPv4 returns the maximum amount of IPv4 addresses
-// that can be allocated to the instance
-func (n *Node) GetMaximumAllocatableIPv4() int {
+// GetMaximumAllocatable returns the maximum amount of addresses of the given
+// family that can be allocated to the instance.
+func (n *Node) GetMaximumAllocatable(family ipamTypes.Family) int {
 	if n == nil {
+		return 0
+	}
+
+	// IPv6 capacity is not expressed in individual addresses: it is
+	// prefix-delegation only and a single /80 prefix satisfies all demand. The
+	// operator's IPv6 accounting does not use this value (node IPv6 capacity is
+	// reported via InterfaceStats.NodeIPv6Capacity instead).
+	if family != ipamTypes.IPv4 {
 		return 0
 	}
 
@@ -967,7 +1091,7 @@ func (n *Node) GetMaximumAllocatableIPv4() int {
 	// limits.IPv4 contains the primary IP which is not available for allocation
 	maxPerInterface := max(limits.IPv4-1, 0)
 
-	if n.IsPrefixDelegated() {
+	if n.IsPrefixDelegated(ipamTypes.IPv4) {
 		maxPerInterface = maxPerInterface * option.ENIPDBlockSizeIPv4
 	}
 
@@ -977,9 +1101,15 @@ func (n *Node) GetMaximumAllocatableIPv4() int {
 
 var adviseOperatorFlagOnce sync.Once
 
-// GetMinimumAllocatableIPv4 returns the minimum amount of IPv4 addresses that
-// must be allocated to the instance.
-func (n *Node) GetMinimumAllocatableIPv4() int {
+// GetMinimumAllocatable returns the minimum amount of addresses of the given
+// family that must be allocated to the instance.
+func (n *Node) GetMinimumAllocatable(family ipamTypes.Family) int {
+	// IPv6 is prefix-delegation only; the minimum-allocatable concept (used to
+	// derive the IPv4 PreAllocate default) does not apply.
+	if family != ipamTypes.IPv4 {
+		return 0
+	}
+
 	n.mutex.RLock()
 	defer n.mutex.RUnlock()
 
@@ -1039,7 +1169,17 @@ func (n *Node) isPrefixDelegationEnabled() bool {
 // IsPrefixDelegated indicates whether prefix delegation can be enabled on a node.
 // Currently, mixed usage of secondary IPs and prefixes is not supported. n.mutex
 // read lock must be held before calling this method.
-func (n *Node) IsPrefixDelegated() bool {
+func (n *Node) IsPrefixDelegated(family ipamTypes.Family) bool {
+	if family == ipamTypes.IPv6 {
+		// IPv6 is supported in prefix-delegation mode only. The only
+		// requirement is that the instance supports prefix delegation (nitro
+		// or bare metal); there is no secondary-IPv6 mode to conflict with.
+		limits, limitsAvailable := n.getLimitsLocked()
+		if !limitsAvailable {
+			return false
+		}
+		return limits.HypervisorType == "nitro" || limits.IsBareMetal
+	}
 	if !n.isPrefixDelegationEnabled() {
 		return false
 	}
@@ -1086,7 +1226,7 @@ func (n *Node) getEffectiveIPLimits(eni *eniTypes.ENI, limits int) (leftoverPref
 		effectiveLimits++
 	}
 
-	if n.IsPrefixDelegated() {
+	if n.IsPrefixDelegated(ipamTypes.IPv4) {
 		effectiveLimits = effectiveLimits * option.ENIPDBlockSizeIPv4
 	} else if eni != nil && len(eni.Prefixes) > 0 {
 		// If prefix delegation was previously enabled on this node, account for IPs from prefixes

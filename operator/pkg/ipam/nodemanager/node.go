@@ -21,6 +21,7 @@ import (
 
 	operatorK8s "github.com/cilium/cilium/operator/k8s"
 	"github.com/cilium/cilium/operator/pkg/ipam/metrics"
+	ipamStats "github.com/cilium/cilium/operator/pkg/ipam/stats"
 	"github.com/cilium/cilium/operator/watchers"
 	"github.com/cilium/cilium/pkg/defaults"
 	ipamOption "github.com/cilium/cilium/pkg/ipam/option"
@@ -99,7 +100,8 @@ type Node struct {
 	// ipv4Alloc represents IPv4-specific allocation attributes for this node
 	ipv4Alloc ipAllocAttrs
 
-	// TODO: Add support for IPv6 allocation: https://github.com/cilium/cilium/issues/19251
+	// ipv6Alloc represents IPv6-specific allocation attributes for this node
+	ipv6Alloc ipAllocAttrs
 
 	// resyncNeeded is set to the current time when a resync with the
 	// instances API is required. The timestamp is required to ensure that this is
@@ -290,9 +292,10 @@ func (n *Node) getMinAllocate() int {
 	return n.resource.Spec.IPAM.MinAllocate
 }
 
-// getMaxAllocate returns the maximum-allocation setting of a node
-func (n *Node) getMaxAllocate() int {
-	instanceMax := n.ops.GetMaximumAllocatableIPv4()
+// getMaxAllocate returns the maximum-allocation setting of a node for the given
+// address family
+func (n *Node) getMaxAllocate(family ipamTypes.Family) int {
+	instanceMax := n.ops.GetMaximumAllocatable(family)
 	if n.resource.Spec.IPAM.MaxAllocate > 0 {
 		if n.resource.Spec.IPAM.MaxAllocate > instanceMax {
 			n.logger.Load().Warn(
@@ -415,6 +418,63 @@ func poolRequestedIPv4(resource *v2.CiliumNode) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+// poolRequestedIPv6 returns the total IPv6 address demand from the "default"
+// pool in Spec.IPAM.Pools.Requested, if present. Only agents using the
+// multi-pool allocator populate this field; IPv6 has no CRD-allocator path.
+func poolRequestedIPv6(resource *v2.CiliumNode) (int, bool) {
+	for _, req := range resource.Spec.IPAM.Pools.Requested {
+		if req.Pool == defaults.IPAMDefaultIPPool {
+			return req.Needed.IPv6Addrs, true
+		}
+	}
+	return 0, false
+}
+
+// usedIPsForFamilyLocked returns the number of in-use addresses of the given
+// family as reported by the agent. n.mutex must be held by the caller.
+func (n *Node) usedIPsForFamilyLocked(family ipamTypes.Family) int {
+	// Starting with 1.20, agents use the multi-pool allocator in ENI IPAM mode
+	// and write their demand to Spec.IPAM.Pools.Requested (and stop writing
+	// Status.IPAM.Used).
+	//
+	// 1.19 agents still use the CRD allocator and communicate their IPv4 usage
+	// via Status.IPAM.Used. IPv6 has no CRD-allocator path, so it is always
+	// derived from the multi-pool demand.
+	//
+	// Both logic branches exist in order to offer a smooth upgrade/downgrade
+	// path between 1.19 and 1.20: an operator upgraded to 1.20 will still honor
+	// the API contract expected by 1.19 agents.
+	if family == ipamTypes.IPv6 {
+		if requested, ok := poolRequestedIPv6(n.resource); ok {
+			// The agent's demand is computed as inUse + preAllocate (linear
+			// pre-allocation). Subtracting preAllocate recovers exact usage.
+			return max(0, requested-n.getPreAllocate())
+		}
+		return 0
+	}
+
+	if requested, ok := poolRequestedIPv4(n.resource); ok && len(n.resource.Status.IPAM.Used) == 0 {
+		return max(0, requested-n.getPreAllocate())
+	}
+	return len(n.resource.Status.IPAM.Used)
+}
+
+// capacityForFamily and remainingInterfacesForFamily map the family-agnostic
+// InterfaceStats returned by ResyncInterfacesAndIPs onto a specific family.
+func capacityForFamily(family ipamTypes.Family, stats ipamStats.InterfaceStats) int {
+	if family == ipamTypes.IPv6 {
+		return stats.NodeIPv6Capacity
+	}
+	return stats.NodeCapacity
+}
+
+func remainingInterfacesForFamily(family ipamTypes.Family, stats ipamStats.InterfaceStats) int {
+	if family == ipamTypes.IPv6 {
+		return stats.RemainingAvailableIPv6InterfaceCount
+	}
+	return stats.RemainingAvailableInterfaceCount
 }
 
 // isMultiPoolNodeLocked returns true if this node's agent uses the multi-pool
@@ -575,15 +635,50 @@ func (n *Node) handleMultiPoolCIDRRelease(ctx context.Context) (bool, error) {
 	return mutated, nil
 }
 
+// enabledFamilies returns the address families the maintenance loop should
+// operate on for this node, as configured on the NodeManager.
+func (n *Node) enabledFamilies() []ipamTypes.Family {
+	families := make([]ipamTypes.Family, 0, 2)
+	if n.manager.enableIPv4 {
+		families = append(families, ipamTypes.IPv4)
+	}
+	if n.manager.enableIPv6 {
+		families = append(families, ipamTypes.IPv6)
+	}
+	return families
+}
+
+// allocForFamily returns the per-family allocation attributes for the given
+// address family.
+func (n *Node) allocForFamily(family ipamTypes.Family) *ipAllocAttrs {
+	if family == ipamTypes.IPv6 {
+		return &n.ipv6Alloc
+	}
+	return &n.ipv4Alloc
+}
+
+// statsForFamily returns a pointer to the per-family statistics for the given
+// address family. n.mutex must be held by the caller.
+func (n *Node) statsForFamily(family ipamTypes.Family) *IPStatistics {
+	if family == ipamTypes.IPv6 {
+		return &n.stats.IPv6
+	}
+	return &n.stats.IPv4
+}
+
 func (n *Node) requirePoolMaintenance() {
 	n.mutex.Lock()
-	n.ipv4Alloc.waitingForPoolMaintenance = true
+	for _, family := range n.enabledFamilies() {
+		n.allocForFamily(family).waitingForPoolMaintenance = true
+	}
 	n.mutex.Unlock()
 }
 
 func (n *Node) poolMaintenanceComplete() {
 	n.mutex.Lock()
-	n.ipv4Alloc.waitingForPoolMaintenance = false
+	for _, family := range n.enabledFamilies() {
+		n.allocForFamily(family).waitingForPoolMaintenance = false
+	}
 	n.mutex.Unlock()
 }
 
@@ -660,83 +755,136 @@ func (n *Node) recalculate(ctx context.Context) {
 			scopedLog.Warn("Instance not found! Please delete corresponding ciliumnode if instance has already been deleted.", logfields.Error, err)
 		}
 		// Avoid any further action
-		n.stats.IPv4.NeededIPs = 0
-		n.stats.IPv4.ExcessIPs = 0
+		for _, family := range n.enabledFamilies() {
+			s := n.statsForFamily(family)
+			s.NeededIPs = 0
+			s.ExcessIPs = 0
+		}
 		return
 	}
 
-	n.ipv4Alloc.available = a
+	// ResyncInterfacesAndIPs returns a single AllocationMap covering all
+	// address families. Split it by family so each family's accounting only
+	// considers its own addresses.
+	availableByFamily := map[ipamTypes.Family]ipamTypes.AllocationMap{
+		ipamTypes.IPv4: {},
+		ipamTypes.IPv6: {},
+	}
+	for key, alloc := range a {
+		// Keys are either an IP address (individual address) or a CIDR (e.g. a
+		// delegated IPv6 /80 prefix). Detect the family from whichever it is.
+		family := ipamTypes.IPv4
+		if addr, perr := netip.ParseAddr(key); perr == nil {
+			if addr.Is6() {
+				family = ipamTypes.IPv6
+			}
+		} else if pfx, perr := netip.ParsePrefix(key); perr == nil && pfx.Addr().Is6() {
+			family = ipamTypes.IPv6
+		}
+		availableByFamily[family][key] = alloc
+	}
+
+	// Static IP (Elastic IP) is an IPv4-only concept.
 	if stats.AssignedStaticIP != "" {
 		n.stats.IPv4.AssignedStaticIP = stats.AssignedStaticIP
 	} else if n.stats.IPv4.AssignedStaticIP == "" && n.resource != nil {
 		n.stats.IPv4.AssignedStaticIP = n.resource.Status.IPAM.AssignedStaticIP
 	}
 
-	n.stats.IPv4.AvailableIPs = len(n.ipv4Alloc.available)
-	n.stats.IPv4.RemainingInterfaces = stats.RemainingAvailableInterfaceCount
-	n.stats.IPv4.Capacity = stats.NodeCapacity
-
-	// Starting with 1.20, agents use the multi-pool allocator in ENI IPAM mode
-	// and write their demand to Spec.IPAM.Pools.Requested (and stop writing
-	// Status.IPAM.Used).
-	//
-	// 1.19 agents still use the CRD allocator and communicate their IP usage via
-	// Status.IPAM.Used.
-	//
-	// Both those logic branches exist in order to offer a smooth upgrade/downgrade path
-	// between 1.19 and 1.20: an operator upgraded to 1.20 will still honor the API
-	// contract expected by 1.19 agents.
-	if requested, ok := poolRequestedIPv4(n.resource); ok && len(n.resource.Status.IPAM.Used) == 0 {
-		// The agent's demand is computed as inUse + preAllocate (linear
-		// pre-allocation). Subtracting preAllocate recovers exact usage.
-		n.stats.IPv4.UsedIPs = max(0, requested-n.getPreAllocate())
-	} else {
-		n.stats.IPv4.UsedIPs = len(n.resource.Status.IPAM.Used)
+	for _, family := range n.enabledFamilies() {
+		n.recalculateFamilyLocked(family, availableByFamily[family], stats, scopedLog)
 	}
-	n.stats.IPv4.NeededIPs = calculateNeededIPs(n.stats.IPv4.AvailableIPs, n.stats.IPv4.UsedIPs, n.getPreAllocate(), n.getMinAllocate(), n.getMaxAllocate())
-	n.stats.IPv4.ExcessIPs = calculateExcessIPs(n.stats.IPv4.AvailableIPs, n.stats.IPv4.UsedIPs, n.getPreAllocate(), n.getMinAllocate(), n.getMaxAboveWatermark())
+}
+
+// recalculateFamilyLocked recomputes the allocation statistics for a single
+// address family. n.mutex must be held by the caller.
+func (n *Node) recalculateFamilyLocked(family ipamTypes.Family, available ipamTypes.AllocationMap, stats ipamStats.InterfaceStats, scopedLog *slog.Logger) {
+	alloc := n.allocForFamily(family)
+	s := n.statsForFamily(family)
+
+	alloc.available = available
+	s.AvailableIPs = len(available)
+	s.RemainingInterfaces = remainingInterfacesForFamily(family, stats)
+	s.Capacity = capacityForFamily(family, stats)
+	s.UsedIPs = n.usedIPsForFamilyLocked(family)
+
+	if family == ipamTypes.IPv6 {
+		// IPv6 is supported in prefix-delegation mode only: a single delegated
+		// prefix (e.g. a /80) provides far more addresses than any node needs,
+		// so a node's IPv6 demand is satisfied as soon as it has at least one
+		// usable prefix attached. We therefore do not run the address-unit
+		// watermark math for IPv6 (a /80 cannot be expressed in address units
+		// without overflow). Instead we request a single prefix when the agent
+		// has IPv6 demand and none is attached yet.
+		//
+		// Excess IPv6 prefixes are not released by the operator on a watermark
+		// basis; they are released through the multi-pool CIDR path when the
+		// agent removes the CIDR from Spec.IPAM.Pools.Allocated.
+		demand, _ := poolRequestedIPv6(n.resource)
+		if demand > 0 && s.AvailableIPs == 0 {
+			s.NeededIPs = 1
+		} else {
+			s.NeededIPs = 0
+		}
+		s.ExcessIPs = 0
+	} else {
+		s.NeededIPs = calculateNeededIPs(s.AvailableIPs, s.UsedIPs, n.getPreAllocate(), n.getMinAllocate(), n.getMaxAllocate(family))
+		s.ExcessIPs = calculateExcessIPs(s.AvailableIPs, s.UsedIPs, n.getPreAllocate(), n.getMinAllocate(), n.getMaxAboveWatermark())
+	}
 
 	scopedLog.Debug(
 		"Recalculated needed addresses",
-		logfields.Available, n.stats.IPv4.AvailableIPs,
-		logfields.Capacity, n.stats.IPv4.Capacity,
-		logfields.Used, n.stats.IPv4.UsedIPs,
-		logfields.ToAllocate, n.stats.IPv4.NeededIPs,
-		logfields.ToRelease, n.stats.IPv4.ExcessIPs,
-		logfields.WaitingForPoolMaintenance, n.ipv4Alloc.waitingForPoolMaintenance,
+		logfields.Family, family,
+		logfields.Available, s.AvailableIPs,
+		logfields.Capacity, s.Capacity,
+		logfields.Used, s.UsedIPs,
+		logfields.ToAllocate, s.NeededIPs,
+		logfields.ToRelease, s.ExcessIPs,
+		logfields.WaitingForPoolMaintenance, alloc.waitingForPoolMaintenance,
 		logfields.ResyncNeeded, n.resyncNeeded,
-		logfields.RemainingInterfaces, stats.RemainingAvailableInterfaceCount,
+		logfields.RemainingInterfaces, s.RemainingInterfaces,
 	)
 }
 
-// allocationNeeded returns true if this node requires IPs to be allocated
+// allocationNeeded returns true if this node requires IPs to be allocated for
+// any enabled address family.
 func (n *Node) allocationNeeded() bool {
 	n.mutex.RLock()
 	defer n.mutex.RUnlock()
-
-	if n.ipv4Alloc.waitingForPoolMaintenance {
-		return false
-	}
 
 	if !n.resyncNeeded.IsZero() {
 		return false
 	}
 
-	if n.stats.IPv4.NeededIPs > 0 {
-		return true
+	for _, family := range n.enabledFamilies() {
+		if n.allocForFamily(family).waitingForPoolMaintenance {
+			continue
+		}
+		if n.statsForFamily(family).NeededIPs > 0 {
+			return true
+		}
 	}
 
-	if len(n.getStaticIPTags()) > 0 && n.stats.IPv4.AssignedStaticIP == "" {
+	// Static IP (Elastic IP) is an IPv4-only concept.
+	if !n.ipv4Alloc.waitingForPoolMaintenance && len(n.getStaticIPTags()) > 0 && n.stats.IPv4.AssignedStaticIP == "" {
 		return true
 	}
 
 	return false
 }
 
-// releaseNeeded returns true if this node requires IPs to be released
+// releaseNeeded returns true if this node requires IPs to be released for any
+// enabled address family.
 func (n *Node) releaseNeeded() (needed bool) {
 	n.mutex.RLock()
-	needed = n.manager.releaseExcessIPs && !n.ipv4Alloc.waitingForPoolMaintenance && n.resyncNeeded.IsZero() && n.stats.IPv4.ExcessIPs > 0
+	if n.manager.releaseExcessIPs && n.resyncNeeded.IsZero() {
+		for _, family := range n.enabledFamilies() {
+			if !n.allocForFamily(family).waitingForPoolMaintenance && n.statsForFamily(family).ExcessIPs > 0 {
+				needed = true
+				break
+			}
+		}
+	}
 	if n.resource != nil {
 		releaseInProgress := len(n.resource.Status.IPAM.ReleaseIPs) > 0
 		needed = needed || releaseInProgress
@@ -832,8 +980,13 @@ type AllocationAction struct {
 	// for interfaces to be attached.
 	EmptyInterfaceSlots int
 
-	// IPv4 represents IPv4-specific allocation actions.
-	IPv4 IPAllocationAction
+	// Family is the address family this allocation action resolves. It is set
+	// by PrepareIPAllocation and consumed by AllocateIPs so the implementation
+	// knows which cloud API to call.
+	Family ipamTypes.Family
+
+	// IPs represents the IP-specific allocation actions for Family.
+	IPs IPAllocationAction
 }
 
 // IPAllocationAction is the IP-specific action to be taken to resolve allocation deficits
@@ -905,16 +1058,28 @@ type maintenanceAction struct {
 	release    *ReleaseAction
 }
 
-func (n *Node) determineMaintenanceAction() (*maintenanceAction, error) {
+// ipStatsForFamily extracts the per-family statistics from a Statistics
+// snapshot by value.
+func ipStatsForFamily(stats Statistics, family ipamTypes.Family) IPStatistics {
+	if family == ipamTypes.IPv6 {
+		return stats.IPv6
+	}
+	return stats.IPv4
+}
+
+func (n *Node) determineMaintenanceAction(family ipamTypes.Family) (*maintenanceAction, error) {
 	var err error
 
 	a := &maintenanceAction{}
 
 	stats := n.Stats()
-	// Validate that the node still requires addresses to be released, the
-	// request may have been resolved in the meantime.
-	if n.manager.releaseExcessIPs && stats.IPv4.ExcessIPs > 0 {
-		a.release = n.ops.PrepareIPRelease(stats.IPv4.ExcessIPs, n.logger.Load())
+	s := ipStatsForFamily(stats, family)
+
+	// The CRD-mode 4-state release handshake is IPv4 only. IPv6 excess is
+	// released through the multi-pool CIDR path (handleMultiPoolCIDRRelease),
+	// which is family-agnostic and handled separately in maintainIPPool.
+	if family == ipamTypes.IPv4 && n.manager.releaseExcessIPs && s.ExcessIPs > 0 {
+		a.release = n.ops.PrepareIPRelease(s.ExcessIPs, n.logger.Load())
 		if a.release != nil && len(a.release.IPsToRelease) > 0 {
 			return a, nil
 		}
@@ -922,11 +1087,11 @@ func (n *Node) determineMaintenanceAction() (*maintenanceAction, error) {
 
 	// Validate that the node still requires addresses to be allocated, the
 	// request may have been resolved in the meantime.
-	if stats.IPv4.NeededIPs == 0 {
+	if s.NeededIPs == 0 {
 		return nil, nil
 	}
 
-	a.allocation, err = n.ops.PrepareIPAllocation(n.logger.Load())
+	a.allocation, err = n.ops.PrepareIPAllocation(family, n.logger.Load())
 	if err != nil {
 		return nil, err
 	}
@@ -940,37 +1105,34 @@ func (n *Node) determineMaintenanceAction() (*maintenanceAction, error) {
 				logfields.Error, err,
 			)
 		}
-	} else if numPendingPods > stats.IPv4.NeededIPs {
-		surgeAllocate = numPendingPods - stats.IPv4.NeededIPs
+	} else if numPendingPods > s.NeededIPs {
+		surgeAllocate = numPendingPods - s.NeededIPs
 	}
 
-	n.mutex.RLock()
+	n.mutex.Lock()
 	// handleIPAllocation() takes a min of MaxIPsToAllocate and IPs available for allocation on the interface.
 	// This makes sure we don't try to allocate more than what's available.
-	a.allocation.IPv4.MaxIPsToAllocate = stats.IPv4.NeededIPs + n.getMaxAboveWatermark() + surgeAllocate
-	n.mutex.RUnlock()
+	a.allocation.IPs.MaxIPsToAllocate = s.NeededIPs + n.getMaxAboveWatermark() + surgeAllocate
+	n.statsForFamily(family).RemainingInterfaces = a.allocation.IPs.InterfaceCandidates + a.allocation.EmptyInterfaceSlots
+	stats = n.stats
+	n.mutex.Unlock()
+	s = ipStatsForFamily(stats, family)
 
-	scopedLog := n.logger.Load()
-	if a.allocation != nil {
-		n.mutex.Lock()
-		n.stats.IPv4.RemainingInterfaces = a.allocation.IPv4.InterfaceCandidates + a.allocation.EmptyInterfaceSlots
-		stats = n.stats
-		n.mutex.Unlock()
-		scopedLog = n.logger.Load().With(
-			logfields.SelectedInterface, a.allocation.InterfaceID,
-			logfields.SelectedPoolID, a.allocation.PoolID,
-			logfields.MaxIPsToAllocate, a.allocation.IPv4.MaxIPsToAllocate,
-			logfields.AvailableForAllocation, a.allocation.IPv4.AvailableForAllocation,
-			logfields.EmptyInterfaceSlots, a.allocation.EmptyInterfaceSlots,
-		)
-	}
+	scopedLog := n.logger.Load().With(
+		logfields.Family, family,
+		logfields.SelectedInterface, a.allocation.InterfaceID,
+		logfields.SelectedPoolID, a.allocation.PoolID,
+		logfields.MaxIPsToAllocate, a.allocation.IPs.MaxIPsToAllocate,
+		logfields.AvailableForAllocation, a.allocation.IPs.AvailableForAllocation,
+		logfields.EmptyInterfaceSlots, a.allocation.EmptyInterfaceSlots,
+	)
 
 	scopedLog.Info(
 		"Resolving IP deficit of node",
-		logfields.Available, stats.IPv4.AvailableIPs,
-		logfields.Used, stats.IPv4.UsedIPs,
-		logfields.NeededIPs, stats.IPv4.NeededIPs,
-		logfields.RemainingInterfaces, stats.IPv4.RemainingInterfaces,
+		logfields.Available, s.AvailableIPs,
+		logfields.Used, s.UsedIPs,
+		logfields.NeededIPs, s.NeededIPs,
+		logfields.RemainingInterfaces, s.RemainingInterfaces,
 	)
 
 	return a, nil
@@ -1204,14 +1366,14 @@ func (n *Node) handleIPAllocation(ctx context.Context, a *maintenanceAction) (in
 	}
 
 	// Assign needed addresses
-	if a.allocation.IPv4.AvailableForAllocation > 0 {
-		a.allocation.IPv4.AvailableForAllocation = min(a.allocation.IPv4.AvailableForAllocation, a.allocation.IPv4.MaxIPsToAllocate)
+	if a.allocation.IPs.AvailableForAllocation > 0 {
+		a.allocation.IPs.AvailableForAllocation = min(a.allocation.IPs.AvailableForAllocation, a.allocation.IPs.MaxIPsToAllocate)
 
 		start := time.Now()
 		err := n.ops.AllocateIPs(ctx, a.allocation)
 		if err == nil {
 			n.manager.metricsAPI.AllocationAttempt(allocateIP, success, string(a.allocation.PoolID), metrics.SinceInSeconds(start))
-			n.manager.metricsAPI.AddIPAllocation(string(a.allocation.PoolID), int64(a.allocation.IPv4.AvailableForAllocation))
+			n.manager.metricsAPI.AddIPAllocation(string(a.allocation.PoolID), int64(a.allocation.IPs.AvailableForAllocation))
 			return true, nil
 		}
 
@@ -1222,7 +1384,7 @@ func (n *Node) handleIPAllocation(ctx context.Context, a *maintenanceAction) (in
 			"Unable to assign additional IPs to interface, will create new interface",
 			logfields.Error, err,
 			logfields.SelectedInterface, a.allocation.InterfaceID,
-			logfields.IPsToAllocate, a.allocation.IPv4.AvailableForAllocation,
+			logfields.IPsToAllocate, a.allocation.IPs.AvailableForAllocation,
 		)
 	}
 
@@ -1260,23 +1422,35 @@ func (n *Node) maintainIPPool(ctx context.Context) (instanceMutated bool, err er
 		}
 	}
 
-	a, err := n.determineMaintenanceAction()
-	if err != nil {
-		n.abortNoLongerExcessIPs(nil)
-		return false, err
+	// Resolve allocation/release one address family at a time, in priority
+	// order. We process at most one action per call (matching the previous
+	// single-family behavior) and re-trigger maintenance afterwards; the next
+	// family is picked up on a subsequent cycle.
+	for _, family := range n.enabledFamilies() {
+		a, err := n.determineMaintenanceAction(family)
+		if err != nil {
+			n.abortNoLongerExcessIPs(nil)
+			return false, err
+		}
+
+		// Nothing to do for this family; move on to the next one.
+		if a == nil {
+			continue
+		}
+
+		// handleIPRelease is the CRD-mode (IPv4) release handshake; it is a
+		// no-op for an action without a release (e.g. IPv6).
+		if instanceMutated, err := n.handleIPRelease(ctx, a); instanceMutated || err != nil {
+			return instanceMutated, err
+		}
+
+		return n.handleIPAllocation(ctx, a)
 	}
 
-	// Maintenance request has already been fulfilled
-	if a == nil {
-		n.abortNoLongerExcessIPs(nil)
-		return false, nil
-	}
-
-	if instanceMutated, err := n.handleIPRelease(ctx, a); instanceMutated || err != nil {
-		return instanceMutated, err
-	}
-
-	return n.handleIPAllocation(ctx, a)
+	// No family required an action; reconcile any stale IPv4 release state that
+	// is no longer needed.
+	n.abortNoLongerExcessIPs(nil)
+	return false, nil
 }
 
 func (n *Node) isInstanceRunning() (isRunning bool) {
@@ -1443,7 +1617,7 @@ func (n *Node) syncToAPIServer() error {
 		// access to the nodemanager.Node object. Since we are in the CiliumNode
 		// update sync loop, we can compute the value.
 		if node.Spec.IPAM.PreAllocate == 0 {
-			node.Spec.IPAM.PreAllocate = n.ops.GetMinimumAllocatableIPv4()
+			node.Spec.IPAM.PreAllocate = n.ops.GetMinimumAllocatable(ipamTypes.IPv4)
 		}
 
 		err := n.update(origNode, node, false)

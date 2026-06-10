@@ -42,6 +42,8 @@ type AllocatorAWS struct {
 	LimitIPAMAPIBurst            int
 	LimitIPAMAPIQPS              float64
 	AWSMetrics                   ec2shim.MetricsAPI
+	EnableIPv4                   bool
+	EnableIPv6                   bool
 
 	rootLogger *slog.Logger
 	logger     *slog.Logger
@@ -143,6 +145,10 @@ func (a *AllocatorAWS) Start(ctx context.Context, getterUpdater allocator.Cilium
 	if err != nil {
 		return nil, fmt.Errorf("unable to initialize ENI node manager: %w", err)
 	}
+
+	// AWS ENI is the only allocator that supports IPv6 (prefix-delegation
+	// only). Configure which address families the maintenance loop operates on.
+	nodeManager.SetIPFamilies(a.EnableIPv4, a.EnableIPv6)
 
 	if err := nodeManager.Start(ctx); err != nil {
 		return nil, err

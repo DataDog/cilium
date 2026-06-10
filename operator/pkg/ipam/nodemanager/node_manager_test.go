@@ -113,12 +113,13 @@ func (n *nodeOperationsMock) ResyncInterfacesAndIPs(ctx context.Context, scopedL
 	return available, stats, nil
 }
 
-func (n *nodeOperationsMock) PrepareIPAllocation(scopedLog *slog.Logger) (*AllocationAction, error) {
+func (n *nodeOperationsMock) PrepareIPAllocation(family ipamTypes.Family, scopedLog *slog.Logger) (*AllocationAction, error) {
 	n.allocator.mutex.RLock()
 	defer n.allocator.mutex.RUnlock()
 	return &AllocationAction{
 		PoolID: testPoolID,
-		IPv4: IPAllocationAction{
+		Family: family,
+		IPs: IPAllocationAction{
 			AvailableForAllocation: n.allocator.poolSize - n.allocator.allocatedIPs,
 		},
 	}, nil
@@ -127,8 +128,8 @@ func (n *nodeOperationsMock) PrepareIPAllocation(scopedLog *slog.Logger) (*Alloc
 func (n *nodeOperationsMock) AllocateIPs(ctx context.Context, allocation *AllocationAction) error {
 	n.mutex.Lock()
 	n.allocator.mutex.Lock()
-	n.allocator.allocatedIPs += allocation.IPv4.AvailableForAllocation
-	for range allocation.IPv4.AvailableForAllocation {
+	n.allocator.allocatedIPs += allocation.IPs.AvailableForAllocation
+	for range allocation.IPs.AvailableForAllocation {
 		n.allocator.ipGenerator++
 		n.allocatedIPs = append(n.allocatedIPs, fmt.Sprintf("10.0.%d.%d", n.allocator.ipGenerator/256, n.allocator.ipGenerator%256))
 	}
@@ -183,15 +184,18 @@ func (n *nodeOperationsMock) ReleaseIPs(ctx context.Context, release *ReleaseAct
 	return nil
 }
 
-func (n *nodeOperationsMock) GetMaximumAllocatableIPv4() int {
+func (n *nodeOperationsMock) GetMaximumAllocatable(family ipamTypes.Family) int {
 	return 0
 }
 
-func (n *nodeOperationsMock) GetMinimumAllocatableIPv4() int {
+func (n *nodeOperationsMock) GetMinimumAllocatable(family ipamTypes.Family) int {
+	if family != ipamTypes.IPv4 {
+		return 0
+	}
 	return defaults.IPAMPreAllocation
 }
 
-func (n *nodeOperationsMock) IsPrefixDelegated() bool {
+func (n *nodeOperationsMock) IsPrefixDelegated(family ipamTypes.Family) bool {
 	return false
 }
 
@@ -678,7 +682,7 @@ func TestNodeManagerAbortReleaseIPReassignment(t *testing.T) {
 
 	// Wait for maintenance action to identify the IP to release
 	require.Eventually(t, func() bool {
-		a, err := node.determineMaintenanceAction()
+		a, err := node.determineMaintenanceAction(ipamTypes.IPv4)
 		if err != nil || a == nil || a.release == nil || len(a.release.IPsToRelease) == 0 {
 			return false
 		}
@@ -745,7 +749,8 @@ func TestNodeManagerAbortReleaseIPReassignment(t *testing.T) {
 	node.mutex.Unlock()
 
 	node.ops.AllocateIPs(context.Background(), &AllocationAction{
-		IPv4: IPAllocationAction{
+		Family: ipamTypes.IPv4,
+		IPs: IPAllocationAction{
 			AvailableForAllocation: 1,
 		},
 	})

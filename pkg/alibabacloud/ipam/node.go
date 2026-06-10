@@ -106,7 +106,7 @@ func (n *Node) CreateInterface(ctx context.Context, allocation *nodemanager.Allo
 	n.mutex.RUnlock()
 
 	// Must allocate secondary ENI IPs as needed, up to ENI instance limit
-	toAllocate := min(allocation.IPv4.MaxIPsToAllocate, l.IPv4)
+	toAllocate := min(allocation.IPs.MaxIPsToAllocate, l.IPv4)
 	toAllocate = min(maxENIIPCreate, toAllocate) // in first alloc no more than 10
 	// Validate whether request has already been fulfilled in the meantime
 	if toAllocate == 0 {
@@ -259,12 +259,15 @@ func (n *Node) ResyncInterfacesAndIPs(ctx context.Context, scopedLog *slog.Logge
 
 // PrepareIPAllocation returns the number of ENI IPs and interfaces that can be
 // allocated/created.
-func (n *Node) PrepareIPAllocation(scopedLog *slog.Logger) (*nodemanager.AllocationAction, error) {
+func (n *Node) PrepareIPAllocation(family ipamTypes.Family, scopedLog *slog.Logger) (*nodemanager.AllocationAction, error) {
+	if family != ipamTypes.IPv4 {
+		return &nodemanager.AllocationAction{Family: family}, nil
+	}
 	l, limitsAvailable := n.getLimits()
 	if !limitsAvailable {
 		return nil, errors.New(errUnableToDetermineLimits)
 	}
-	a := &nodemanager.AllocationAction{}
+	a := &nodemanager.AllocationAction{Family: family}
 
 	n.mutex.RLock()
 	defer n.mutex.RUnlock()
@@ -285,7 +288,7 @@ func (n *Node) PrepareIPAllocation(scopedLog *slog.Logger) (*nodemanager.Allocat
 		if availableOnENI <= 0 {
 			continue
 		} else {
-			a.IPv4.InterfaceCandidates++
+			a.IPs.InterfaceCandidates++
 		}
 
 		scopedLog.Debug(
@@ -304,7 +307,7 @@ func (n *Node) PrepareIPAllocation(scopedLog *slog.Logger) (*nodemanager.Allocat
 
 				a.InterfaceID = key
 				a.PoolID = ipamTypes.PoolID(subnet.ID)
-				a.IPv4.AvailableForAllocation = min(subnet.AvailableAddresses, availableOnENI)
+				a.IPs.AvailableForAllocation = min(subnet.AvailableAddresses, availableOnENI)
 			}
 		}
 	}
@@ -314,7 +317,7 @@ func (n *Node) PrepareIPAllocation(scopedLog *slog.Logger) (*nodemanager.Allocat
 
 // AllocateIPs performs the ENI allocation operation
 func (n *Node) AllocateIPs(ctx context.Context, a *nodemanager.AllocationAction) error {
-	_, err := n.manager.api.AssignPrivateIPAddresses(ctx, a.InterfaceID, a.IPv4.AvailableForAllocation)
+	_, err := n.manager.api.AssignPrivateIPAddresses(ctx, a.InterfaceID, a.IPs.AvailableForAllocation)
 	return err
 }
 
@@ -389,9 +392,13 @@ func (n *Node) ReleaseIPs(ctx context.Context, r *nodemanager.ReleaseAction) err
 	return n.manager.api.UnassignPrivateIPAddresses(ctx, r.InterfaceID, r.IPsToRelease)
 }
 
-// GetMaximumAllocatableIPv4 returns the maximum amount of IPv4 addresses
-// that can be allocated to the instance
-func (n *Node) GetMaximumAllocatableIPv4() int {
+// GetMaximumAllocatable returns the maximum amount of addresses of the given
+// family that can be allocated to the instance. AlibabaCloud only supports IPv4.
+func (n *Node) GetMaximumAllocatable(family ipamTypes.Family) int {
+	if family != ipamTypes.IPv4 {
+		return 0
+	}
+
 	n.mutex.RLock()
 	defer n.mutex.RUnlock()
 
@@ -406,9 +413,12 @@ func (n *Node) GetMaximumAllocatableIPv4() int {
 	return (l.Adapters - 1) * l.IPv4
 }
 
-// GetMinimumAllocatableIPv4 returns the minimum amount of IPv4 addresses that
-// must be allocated to the instance.
-func (n *Node) GetMinimumAllocatableIPv4() int {
+// GetMinimumAllocatable returns the minimum amount of addresses of the given
+// family that must be allocated to the instance. AlibabaCloud only supports IPv4.
+func (n *Node) GetMinimumAllocatable(family ipamTypes.Family) int {
+	if family != ipamTypes.IPv4 {
+		return 0
+	}
 	return defaults.IPAMPreAllocation
 }
 
@@ -420,7 +430,7 @@ func (n *Node) loggerLocked() *slog.Logger {
 	return n.logger.With(logfields.InstanceID, n.instanceID)
 }
 
-func (n *Node) IsPrefixDelegated() bool {
+func (n *Node) IsPrefixDelegated(family ipamTypes.Family) bool {
 	return false
 }
 

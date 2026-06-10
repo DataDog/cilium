@@ -112,6 +112,8 @@ func startAWSAllocator(p awsParams) {
 		LimitIPAMAPIBurst:            p.Cfg.LimitIPAMAPIBurst,
 		LimitIPAMAPIQPS:              p.Cfg.LimitIPAMAPIQPS,
 		AWSMetrics:                   p.AWSMetrics,
+		EnableIPv4:                   p.DaemonCfg.EnableIPv4,
+		EnableIPv6:                   p.DaemonCfg.EnableIPv6,
 	}
 
 	startCloudAllocator(cloudAllocatorBootstrap{

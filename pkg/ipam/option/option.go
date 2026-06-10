@@ -46,3 +46,15 @@ const (
 // prefixes. Every /28 prefix contains 16 IP addresses.
 // See https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-prefix-eni.html#ec2-prefix-basics for more details
 const ENIPDBlockSizeIPv4 = 16
+
+// ENIIPv6PrefixLength is the prefix length of an ENI IPv6 prefix. AWS assigns
+// fixed /80 IPv6 prefixes via prefix delegation.
+//
+// Unlike IPv4 (see ENIPDBlockSizeIPv4), there is no IP-count "block size" for
+// IPv6: a /80 holds 2^48 addresses, far too many to enumerate or to use as a
+// capacity multiplier. IPv6 prefix delegation is only supported in multi-pool
+// mode, where the operator hands the whole /80 to the node as a pod CIDR and
+// the agent manages individual addresses within it. Capacity is therefore
+// accounted in prefixes/CIDRs, not in individual IPs.
+// See https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-prefix-eni.html#ec2-prefix-basics for more details
+const ENIIPv6PrefixLength = 80
