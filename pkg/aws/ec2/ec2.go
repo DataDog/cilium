@@ -48,6 +48,7 @@ const (
 	OperationNotPermittedStr = "OperationNotPermitted"
 
 	AssignPrivateIpAddresses        = "AssignPrivateIpAddresses"
+	AssignIpv6Addresses             = "AssignIpv6Addresses"
 	AssociateAddress                = "AssociateAddress"
 	AttachNetworkInterface          = "AttachNetworkInterface"
 	CreateNetworkInterface          = "CreateNetworkInterface"
@@ -553,6 +554,15 @@ func parseENI(iface *ec2_types.NetworkInterface, vpcs ipamTypes.VirtualNetworkMa
 		eni.Prefixes = append(eni.Prefixes, iputil.PrefixFrom(p))
 	}
 
+	for _, prefix := range iface.Ipv6Prefixes {
+		prefixStr := aws.ToString(prefix.Ipv6Prefix)
+		p, err := netip.ParsePrefix(prefixStr)
+		if err != nil {
+			return "", nil, fmt.Errorf("unable to parse ENI Ipv6 prefix %q: %w", prefixStr, err)
+		}
+		eni.Ipv6Prefixes = append(eni.Ipv6Prefixes, iputil.PrefixFrom(p))
+	}
+
 	if iface.Association != nil && iface.Association.PublicIp != nil {
 		publicIP, err := netip.ParseAddr(aws.ToString(iface.Association.PublicIp))
 		if err != nil {
@@ -808,7 +818,7 @@ func (c *Client) GetRouteTables(ctx context.Context, vpcID string) (ipamTypes.Ro
 }
 
 // CreateNetworkInterface creates an ENI with the given parameters
-func (c *Client) CreateNetworkInterface(ctx context.Context, toAllocate int32, subnetID, desc string, groups []string, allocatePrefixes bool) (string, *eniTypes.ENI, error) {
+func (c *Client) CreateNetworkInterface(ctx context.Context, toAllocate int32, subnetID, desc string, groups []string, allocatePrefixes, allocateIpv6 bool) (string, *eniTypes.ENI, error) {
 
 	input := &ec2.CreateNetworkInterfaceInput{
 		Description: aws.String(desc),
@@ -829,6 +839,11 @@ func (c *Client) CreateNetworkInterface(ctx context.Context, toAllocate int32, s
 		input.TagSpecifications = []ec2_types.TagSpecification{
 			c.eniTagSpecification,
 		}
+	}
+
+	if allocateIpv6 {
+		// One AWS IPv6 Prefix has 2^48 addresses which is enormous.
+		input.Ipv6PrefixCount = aws.Int32(1)
 	}
 
 	c.limiter.Limit(ctx, CreateNetworkInterface)
@@ -961,6 +976,21 @@ func (c *Client) AssignENIPrefixes(ctx context.Context, eniID string, prefixes i
 	sinceStart := spanstat.Start()
 	_, err := c.ec2Client.AssignPrivateIpAddresses(ctx, input)
 	c.metricsAPI.ObserveAPICall(AssignPrivateIpAddresses, deriveStatus(err), sinceStart.Seconds())
+	return err
+}
+
+// AssignENIIPv6Prefix assigns one IPv6 prefix to the ENI.
+// One AWS IPv6 Prefix has 2^48 addresses which is enormous.
+func (c *Client) AssignENIIPv6Prefix(ctx context.Context, eniID string) error {
+	input := &ec2.AssignIpv6AddressesInput{
+		NetworkInterfaceId: aws.String(eniID),
+		Ipv6PrefixCount:    aws.Int32(1),
+	}
+
+	c.limiter.Limit(ctx, AssignIpv6Addresses)
+	sinceStart := spanstat.Start()
+	_, err := c.ec2Client.AssignIpv6Addresses(ctx, input)
+	c.metricsAPI.ObserveAPICall(AssignIpv6Addresses, deriveStatus(err), sinceStart.Seconds())
 	return err
 }
 

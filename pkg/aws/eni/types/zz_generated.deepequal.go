@@ -127,6 +127,23 @@ func (in *ENI) DeepEqual(other *ENI) bool {
 		}
 	}
 
+	if ((in.Ipv6Prefixes != nil) && (other.Ipv6Prefixes != nil)) || ((in.Ipv6Prefixes == nil) != (other.Ipv6Prefixes == nil)) {
+		in, other := &in.Ipv6Prefixes, &other.Ipv6Prefixes
+		if other == nil {
+			return false
+		}
+
+		if len(*in) != len(*other) {
+			return false
+		} else {
+			for i, inElement := range *in {
+				if !inElement.DeepEqual(&(*other)[i]) {
+					return false
+				}
+			}
+		}
+	}
+
 	if ((in.SecurityGroups != nil) && (other.SecurityGroups != nil)) || ((in.SecurityGroups == nil) != (other.SecurityGroups == nil)) {
 		in, other := &in.SecurityGroups, &other.SecurityGroups
 		if other == nil {

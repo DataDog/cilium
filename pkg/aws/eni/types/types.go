@@ -155,6 +155,11 @@ type ENI struct {
 	// +optional
 	Prefixes []iputil.Prefix `json:"prefixes,omitempty"`
 
+	// Ipv6Prefixes is the list of all /80 prefixes associated with the ENI
+	//
+	// +optional
+	Ipv6Prefixes []iputil.Prefix `json:"ipv6_prefixes,omitempty"`
+
 	// SecurityGroups are the security groups associated with the ENI
 	SecurityGroups []string `json:"security-groups,omitempty"`
 
