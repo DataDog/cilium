@@ -634,6 +634,23 @@ spec:
                         ip:
                           description: IP is the primary IP of the ENI
                           type: string
+                        ipv6:
+                          description: IPv6 is the primary IPv6 address of the ENI
+                          type: string
+                        ipv6-addresses:
+                          description: |-
+                            IPv6Addresses is the list of all secondary IPv6 addresses associated
+                            with the ENI
+                          items:
+                            type: string
+                          type: array
+                        ipv6-prefixes:
+                          description: IPv6Prefixes is the list of all /80 IPv6 prefixes
+                            associated with the ENI
+                          items:
+                            format: cidr
+                            type: string
+                          type: array
                         mac:
                           description: MAC is the mac address of the ENI
                           type: string
