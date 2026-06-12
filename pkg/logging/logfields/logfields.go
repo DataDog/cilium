@@ -1268,6 +1268,8 @@ const (
 
 	ToAllocate = "toAllocate"
 
+	ToAllocateIPv6 = "toAllocateIPv6"
+
 	SubscriptionID = "subscriptionID"
 
 	IPv4MaskSize = "ipv4MaskSize"
