@@ -534,7 +534,7 @@ func eniContainsIP(eni eniTypes.ENI, addr netip.Addr) bool {
 		return true
 	}
 
-	for _, prefix := range eni.Prefixes {
+	for _, prefix := range slices.Concat(eni.Prefixes, eni.Ipv6Prefixes) {
 		if !prefix.IsValid() {
 			continue
 		}
