@@ -1308,11 +1308,17 @@ const (
 
 	MaxIPsToAllocate = "maxIPsToAllocate"
 
+	MaxIPv6PrefixesToAllocate = "maxIPv6PrefixesToAllocate"
+
 	AvailableForAllocation = "availableForAllocation"
 
 	EmptyInterfaceSlots = "emptyInterfaceSlots"
 
 	NeededIPs = "neededIPs"
+
+	NeededIPv6Prefixes = "neededIPv6Prefixes"
+
+	AvailableIPv6Prefixes = "availableIPv6Prefixes"
 
 	Releasing = "releasing"
 

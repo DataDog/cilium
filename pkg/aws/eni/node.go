@@ -546,8 +546,20 @@ func (n *Node) AllocateIPs(ctx context.Context, a *nodemanager.AllocationAction)
 	n.mutex.RUnlock()
 
 	if a.IPv6.MaxPrefixesToAllocate > 0 {
+		n.logger.Load().Info(
+			"Assigning IPv6 prefix to ENI",
+			logfields.Node, n.k8sObj.Name,
+			logfields.SelectedInterface, a.InterfaceID,
+			logfields.MaxIPv6PrefixesToAllocate, a.IPv6.MaxPrefixesToAllocate,
+		)
 		err := n.manager.ec2api.AssignENIIPv6Prefix(ctx, a.InterfaceID)
 		if err != nil {
+			n.logger.Load().Warn(
+				"Failed to assign IPv6 prefix to ENI",
+				logfields.Node, n.k8sObj.Name,
+				logfields.SelectedInterface, a.InterfaceID,
+				logfields.Error, err,
+			)
 			return err
 		}
 	}

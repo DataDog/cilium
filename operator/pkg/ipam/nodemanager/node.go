@@ -703,6 +703,17 @@ func (n *Node) recalculate(ctx context.Context) {
 		if requestedIPv6 > 0 && n.stats.IPv6.AvailablePrefixes == 0 {
 			n.stats.IPv6.NeededPrefixes = 1
 		}
+		// Surface the IPv6 demand decision at info level: this is the point
+		// where the agent's IPv6 request is translated into a prefix
+		// allocation need, and is the first thing to check when IPv6
+		// allocation appears to be skipped.
+		if requestedIPv6 > 0 {
+			scopedLog.Info(
+				"Agent requested IPv6, evaluating prefix allocation need",
+				logfields.AvailableIPv6Prefixes, n.stats.IPv6.AvailablePrefixes,
+				logfields.NeededIPv6Prefixes, n.stats.IPv6.NeededPrefixes,
+			)
+		}
 	} else {
 		n.stats.IPv4.UsedIPs = len(n.resource.Status.IPAM.Used)
 	}
@@ -980,6 +991,7 @@ func (n *Node) determineMaintenanceAction() (*maintenanceAction, error) {
 		logfields.SelectedInterface, a.allocation.InterfaceID,
 		logfields.SelectedPoolID, a.allocation.PoolID,
 		logfields.MaxIPsToAllocate, a.allocation.IPv4.MaxIPsToAllocate,
+		logfields.MaxIPv6PrefixesToAllocate, a.allocation.IPv6.MaxPrefixesToAllocate,
 		logfields.AvailableForAllocation, a.allocation.IPv4.AvailableForAllocation,
 		logfields.EmptyInterfaceSlots, a.allocation.EmptyInterfaceSlots,
 	)
@@ -989,6 +1001,7 @@ func (n *Node) determineMaintenanceAction() (*maintenanceAction, error) {
 		logfields.Available, stats.IPv4.AvailableIPs,
 		logfields.Used, stats.IPv4.UsedIPs,
 		logfields.NeededIPs, stats.IPv4.NeededIPs,
+		logfields.NeededIPv6Prefixes, stats.IPv6.NeededPrefixes,
 		logfields.RemainingInterfaces, stats.IPv4.RemainingInterfaces,
 	)
 
