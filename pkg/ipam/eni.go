@@ -579,6 +579,10 @@ func eniPoolsFromResource(node *ciliumv2.CiliumNode) *ipamTypes.IPAMPoolSpec {
 			}
 		}
 
+		for _, p := range eni.Ipv6Prefixes {
+			cidrs = append(cidrs, p)
+		}
+
 		// In parseENI (pkg/aws/ec2), we currently use PrefixToIps to flatten each prefixes
 		// into 16 individual IPs and append those IPs to the ENI Addresses field.
 		// Here we need to apply a reverse logic to only advertise as /32 CIDRs in the pool
