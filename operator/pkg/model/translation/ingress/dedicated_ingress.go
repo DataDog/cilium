@@ -163,7 +163,10 @@ func getEndpointSlice(resource model.FullyQualifiedResource) *discoveryv1.Endpoi
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-%s", ciliumIngressPrefix, resource.Name),
 			Namespace: resource.Namespace,
-			Labels:    map[string]string{ciliumIngressLabelKey: "true"},
+			Labels: map[string]string{
+				ciliumIngressLabelKey:        "true",
+				discoveryv1.LabelServiceName: fmt.Sprintf("%s-%s", ciliumIngressPrefix, resource.Name),
+			},
 			OwnerReferences: []metav1.OwnerReference{
 				{
 					APIVersion: slim_networkingv1.SchemeGroupVersion.String(),
@@ -181,6 +184,11 @@ func getEndpointSlice(resource model.FullyQualifiedResource) *discoveryv1.Endpoi
 				// to the lb map when the service has no backends.
 				// Related github issue https://github.com/cilium/cilium/issues/19262
 				Addresses: []string{"192.192.192.192"}, // dummy
+				// Ready must be explicit: K8s treats nil as ready, but some
+				// consumers (e.g. GKE NEG controller) require it set. See #44611.
+				Conditions: discoveryv1.EndpointConditions{
+					Ready: ptr.To(true),
+				},
 			},
 		},
 		Ports: []discoveryv1.EndpointPort{

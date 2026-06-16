@@ -202,7 +202,10 @@ func Test_getEndpointForIngress(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "cilium-ingress-dummy-ingress",
 			Namespace: "dummy-namespace",
-			Labels:    map[string]string{"cilium.io/ingress": "true"},
+			Labels: map[string]string{
+				"cilium.io/ingress":          "true",
+				discoveryv1.LabelServiceName: "cilium-ingress-dummy-ingress",
+			},
 			OwnerReferences: []metav1.OwnerReference{
 				{
 					APIVersion: "networking.k8s.io/v1",
@@ -220,6 +223,9 @@ func Test_getEndpointForIngress(t *testing.T) {
 				// to the lb map when the service has no backends.
 				// Related github issue https://github.com/cilium/cilium/issues/19262
 				Addresses: []string{"192.192.192.192"}, // dummy
+				Conditions: discoveryv1.EndpointConditions{
+					Ready: ptr.To(true),
+				},
 			},
 		},
 		Ports: []discoveryv1.EndpointPort{{Port: ptr.To[int32](9999)}}, // dummy port

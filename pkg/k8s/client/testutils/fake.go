@@ -220,7 +220,7 @@ type prepender interface {
 }
 
 func prependReactors(cs prepender, ot *statedbObjectTracker) {
-	cs.PrependReactor("*", "*", k8sTesting.ObjectReaction(ot))
+	cs.PrependReactor("*", "*", reactorFunc(ot))
 	cs.PrependWatchReactor("*", func(action k8sTesting.Action) (handled bool, ret watch.Interface, err error) {
 		var opts metav1.ListOptions
 		if watchAction, ok := action.(k8sTesting.WatchActionImpl); ok {
@@ -234,6 +234,70 @@ func prependReactors(cs prepender, ot *statedbObjectTracker) {
 
 	// Switch out the tracker to our version.
 	overrideTracker(cs, ot)
+}
+
+func reactorFunc(ot k8sTesting.ObjectTracker) k8sTesting.ReactionFunc {
+	var reactor = k8sTesting.ObjectReaction(ot)
+
+	return func(act k8sTesting.Action) (handled bool, ret runtime.Object, err error) {
+		switch action := act.(type) {
+		case k8sTesting.UpdateActionImpl:
+			if action.Subresource != "" {
+				act, err = subresourceMutator(action, ot)
+				if err != nil {
+					return true, nil, err
+				}
+			}
+		}
+
+		return reactor(act)
+	}
+}
+
+func subresourceMutator(action k8sTesting.UpdateActionImpl, ot k8sTesting.ObjectTracker) (k8sTesting.Action, error) {
+	var copy = func(dst, src runtime.Object, field string) (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("setting %s: %v", strings.ToLower(field), r)
+			}
+		}()
+
+		reflect.ValueOf(dst).Elem().FieldByName(field).Set(
+			reflect.ValueOf(src).Elem().FieldByName(field))
+
+		return nil
+	}
+
+	ns, gvr := action.GetNamespace(), action.GetResource()
+	objMeta, err := meta.Accessor(action.GetObject())
+	if err != nil {
+		return nil, err
+	}
+
+	obj, err := ot.Get(gvr, ns, objMeta.GetName(), metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	switch action.GetSubresource() {
+	case "status":
+		err = errors.Join(
+			copy(obj, action.GetObject(), "Status"),
+			// Preserve the resource version, to handle optimistic concurrency.
+			copy(obj, action.GetObject(), "ResourceVersion"),
+		)
+	default:
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return k8sTesting.UpdateActionImpl{
+		ActionImpl:    action.ActionImpl.DeepCopy().(k8sTesting.ActionImpl),
+		Object:        obj,
+		UpdateOptions: action.UpdateOptions,
+	}, nil
 }
 
 func showGVR(gvr schema.GroupVersionResource) string {
@@ -439,6 +503,7 @@ func FakeClientCommands(fc *FakeClientset) map[string]script.Cmd {
 				Args: "resource name",
 				Flags: func(fs *pflag.FlagSet) {
 					fs.StringP("out", "o", "", "File to write to instead of stdout")
+					fs.StringSlice("show-redacted", nil, "Redacted fields to show (supported: resource-version, uid)")
 				},
 			},
 			func(s *script.State, args ...string) (script.WaitFunc, error) {
@@ -470,6 +535,10 @@ func FakeClientCommands(fc *FakeClientset) map[string]script.Cmd {
 					for _, tc := range fc.trackers {
 						obj, err := tc.tracker.Get(gvr, ns, name)
 						if err == nil {
+							if err := redact(obj, s.Flags); err != nil {
+								return "", "", fmt.Errorf("redacting fields: %w", err)
+							}
+
 							bs, err := k8sYaml.Marshal(obj)
 							if file != "" {
 								return "", "", os.WriteFile(s.Path(file), bs, 0644)
@@ -493,6 +562,7 @@ func FakeClientCommands(fc *FakeClientset) map[string]script.Cmd {
 				Args: "resource namespace",
 				Flags: func(fs *pflag.FlagSet) {
 					fs.StringP("out", "o", "", "File to write to instead of stdout")
+					fs.StringSlice("show-redacted", nil, "Redacted fields to show (supported: resource-version, uid)")
 				},
 			},
 			func(s *script.State, args ...string) (script.WaitFunc, error) {
@@ -518,6 +588,10 @@ func FakeClientCommands(fc *FakeClientset) map[string]script.Cmd {
 					for _, tc := range fc.trackers {
 						obj, err := tc.tracker.List(gvr, gvk, args[1])
 						if err == nil {
+							if err := redact(obj, s.Flags); err != nil {
+								return "", "", fmt.Errorf("redacting fields: %w", err)
+							}
+
 							bs, err := k8sYaml.Marshal(obj)
 							if file != "" {
 								return "", "", os.WriteFile(s.Path(file), bs, 0644)
@@ -630,6 +704,42 @@ func FakeClientCommands(fc *FakeClientset) map[string]script.Cmd {
 			},
 		),
 	}
+}
+
+// redact redacts the UID and resource version fields, to make the output more deterministic.
+func redact(obj runtime.Object, flags *pflag.FlagSet) error {
+	show, err := flags.GetStringSlice("show-redacted")
+	if err != nil {
+		return err
+	}
+
+	redactObj := func(obj runtime.Object) error {
+		meta, err := meta.Accessor(obj)
+		if err != nil {
+			return err
+		}
+
+		if !slices.Contains(show, "resource-version") {
+			meta.SetResourceVersion("")
+		}
+
+		if !slices.Contains(show, "uid") {
+			meta.SetUID("")
+		}
+
+		return nil
+	}
+
+	list, err := meta.ListAccessor(obj)
+	if err != nil {
+		return redactObj(obj)
+	}
+
+	if !slices.Contains(show, "resource-version") {
+		list.SetResourceVersion("")
+	}
+
+	return meta.EachListItem(obj, redactObj)
 }
 
 // overrideTracker changes the internal 'tracker' field in the generated

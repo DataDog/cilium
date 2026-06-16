@@ -8,6 +8,7 @@
 #include "dbg.h"
 #include "eps.h"
 #include "l3.h"
+#include "proxy.h"
 #include "token_bucket.h"
 
 DECLARE_CONFIG(bool, enable_netkit, "Use netkit devices for pods")
@@ -99,16 +100,31 @@ static __always_inline int redirect_ep(struct __ctx_buff *ctx,
  * Note that skb->tc_index is also passed through.
  *
  * As the callers (from-overlay, from-netdev, ...) are re-generated independently
- * from the policy tail-call of the inidividual endpoints, any change to this code
+ * from the policy tail-call of the individual endpoints, any change to this code
  * needs to be introduced with compatibility in mind.
  */
 static __always_inline void
 local_delivery_fill_meta(struct __ctx_buff *ctx, __u32 seclabel,
-			 bool delivery_redirect, bool from_host,
-			 bool from_tunnel, __u32 cluster_id)
+			 bool delivery_redirect, bool use_redirect_peer,
+			 bool from_host, bool from_tunnel, __u32 cluster_id)
 {
+	__u32 delivery_flags = 0;
+
+	if (delivery_redirect)
+		delivery_flags |= CB_DELIVERY_FLAGS_REDIRECT;
+	if (use_redirect_peer)
+		delivery_flags |= CB_DELIVERY_FLAGS_USE_REDIRECT_PEER;
+	if (from_host)
+		delivery_flags |= CB_DELIVERY_FLAGS_FROM_HOST;
+	if (from_tunnel)
+		delivery_flags |= CB_DELIVERY_FLAGS_FROM_TUNNEL;
+	if (tc_index_from_ingress_proxy(ctx))
+		delivery_flags |= CB_DELIVERY_FLAGS_FROM_INGRESS_PROXY;
+	if (tc_index_from_egress_proxy(ctx))
+		delivery_flags |= CB_DELIVERY_FLAGS_FROM_EGRESS_PROXY;
+
 	ctx_store_meta(ctx, CB_SRC_LABEL, seclabel);
-	ctx_store_meta(ctx, CB_DELIVERY_REDIRECT, delivery_redirect ? 1 : 0);
+	ctx_store_meta(ctx, CB_DELIVERY_FLAGS, delivery_flags);
 	ctx_store_meta(ctx, CB_FROM_HOST, from_host ? 1 : 0);
 	ctx_store_meta(ctx, CB_FROM_TUNNEL, from_tunnel ? 1 : 0);
 	ctx_store_meta(ctx, CB_CLUSTER_ID_INGRESS, cluster_id);
@@ -169,11 +185,12 @@ local_delivery(struct __ctx_buff *ctx, __u32 seclabel, __u32 magic,
 		}
 # endif /* !ENABLE_NODEPORT */
 
-		return redirect_ep(ctx, ep->ifindex, use_fast_redirect, from_tunnel);
+		return redirect_ep(ctx, ep->ifindex, false, from_tunnel);
 	}
 
 	/* Jumps to destination pod's BPF program to enforce ingress policies. */
-	local_delivery_fill_meta(ctx, seclabel, true, from_host, from_tunnel, cluster_id);
+	local_delivery_fill_meta(ctx, seclabel, true, use_fast_redirect,
+				 from_host, from_tunnel, cluster_id);
 	return tail_call_policy(ctx, ep->lxc_id);
 }
 

@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/testing/protocmp"
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -37,6 +38,7 @@ func Test_translator_Translate(t *testing.T) {
 		{name: "basic_http_listener_external_traffic_policy"},
 		{name: "basic_http_listener_load_balancer"},
 		{name: "basic_tls_sni_listener"},
+		{name: "tls_sni_weighted_backends"},
 		{name: "conformance/httproute_simple_same_namespace"},
 		{name: "conformance/httproute_backend_protocol_h_2_c"},
 		{name: "conformance/httproute_cross_namespace"},
@@ -83,10 +85,12 @@ func Test_translator_Translate(t *testing.T) {
 			expectedService := &corev1.Service{}
 			readOutput(t, fmt.Sprintf("testdata/%s/service-output.yaml", tt.name), expectedService)
 
-			cec, svc, _, err := trans.Translate(input)
+			cec, svc, ep, err := trans.Translate(input)
 
 			require.Equal(t, tt.wantErr, err != nil, "Error mismatch")
 			require.Equal(t, expectedService, svc, "Service mismatch")
+			require.NotNil(t, ep)
+			require.Equal(t, svc.Name, ep.Labels[discoveryv1.LabelServiceName], "EndpointSlice must carry the Service association label")
 
 			diffOutput := cmp.Diff(expectedCEC, cec, protocmp.Transform())
 			if len(diffOutput) != 0 {
@@ -200,12 +204,13 @@ func Test_translator_Translate_HostNetwork(t *testing.T) {
 					cec, svc, ep, err := trans.Translate(input)
 					require.Equal(t, tt.wantErr, err != nil, "Error mismatch")
 					require.Equal(t, expectedService, svc, "Service mismatch")
+					require.NotNil(t, ep)
+					require.Equal(t, svc.Name, ep.Labels[discoveryv1.LabelServiceName], "EndpointSlice must carry the Service association label")
 
 					diffOutput := cmp.Diff(output, cec, protocmp.Transform())
 					if len(diffOutput) != 0 {
 						t.Errorf("CiliumEnvoyConfigs did not match:\n%s\n", diffOutput)
 					}
-					require.NotNil(t, ep)
 				})
 			}
 		})
@@ -381,6 +386,52 @@ func Test_getService(t *testing.T) {
 			assert.LessOrEqual(t, len(got.Name), 63, "Service name is too long")
 		})
 	}
+}
+
+func Test_desiredEndpointSlice(t *testing.T) {
+	trans := &gatewayAPITranslator{}
+	owner := &model.FullyQualifiedResource{
+		Name:      "dummy-gateway",
+		Namespace: "dummy-namespace",
+		Version:   "v1",
+		Kind:      "Gateway",
+		UID:       "57889650-380b-4c05-9a2e-3baee7fd5271",
+	}
+
+	got := trans.desiredEndpointSlice(owner, nil, nil)
+
+	require.Equal(t, &discoveryv1.EndpointSlice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "cilium-gateway-dummy-gateway",
+			Namespace: "dummy-namespace",
+			Labels: map[string]string{
+				owningGatewayLabel:           "dummy-gateway",
+				gatewayNameLabel:             "dummy-gateway",
+				discoveryv1.LabelServiceName: "cilium-gateway-dummy-gateway",
+			},
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: gatewayv1.GroupVersion.String(),
+					Kind:       "Gateway",
+					Name:       "dummy-gateway",
+					UID:        types.UID("57889650-380b-4c05-9a2e-3baee7fd5271"),
+					Controller: ptr.To(true),
+				},
+			},
+		},
+		AddressType: discoveryv1.AddressTypeIPv4,
+		Endpoints: []discoveryv1.Endpoint{
+			{
+				Addresses: []string{"192.192.192.192"},
+				Conditions: discoveryv1.EndpointConditions{
+					Ready: ptr.To(true),
+				},
+			},
+		},
+		Ports: []discoveryv1.EndpointPort{
+			{Port: ptr.To[int32](9999)},
+		},
+	}, got)
 }
 
 func readInput(t *testing.T, file string, obj any) {

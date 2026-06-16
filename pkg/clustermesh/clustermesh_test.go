@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -101,13 +101,13 @@ func TestClusterMesh(t *testing.T) {
 		require.NoErrorf(t, err, "Failed to set cluster config for %s", name)
 	}
 
-	config1 := path.Join(dir, "cluster1")
+	config1 := filepath.Join(dir, "cluster1")
 	require.NoError(t, os.WriteFile(config1, etcdConfig, 0644), "Failed to write config file for cluster1")
 
-	config2 := path.Join(dir, "cluster2")
+	config2 := filepath.Join(dir, "cluster2")
 	require.NoError(t, os.WriteFile(config2, etcdConfig, 0644), "Failed to write config file for cluster2")
 
-	config3 := path.Join(dir, "cluster3")
+	config3 := filepath.Join(dir, "cluster3")
 	require.NoError(t, os.WriteFile(config3, etcdConfig, 0644), "Failed to write config file for cluster3")
 
 	ipc := ipcache.NewIPCache(&ipcache.Configuration{
@@ -137,11 +137,9 @@ func TestClusterMesh(t *testing.T) {
 	require.NotNil(t, cm, "Failed to initialize clustermesh")
 	// cluster2 is the cluster which is tested with sync canaries
 	nodesWSS := storeFactory.NewSyncStore("cluster2", client, nodeStore.NodeStorePrefix)
-	wg.Add(1)
-	go func() {
+	wg.Go(func() {
 		nodesWSS.Run(ctx)
-		wg.Done()
-	}()
+	})
 	nodeNames := []string{"foo", "bar", "baz"}
 
 	// wait for the two expected clusters to appear in the list of cm clusters

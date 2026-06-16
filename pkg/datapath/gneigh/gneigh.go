@@ -207,9 +207,10 @@ func (s *ndSender) Send(ip netip.Addr, srcHW net.HardwareAddr) error {
 
 	msg := &ndp.NeighborAdvertisement{
 		TargetAddress: ip,
+		Override:      true,
 		Options: []ndp.Option{
 			&ndp.LinkLayerAddress{
-				Direction: ndp.Source,
+				Direction: ndp.Target,
 				Addr:      srcHW,
 			},
 		},

@@ -318,6 +318,26 @@ func TestParseNetworkPolicy(t *testing.T) {
 				L3:          policytypes.ToSelectors(api.NewESFromLabels()),
 			},
 		},
+		{
+			name: "ingress empty peer",
+			in: slim_networkingv1.NetworkPolicySpec{
+				Ingress: []slim_networkingv1.NetworkPolicyIngressRule{
+					{
+						From: []slim_networkingv1.NetworkPolicyPeer{
+							{},
+						},
+					},
+				},
+			},
+			out: policytypes.PolicyEntry{
+				Ingress:     true,
+				DefaultDeny: true,
+				Verdict:     policytypes.Allow,
+				L3: policytypes.ToSelectors(api.NewESFromLabels(
+					labels.NewLabel(k8sConst.PodNamespaceLabel, slim_metav1.NamespaceDefault, labels.LabelSourceK8s),
+				)),
+			},
+		},
 	} {
 		t.Run(fmt.Sprintf("%d-%s", i, tc.name), func(t *testing.T) {
 			np := &slim_networkingv1.NetworkPolicy{
@@ -516,10 +536,12 @@ func TestParseNetworkPolicyNoSelectors(t *testing.T) {
 	}
 	expectedRules := policytypes.PolicyEntries{expectedRule}
 
-	rules, err := ParseNetworkPolicy(hivetest.Logger(t), cmtypes.PolicyAnyCluster, &np)
-	require.NoError(t, err)
-	require.NotNil(t, rules)
-	require.Equal(t, expectedRules, rules)
+	for _, clusterName := range []string{cmtypes.PolicyAnyCluster, "my-cluster"} {
+		rules, err := ParseNetworkPolicy(hivetest.Logger(t), clusterName, &np)
+		require.NoError(t, err)
+		require.NotNil(t, rules)
+		require.Equal(t, expectedRules, rules)
+	}
 }
 
 func TestParseNetworkPolicyEgress(t *testing.T) {
@@ -1563,7 +1585,7 @@ func Test_parseNetworkPolicyPeer(t *testing.T) {
 	tests := []struct {
 		name string
 		args args
-		want policytypes.Selector
+		want policytypes.Selectors
 	}{
 		{
 			name: "peer-with-pod-selector",
@@ -1585,7 +1607,7 @@ func Test_parseNetworkPolicyPeer(t *testing.T) {
 					},
 				},
 			},
-			want: getSelectorPointer(
+			want: policytypes.Selectors{getSelectorPointer(
 				api.NewESFromMatchRequirements(
 					map[string]string{
 						"k8s.foo":                          "bar",
@@ -1600,7 +1622,7 @@ func Test_parseNetworkPolicyPeer(t *testing.T) {
 						},
 					},
 				),
-			),
+			)},
 		},
 		{
 			name: "peer-nil",
@@ -1639,7 +1661,7 @@ func Test_parseNetworkPolicyPeer(t *testing.T) {
 					},
 				},
 			},
-			want: getSelectorPointer(
+			want: policytypes.Selectors{getSelectorPointer(
 				api.NewESFromMatchRequirements(
 					map[string]string{
 						"k8s.foo": "bar",
@@ -1657,7 +1679,7 @@ func Test_parseNetworkPolicyPeer(t *testing.T) {
 						},
 					},
 				),
-			),
+			)},
 		},
 		{
 			name: "peer-with-ns-selector",
@@ -1677,7 +1699,7 @@ func Test_parseNetworkPolicyPeer(t *testing.T) {
 					},
 				},
 			},
-			want: getSelectorPointer(
+			want: policytypes.Selectors{getSelectorPointer(
 				api.NewESFromMatchRequirements(
 					map[string]string{
 						"k8s.io.cilium.k8s.namespace.labels.ns-foo": "ns-bar",
@@ -1689,7 +1711,7 @@ func Test_parseNetworkPolicyPeer(t *testing.T) {
 						},
 					},
 				),
-			),
+			)},
 		},
 		{
 			name: "peer-with-allow-all-ns-selector",
@@ -1699,7 +1721,7 @@ func Test_parseNetworkPolicyPeer(t *testing.T) {
 					NamespaceSelector: &slim_metav1.LabelSelector{},
 				},
 			},
-			want: getSelectorPointer(
+			want: policytypes.Selectors{getSelectorPointer(
 				api.NewESFromMatchRequirements(
 					map[string]string{},
 					[]slim_metav1.LabelSelectorRequirement{
@@ -1709,7 +1731,7 @@ func Test_parseNetworkPolicyPeer(t *testing.T) {
 						},
 					},
 				),
-			),
+			)},
 		},
 		{
 			name: "peer-with-defaut-cluster",
@@ -1731,7 +1753,7 @@ func Test_parseNetworkPolicyPeer(t *testing.T) {
 					},
 				},
 			},
-			want: getSelectorPointer(
+			want: policytypes.Selectors{getSelectorPointer(
 				api.NewESFromMatchRequirements(
 					map[string]string{
 						"k8s.foo":                          "bar",
@@ -1746,7 +1768,7 @@ func Test_parseNetworkPolicyPeer(t *testing.T) {
 						},
 					},
 				),
-			),
+			)},
 		},
 		{
 			name: "peer-with-cluster-selector",
@@ -1762,7 +1784,7 @@ func Test_parseNetworkPolicyPeer(t *testing.T) {
 					},
 				},
 			},
-			want: getSelectorPointer(
+			want: policytypes.Selectors{getSelectorPointer(
 				api.NewESFromMatchRequirements(
 					map[string]string{
 						"k8s.foo":                          "bar",
@@ -1771,7 +1793,7 @@ func Test_parseNetworkPolicyPeer(t *testing.T) {
 					},
 					nil,
 				),
-			),
+			)},
 		},
 		{
 			name: "peer-with-cluster-selector-expr",
@@ -1790,7 +1812,7 @@ func Test_parseNetworkPolicyPeer(t *testing.T) {
 					},
 				},
 			},
-			want: getSelectorPointer(
+			want: policytypes.Selectors{getSelectorPointer(
 				api.NewESFromMatchRequirements(
 					map[string]string{
 						"k8s.io.kubernetes.pod.namespace": "foo-namespace",
@@ -1803,7 +1825,26 @@ func Test_parseNetworkPolicyPeer(t *testing.T) {
 						},
 					},
 				),
-			),
+			)},
+		},
+		{
+			name: "peer-with-ipblock",
+			args: args{
+				namespace:   "foo-namespace",
+				clusterName: "cluster1",
+				peer: &slim_networkingv1.NetworkPolicyPeer{
+					IPBlock: &slim_networkingv1.IPBlock{
+						CIDR:   "10.0.0.0/8",
+						Except: []string{"10.96.0.0/12"},
+					},
+				},
+			},
+			want: policytypes.Selectors{
+				policytypes.ToSelector(api.CIDRRule{
+					Cidr:        "10.0.0.0/8",
+					ExceptCIDRs: []api.CIDR{"10.96.0.0/12"},
+				}),
+			},
 		},
 	}
 	for _, tt := range tests {

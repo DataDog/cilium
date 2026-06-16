@@ -6,6 +6,7 @@ package gateway_api
 import (
 	"context"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -82,6 +83,20 @@ func (r *gatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if string(gwc.Spec.ControllerName) != controllerName {
 		scopedLog.DebugContext(ctx, "GatewayClass does not have matching controller name, doing nothing")
 		return controllerruntime.Success()
+	}
+
+	if ref := gwc.Spec.ParametersRef; ref != nil {
+		if !isParameterRefSupported(ref) {
+			setGatewayAccepted(gw, false, "Invalid GatewayClass parameters: spec.parametersRef.kind must be CiliumGatewayClassConfig", gatewayv1.GatewayReasonInvalidParameters)
+			setGatewayProgrammed(gw, metav1.ConditionUnknown, "Waiting for Accepted condition to be True", gatewayv1.GatewayReasonPending)
+			return r.handleReconcileErrorWithStatus(ctx, errors.New("Invalid GatewayClass"), original, gw)
+		}
+
+		if !hasNamespacedName(ref) {
+			setGatewayAccepted(gw, false, "Invalid GatewayClass parametersRef: both name and namespace are required", gatewayv1.GatewayReasonInvalidParameters)
+			setGatewayProgrammed(gw, metav1.ConditionUnknown, "Waiting for Accepted condition to be True", gatewayv1.GatewayReasonPending)
+			return r.handleReconcileErrorWithStatus(ctx, errors.New("Invalid GatewayClass"), original, gw)
+		}
 	}
 
 	httpRouteList := &gatewayv1.HTTPRouteList{}
@@ -845,6 +860,7 @@ func (r *gatewayReconciler) setHTTPRouteStatuses(scopedLog *slog.Logger, ctx con
 	for httpRouteIndex, original := range httpRoutes.Items {
 
 		hr := original.DeepCopy()
+		hr.Status.Parents = pruneRouteParentStatuses(hr.Status.Parents, hr.Spec.ParentRefs)
 
 		// input for the validators
 		// The validators will mutate the HTTPRoute as required, setting its status correctly.
@@ -884,6 +900,7 @@ func (r *gatewayReconciler) setTLSRouteStatuses(scopedLog *slog.Logger, ctx cont
 	for tlsRouteIndex, original := range tlsRoutes.Items {
 
 		tlsr := original.DeepCopy()
+		tlsr.Status.Parents = pruneRouteParentStatuses(tlsr.Status.Parents, tlsr.Spec.ParentRefs)
 
 		// input for the validators
 		// The validators will mutate the HTTPRoute as required, setting its status correctly.
@@ -918,6 +935,7 @@ func (r *gatewayReconciler) setGRPCRouteStatuses(scopedLog *slog.Logger, ctx con
 	for grpcRouteIndex, original := range grpcRoutes.Items {
 
 		grpcr := original.DeepCopy()
+		grpcr.Status.Parents = pruneRouteParentStatuses(grpcr.Status.Parents, grpcr.Spec.ParentRefs)
 
 		// input for the validators
 		// The validators will mutate the HTTPRoute as required, setting its status correctly.

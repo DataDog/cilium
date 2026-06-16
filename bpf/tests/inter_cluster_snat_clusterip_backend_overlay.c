@@ -243,9 +243,13 @@ int from_overlay_syn_check(struct __ctx_buff *ctx)
 	if (l4->check != bpf_htons(0x777f))
 		test_fatal("L4 checksum is invalid: %x", bpf_htons(l4->check));
 
-	meta = ctx_load_meta(ctx, CB_DELIVERY_REDIRECT);
-	if (meta != 1)
-		test_fatal("skb->cb[CB_DELIVERY_REDIRECT] should be 1, got %d", meta);
+	meta = ctx_load_meta(ctx, CB_DELIVERY_FLAGS);
+	if (!(meta & CB_DELIVERY_FLAGS_REDIRECT))
+		test_fatal("skb->cb[CB_DELIVERY_FLAGS] should have CB_DELIVERY_FLAGS_REDIRECT");
+	if (meta & CB_DELIVERY_FLAGS_FROM_HOST)
+		test_fatal("skb->cb[CB_DELIVERY_FLAGS] has CB_DELIVERY_FLAGS_FROM_HOST");
+	if (!(meta & CB_DELIVERY_FLAGS_FROM_TUNNEL))
+		test_fatal("skb->cb[CB_DELIVERY_FLAGS] should have CB_DELIVERY_FLAGS_FROM_TUNNEL");
 
 	meta = ctx_load_meta(ctx, CB_SRC_LABEL);
 	if (meta != CLIENT_IDENTITY)
@@ -410,9 +414,13 @@ int from_overlay_ack_check(struct __ctx_buff *ctx)
 	if (l4->check != bpf_htons(0x7771))
 		test_fatal("L4 checksum is invalid: %x", bpf_htons(l4->check));
 
-	meta = ctx_load_meta(ctx, CB_DELIVERY_REDIRECT);
-	if (meta != 1)
-		test_fatal("skb->cb[CB_DELIVERY_REDIRECT] should be 1, got %d", meta);
+	meta = ctx_load_meta(ctx, CB_DELIVERY_FLAGS);
+	if (!(meta & CB_DELIVERY_FLAGS_REDIRECT))
+		test_fatal("skb->cb[CB_DELIVERY_FLAGS] should have CB_DELIVERY_FLAGS_REDIRECT");
+	if (meta & CB_DELIVERY_FLAGS_FROM_HOST)
+		test_fatal("skb->cb[CB_DELIVERY_FLAGS] has CB_DELIVERY_FLAGS_FROM_HOST");
+	if (!(meta & CB_DELIVERY_FLAGS_FROM_TUNNEL))
+		test_fatal("skb->cb[CB_DELIVERY_FLAGS] should have CB_DELIVERY_FLAGS_FROM_TUNNEL");
 
 	meta = ctx_load_meta(ctx, CB_SRC_LABEL);
 	if (meta != CLIENT_IDENTITY)

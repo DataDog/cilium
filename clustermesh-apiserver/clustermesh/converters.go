@@ -7,9 +7,7 @@ import (
 	"errors"
 	"iter"
 	"log/slog"
-	"maps"
 	"net"
-	"path"
 	"slices"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -24,6 +22,7 @@ import (
 	cilium_api_v2a1 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2alpha1"
 	"github.com/cilium/cilium/pkg/k8s/resource"
 	"github.com/cilium/cilium/pkg/k8s/types"
+	"github.com/cilium/cilium/pkg/kvstore"
 	"github.com/cilium/cilium/pkg/kvstore/store"
 	"github.com/cilium/cilium/pkg/labels"
 	"github.com/cilium/cilium/pkg/logging/logfields"
@@ -41,6 +40,55 @@ func singleIter[T any](value T) iter.Seq[T] {
 	}
 }
 
+type resourceOwner struct {
+	owner resource.Key
+	entry store.Key
+}
+
+// entryGroup tracks all Kubernetes resources claiming a given kvstore key.
+// It is optimized for the common case where a key is owned by a single resource.
+type entryGroup struct {
+	primary resource.Key
+	pending []resourceOwner
+}
+
+func (e *entryGroup) upsert(owner resource.Key, entry store.Key) (primary bool) {
+	if e.primary == (resource.Key{}) || e.primary == owner {
+		e.primary = owner
+		return true
+	}
+
+	if i := slices.IndexFunc(e.pending, func(ro resourceOwner) bool { return ro.owner == owner }); i >= 0 {
+		e.pending[i].entry = entry
+		return false
+	}
+
+	e.pending = append(e.pending, resourceOwner{owner: owner, entry: entry})
+	return false
+}
+
+func (e *entryGroup) release(owner resource.Key) store.Key {
+	if e.primary == owner {
+		if len(e.pending) > 0 {
+			next := e.pending[0]
+			e.primary = next.owner
+			e.pending = e.pending[1:]
+			return next.entry
+		}
+		e.primary = resource.Key{}
+		return nil
+	}
+
+	e.pending = slices.DeleteFunc(e.pending, func(ro resourceOwner) bool {
+		return ro.owner == owner
+	})
+	return nil
+}
+
+func (e *entryGroup) empty() bool {
+	return e.primary == (resource.Key{})
+}
+
 // ----- Generic ----- //
 
 // CachedConverter implements the common logic of a converter that, given a single
@@ -50,47 +98,61 @@ type CachedConverter[T runtime.Object] struct {
 	mapper func(T) iter.Seq[store.Key]
 	// cache remembers the kvstore keys associated with any Kubernetes resource.
 	cache map[resource.Key]sets.Set[string]
+	// ownership tracks all Kubernetes resources claiming a given kvstore key.
+	ownership map[string]*entryGroup
 }
 
-func NewCachedCoverter[T runtime.Object](mapper func(T) iter.Seq[store.Key]) *CachedConverter[T] {
+func NewCachedConverter[T runtime.Object](mapper func(T) iter.Seq[store.Key]) *CachedConverter[T] {
 	return &CachedConverter[T]{
-		mapper: mapper,
-		cache:  make(map[resource.Key]sets.Set[string]),
+		mapper:    mapper,
+		cache:     make(map[resource.Key]sets.Set[string]),
+		ownership: make(map[string]*entryGroup),
 	}
 }
 
 func (ec *CachedConverter[T]) Convert(event resource.Event[T]) (upserts iter.Seq[store.Key], deletes iter.Seq[store.NamedKey]) {
-	if event.Kind == resource.Delete {
-		toDelete := maps.Keys(ec.cache[event.Key])
-		delete(ec.cache, event.Key)
-		return noneIter[store.Key], ec.deletesIter(toDelete)
-	}
+	stale := ec.cache[event.Key]
+	var toAdd []store.Key
 
-	var (
-		toAdd    []store.Key
-		toDelete = ec.cache[event.Key]
-		current  = sets.New[string]()
-	)
+	if event.Kind == resource.Upsert {
+		current := sets.New[string]()
+		for entry := range ec.mapper(event.Object) {
+			key := entry.GetKeyName()
+			current.Insert(key)
 
-	for entry := range ec.mapper(event.Object) {
-		key := entry.GetKeyName()
-		toAdd = append(toAdd, entry)
-		current.Insert(key)
-		toDelete.Delete(key)
-	}
-
-	ec.cache[event.Key] = current
-	return slices.Values(toAdd), ec.deletesIter(maps.Keys(toDelete))
-}
-
-func (ec *CachedConverter[T]) deletesIter(keys iter.Seq[string]) iter.Seq[store.NamedKey] {
-	return func(yield func(store.NamedKey) bool) {
-		for key := range keys {
-			if !yield(store.NewKVPair(key, "")) {
-				return
+			group, ok := ec.ownership[key]
+			if !ok {
+				group = &entryGroup{}
+				ec.ownership[key] = group
 			}
+			if group.upsert(event.Key, entry) {
+				toAdd = append(toAdd, entry)
+			}
+			stale.Delete(key)
+		}
+		ec.cache[event.Key] = current
+	} else {
+		delete(ec.cache, event.Key)
+	}
+
+	var toDelete []store.NamedKey
+	// For each key scheduled for deletion, make sure the resource from the event
+	// is removed as an owner of that key.
+	for keyName := range stale {
+		group := ec.ownership[keyName]
+		if entry := group.release(event.Key); entry != nil {
+			// if the primary owner is removed, but other resources still own the key,
+			// we must re-upsert the entry of the new primary owner.
+			toAdd = append(toAdd, entry)
+		}
+
+		if group.empty() {
+			delete(ec.ownership, keyName)
+			toDelete = append(toDelete, store.NewKVPair(keyName, ""))
 		}
 	}
+
+	return slices.Values(toAdd), slices.Values(toDelete)
 }
 
 // ----- CiliumNodes ----- //
@@ -128,7 +190,7 @@ func newCiliumIdentityOptions() Options[*cilium_api_v2.CiliumIdentity] {
 	return Options[*cilium_api_v2.CiliumIdentity]{
 		Enabled:    true,
 		Resource:   "CiliumIdentity",
-		Prefix:     path.Join(identityCache.IdentitiesPath, "id"),
+		Prefix:     kvstore.JoinKey(identityCache.IdentitiesPath, "id"),
 		StoreOpts:  []store.WSSOpt{store.WSSWithSyncedKeyOverride(identityCache.IdentitiesPath)},
 		Namespaced: true,
 	}
@@ -169,14 +231,14 @@ func newCiliumEndpointOptions(cfg cmk8s.CiliumEndpointSliceConfig) Options[*type
 	return Options[*types.CiliumEndpoint]{
 		Enabled:    !cfg.EnableCiliumEndpointSlice,
 		Resource:   "CiliumEndpoint",
-		Prefix:     path.Join(ipcache.IPIdentitiesPath, ipcache.DefaultAddressSpace),
+		Prefix:     kvstore.JoinKey(ipcache.IPIdentitiesPath, ipcache.DefaultAddressSpace),
 		StoreOpts:  []store.WSSOpt{store.WSSWithSyncedKeyOverride(ipcache.IPIdentitiesPath)},
 		Namespaced: true,
 	}
 }
 
 func newCiliumEndpointConverter(logger *slog.Logger, cinfo cmtypes.ClusterInfo) Converter[*types.CiliumEndpoint] {
-	return NewCachedCoverter(ciliumEndpointMapper)
+	return NewCachedConverter(ciliumEndpointMapper)
 }
 
 func ciliumEndpointMapper(endpoint *types.CiliumEndpoint) iter.Seq[store.Key] {
@@ -216,14 +278,14 @@ func newCiliumEndpointSliceOptions(cfg cmk8s.CiliumEndpointSliceConfig) Options[
 	return Options[*cilium_api_v2a1.CiliumEndpointSlice]{
 		Enabled:    cfg.EnableCiliumEndpointSlice,
 		Resource:   "CiliumEndpointSlice",
-		Prefix:     path.Join(ipcache.IPIdentitiesPath, ipcache.DefaultAddressSpace),
+		Prefix:     kvstore.JoinKey(ipcache.IPIdentitiesPath, ipcache.DefaultAddressSpace),
 		StoreOpts:  []store.WSSOpt{store.WSSWithSyncedKeyOverride(ipcache.IPIdentitiesPath)},
 		Namespaced: true,
 	}
 }
 
 func newCiliumEndpointSliceConverter(logger *slog.Logger, cinfo cmtypes.ClusterInfo) Converter[*cilium_api_v2a1.CiliumEndpointSlice] {
-	return NewCachedCoverter(ciliumEndpointSliceMapper)
+	return NewCachedConverter(ciliumEndpointSliceMapper)
 }
 
 func ciliumEndpointSliceMapper(endpointslice *cilium_api_v2a1.CiliumEndpointSlice) iter.Seq[store.Key] {

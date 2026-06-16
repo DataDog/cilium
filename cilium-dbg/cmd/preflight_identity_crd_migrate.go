@@ -6,7 +6,6 @@ package cmd
 import (
 	"context"
 	"errors"
-	"path"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,6 +23,7 @@ import (
 	ciliumClient "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/client"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/k8s/identitybackend"
+	"github.com/cilium/cilium/pkg/kvstore"
 	kvstoreallocator "github.com/cilium/cilium/pkg/kvstore/allocator"
 	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/logging/logfields"
@@ -165,7 +165,7 @@ func migrateIdentities(ctx cell.HookContext, clientset k8sClient.Clientset, shut
 		// nil returns mean the key doesn't exist. This shouldn't happen, but treat
 		// it like a mismatch and allocate it. The allocator will find it if it has
 		// been re-allocated via master key protection.
-		case upstreamKey == nil && err == nil:
+		case upstreamKey == nil:
 			// fallthrough
 
 		case key.GetKey() == upstreamKey.GetKey():
@@ -250,7 +250,7 @@ func initKVStore(ctx, wctx context.Context) (kvstoreBackend allocator.Backend) {
 	log.Info("Setting up kvstore client")
 	client := setupKvstore(ctx, log)
 
-	idPath := path.Join(cache.IdentitiesPath, "id")
+	idPath := kvstore.JoinKey(cache.IdentitiesPath, "id")
 	kvstoreBackend, err := kvstoreallocator.NewKVStoreBackend(log, kvstoreallocator.KVStoreBackendConfiguration{BasePath: cache.IdentitiesPath, Suffix: idPath, Typ: &cacheKey.GlobalIdentity{}, Backend: client})
 	if err != nil {
 		logging.Fatal(log, "Cannot create kvstore identity backend", logfields.Error, err)

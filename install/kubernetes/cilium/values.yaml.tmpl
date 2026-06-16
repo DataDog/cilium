@@ -508,10 +508,8 @@ l2announcements:
 l2podAnnouncements:
   # -- Enable L2 pod announcements
   enabled: false
-  # -- Interface used for sending Gratuitous ARP pod announcements
-  interface: "eth0"
   # -- A regular expression matching interfaces used for sending Gratuitous ARP pod announcements
-  # interfacePattern: ""
+  interfacePattern: ""
 # -- This feature set enables virtual BGP routers to be created via BGP CRDs.
 bgpControlPlane:
   # -- Enables the BGP control plane.
@@ -2496,10 +2494,6 @@ monitor:
   enabled: false
 # -- Configure service load balancing
 loadBalancer:
-  # -- standalone enables the standalone L4LB which does not connect to
-  # kube-apiserver.
-  # standalone: false
-
   # -- algorithm is the name of the load balancing algorithm for backend
   # selection e.g. random or maglev
   # algorithm: random

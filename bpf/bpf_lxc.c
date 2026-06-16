@@ -1999,7 +1999,8 @@ static __always_inline
 int tail_ipv6_policy(struct __ctx_buff *ctx)
 {
 	struct ipv6_ct_tuple tuple = {};
-	bool do_redirect = ctx_load_meta(ctx, CB_DELIVERY_REDIRECT);
+	__u32 delivery_flags = ctx_load_meta(ctx, CB_DELIVERY_FLAGS);
+	bool do_redirect = delivery_flags & CB_DELIVERY_FLAGS_REDIRECT;
 	__u32 src_label = ctx_load_and_clear_meta(ctx, CB_SRC_LABEL);
 	bool from_host = ctx_load_and_clear_meta(ctx, CB_FROM_HOST);
 	bool from_tunnel = false;
@@ -2009,8 +2010,19 @@ int tail_ipv6_policy(struct __ctx_buff *ctx)
 	__s8 ext_err = 0;
 	int ret;
 
+	if (delivery_flags & CB_DELIVERY_FLAGS_FROM_HOST)
+		from_host = true;
+
+	if (delivery_flags & CB_DELIVERY_FLAGS_FROM_INGRESS_PROXY)
+		ctx->tc_index |= TC_INDEX_F_FROM_INGRESS_PROXY;
+
+	if (delivery_flags & CB_DELIVERY_FLAGS_FROM_EGRESS_PROXY)
+		ctx->tc_index |= TC_INDEX_F_FROM_EGRESS_PROXY;
+
 #ifdef HAVE_ENCAP
 	from_tunnel = ctx_load_and_clear_meta(ctx, CB_FROM_TUNNEL);
+	if (delivery_flags & CB_DELIVERY_FLAGS_FROM_TUNNEL)
+		from_tunnel = true;
 #endif
 
 	if (!revalidate_data(ctx, &data, &data_end, &ip6)) {
@@ -2314,7 +2326,8 @@ static __always_inline
 int tail_ipv4_policy(struct __ctx_buff *ctx)
 {
 	struct ipv4_ct_tuple tuple = {};
-	bool do_redirect = ctx_load_meta(ctx, CB_DELIVERY_REDIRECT);
+	__u32 delivery_flags = ctx_load_meta(ctx, CB_DELIVERY_FLAGS);
+	bool do_redirect = delivery_flags & CB_DELIVERY_FLAGS_REDIRECT;
 	__u32 src_label = ctx_load_and_clear_meta(ctx, CB_SRC_LABEL);
 	bool from_host = ctx_load_and_clear_meta(ctx, CB_FROM_HOST);
 	bool from_tunnel = false;
@@ -2324,10 +2337,21 @@ int tail_ipv4_policy(struct __ctx_buff *ctx)
 	__s8 ext_err = 0;
 	int ret;
 
+	if (delivery_flags & CB_DELIVERY_FLAGS_FROM_HOST)
+		from_host = true;
+
+	if (delivery_flags & CB_DELIVERY_FLAGS_FROM_INGRESS_PROXY)
+		ctx->tc_index |= TC_INDEX_F_FROM_INGRESS_PROXY;
+
+	if (delivery_flags & CB_DELIVERY_FLAGS_FROM_EGRESS_PROXY)
+		ctx->tc_index |= TC_INDEX_F_FROM_EGRESS_PROXY;
+
 	ctx_store_meta(ctx, CB_CLUSTER_ID_INGRESS, 0);
 
 #ifdef HAVE_ENCAP
 	from_tunnel = ctx_load_and_clear_meta(ctx, CB_FROM_TUNNEL);
+	if (delivery_flags & CB_DELIVERY_FLAGS_FROM_TUNNEL)
+		from_tunnel = true;
 #endif
 
 	if (!revalidate_data(ctx, &data, &data_end, &ip4)) {

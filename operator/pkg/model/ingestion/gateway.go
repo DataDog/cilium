@@ -112,24 +112,26 @@ func GatewayAPI(input Input) ([]model.HTTPListener, []model.TLSPassthroughListen
 			Service:        toServiceModel(input.GatewayClassConfig),
 		})
 
-		resTLSPassthrough = append(resTLSPassthrough, model.TLSPassthroughListener{
-			Name: string(l.Name),
-			Sources: []model.FullyQualifiedResource{
-				{
-					Name:      input.Gateway.GetName(),
-					Namespace: input.Gateway.GetNamespace(),
-					Group:     gatewayv1.SchemeGroupVersion.Group,
-					Version:   gatewayv1.SchemeGroupVersion.Version,
-					Kind:      "Gateway",
-					UID:       string(input.Gateway.GetUID()),
+		if l.Protocol == gatewayv1.TLSProtocolType {
+			resTLSPassthrough = append(resTLSPassthrough, model.TLSPassthroughListener{
+				Name: string(l.Name),
+				Sources: []model.FullyQualifiedResource{
+					{
+						Name:      input.Gateway.GetName(),
+						Namespace: input.Gateway.GetNamespace(),
+						Group:     gatewayv1.SchemeGroupVersion.Group,
+						Version:   gatewayv1.SchemeGroupVersion.Version,
+						Kind:      "Gateway",
+						UID:       string(input.Gateway.GetUID()),
+					},
 				},
-			},
-			Port:           uint32(l.Port),
-			Hostname:       toHostname(l.Hostname),
-			Routes:         toTLSRoutes(l, listenerHostnamesByProtocol, input.TLSRoutes, input.Services, input.ServiceImports, input.ReferenceGrants),
-			Infrastructure: infra,
-			Service:        toServiceModel(input.GatewayClassConfig),
-		})
+				Port:           uint32(l.Port),
+				Hostname:       toHostname(l.Hostname),
+				Routes:         toTLSRoutes(l, listenerHostnamesByProtocol, input.TLSRoutes, input.Services, input.ServiceImports, input.ReferenceGrants),
+				Infrastructure: infra,
+				Service:        toServiceModel(input.GatewayClassConfig),
+			})
+		}
 	}
 
 	return resHTTP, resTLSPassthrough
@@ -321,6 +323,16 @@ func extractRoutes(listenerPort int32, hostnames []string, hr gatewayv1.HTTPRout
 			case gatewayv1.HTTPRouteFilterURLRewrite:
 				rewriteFilter = toHTTPRewriteFilter(f.URLRewrite)
 			case gatewayv1.HTTPRouteFilterRequestMirror:
+				if f.RequestMirror == nil {
+					continue
+				}
+
+				if !helpers.IsBackendReferenceAllowed(hr.GetNamespace(),
+					gatewayv1.BackendRef{BackendObjectReference: f.RequestMirror.BackendRef},
+					gatewayv1.SchemeGroupVersion.WithKind("HTTPRoute"), grants) {
+					continue
+				}
+
 				svc := getServiceSpec(string(f.RequestMirror.BackendRef.Name), helpers.NamespaceDerefOr(f.RequestMirror.BackendRef.Namespace, hr.Namespace), services)
 				if svc != nil {
 					requestMirrors = append(requestMirrors, toHTTPRequestMirror(*svc, f.RequestMirror, hr.Namespace))
@@ -501,6 +513,16 @@ func extractGRPCRoutes(hostnames []string, grpcr gatewayv1.GRPCRoute, services [
 					HeadersToRemove: f.ResponseHeaderModifier.Remove,
 				}
 			case gatewayv1.GRPCRouteFilterRequestMirror:
+				if f.RequestMirror == nil {
+					continue
+				}
+
+				if !helpers.IsBackendReferenceAllowed(grpcr.GetNamespace(),
+					gatewayv1.BackendRef{BackendObjectReference: f.RequestMirror.BackendRef},
+					gatewayv1.SchemeGroupVersion.WithKind("GRPCRoute"), grants) {
+					continue
+				}
+
 				svc := getServiceSpec(string(f.RequestMirror.BackendRef.Name), helpers.NamespaceDerefOr(f.RequestMirror.BackendRef.Namespace, grpcr.Namespace), services)
 				if svc != nil {
 					requestMirrors = append(requestMirrors, toHTTPRequestMirror(*svc, f.RequestMirror, grpcr.Namespace))
