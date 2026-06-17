@@ -384,10 +384,20 @@ func TestBuildENIAllocationResultPrefixDelegation(t *testing.T) {
 	})
 
 	t.Run("IP in IPv6 prefix", func(t *testing.T) {
+		// AWS has no deterministic IPv6 gateway; it is learned from the kernel.
+		// Stub the netlink discovery so the test does not depend on host routes.
+		orig := discoverIPv6Gateway
+		discoverIPv6Gateway = func(mac string) (netip.Addr, error) {
+			require.Equal(t, "aa:bb:cc:dd:ee:01", mac)
+			return netip.MustParseAddr("fe80::1"), nil
+		}
+		t.Cleanup(func() { discoverIPv6Gateway = orig })
+
 		result, err := buildENIAllocationResult(logger, netip.MustParseAddr("2600:1f18:41eb:8807:2754::b0c0"), "", node.Status.ENI.ENIs, conf, nil)
 		require.NoError(t, err)
 		require.Equal(t, "aa:bb:cc:dd:ee:01", result.PrimaryMAC)
 		require.Equal(t, "1", result.InterfaceNumber)
+		require.Equal(t, netip.MustParseAddr("fe80::1"), result.GatewayIP)
 	})
 }
 

@@ -148,6 +148,22 @@ func (info *RoutingInfo) ReconcileGatewayRoutes(mtu int, rx statedb.ReadTxn, rou
 	}
 	tableID = computeTableIDFromIfaceNumber(info.useCompatEgressPriority(), ifaceNum)
 
+	// The AWS IPv6 gateway is a link-local address learned from Router
+	if info.Gateway.To4() == nil && info.IpamMode == ipamOption.IPAMENI {
+		gw, err := DiscoverIPv6Gateway(info.MasterIfMAC.String())
+		if err != nil {
+			return set, fmt.Errorf("unable to discover IPv6 gateway: %w", err)
+		}
+		if newGw := net.IP(gw.AsSlice()); !info.Gateway.Equal(newGw) {
+			for _, r := range info.gatewayRoutes(ifindex, tableID) {
+				if err := netlink.RouteDel(r); err != nil && !errors.Is(err, unix.ESRCH) {
+					return set, fmt.Errorf("unable to delete stale gateway route: %w", err)
+				}
+			}
+			info.Gateway = newGw
+		}
+	}
+
 	// Get the desired routes.
 	gwRoutes := info.gatewayRoutes(ifindex, tableID)
 	for _, r := range gwRoutes {
@@ -176,6 +192,55 @@ func (info *RoutingInfo) ReconcileGatewayRoutes(mtu int, rx statedb.ReadTxn, rou
 	}
 
 	return set, nil
+}
+
+// DiscoverIPv6Gateway returns the link-local IPv6 gateway for the interface with
+// the given MAC: the nexthop of its ::/0 default route in the main routing
+// table.
+func DiscoverIPv6Gateway(ifaceMAC string) (netip.Addr, error) {
+	links, err := safenetlink.LinkList()
+	if err != nil {
+		return netip.Addr{}, fmt.Errorf("unable to list interfaces: %w", err)
+	}
+
+	ifindex := -1
+	for _, l := range links {
+		// Linux slave devices share their master's MAC; we want the master.
+		if l.Attrs().RawFlags&unix.IFF_SLAVE != 0 {
+			continue
+		}
+		if l.Attrs().HardwareAddr.String() == ifaceMAC {
+			ifindex = l.Attrs().Index
+			break
+		}
+	}
+	if ifindex < 0 {
+		return netip.Addr{}, fmt.Errorf("interface with MAC %s not found", ifaceMAC)
+	}
+
+	routes, err := safenetlink.RouteListFiltered(netlink.FAMILY_V6, &netlink.Route{
+		LinkIndex: ifindex,
+		Table:     unix.RT_TABLE_MAIN,
+	}, netlink.RT_FILTER_OIF|netlink.RT_FILTER_TABLE)
+	if err != nil {
+		return netip.Addr{}, fmt.Errorf("unable to list IPv6 routes for ifindex %d: %w", ifindex, err)
+	}
+
+	for _, r := range routes {
+		// The default route has either a nil Dst or an explicit ::/0.
+		if r.Dst != nil {
+			if ones, _ := r.Dst.Mask.Size(); ones != 0 || !r.Dst.IP.IsUnspecified() {
+				continue
+			}
+		}
+		gw, ok := netipx.FromStdIP(r.Gw)
+		if !ok || !gw.IsLinkLocalUnicast() {
+			continue
+		}
+		return gw, nil
+	}
+
+	return netip.Addr{}, fmt.Errorf("no IPv6 default route with a link-local gateway found for MAC %s", ifaceMAC)
 }
 
 func (info *RoutingInfo) gatewayRoutes(ifindex, tableID int) []*netlink.Route {

@@ -22,6 +22,7 @@ import (
 	eniTypes "github.com/cilium/cilium/pkg/aws/eni/types"
 	"github.com/cilium/cilium/pkg/backoff"
 	"github.com/cilium/cilium/pkg/cidr"
+	linuxrouting "github.com/cilium/cilium/pkg/datapath/linux/routing"
 	"github.com/cilium/cilium/pkg/datapath/linux/safenetlink"
 	"github.com/cilium/cilium/pkg/datapath/linux/sysctl"
 	"github.com/cilium/cilium/pkg/defaults"
@@ -461,6 +462,13 @@ func configureENINetlinkDevice(link netlink.Link, cfg eniDeviceConfig, sysctl sy
 	return nil
 }
 
+// discoverIPv6Gateway learns the link-local IPv6 gateway for the ENI with the
+// given MAC. It is a package-level variable so tests can stub out the netlink
+// lookup. The routing layer re-discovers the gateway during reconciliation
+// (see linuxrouting.ReconcileGatewayRoutes); this seeds the initial value that
+// flows to the CNI plugin via AllocationResult.GatewayIP.
+var discoverIPv6Gateway = linuxrouting.DiscoverIPv6Gateway
+
 // buildENIAllocationResult derives ENI-specific AllocationResult metadata
 // (PrimaryMAC, GatewayIP, VPC CIDRs, InterfaceNumber) by finding which ENI
 // owns the given IP.
@@ -492,8 +500,13 @@ func buildENIAllocationResult(
 		}
 
 		// Add manually configured Native Routing CIDR
-		if conf.IPv4NativeRoutingCIDR != nil {
+		if conf.IPv4NativeRoutingCIDR != nil && conf.EnableIPv4 {
 			if p, ok := netipx.FromStdIPNet(conf.IPv4NativeRoutingCIDR.IPNet); ok {
+				result.CIDRs = append(result.CIDRs, p)
+			}
+		}
+		if conf.IPv6NativeRoutingCIDR != nil && conf.EnableIPv6 {
+			if p, ok := netipx.FromStdIPNet(conf.IPv6NativeRoutingCIDR.IPNet); ok {
 				result.CIDRs = append(result.CIDRs, p)
 			}
 		}
@@ -511,10 +524,22 @@ func buildENIAllocationResult(
 			}
 		}
 
-		if eni.Subnet.CIDR.IsValid() {
-			// AWS reserves the first subnet IP for the gateway.
-			// Ref: https://docs.aws.amazon.com/vpc/latest/userguide/VPC_Route_Tables.html
-			result.GatewayIP = eni.Subnet.CIDR.Addr().Next()
+		if allocatedAddr.Is4() {
+			if eni.Subnet.CIDR.IsValid() {
+				// AWS reserves the first subnet IP for the gateway.
+				// Ref: https://docs.aws.amazon.com/vpc/latest/userguide/VPC_Route_Tables.html
+				result.GatewayIP = eni.Subnet.CIDR.Addr().Next()
+			}
+		} else {
+			// Unlike IPv4, AWS does not hand out a deterministic IPv6 gateway.
+			// The gateway is a link-local address that AWS advertises via Router
+			// Advertisements. The kernel learns it into the main routing table
+			// for the ENI device.
+			gw, err := discoverIPv6Gateway(eni.MAC)
+			if err != nil {
+				return nil, fmt.Errorf("unable to discover IPv6 gateway for ENI %s: %w", eni.ID, err)
+			}
+			result.GatewayIP = gw
 		}
 		result.InterfaceNumber = strconv.Itoa(eni.Number)
 
