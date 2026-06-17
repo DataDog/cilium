@@ -461,6 +461,56 @@ func configureENINetlinkDevice(link netlink.Link, cfg eniDeviceConfig, sysctl sy
 	return nil
 }
 
+// discoverIPv6Gateway returns the link-local IPv6 gateway for the interface with
+// the given MAC: the nexthop of its ::/0 default route in the main routing
+// table. It is a package-level variable so tests can stub out the netlink
+// lookup.
+var discoverIPv6Gateway = func(ifaceMAC string) (netip.Addr, error) {
+	links, err := safenetlink.LinkList()
+	if err != nil {
+		return netip.Addr{}, fmt.Errorf("unable to list interfaces: %w", err)
+	}
+
+	ifindex := -1
+	for _, l := range links {
+		// Linux slave devices share their master's MAC; we want the master.
+		if l.Attrs().RawFlags&unix.IFF_SLAVE != 0 {
+			continue
+		}
+		if l.Attrs().HardwareAddr.String() == ifaceMAC {
+			ifindex = l.Attrs().Index
+			break
+		}
+	}
+	if ifindex < 0 {
+		return netip.Addr{}, fmt.Errorf("interface with MAC %s not found", ifaceMAC)
+	}
+
+	routes, err := safenetlink.RouteListFiltered(netlink.FAMILY_V6, &netlink.Route{
+		LinkIndex: ifindex,
+		Table:     unix.RT_TABLE_MAIN,
+	}, netlink.RT_FILTER_OIF|netlink.RT_FILTER_TABLE)
+	if err != nil {
+		return netip.Addr{}, fmt.Errorf("unable to list IPv6 routes for ifindex %d: %w", ifindex, err)
+	}
+
+	for _, r := range routes {
+		// The default route has either a nil Dst or an explicit ::/0.
+		if r.Dst != nil {
+			if ones, _ := r.Dst.Mask.Size(); ones != 0 || !r.Dst.IP.IsUnspecified() {
+				continue
+			}
+		}
+		gw, ok := netipx.FromStdIP(r.Gw)
+		if !ok || !gw.IsLinkLocalUnicast() {
+			continue
+		}
+		return gw, nil
+	}
+
+	return netip.Addr{}, fmt.Errorf("no IPv6 default route with a link-local gateway found for MAC %s", ifaceMAC)
+}
+
 // buildENIAllocationResult derives ENI-specific AllocationResult metadata
 // (PrimaryMAC, GatewayIP, VPC CIDRs, InterfaceNumber) by finding which ENI
 // owns the given IP.
@@ -492,8 +542,13 @@ func buildENIAllocationResult(
 		}
 
 		// Add manually configured Native Routing CIDR
-		if conf.IPv4NativeRoutingCIDR != nil {
+		if conf.IPv4NativeRoutingCIDR != nil && conf.EnableIPv4 {
 			if p, ok := netipx.FromStdIPNet(conf.IPv4NativeRoutingCIDR.IPNet); ok {
+				result.CIDRs = append(result.CIDRs, p)
+			}
+		}
+		if conf.IPv6NativeRoutingCIDR != nil && conf.EnableIPv6 {
+			if p, ok := netipx.FromStdIPNet(conf.IPv6NativeRoutingCIDR.IPNet); ok {
 				result.CIDRs = append(result.CIDRs, p)
 			}
 		}
@@ -511,10 +566,22 @@ func buildENIAllocationResult(
 			}
 		}
 
-		if eni.Subnet.CIDR.IsValid() {
-			// AWS reserves the first subnet IP for the gateway.
-			// Ref: https://docs.aws.amazon.com/vpc/latest/userguide/VPC_Route_Tables.html
-			result.GatewayIP = eni.Subnet.CIDR.Addr().Next()
+		if allocatedAddr.Is4() {
+			if eni.Subnet.CIDR.IsValid() {
+				// AWS reserves the first subnet IP for the gateway.
+				// Ref: https://docs.aws.amazon.com/vpc/latest/userguide/VPC_Route_Tables.html
+				result.GatewayIP = eni.Subnet.CIDR.Addr().Next()
+			}
+		} else {
+			// Unlike IPv4, AWS does not hand out a deterministic IPv6 gateway.
+			// The gateway is a link-local address that AWS advertises via Router
+			// Advertisements. The kernel learns it into the main routing table
+			// for the ENI device.
+			gw, err := discoverIPv6Gateway(eni.MAC)
+			if err != nil {
+				return nil, fmt.Errorf("unable to discover IPv6 gateway for ENI %s: %w", eni.ID, err)
+			}
+			result.GatewayIP = gw
 		}
 		result.InterfaceNumber = strconv.Itoa(eni.Number)
 
