@@ -1883,7 +1883,7 @@ func (m *manager) installRules(state desiredState) error {
 	// the IP of a different interface. Please see note in Reinitialize()
 	// in pkg/datapath/loader for more details.
 	if m.sharedCfg.IPAM == ipamOption.IPAMENI || m.sharedCfg.IPAM == ipamOption.IPAMAlibabaCloud {
-		if err := m.addCiliumENIRules(); err != nil {
+		if err := m.addCiliumIPv4ENIRules(); err != nil {
 			return fmt.Errorf("cannot install rules for ENI multi-node NodePort: %w", err)
 		}
 	}
@@ -2116,12 +2116,12 @@ func (m *manager) addNoTrackPodTrafficRules(prog runnable, podsCIDR string) erro
 	return nil
 }
 
-func (m *manager) addCiliumENIRules() error {
+func (m *manager) addCiliumIPv4ENIRules() error {
 	if !m.sharedCfg.EnableIPv4 {
 		return nil
 	}
 
-	iface, err := route.NodeDeviceWithDefaultRoute(m.logger, m.sharedCfg.EnableIPv4, m.sharedCfg.EnableIPv6)
+	iface, err := route.NodeDeviceWithDefaultRoute(m.logger, true, false)
 	if err != nil {
 		return fmt.Errorf("failed to find interface with default route: %w", err)
 	}
