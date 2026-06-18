@@ -183,6 +183,37 @@ func TestMarkForReleaseNoAllocate(t *testing.T) {
 	require.Equal(t, ipamOption.IPAMDoNotRelease, string(cn.Status.IPAM.ReleaseIPs["1.1.1.3"]))
 }
 
+func TestStaticIPStatus(t *testing.T) {
+	conf := testDaemonConfig()
+	initNodeStore.Do(func() {}) // Ensure the real initNodeStore is not called
+	store := newFakeNodeStore(conf, t)
+	ipam := &IPAM{ipv4Allocator: &crdAllocator{store: store}}
+
+	// No node store contents yet: nothing requested.
+	requested, assigned := ipam.StaticIPStatus()
+	require.False(t, requested)
+	require.Empty(t, assigned)
+
+	// Node without static IP tags: nothing requested.
+	cn := newCiliumNode("node1", 0, 0, 0)
+	store.ownNode = cn
+	requested, assigned = ipam.StaticIPStatus()
+	require.False(t, requested)
+	require.Empty(t, assigned)
+
+	// Static IP tags requested but none assigned yet by the operator.
+	cn.Spec.IPAM.StaticIPTags = map[string]string{"env": "prod"}
+	requested, assigned = ipam.StaticIPStatus()
+	require.True(t, requested)
+	require.Empty(t, assigned)
+
+	// Operator has assigned a static IP.
+	cn.Status.IPAM.AssignedStaticIP = "1.2.3.4"
+	requested, assigned = ipam.StaticIPStatus()
+	require.True(t, requested)
+	require.Equal(t, "1.2.3.4", assigned)
+}
+
 type ipMasqMapDummy struct{}
 
 func (m ipMasqMapDummy) Update(netip.Prefix) error { return nil }

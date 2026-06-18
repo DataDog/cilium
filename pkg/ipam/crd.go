@@ -355,6 +355,17 @@ func (n *nodeStore) hasMinimumIPsInPool(localNodeStore *node.LocalNodeStore) (mi
 	return
 }
 
+func (n *nodeStore) staticIPStatus() (requested bool, assigned string) {
+	n.mutex.RLock()
+	defer n.mutex.RUnlock()
+
+	if n.ownNode == nil {
+		return false, ""
+	}
+
+	return len(n.ownNode.Spec.IPAM.StaticIPTags) > 0, n.ownNode.Status.IPAM.AssignedStaticIP
+}
+
 // deleteLocalNodeResource is called when the CiliumNode resource representing
 // the local node has been deleted.
 func (n *nodeStore) deleteLocalNodeResource() {
@@ -923,6 +934,10 @@ func (a *crdAllocator) RestoreFinished() {
 	a.store.restoreCloseOnce.Do(func() {
 		close(a.store.restoreFinished)
 	})
+}
+
+func (a *crdAllocator) staticIPStatus() (requested bool, assigned string) {
+	return a.store.staticIPStatus()
 }
 
 // NewIPNotAvailableInPoolError returns an error representing the given IP not

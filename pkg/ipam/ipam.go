@@ -269,3 +269,12 @@ func PoolOrDefault(pool string) Pool {
 func PoolDefault() Pool {
 	return Pool(option.Config.IPAMDefaultIPPool)
 }
+
+// StaticIPStatus reports whether a static IP was requested for the local node
+// and, if so, the static IP assigned to it by the operator.
+func (ipam *IPAM) StaticIPStatus() (requested bool, assigned string) {
+	if p, ok := ipam.ipv4Allocator.(staticIPStatusProvider); ok {
+		return p.staticIPStatus()
+	}
+	return false, ""
+}

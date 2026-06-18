@@ -600,6 +600,8 @@ func (d *statusCollector) GetStatus(brief bool, requireK8sConnectivity bool) mod
 	ver := version.GetCiliumVersion()
 	ciliumVer := fmt.Sprintf("%s (v%s-%s)", ver.Version, ver.Version, ver.Revision)
 
+	staticIPRequested, assignedStaticIP := d.statusParams.IPAM.StaticIPStatus()
+
 	switch {
 	case !d.allProbesInitialized:
 		sr.Cilium = &models.Status{
@@ -639,6 +641,12 @@ func (d *statusCollector) GetStatus(brief bool, requireK8sConnectivity bool) mod
 		msg := "Could not write CNI config file: " + d.statusResponse.CniFile.Msg
 		sr.Cilium = &models.Status{
 			State: models.StatusStateFailure,
+			Msg:   fmt.Sprintf("%s    %s", ciliumVer, msg),
+		}
+	case staticIPRequested && assignedStaticIP == "":
+		msg := "Waiting for static IP to be assigned to the node"
+		sr.Cilium = &models.Status{
+			State: models.StatusStateWarning,
 			Msg:   fmt.Sprintf("%s    %s", ciliumVer, msg),
 		}
 	default:

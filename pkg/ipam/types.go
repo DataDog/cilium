@@ -94,6 +94,13 @@ type Allocator interface {
 	RestoreFinished()
 }
 
+// staticIPStatusProvider is an optional interface implemented by allocators
+// that can report whether the local node requested a static IP and, if so,
+// which static IP the operator assigned to it.
+type staticIPStatusProvider interface {
+	staticIPStatus() (requested bool, assigned string)
+}
+
 // IPAM is the configuration used for a particular IPAM type.
 type IPAM struct {
 	logger *slog.Logger
