@@ -441,6 +441,14 @@ func (m *multiPoolManager) localNodeUpdated() <-chan struct{} {
 	return m.localNodeUpdate
 }
 
+func (m *multiPoolManager) staticIPStatus() (requested bool, assigned string) {
+	node := m.getNode()
+	if node == nil {
+		return false, ""
+	}
+	return len(node.Spec.IPAM.StaticIPTags) > 0, node.Status.IPAM.AssignedStaticIP
+}
+
 // neededIPCeil rounds up numIPs to the next but one multiple of preAlloc.
 // Example for preAlloc=16:
 //

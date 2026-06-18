@@ -1306,6 +1306,36 @@ func TestAllocateNext_SkipMasquerade(t *testing.T) {
 	require.False(t, res.SkipMasquerade, "SkipMasquerade should default to false")
 }
 
+func TestMultiPoolStaticIPStatus(t *testing.T) {
+	mgr := &multiPoolManager{}
+
+	ipam := &IPAM{ipv4Allocator: &multiPoolAllocator{manager: mgr, family: IPv4}}
+
+	// No local CiliumNode seen yet: nothing requested.
+	requested, assigned := ipam.StaticIPStatus()
+	require.False(t, requested)
+	require.Empty(t, assigned)
+
+	// Node without static IP tags: nothing requested.
+	cn := &ciliumv2.CiliumNode{}
+	mgr.setNode(cn)
+	requested, assigned = ipam.StaticIPStatus()
+	require.False(t, requested)
+	require.Empty(t, assigned)
+
+	// Static IP tags requested but none assigned yet by the operator.
+	cn.Spec.IPAM.StaticIPTags = map[string]string{"env": "prod"}
+	requested, assigned = ipam.StaticIPStatus()
+	require.True(t, requested)
+	require.Empty(t, assigned)
+
+	// Operator has assigned a static IP.
+	cn.Status.IPAM.AssignedStaticIP = "1.2.3.4"
+	requested, assigned = ipam.StaticIPStatus()
+	require.True(t, requested)
+	require.Equal(t, "1.2.3.4", assigned)
+}
+
 func TestMultiPoolManagerUpdatesFirstLastIPSettingsBeforeAllocation(t *testing.T) {
 	logger := hivetest.Logger(t)
 	mgr := &multiPoolManager{

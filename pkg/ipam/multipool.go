@@ -138,6 +138,10 @@ func (c *multiPoolAllocator) RestoreFinished() {
 	c.manager.restoreFinished(c.family)
 }
 
+func (c *multiPoolAllocator) staticIPStatus() (requested bool, assigned string) {
+	return c.manager.staticIPStatus()
+}
+
 func shouldSkipMasqForPool(db *statedb.DB, podIPPools statedb.Table[podippool.LocalPodIPPool], onlyMasqueradeDefaultPool bool) SkipMasqueradeForPoolFn {
 	return func(pool Pool) (bool, error) {
 		// If the flag is set, skip masquerade for all non-default pools
