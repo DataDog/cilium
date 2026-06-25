@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/netip"
+	"slices"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v9"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -223,6 +224,38 @@ func (m *InstancesManager) InstanceSync(ctx context.Context, instanceID string) 
 	m.resyncLock.RLock()
 	defer m.resyncLock.RUnlock()
 	return m.resyncInstance(ctx, instanceID)
+}
+
+// RemoveIPsFromInterface removes the given IPs from the cached interface so the
+// pool reflects the release before the next resync, mirroring AWS RemoveIPsFromENI.
+func (m *InstancesManager) RemoveIPsFromInterface(instanceID, interfaceID string, ips []string) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	iface, ok := m.instances.GetInterface(instanceID, interfaceID)
+	if !ok {
+		// A concurrent resync may have dropped the interface; the next reconciles.
+		m.logger.Warn("Interface not found while removing released IPs from cache",
+			logfields.InstanceID, instanceID,
+			logfields.Interface, interfaceID,
+		)
+		return
+	}
+
+	azIface, ok := iface.DeepCopyInterface().(*types.AzureInterface)
+	if !ok {
+		m.logger.Error("Unexpected interface type while removing released IPs from cache",
+			logfields.InstanceID, instanceID,
+			logfields.Interface, interfaceID,
+		)
+		return
+	}
+
+	release := sets.New[string](ips...)
+	azIface.Addresses = slices.DeleteFunc(azIface.Addresses, func(a types.AzureAddress) bool {
+		return release.Has(a.IP.String())
+	})
+	m.instances.Update(instanceID, azIface)
 }
 
 // DeleteInstance delete instance from m.instances

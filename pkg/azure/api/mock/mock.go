@@ -272,6 +272,21 @@ func (a *API) AssignPrivateIpAddressesVMSS(ctx context.Context, vmName, vmssName
 	return nil
 }
 
+// AllocateSubnetIP marks ip as allocated in the named subnet's allocator.
+func (a *API) AllocateSubnetIP(subnetID, ip string) error {
+	a.mutex.Lock()
+	defer a.mutex.Unlock()
+	s, ok := a.subnets[subnetID]
+	if !ok {
+		return fmt.Errorf("subnet %s does not exist", subnetID)
+	}
+	addr, err := netip.ParseAddr(ip)
+	if err != nil {
+		return err
+	}
+	return s.allocator.Allocate(addr)
+}
+
 // SetPrimaryIPs marks the given identifiers as primary on the named interface,
 // so Unassign* returns *api.PrimaryReleaseError when asked to release them.
 func (a *API) SetPrimaryIPs(interfaceID string, items ...string) {
