@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/cilium/cilium/pkg/api/helpers"
+	azureAPI "github.com/cilium/cilium/pkg/azure/api"
 	"github.com/cilium/cilium/pkg/azure/types"
 	iputil "github.com/cilium/cilium/pkg/ip"
 	"github.com/cilium/cilium/pkg/ipam/service/ipallocator"
@@ -30,6 +31,8 @@ const (
 	ListAllNetworkInterfaces
 	GetSubnetsByIDs
 	AssignPrivateIpAddressesVMSS
+	UnassignPrivateIpAddressesVM
+	UnassignPrivateIpAddressesVMSS
 	MaxOperation
 )
 
@@ -45,14 +48,17 @@ type API struct {
 	errors    map[Operation]error
 	delaySim  *helpers.DelaySimulator
 	limiter   *rate.Limiter
+	// primaryIPs records the identifiers treated as primary, keyed by interface ID.
+	primaryIPs map[string]map[string]struct{}
 }
 
 func NewAPI(subnets []*ipamTypes.Subnet) *API {
 	api := &API{
-		instances: ipamTypes.NewInstanceMap(),
-		subnets:   map[string]*subnet{},
-		errors:    map[Operation]error{},
-		delaySim:  helpers.NewDelaySimulator(),
+		instances:  ipamTypes.NewInstanceMap(),
+		subnets:    map[string]*subnet{},
+		errors:     map[Operation]error{},
+		delaySim:   helpers.NewDelaySimulator(),
+		primaryIPs: map[string]map[string]struct{}{},
 	}
 
 	api.UpdateSubnets(subnets)
@@ -151,6 +157,58 @@ func (a *API) GetSubnetsByIDs(ctx context.Context, nodeSubnetIDs []string) (ipam
 }
 
 func (a *API) AssignPrivateIpAddressesVM(ctx context.Context, subnetID, interfaceName string, addresses int) error {
+	a.rateLimit()
+
+	a.mutex.Lock()
+	defer a.mutex.Unlock()
+
+	foundInterface := false
+	instances := a.instances.DeepCopy()
+	err := instances.ForeachInterface("", func(id, _ string, iface ipamTypes.Interface) error {
+		intf, ok := iface.(*types.AzureInterface)
+		if !ok {
+			return fmt.Errorf("invalid interface object")
+		}
+
+		// Standalone-VM interfaces are not part of a scale set.
+		if intf.Name != interfaceName || intf.GetVMScaleSetName() != "" {
+			return nil
+		}
+
+		if len(intf.Addresses)+addresses > types.InterfaceAddressLimit {
+			return fmt.Errorf("exceeded interface limit")
+		}
+
+		s, ok := a.subnets[subnetID]
+		if !ok {
+			return fmt.Errorf("subnet %s does not exist", subnetID)
+		}
+
+		for range addresses {
+			ip, err := s.allocator.AllocateNext()
+			if err != nil {
+				panic("Unable to allocate IP from allocator")
+			}
+			intf.Addresses = append(intf.Addresses, types.AzureAddress{
+				IP:     iputil.AddrFrom(ip),
+				Subnet: subnetID, //nolint:staticcheck // deprecated mirror; matches parseInterface, see https://github.com/cilium/cilium/issues/46074
+				State:  types.StateSucceeded,
+			})
+		}
+
+		foundInterface = true
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	a.updateInstancesLocked(instances)
+
+	if !foundInterface {
+		return fmt.Errorf("interface %s not found", interfaceName)
+	}
+
 	return nil
 }
 
@@ -212,6 +270,192 @@ func (a *API) AssignPrivateIpAddressesVMSS(ctx context.Context, vmName, vmssName
 	}
 
 	return nil
+}
+
+// SetPrimaryIPs marks the given identifiers as primary on the named interface,
+// so Unassign* returns *api.PrimaryReleaseError when asked to release them.
+func (a *API) SetPrimaryIPs(interfaceID string, items ...string) {
+	a.mutex.Lock()
+	defer a.mutex.Unlock()
+	if a.primaryIPs == nil {
+		a.primaryIPs = map[string]map[string]struct{}{}
+	}
+	set, ok := a.primaryIPs[interfaceID]
+	if !ok {
+		set = map[string]struct{}{}
+		a.primaryIPs[interfaceID] = set
+	}
+	for _, item := range items {
+		set[item] = struct{}{}
+	}
+}
+
+// findPrimaryBlocked returns the subset of items recorded as primary on
+// interfaceID via SetPrimaryIPs. Caller must hold a.mutex.
+func (a *API) findPrimaryBlocked(interfaceID string, items []string) []string {
+	set, ok := a.primaryIPs[interfaceID]
+	if !ok {
+		return nil
+	}
+	var blocked []string
+	for _, item := range items {
+		if _, isPrimary := set[item]; isPrimary {
+			blocked = append(blocked, item)
+		}
+	}
+	return blocked
+}
+
+func (a *API) UnassignPrivateIpAddressesVM(ctx context.Context, interfaceName string, addresses []string) error {
+	a.rateLimit()
+	a.delaySim.Delay(UnassignPrivateIpAddressesVM)
+
+	a.mutex.Lock()
+	defer a.mutex.Unlock()
+
+	if err, ok := a.errors[UnassignPrivateIpAddressesVM]; ok {
+		return err
+	}
+	if len(addresses) == 0 {
+		return nil
+	}
+
+	if blocked := a.findPrimaryBlocked(interfaceName, addresses); len(blocked) > 0 {
+		return &azureAPI.PrimaryReleaseError{InterfaceName: interfaceName, Items: blocked}
+	}
+
+	releaseSet := make(map[string]struct{}, len(addresses))
+	for _, ip := range addresses {
+		releaseSet[ip] = struct{}{}
+	}
+
+	instances := a.instances.DeepCopy()
+	foundInterface := false
+	err := instances.ForeachInterface("", func(_, _ string, iface ipamTypes.Interface) error {
+		intf, ok := iface.(*types.AzureInterface)
+		if !ok {
+			return fmt.Errorf("invalid interface object")
+		}
+		if intf.Name != interfaceName || intf.GetVMScaleSetName() != "" {
+			return nil
+		}
+		foundInterface = true
+		intf.Addresses = a.dropAddressesByIP(intf, releaseSet)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if !foundInterface {
+		return fmt.Errorf("interface %s not found", interfaceName)
+	}
+
+	a.updateInstancesLocked(instances)
+	return nil
+}
+
+func (a *API) UnassignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, interfaceName string, ipConfigNames []string) error {
+	a.rateLimit()
+	a.delaySim.Delay(UnassignPrivateIpAddressesVMSS)
+
+	a.mutex.Lock()
+	defer a.mutex.Unlock()
+
+	if err, ok := a.errors[UnassignPrivateIpAddressesVMSS]; ok {
+		return err
+	}
+	if len(ipConfigNames) == 0 {
+		return nil
+	}
+
+	releaseNames := make(map[string]struct{}, len(ipConfigNames))
+	for _, name := range ipConfigNames {
+		releaseNames[name] = struct{}{}
+	}
+
+	// Run the primary guard before mutating: dropAddressesByIPConfigName frees
+	// IPs to the shared allocator, which a fail-closed return would not undo.
+	var ifaceID string
+	foundInterface := false
+	a.instances.ForeachInterface("", func(_, _ string, iface ipamTypes.Interface) error {
+		intf, ok := iface.(*types.AzureInterface)
+		if !ok {
+			return nil
+		}
+		if intf.Name != interfaceName || intf.GetVMID() != instanceID || intf.GetVMScaleSetName() != vmssName {
+			return nil
+		}
+		foundInterface = true
+		ifaceID = intf.ID
+		return nil
+	})
+	if !foundInterface {
+		return fmt.Errorf("interface %s not found on VM %s in VMSS %s", interfaceName, instanceID, vmssName)
+	}
+
+	if blocked := a.findPrimaryBlocked(ifaceID, ipConfigNames); len(blocked) > 0 {
+		return &azureAPI.PrimaryReleaseError{InterfaceName: interfaceName, Items: blocked}
+	}
+
+	instances := a.instances.DeepCopy()
+	err := instances.ForeachInterface("", func(_, _ string, iface ipamTypes.Interface) error {
+		intf, ok := iface.(*types.AzureInterface)
+		if !ok {
+			return fmt.Errorf("invalid interface object")
+		}
+		if intf.Name != interfaceName || intf.GetVMID() != instanceID || intf.GetVMScaleSetName() != vmssName {
+			return nil
+		}
+		intf.Addresses = a.dropAddressesByIPConfigName(intf, releaseNames)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	a.updateInstancesLocked(instances)
+	return nil
+}
+
+// dropAddressesByIP removes addresses in releaseSet, freeing their IPs.
+// Caller must hold a.mutex.
+func (a *API) dropAddressesByIP(intf *types.AzureInterface, releaseSet map[string]struct{}) []types.AzureAddress {
+	kept := make([]types.AzureAddress, 0, len(intf.Addresses))
+	for _, addr := range intf.Addresses {
+		if _, drop := releaseSet[addr.IP.String()]; drop {
+			a.releaseToSubnetAllocator(addr)
+			continue
+		}
+		kept = append(kept, addr)
+	}
+	return kept
+}
+
+// dropAddressesByIPConfigName removes addresses whose IPConfigName is in
+// releaseNames, freeing their IPs. Caller must hold a.mutex.
+func (a *API) dropAddressesByIPConfigName(intf *types.AzureInterface, releaseNames map[string]struct{}) []types.AzureAddress {
+	kept := make([]types.AzureAddress, 0, len(intf.Addresses))
+	for _, addr := range intf.Addresses {
+		if _, drop := releaseNames[addr.IPConfigName()]; drop {
+			a.releaseToSubnetAllocator(addr)
+			continue
+		}
+		kept = append(kept, addr)
+	}
+	return kept
+}
+
+// releaseToSubnetAllocator returns addr.IP to the subnet allocator if known.
+// Caller must hold a.mutex.
+func (a *API) releaseToSubnetAllocator(addr types.AzureAddress) {
+	s, ok := a.subnets[addr.Subnet]
+	if !ok {
+		return
+	}
+	if !addr.IP.Addr.IsValid() {
+		return
+	}
+	s.allocator.Release(addr.IP.Addr)
 }
 
 func (a *API) AssignPublicIPAddressesVMSS(ctx context.Context, instanceID, vmssName string, publicIpTags ipamTypes.Tags) (netip.Addr, error) {
