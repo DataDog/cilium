@@ -359,6 +359,9 @@ func TestBuildENIAllocationResultPrefixDelegation(t *testing.T) {
 				"10.1.1.0/28",
 				"10.1.1.16/28",
 			),
+			IPv6Prefixes: prefixes(
+				"2600:1f18:41eb:8807:2754::/80",
+			),
 			Number: 1,
 			Subnet: awsTypes.AwsSubnet{
 				CIDR: iputil.PrefixFrom(netip.MustParsePrefix("10.1.1.0/24")),
@@ -388,6 +391,14 @@ func TestBuildENIAllocationResultPrefixDelegation(t *testing.T) {
 	t.Run("IP outside all prefixes", func(t *testing.T) {
 		_, err := buildENIAllocationResult(logger, netip.MustParseAddr("10.1.1.32"), "", node.Status.ENI.ENIs, conf, nil)
 		require.Error(t, err)
+	})
+
+	t.Run("IP in IPv6 prefix", func(t *testing.T) {
+		result, err := buildENIAllocationResult(logger, netip.MustParseAddr("2600:1f18:41eb:8807:2754::b0c0"), "", node.Status.ENI.ENIs, conf, nil)
+		require.NoError(t, err)
+		require.Equal(t, "aa:bb:cc:dd:ee:01", result.PrimaryMAC)
+		require.Equal(t, "1", result.InterfaceNumber)
+		require.Equal(t, netip.MustParseAddr("fe80:ec2::1"), result.GatewayIP)
 	})
 }
 
