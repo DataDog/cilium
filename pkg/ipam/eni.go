@@ -701,9 +701,7 @@ type ENIMultiPoolAllocatorParams struct {
 }
 
 func newENIMultiPoolAllocators(p ENIMultiPoolAllocatorParams) (Allocator, Allocator) {
-	preallocMap := preAllocatePerPool{
-		Pool(defaults.IPAMDefaultIPPool): defaults.IPAMPreAllocation,
-	}
+	preallocMap := preAllocatePerPool{}
 
 	mgr := newMultiPoolManager(MultiPoolManagerParams{
 		Logger:               p.Logger,
