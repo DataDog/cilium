@@ -176,6 +176,76 @@ func TestParseInterface(t *testing.T) {
 	}
 }
 
+// TestParseInterfaceIPConfigName verifies parseInterface records the
+// IPConfiguration name on each address.
+func TestParseInterfaceIPConfigName(t *testing.T) {
+	ifaceID := "/subscriptions/xxx/resourceGroups/rg/providers/Microsoft.Network/networkInterfaces/nic1"
+	subnetID := "/subscriptions/xxx/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/subnet1"
+
+	cfg := func(name, ip string, primary bool) *armnetwork.InterfaceIPConfiguration {
+		return &armnetwork.InterfaceIPConfiguration{
+			Name: new(name),
+			Properties: &armnetwork.InterfaceIPConfigurationPropertiesFormat{
+				PrivateIPAddress:  new(ip),
+				Primary:           new(primary),
+				ProvisioningState: new(armnetwork.ProvisioningStateSucceeded),
+				Subnet:            &armnetwork.Subnet{ID: new(subnetID)},
+			},
+		}
+	}
+	iface := &armnetwork.Interface{
+		ID: new(ifaceID),
+		Properties: &armnetwork.InterfacePropertiesFormat{
+			IPConfigurations: []*armnetwork.InterfaceIPConfiguration{
+				cfg("pods", "10.0.0.4", true),
+				cfg("pod-01", "10.0.0.5", false),
+				cfg("pod-02", "10.0.0.6", false),
+			},
+		},
+	}
+
+	// usePrimary=true so the primary address is also exposed and carries its name.
+	_, got := parseInterface(hivetest.Logger(t), iface, ipamTypes.SubnetMap{}, true)
+	require.NotNil(t, got)
+
+	byIP := make(map[string]string, len(got.Addresses))
+	for _, a := range got.Addresses {
+		byIP[a.IP.String()] = a.IPConfigName()
+	}
+	require.Equal(t, "pods", byIP["10.0.0.4"])
+	require.Equal(t, "pod-01", byIP["10.0.0.5"])
+	require.Equal(t, "pod-02", byIP["10.0.0.6"])
+}
+
+// TestParseInterfaceDeepEqualIgnoresIPConfigName verifies ipConfigName is
+// excluded from DeepEqual, so a changed name never triggers a status update.
+func TestParseInterfaceDeepEqualIgnoresIPConfigName(t *testing.T) {
+	ifaceID := "/subscriptions/xxx/resourceGroups/rg/providers/Microsoft.Network/networkInterfaces/nic1"
+	mk := func(ipConfigName string) *armnetwork.Interface {
+		return &armnetwork.Interface{
+			ID: new(ifaceID),
+			Properties: &armnetwork.InterfacePropertiesFormat{
+				IPConfigurations: []*armnetwork.InterfaceIPConfiguration{
+					{
+						Name: new(ipConfigName),
+						Properties: &armnetwork.InterfaceIPConfigurationPropertiesFormat{
+							PrivateIPAddress:  new("10.0.0.5"),
+							Primary:           new(false),
+							ProvisioningState: new(armnetwork.ProvisioningStateSucceeded),
+						},
+					},
+				},
+			},
+		}
+	}
+
+	_, a := parseInterface(hivetest.Logger(t), mk("pod-01"), ipamTypes.SubnetMap{}, false)
+	_, b := parseInterface(hivetest.Logger(t), mk("pod-renamed"), ipamTypes.SubnetMap{}, false)
+	require.Equal(t, "pod-01", a.Addresses[0].IPConfigName())
+	require.Equal(t, "pod-renamed", b.Addresses[0].IPConfigName())
+	require.True(t, a.DeepEqual(b), "ipConfigName must be excluded from DeepEqual to avoid status churn")
+}
+
 func TestAvailableIPs(t *testing.T) {
 	cidr := netip.MustParsePrefix("10.0.0.0/8")
 	require.Equal(t, 16777216, availableIPs(cidr))
@@ -390,4 +460,146 @@ func TestParseSubnetID(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDropMatchingIPConfigsVM(t *testing.T) {
+	primary := func(ip string) *armnetwork.InterfaceIPConfiguration {
+		return &armnetwork.InterfaceIPConfiguration{
+			Name: new("primary-cfg"),
+			Properties: &armnetwork.InterfaceIPConfigurationPropertiesFormat{
+				PrivateIPAddress: new(ip),
+				Primary:          new(true),
+			},
+		}
+	}
+	secondary := func(name, ip string) *armnetwork.InterfaceIPConfiguration {
+		return &armnetwork.InterfaceIPConfiguration{
+			Name: new(name),
+			Properties: &armnetwork.InterfaceIPConfigurationPropertiesFormat{
+				PrivateIPAddress: new(ip),
+				Primary:          new(false),
+			},
+		}
+	}
+
+	t.Run("drops requested non-primary IPs only", func(t *testing.T) {
+		input := []*armnetwork.InterfaceIPConfiguration{
+			primary("10.0.0.1"),
+			secondary("a", "10.0.0.2"),
+			secondary("b", "10.0.0.3"),
+			secondary("c", "10.0.0.4"),
+		}
+		releaseSet := map[string]struct{}{"10.0.0.2": {}, "10.0.0.4": {}}
+		kept, dropped, blocked := dropMatchingIPConfigsVM(input, releaseSet)
+		require.Equal(t, 2, dropped)
+		require.Empty(t, blocked)
+		require.Len(t, kept, 2)
+		require.Equal(t, "10.0.0.1", *kept[0].Properties.PrivateIPAddress)
+		require.Equal(t, "10.0.0.3", *kept[1].Properties.PrivateIPAddress)
+	})
+
+	t.Run("primary in release set is reported and retained", func(t *testing.T) {
+		input := []*armnetwork.InterfaceIPConfiguration{
+			primary("10.0.0.1"),
+			secondary("a", "10.0.0.2"),
+		}
+		releaseSet := map[string]struct{}{"10.0.0.1": {}, "10.0.0.2": {}}
+		kept, dropped, blocked := dropMatchingIPConfigsVM(input, releaseSet)
+		require.Equal(t, []string{"10.0.0.1"}, blocked)
+		require.Equal(t, 1, dropped)
+		require.Len(t, kept, 1)
+		require.Equal(t, "10.0.0.1", *kept[0].Properties.PrivateIPAddress)
+	})
+
+	t.Run("no overlap drops nothing", func(t *testing.T) {
+		input := []*armnetwork.InterfaceIPConfiguration{
+			primary("10.0.0.1"),
+			secondary("a", "10.0.0.2"),
+		}
+		releaseSet := map[string]struct{}{"10.0.0.99": {}}
+		kept, dropped, blocked := dropMatchingIPConfigsVM(input, releaseSet)
+		require.Equal(t, 0, dropped)
+		require.Empty(t, blocked)
+		require.Len(t, kept, 2)
+	})
+
+	t.Run("nil properties retained", func(t *testing.T) {
+		input := []*armnetwork.InterfaceIPConfiguration{
+			{Name: new("nilprops")},
+			secondary("a", "10.0.0.2"),
+		}
+		releaseSet := map[string]struct{}{"10.0.0.2": {}}
+		kept, dropped, blocked := dropMatchingIPConfigsVM(input, releaseSet)
+		require.Equal(t, 1, dropped)
+		require.Empty(t, blocked)
+		require.Len(t, kept, 1)
+		require.Equal(t, "nilprops", *kept[0].Name)
+	})
+}
+
+func TestDropMatchingIPConfigsVMSS(t *testing.T) {
+	primary := func(name string) *armcompute.VirtualMachineScaleSetIPConfiguration {
+		return &armcompute.VirtualMachineScaleSetIPConfiguration{
+			Name: new(name),
+			Properties: &armcompute.VirtualMachineScaleSetIPConfigurationProperties{
+				Primary: new(true),
+			},
+		}
+	}
+	secondary := func(name string) *armcompute.VirtualMachineScaleSetIPConfiguration {
+		return &armcompute.VirtualMachineScaleSetIPConfiguration{
+			Name: new(name),
+			Properties: &armcompute.VirtualMachineScaleSetIPConfigurationProperties{
+				Primary: new(false),
+			},
+		}
+	}
+
+	t.Run("drops requested non-primary names only", func(t *testing.T) {
+		input := []*armcompute.VirtualMachineScaleSetIPConfiguration{
+			primary("pods"),
+			secondary("pod-01"),
+			secondary("pod-02"),
+			secondary("pod-03"),
+		}
+		releaseNames := map[string]struct{}{"pod-01": {}, "pod-03": {}}
+		kept, dropped, blocked := dropMatchingIPConfigsVMSS(input, releaseNames)
+		require.Equal(t, 2, dropped)
+		require.Empty(t, blocked)
+		require.Len(t, kept, 2)
+		require.Equal(t, "pods", *kept[0].Name)
+		require.Equal(t, "pod-02", *kept[1].Name)
+	})
+
+	t.Run("primary name in release set is reported and retained", func(t *testing.T) {
+		input := []*armcompute.VirtualMachineScaleSetIPConfiguration{
+			primary("pods"),
+			secondary("pod-01"),
+		}
+		releaseNames := map[string]struct{}{"pods": {}, "pod-01": {}}
+		kept, dropped, blocked := dropMatchingIPConfigsVMSS(input, releaseNames)
+		require.Equal(t, []string{"pods"}, blocked)
+		require.Equal(t, 1, dropped)
+		require.Len(t, kept, 1)
+		require.Equal(t, "pods", *kept[0].Name)
+	})
+
+	t.Run("nil name retained", func(t *testing.T) {
+		input := []*armcompute.VirtualMachineScaleSetIPConfiguration{
+			{},
+			secondary("pod-01"),
+		}
+		releaseNames := map[string]struct{}{"pod-01": {}}
+		kept, dropped, blocked := dropMatchingIPConfigsVMSS(input, releaseNames)
+		require.Equal(t, 1, dropped)
+		require.Empty(t, blocked)
+		require.Len(t, kept, 1)
+		require.Nil(t, kept[0].Name)
+	})
+}
+
+func TestPrimaryReleaseError(t *testing.T) {
+	err := &PrimaryReleaseError{InterfaceName: "pods", Items: []string{"pods", "pod-99"}}
+	require.Contains(t, err.Error(), "pods")
+	require.Contains(t, err.Error(), "pod-99")
 }

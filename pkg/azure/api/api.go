@@ -380,6 +380,9 @@ func parseInterface(logger *slog.Logger, iface *armnetwork.Interface, subnets ip
 				IP:    iputil.AddrFrom(parsedIP),
 				State: strings.ToLower(string(*ip.Properties.ProvisioningState)),
 			}
+			if ip.Name != nil {
+				addr.SetIPConfigName(*ip.Name)
+			}
 			if ip.Properties.Subnet != nil {
 				addr.Subnet = *ip.Properties.Subnet.ID //nolint:staticcheck // transitional, see https://github.com/cilium/cilium/issues/46074
 			}
@@ -837,6 +840,215 @@ func (c *Client) getVMPublicIP(ctx context.Context, publicIPRef *armnetwork.Publ
 		return netip.Addr{}, fmt.Errorf("failed to parse public IP %q for %s: %w", *pip.Properties.IPAddress, resourceID.Name, err)
 	}
 	return addr, nil
+}
+
+// PrimaryReleaseError is returned by the Unassign* methods when a release set
+// would drop a primary IPConfiguration. Azure rejects such an update and fails
+// the whole batch, so the methods refuse pre-flight without mutating the NIC.
+type PrimaryReleaseError struct {
+	// InterfaceName is the NIC the primary IPConfiguration belongs to.
+	InterfaceName string
+	// Items holds the offending IPs (VM path) or IPConfiguration names (VMSS path).
+	Items []string
+}
+
+func (e *PrimaryReleaseError) Error() string {
+	return fmt.Sprintf("interface %s: refusing to release primary IPConfiguration(s) %v", e.InterfaceName, e.Items)
+}
+
+// dropMatchingIPConfigsVM splits ipConfigs by whether their IP is in releaseSet.
+// Requested primaries are kept and reported via primaryBlocked, never dropped.
+func dropMatchingIPConfigsVM(
+	ipConfigs []*armnetwork.InterfaceIPConfiguration,
+	releaseSet map[string]struct{},
+) (kept []*armnetwork.InterfaceIPConfiguration, dropped int, primaryBlocked []string) {
+	kept = make([]*armnetwork.InterfaceIPConfiguration, 0, len(ipConfigs))
+	for _, c := range ipConfigs {
+		if c == nil || c.Properties == nil || c.Properties.PrivateIPAddress == nil {
+			kept = append(kept, c)
+			continue
+		}
+		ip := *c.Properties.PrivateIPAddress
+		_, requested := releaseSet[ip]
+		isPrimary := c.Properties.Primary != nil && *c.Properties.Primary
+		switch {
+		case requested && isPrimary:
+			primaryBlocked = append(primaryBlocked, ip)
+			kept = append(kept, c)
+		case requested:
+			dropped++
+		default:
+			kept = append(kept, c)
+		}
+	}
+	return
+}
+
+// dropMatchingIPConfigsVMSS is like dropMatchingIPConfigsVM but matches by
+// IPConfiguration name, as the VMSS compute model does not carry the IP.
+func dropMatchingIPConfigsVMSS(
+	ipConfigs []*armcompute.VirtualMachineScaleSetIPConfiguration,
+	releaseNames map[string]struct{},
+) (kept []*armcompute.VirtualMachineScaleSetIPConfiguration, dropped int, primaryBlocked []string) {
+	kept = make([]*armcompute.VirtualMachineScaleSetIPConfiguration, 0, len(ipConfigs))
+	for _, c := range ipConfigs {
+		if c == nil || c.Name == nil {
+			kept = append(kept, c)
+			continue
+		}
+		name := *c.Name
+		_, requested := releaseNames[name]
+		isPrimary := c.Properties != nil && c.Properties.Primary != nil && *c.Properties.Primary
+		switch {
+		case requested && isPrimary:
+			primaryBlocked = append(primaryBlocked, name)
+			kept = append(kept, c)
+		case requested:
+			dropped++
+		default:
+			kept = append(kept, c)
+		}
+	}
+	return
+}
+
+// UnassignPrivateIpAddressesVM releases the given IPs from the named NIC of a
+// standalone VM, returning *PrimaryReleaseError if any IP backs the primary.
+func (c *Client) UnassignPrivateIpAddressesVM(ctx context.Context, interfaceName string, addresses []string) error {
+	if len(addresses) == 0 {
+		return nil
+	}
+
+	c.limiter.Limit(ctx, interfacesGet)
+	sinceStart := spanstat.Start()
+
+	iface, err := c.interfaces.Get(ctx, c.resourceGroup, interfaceName, nil)
+
+	c.metricsAPI.ObserveAPICall(interfacesGet, deriveStatus(err), sinceStart.Seconds())
+	if err != nil {
+		return fmt.Errorf("failed to get standalone instance's interface %s: %w", interfaceName, err)
+	}
+
+	releaseSet := make(map[string]struct{}, len(addresses))
+	for _, ip := range addresses {
+		releaseSet[ip] = struct{}{}
+	}
+
+	kept, dropped, primaryBlocked := dropMatchingIPConfigsVM(iface.Properties.IPConfigurations, releaseSet)
+	if len(primaryBlocked) > 0 {
+		return &PrimaryReleaseError{InterfaceName: interfaceName, Items: primaryBlocked}
+	}
+	if dropped < len(addresses) {
+		// Requested IPs no longer on the NIC: likely a stale cache, harmless.
+		c.logger.Debug("Some requested IPs were not present on the interface during release",
+			logfields.Interface, interfaceName,
+			logfields.IPAddrs, addresses,
+		)
+	}
+	if dropped == 0 {
+		return nil
+	}
+	iface.Properties.IPConfigurations = kept
+
+	c.limiter.Limit(ctx, interfacesCreateOrUpdate)
+	sinceStart = spanstat.Start()
+
+	poller, err := c.interfaces.BeginCreateOrUpdate(ctx, c.resourceGroup, interfaceName, iface.Interface, nil)
+
+	defer func() {
+		c.metricsAPI.ObserveAPICall(interfacesCreateOrUpdate, deriveStatus(err), sinceStart.Seconds())
+	}()
+	if err != nil {
+		return fmt.Errorf("unable to update interface %s: %w", interfaceName, err)
+	}
+
+	// Assign to the outer err so the deferred metric records poll failures.
+	if _, err = poller.PollUntilDone(ctx, nil); err != nil {
+		return fmt.Errorf("error while waiting for interface CreateOrUpdate to complete for %s: %w", interfaceName, err)
+	}
+
+	return nil
+}
+
+// UnassignPrivateIpAddressesVMSS releases the named IPConfigurations from the
+// NIC of a VMSS instance, returning *PrimaryReleaseError if any is the primary.
+func (c *Client) UnassignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, interfaceName string, ipConfigNames []string) error {
+	if len(ipConfigNames) == 0 {
+		return nil
+	}
+
+	vmssGetOptions := &armcompute.VirtualMachineScaleSetVMsClientGetOptions{
+		Expand: new(armcompute.InstanceViewTypesInstanceView),
+	}
+
+	c.limiter.Limit(ctx, virtualMachineScaleSetVMsGet)
+	sinceStart := spanstat.Start()
+
+	result, err := c.virtualMachineScaleSetVMs.Get(ctx, c.resourceGroup, vmssName, instanceID, vmssGetOptions)
+
+	c.metricsAPI.ObserveAPICall(virtualMachineScaleSetVMsGet, deriveStatus(err), sinceStart.Seconds())
+	if err != nil {
+		return fmt.Errorf("failed to get VM %s from VMSS %s: %w", instanceID, vmssName, err)
+	}
+
+	var netIfConfig *armcompute.VirtualMachineScaleSetNetworkConfiguration
+	if result.Properties.NetworkProfileConfiguration != nil {
+		for _, nic := range result.Properties.NetworkProfileConfiguration.NetworkInterfaceConfigurations {
+			if nic.Name != nil && *nic.Name == interfaceName {
+				netIfConfig = nic
+				break
+			}
+		}
+	}
+	if netIfConfig == nil {
+		return fmt.Errorf("interface %s does not exist in VM %s", interfaceName, instanceID)
+	}
+
+	releaseNames := make(map[string]struct{}, len(ipConfigNames))
+	for _, name := range ipConfigNames {
+		releaseNames[name] = struct{}{}
+	}
+
+	kept, dropped, primaryBlocked := dropMatchingIPConfigsVMSS(netIfConfig.Properties.IPConfigurations, releaseNames)
+	if len(primaryBlocked) > 0 {
+		return &PrimaryReleaseError{InterfaceName: interfaceName, Items: primaryBlocked}
+	}
+	if dropped < len(ipConfigNames) {
+		// Requested IPConfigs no longer on the NIC: likely a stale cache, harmless.
+		c.logger.Debug("Some requested IPConfigurations were not present on the interface during release",
+			logfields.Interface, interfaceName,
+			logfields.IPAddrs, ipConfigNames,
+		)
+	}
+	if dropped == 0 {
+		return nil
+	}
+	netIfConfig.Properties.IPConfigurations = kept
+
+	// Unset imageReference to avoid a permissions error on update, as in
+	// AssignPrivateIpAddressesVMSS. See https://github.com/Azure/AKS/issues/1819.
+	if result.Properties.StorageProfile != nil {
+		result.Properties.StorageProfile.ImageReference = nil
+	}
+
+	c.limiter.Limit(ctx, virtualMachineScaleSetVMsUpdate)
+	sinceStart = spanstat.Start()
+
+	poller, err := c.virtualMachineScaleSetVMs.BeginUpdate(ctx, c.resourceGroup, vmssName, instanceID, result.VirtualMachineScaleSetVM, nil)
+
+	defer func() {
+		c.metricsAPI.ObserveAPICall(virtualMachineScaleSetVMsUpdate, deriveStatus(err), sinceStart.Seconds())
+	}()
+	if err != nil {
+		return fmt.Errorf("unable to update virtualMachineScaleSetVMs: %w", err)
+	}
+
+	// Assign to the outer err so the deferred metric records poll failures.
+	if _, err = poller.PollUntilDone(ctx, nil); err != nil {
+		return fmt.Errorf("error while waiting for virtualMachineScaleSetVMs Update to complete: %w", err)
+	}
+
+	return nil
 }
 
 // AssignPublicIPAddressesVMSS assigns a public IP to a VMSS instance.

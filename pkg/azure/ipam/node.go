@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"slices"
+	"strings"
 
 	"github.com/cilium/cilium/operator/pkg/ipam/nodemanager"
 	"github.com/cilium/cilium/operator/pkg/ipam/stats"
@@ -58,9 +60,62 @@ func (n *Node) PopulateStatusFields(k8sObj *v2.CiliumNode) {
 	})
 }
 
-// PrepareIPRelease prepares the release of IPs
+// PrepareIPRelease selects up to excessIPs free IPv4 addresses from the
+// interface with the most releasable IPs. Interfaces are sorted by ID so the
+// selection is deterministic across runs (matching the AWS path).
 func (n *Node) PrepareIPRelease(excessIPs int, scopedLog *slog.Logger) *nodemanager.ReleaseAction {
-	return &nodemanager.ReleaseAction{}
+	r := &nodemanager.ReleaseAction{}
+	requiredIfaceName := n.k8sObj.Spec.Azure.InterfaceName
+	usedIPs := n.k8sObj.Status.IPAM.Used
+
+	n.manager.mutex.RLock()
+	defer n.manager.mutex.RUnlock()
+
+	var ifaces []*types.AzureInterface
+	err := n.manager.instances.ForeachInterface(n.node.InstanceID(),
+		func(_, _ string, ifaceObj ipamTypes.Interface) error {
+			iface, ok := ifaceObj.(*types.AzureInterface)
+			if !ok {
+				return fmt.Errorf("invalid interface object")
+			}
+			if requiredIfaceName != "" && iface.Name != requiredIfaceName {
+				return nil
+			}
+			ifaces = append(ifaces, iface)
+			return nil
+		})
+	if err != nil {
+		scopedLog.Warn(
+			"Unable to enumerate interfaces while preparing IP release",
+			logfields.InstanceID, n.node.InstanceID(),
+			logfields.Error, err,
+		)
+		return r
+	}
+	slices.SortFunc(ifaces, func(a, b *types.AzureInterface) int {
+		return strings.Compare(a.ID, b.ID)
+	})
+
+	for _, iface := range ifaces {
+		free := freeIPsOnInterface(iface, usedIPs)
+		if len(free) == 0 {
+			continue
+		}
+		maxRelease := min(len(free), excessIPs)
+		// Select the interface with the most addresses available for release.
+		if r.IPsToRelease == nil || maxRelease > len(r.IPsToRelease) {
+			r.InterfaceID = iface.ID
+			r.PoolID = ipamTypes.PoolID(iface.Subnet.ID)
+			r.IPsToRelease = free[:maxRelease]
+			scopedLog.Debug(
+				"Interface has unused IPs that can be released",
+				logfields.ID, iface.ID,
+				logfields.ExcessIPs, excessIPs,
+				logfields.IPAddrs, r.IPsToRelease,
+			)
+		}
+	}
+	return r
 }
 
 // ReleaseIPPrefixes is a no-op on Azure since Azure ENIs don't
@@ -70,9 +125,96 @@ func (n *Node) ReleaseIPPrefixes(ctx context.Context, r *nodemanager.ReleaseActi
 	return nil
 }
 
-// ReleaseIPs performs the IP release operation
+// ReleaseIPs releases r.IPsToRelease: VM NICs take IPs directly, VMSS NICs need
+// them translated to IPConfiguration names. On success the IPs are dropped from
+// the cached interface so the pool reflects the release before the next resync.
 func (n *Node) ReleaseIPs(ctx context.Context, r *nodemanager.ReleaseAction) error {
-	return fmt.Errorf("not implemented")
+	if len(r.IPsToRelease) == 0 {
+		return nil
+	}
+
+	iface, err := n.findInterface(r.InterfaceID)
+	if err != nil {
+		return err
+	}
+
+	if iface.GetVMScaleSetName() == "" {
+		if err := n.manager.api.UnassignPrivateIpAddressesVM(ctx, iface.Name, r.IPsToRelease); err != nil {
+			return err
+		}
+	} else {
+		names, missing := ipsToConfigNames(iface, r.IPsToRelease)
+		if len(missing) > 0 {
+			return fmt.Errorf("interface %s: missing IPConfiguration name mapping for IPs %v (cache out of sync, will retry after next resync)", iface.Name, missing)
+		}
+		if err := n.manager.api.UnassignPrivateIpAddressesVMSS(ctx, iface.GetVMID(), iface.GetVMScaleSetName(), iface.Name, names); err != nil {
+			return err
+		}
+	}
+
+	n.manager.RemoveIPsFromInterface(n.node.InstanceID(), r.InterfaceID, r.IPsToRelease)
+	return nil
+}
+
+// freeIPsOnInterface returns the releasable IPv4 addresses on iface (Succeeded,
+// non-primary, unused), sorted so truncation to excessIPs is deterministic.
+func freeIPsOnInterface(iface *types.AzureInterface, used ipamTypes.AllocationMap) []string {
+	free := make([]string, 0, len(iface.Addresses))
+	for _, a := range iface.Addresses {
+		if a.State != types.StateSucceeded {
+			continue
+		}
+		// Release is IPv4-only.
+		if !a.IP.Addr.Is4() {
+			continue
+		}
+		// Never release the primary IPConfiguration.
+		if a.IP == iface.IP {
+			continue
+		}
+		ip := a.IP.String()
+		if _, inUse := used[ip]; inUse {
+			continue
+		}
+		free = append(free, ip)
+	}
+	slices.Sort(free)
+	return free
+}
+
+// findInterface returns a copy of the AzureInterface with the given ID, safe to
+// read without holding the manager mutex.
+func (n *Node) findInterface(interfaceID string) (*types.AzureInterface, error) {
+	n.manager.mutex.RLock()
+	defer n.manager.mutex.RUnlock()
+	iface, ok := n.manager.instances.GetInterface(n.node.InstanceID(), interfaceID)
+	if !ok {
+		return nil, fmt.Errorf("interface %s not found on instance %s", interfaceID, n.node.InstanceID())
+	}
+	azIface, ok := iface.DeepCopyInterface().(*types.AzureInterface)
+	if !ok {
+		return nil, fmt.Errorf("interface %s on instance %s has unexpected type", interfaceID, n.node.InstanceID())
+	}
+	return azIface, nil
+}
+
+// ipsToConfigNames maps each IP in ips to its IPConfiguration name on iface.
+// IPs without a known mapping are returned in missing.
+func ipsToConfigNames(iface *types.AzureInterface, ips []string) (names, missing []string) {
+	byIP := make(map[string]string, len(iface.Addresses))
+	for _, a := range iface.Addresses {
+		if name := a.IPConfigName(); name != "" {
+			byIP[a.IP.String()] = name
+		}
+	}
+	for _, ip := range ips {
+		if name, ok := byIP[ip]; ok {
+			names = append(names, name)
+		} else {
+			missing = append(missing, ip)
+		}
+	}
+	return
 }
 
 // PrepareIPAllocation returns the number of IPs that can be allocated/created.
