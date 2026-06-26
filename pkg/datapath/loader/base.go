@@ -135,10 +135,33 @@ func addIPv4ENIRules(logger *slog.Logger, sysSettings []tables.Sysctl) ([]tables
 		Table:    route.MainTable,
 		Protocol: linux_defaults.RTProto,
 	}); err != nil {
-		return nil, fmt.Errorf("unable to install ip rule for ENI multi-node NodePort: %w", err)
+		return nil, fmt.Errorf("unable to install IPv4 rule for ENI multi-node NodePort: %w", err)
 	}
 
 	return retSettings, nil
+}
+
+func addIPv6ENIRules() error {
+	// AWS ENI mode requires symmetric routing, see addIPv4ENIRules() and
+	// iptables.addCiliumENIRules() for details.
+	//
+	// Note there is no IPv6 counterpart to net.ipv4.conf.<iface>.rp_filter,
+	// so unlike addIPv4ENIRules() there is no sysctl to set here.
+	if !option.Config.EnableIPv6 {
+		return nil
+	}
+
+	if err := route.ReplaceRuleIPv6(route.Rule{
+		Priority: linux_defaults.RulePriorityNodeport,
+		Mark:     linux_defaults.MarkMultinodeNodeport,
+		Mask:     linux_defaults.MaskMultinodeNodeport,
+		Table:    route.MainTable,
+		Protocol: linux_defaults.RTProto,
+	}); err != nil {
+		return fmt.Errorf("unable to install IPv6 rule for ENI multi-node NodePort: %w", err)
+	}
+
+	return nil
 }
 
 func cleanIngressQdisc(logger *slog.Logger, devices []string) error {
@@ -333,6 +356,9 @@ func (l *loader) Reinitialize(ctx context.Context, lnc *config.Config, tunnelCon
 		var err error
 		if sysSettings, err = addIPv4ENIRules(l.logger, sysSettings); err != nil {
 			return fmt.Errorf("unable to install ip rule for ENI multi-node NodePort: %w", err)
+		}
+		if err = addIPv6ENIRules(); err != nil {
+			return fmt.Errorf("unable to install ipv6 ip rule for ENI multi-node NodePort: %w", err)
 		}
 	}
 
