@@ -101,7 +101,7 @@ func setupENIDevices(logger *slog.Logger, eniConfigByMac configMap, sysctl sysct
 			)
 			continue
 		}
-		err = configureENINetlinkDevice(link, cfg, sysctl)
+		err = configureENINetlinkDevice(logger, link, cfg, sysctl)
 		if err != nil {
 			logger.Error(
 				"Failed to configure ENI device",
@@ -196,7 +196,7 @@ func waitForNetlinkDevices(logger *slog.Logger, configByMac configMap) (linkByMa
 	return linkByMac, errors.New("timed out waiting for ENIs to be attached")
 }
 
-func configureENINetlinkDevice(link netlink.Link, cfg eniDeviceConfig, sysctl sysctl.Sysctl) error {
+func configureENINetlinkDevice(logger *slog.Logger, link netlink.Link, cfg eniDeviceConfig, sysctl sysctl.Sysctl) error {
 	if err := netlink.LinkSetMTU(link, cfg.mtu); err != nil {
 		return fmt.Errorf("failed to change MTU of link %s to %d: %w", link.Attrs().Name, cfg.mtu, err)
 	}
@@ -216,6 +216,34 @@ func configureENINetlinkDevice(link netlink.Link, cfg eniDeviceConfig, sysctl sy
 		if err != nil && !errors.Is(err, unix.EEXIST) {
 			return fmt.Errorf("failed to set eni primary ip address %q on link %q: %w", cfg.ip, link.Attrs().Name, err)
 		}
+
+		// Snapshot the main routing table before the deletion to aid debugging.
+		mainRoutes, listErr := netlink.RouteListFiltered(netlink.FAMILY_ALL, &netlink.Route{
+			Table: unix.RT_TABLE_MAIN,
+		}, netlink.RT_FILTER_TABLE)
+		if listErr != nil {
+			logger.Warn("ALEX: failed to snapshot main routing table before route deletion", "error", listErr)
+		} else {
+			routeStrs := make([]string, 0, len(mainRoutes))
+			for _, r := range mainRoutes {
+				routeStrs = append(routeStrs, r.String())
+			}
+			logger.Info("ALEX: main routing table snapshot before route deletion",
+				"link", link.Attrs().Name,
+				"routeCount", len(mainRoutes),
+				"routes", routeStrs,
+			)
+		}
+
+		// Log the equivalent `ip route del` command performed below by netlink.
+		dstStr := "default"
+		if cfg.cidr != nil {
+			dstStr = cfg.cidr.String()
+		}
+		logger.Info("ALEX: deleting subnet route",
+			"link", link.Attrs().Name,
+			"command", fmt.Sprintf("ip route del %s src %s table main scope link", dstStr, cfg.ip),
+		)
 
 		// Remove the subnet route for this ENI if it got setup by something(like networkd),
 		// as it can cause the traffic to following subnet route using secondary ENI as the outgoing interface.
