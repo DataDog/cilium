@@ -438,6 +438,35 @@ func configureENINetlinkDevice(logger *slog.Logger, link netlink.Link, cfg eniDe
 		// as it can cause traffic to follow the subnet route using secondary ENI as the outgoing interface.
 		// The Cilium could consider the wrong identity for the node and might drop
 		// the traffic between the host and pods when network policy is in place.
+
+		// Snapshot the main routing table before the deletion to aid debugging.
+		mainRoutes, listErr := netlink.RouteListFiltered(netlink.FAMILY_ALL, &netlink.Route{
+			Table: unix.RT_TABLE_MAIN,
+		}, netlink.RT_FILTER_TABLE)
+		if listErr != nil {
+			logger.Warn("ALEX: failed to snapshot main routing table before route deletion", "error", listErr)
+		} else {
+			routeStrs := make([]string, 0, len(mainRoutes))
+			for _, r := range mainRoutes {
+				routeStrs = append(routeStrs, r.String())
+			}
+			logger.Info("ALEX: main routing table snapshot before route deletion",
+				"link", link.Attrs().Name,
+				"routeCount", len(mainRoutes),
+				"routes", routeStrs,
+			)
+		}
+
+		// Log the equivalent `ip route del` command performed below by netlink.
+		dstStr := "default"
+		if cfg.cidr.IsValid() {
+			dstStr = cfg.cidr.String()
+		}
+		logger.Info("ALEX: deleting subnet route",
+			"link", link.Attrs().Name,
+			"command", fmt.Sprintf("ip route del %s src %s table main scope link", dstStr, cfg.ip),
+		)
+
 		err = netlink.RouteDel(&netlink.Route{
 			Dst:   netipx.PrefixIPNet(cfg.cidr),
 			Src:   cfg.ip.AsSlice(),
