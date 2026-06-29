@@ -340,7 +340,7 @@ func setupENIDevices(logger *slog.Logger, eniConfigByMac configMap, sysctl sysct
 			)
 			continue
 		}
-		err = configureENINetlinkDevice(link, cfg, sysctl)
+		err = configureENINetlinkDevice(logger, link, cfg, sysctl)
 		if err != nil {
 			logger.Error(
 				"Failed to configure ENI device",
@@ -415,7 +415,7 @@ func waitForNetlinkDevices(logger *slog.Logger, configByMac configMap) (linkByMa
 	return linkByMac, errors.New("timed out waiting for ENIs to be attached")
 }
 
-func configureENINetlinkDevice(link netlink.Link, cfg eniDeviceConfig, sysctl sysctl.Sysctl) error {
+func configureENINetlinkDevice(logger *slog.Logger, link netlink.Link, cfg eniDeviceConfig, sysctl sysctl.Sysctl) error {
 	if err := netlink.LinkSetMTU(link, cfg.mtu); err != nil {
 		return fmt.Errorf("failed to change MTU of link %s to %d: %w", link.Attrs().Name, cfg.mtu, err)
 	}
@@ -426,6 +426,7 @@ func configureENINetlinkDevice(link netlink.Link, cfg eniDeviceConfig, sysctl sy
 
 	// Set the primary IP in order for SNAT to work correctly on this ENI
 	if !cfg.usePrimaryIP {
+		logger.Info("ALEX: Setting up netlink routes", "link", link, "cfg.ip", cfg.ip.String(), "cfg.cidr", cfg.cidr.String(), "cfg.name", cfg.name)
 		err := netlink.AddrAdd(link, &netlink.Addr{
 			IPNet: netipx.PrefixIPNet(netip.PrefixFrom(cfg.ip, cfg.cidr.Bits())),
 		})
