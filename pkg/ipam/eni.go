@@ -55,6 +55,8 @@ func startENIDeviceConfigurator(
 			func(ctx context.Context, ev resource.Event[*ciliumv2.CiliumNode]) error {
 				defer ev.Done(nil)
 
+				logger.Info("ALEX: Device configure called")
+
 				if ev.Kind != resource.Upsert {
 					return nil
 				}
@@ -63,6 +65,8 @@ func startENIDeviceConfigurator(
 					logger.Info("ENI state is not consistent yet", logfields.Error, err)
 					return nil
 				}
+
+				logger.Info("ALEX: ENI Config is valid")
 
 				configureENIDevices(logger, prevNode, ev.Object, mtuConfig, sysctl)
 				prevNode = ev.Object
@@ -291,7 +295,9 @@ func configureENIDevices(logger *slog.Logger, oldNode, newNode *ciliumv2.CiliumN
 	}
 
 	for name, eni := range newNode.Status.ENI.ENIs {
+		logger.Info("ALEX: Configuring ENI", "eni", eni)
 		if eni.IsExcludedBySpec(newNode.Spec.ENI) {
+			logger.Info("ALEX: ENI is excluded by spec", "eni", eni)
 			continue
 		}
 
@@ -305,7 +311,7 @@ func configureENIDevices(logger *slog.Logger, oldNode, newNode *ciliumv2.CiliumN
 			}
 		}
 	}
-
+	logger.Info("ALEX: Running ENI setup")
 	go setupENIDevices(logger, addedENIByMac, sysctl)
 }
 
