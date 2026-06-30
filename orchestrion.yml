@@ -1,0 +1,97 @@
+meta:
+  name: context-function-tracing
+  description: Automatically instrument all functions that take a context.Context as argument
+aspects:
+  - id: "context-function-tracing"
+    join-point:
+      all-of:
+        # Instrument the root module (github.com/cilium/cilium/...) plus
+        # opted-in vendored packages. Vendored deps keep their original import
+        # paths during compilation, so package-filter without `root: true`
+        # matches them by import path; this naturally still excludes
+        # dd-trace-go and the rest of vendor/ that we don't list.
+        - one-of:
+            - package-filter:
+                root: true
+            - package-filter:
+                pattern: github.com/cilium/hive/**
+        # Match by declared type, not interface satisfaction. Some Cilium
+        # types (e.g. *ipcache.IPCache) transitively embed context.Context and
+        # would otherwise be mis-identified as the context argument.
+        - function-body:
+            function:
+              - signature-contains:
+                  args: [context.Context]
+        # Skip anonymous functions / closures. Their declared name is empty,
+        # so they would all collapse to the same resource name and add noise
+        # on hot paths (goroutine bodies, defers, http.HandlerFuncs, etc.).
+        - not:
+            function-body:
+              function:
+                - name: ""
+        # Skip packages known to cause problems or excessive noise. Trailing
+        # ** matches the package itself plus any subpackage (see matchSegments
+        # fast-path for trailing globstar in orchestrion's join/package.go).
+        #   - pkg/logging: the tracer emits log lines through it, so
+        #     instrumenting it risks recursive span creation.
+        #   - pkg/k8s/watchers/metrics: hot path, dominates traces.
+        #   - pkg/metrics: hot path, dominates traces.
+        #   - pkg/api/helpers: hot path, dominates traces.
+        - not:
+            one-of:
+              - package-filter:
+                  root: true
+                  pattern: pkg/logging/**
+              - package-filter:
+                  root: true
+                  pattern: pkg/k8s/watchers/metrics/**
+              - package-filter:
+                  root: true
+                  pattern: pkg/metrics/**
+              - package-filter:
+                  root: true
+                  pattern: pkg/api/helpers/**
+    advice:
+      # The template has no access to package name or receiver type, so we resolve
+      # the fully qualified function name at runtime via runtime.Caller + FuncForPC,
+      # then split the cilium-relative path at the pkg<->symbol boundary:
+      #   "github.com/cilium/cilium/pkg/foo.Bar"            -> pkg=pkg/foo, resource=Bar
+      #   "github.com/cilium/cilium/pkg/foo.(*Baz).Bar"     -> pkg=pkg/foo, resource=(*Baz).Bar
+      #   "github.com/cilium/cilium/pkg/foo.(*Baz[...]).Bar"-> pkg=pkg/foo, resource=(*Baz[...]).Bar
+      # The boundary is the first '.' after the last '/': the package path has no
+      # dots, while the symbol may contain many (receiver, method, and the "[...]"
+      # generic-instantiation token the runtime emits for generic types). Splitting
+      # on every '.' truncated generic methods to garbage like "(*promise[.".
+      # runtime.Caller(0) returns the PC of the function we're inlined into.
+      - prepend-statements:
+          imports:
+            runtime: runtime
+            strings: strings
+            tracer: github.com/DataDog/dd-trace-go/v2/ddtrace/tracer
+          template: |-
+            {{ $ctx := .Function.ArgumentOfType "context.Context" -}}
+            __dd_pc, _, _, _ := runtime.Caller(0)
+            __dd_funcName := runtime.FuncForPC(__dd_pc).Name()
+            __dd_funcName = strings.TrimPrefix(__dd_funcName, "github.com/cilium/cilium/")
+            __dd_funcName = strings.TrimPrefix(__dd_funcName, "github.com/cilium/")
+            __dd_pkg := __dd_funcName
+            __dd_resource := "placeholder"
+            __dd_dot := strings.Index(__dd_funcName[strings.LastIndex(__dd_funcName, "/")+1:], ".")
+            if __dd_dot >= 0 {
+              __dd_dot += strings.LastIndex(__dd_funcName, "/") + 1
+              __dd_pkg = __dd_funcName[:__dd_dot]
+              __dd_resource = __dd_funcName[__dd_dot+1:]
+            }
+            var __dd_span *tracer.Span
+            __dd_span, {{ $ctx }} = tracer.StartSpanFromContext(
+              {{ $ctx }},
+              __dd_pkg,
+              tracer.ResourceName(__dd_resource),
+            )
+            {{ with .Function.LastResultThatImplements "error" -}}
+              defer func(){
+                __dd_span.Finish(tracer.WithError({{ . }}))
+              }()
+            {{ else -}}
+              defer __dd_span.Finish()
+            {{- end -}}
