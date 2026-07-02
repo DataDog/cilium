@@ -698,7 +698,21 @@ func (cmd *Cmd) Add(args *skel.CmdArgs) (err error) {
 		// Prevent cilium agent from trying to release the IP when the endpoint is deleted.
 		ep.DatapathConfiguration.ExternalIpam = true
 	case ipamOption.IPAMENI:
-		ifindex, err := ifindexFromMac(ipam.IPv4.MasterMac)
+		// The master ENI's MAC is reported per address family, each being the
+		// MAC of the ENI that owns that family's address. When IPv4 is disabled
+		// (IPv6-only), ipam.IPv4 is nil, so fall back to the IPv6 response.
+		var masterMac string
+		switch {
+		case ipam.IPv4 != nil:
+			masterMac = ipam.IPv4.MasterMac
+		case ipam.IPv6 != nil:
+			masterMac = ipam.IPv6.MasterMac
+		}
+		if masterMac == "" {
+			scopedLogger.Error("Unable to determine master ENI MAC address: no IPAM address response for any enabled family")
+			break
+		}
+		ifindex, err := ifindexFromMac(masterMac)
 		if err == nil {
 			ep.ParentInterfaceIndex = ifindex
 		} else {
