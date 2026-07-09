@@ -731,13 +731,16 @@ func (n *linuxNodeHandler) NodeConfigurationChanged(newConfig config.Config) err
 			len(option.Config.IPv4PodSubnets) == 0 {
 			if info := node.GetRouterInfo(); info != nil {
 				cidrs := info.GetCIDRs()
-				var ipv4PodSubnets []*cidr.CIDR
+				var ipv4PodSubnets, ipv6PodSubnets []*cidr.CIDR
 				for _, c := range cidrs {
 					if c.IP.To4() != nil {
 						ipv4PodSubnets = append(ipv4PodSubnets, cidr.NewCIDR(&c))
+					} else {
+						ipv6PodSubnets = append(ipv4PodSubnets, cidr.NewCIDR(&c))
 					}
 				}
 				n.nodeConfig.IPv4PodSubnets = ipv4PodSubnets
+				n.nodeConfig.IPv6PodSubnets = ipv6PodSubnets
 			}
 		}
 
