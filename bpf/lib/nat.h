@@ -29,6 +29,14 @@ DECLARE_CONFIG(union v6addr, nat_ipv6_masquerade, "Masquerade address for IPv6 t
 DECLARE_CONFIG(bool, enable_remote_node_masquerade, "Masquerade traffic to remote nodes")
 DECLARE_CONFIG(__u16, ephemeral_min, "Ephemeral port range minimun")
 
+/* We only need to SNAT ICMPv4 traffic if BPF masquerading or inter-cluster
+ * SNAT are enabled. If they are disabled, we only SNAT replies from service
+ * backends and we do not currently support ICMP replies from service backends.
+ */
+#if defined(ENABLE_MASQUERADE_IPV4) || defined(ENABLE_INTER_CLUSTER_SNAT)
+# define ENABLE_SNAT_ICMPV4 1
+#endif
+
 enum  nat_dir {
 	NAT_DIR_EGRESS  = TUPLE_F_OUT,
 	NAT_DIR_INGRESS = TUPLE_F_IN,
@@ -818,6 +826,7 @@ snat_v4_needs_masquerade(struct __ctx_buff *ctx __maybe_unused,
 	return NAT_PUNT_TO_STACK;
 }
 
+#ifdef ENABLE_SNAT_ICMPV4
 static __always_inline __maybe_unused int
 snat_v4_nat_handle_icmp_error(struct __ctx_buff *ctx, __u64 off,
 			      struct ipv4_nat_entry **state)
@@ -851,9 +860,9 @@ snat_v4_nat_handle_icmp_error(struct __ctx_buff *ctx, __u64 off,
 	switch (tuple.nexthdr) {
 	case IPPROTO_TCP:
 	case IPPROTO_UDP:
-#ifdef ENABLE_SCTP
+# ifdef ENABLE_SCTP
 	case IPPROTO_SCTP:
-#endif /* ENABLE_SCTP */
+# endif /* ENABLE_SCTP */
 		/* No reasons to handle IP fragmentation for this case as it is
 		 * expected that DF isn't set for this particular context.
 		 */
@@ -907,6 +916,7 @@ snat_v4_nat_handle_icmp_error(struct __ctx_buff *ctx, __u64 off,
 
 	return ret;
 }
+#endif /* ENABLE_SNAT_ICMPV4 */
 
 static __always_inline int
 __snat_v4_nat(struct __ctx_buff *ctx, struct ipv4_ct_tuple *tuple,
@@ -981,6 +991,7 @@ snat_v4_nat(struct __ctx_buff *ctx, struct ipv4_ct_tuple *tuple,
 			return NAT_PUNT_TO_STACK;
 
 		break;
+#ifdef ENABLE_SNAT_ICMPV4
 	case IPPROTO_ICMP: {
 		struct icmphdr icmphdr __align_stack_8;
 
@@ -1032,6 +1043,7 @@ nat_icmp_v4:
 		}
 		break;
 	}
+#endif /* ENABLE_SNAT_ICMPV4 */
 	default:
 		return NAT_PUNT_TO_STACK;
 	};
@@ -1040,6 +1052,7 @@ nat_icmp_v4:
 			     port_off, trace, ext_err);
 }
 
+#ifdef ENABLE_SNAT_ICMPV4
 static __always_inline __maybe_unused int
 snat_v4_rev_nat_handle_icmp_error(struct __ctx_buff *ctx,
 				  __u64 inner_l3_off,
@@ -1150,6 +1163,7 @@ snat_v4_rev_nat_handle_icmp_error(struct __ctx_buff *ctx,
 		ret = 0;
 	return ret;
 }
+#endif /* ENABLE_SNAT_ICMPV4 */
 
 static __always_inline __maybe_unused int
 snat_v4_rev_nat(struct __ctx_buff *ctx, const struct ipv4_nat_target *target,
@@ -1160,10 +1174,10 @@ snat_v4_rev_nat(struct __ctx_buff *ctx, const struct ipv4_nat_target *target,
 	void *data, *data_end;
 	struct iphdr *ip4;
 	fraginfo_t fraginfo;
-	__u64 off, inner_l3_off;
 	__be16 to_dport = 0;
 	__u16 port_off = 0;
 	__wsum outer_csum_diff = 0;
+	__u64 off;
 	int ret;
 
 	build_bug_on(sizeof(struct ipv4_nat_entry) > 64);
@@ -1194,8 +1208,10 @@ snat_v4_rev_nat(struct __ctx_buff *ctx, const struct ipv4_nat_target *target,
 			return NAT_PUNT_TO_STACK;
 
 		break;
+#ifdef ENABLE_SNAT_ICMPV4
 	case IPPROTO_ICMP: {
 		struct icmphdr icmphdr __align_stack_8;
+		__u64 inner_l3_off;
 
 		/* Fragmented ECHOREPLY packets are not supported currently.
 		 * Drop all fragments, because letting the first fragment pass
@@ -1241,6 +1257,7 @@ rev_nat_icmp_v4:
 		}
 		break;
 	}
+#endif /* ENABLE_SNAT_ICMPV4 */
 	default:
 		return NAT_PUNT_TO_STACK;
 	};
@@ -1253,7 +1270,7 @@ rev_nat_icmp_v4:
 	/* Skip port rewrite for ICMP_DEST_UNREACH by passing old_port == new_port == 0. */
 	to_dport = state->to_dport;
 
-rewrite:
+rewrite: __maybe_unused
 	return snat_v4_rewrite_headers(ctx, tuple.nexthdr, ETH_HLEN,
 				       ipfrag_has_l4_header(fraginfo), (int)off,
 				       tuple.daddr, state->to_daddr, IPV4_DADDR_OFF,

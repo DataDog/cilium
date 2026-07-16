@@ -8,6 +8,8 @@ import (
 	"slices"
 	"testing"
 
+	"k8s.io/apimachinery/pkg/types"
+
 	envoy_config_cluster_v3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	envoy_config_core_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoy_config_listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
@@ -23,6 +25,7 @@ import (
 
 	"github.com/cilium/cilium/operator/pkg/model"
 	ciliumv2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
+	syncnames "github.com/cilium/cilium/pkg/secretsync/names"
 )
 
 func TestSharedIngressTranslator_getBackendServices(t *testing.T) {
@@ -234,14 +237,94 @@ func TestSharedIngressTranslator_getServices(t *testing.T) {
 					},
 				},
 			},
+			// port not included: TLS passthrough listener has no routes.
 			want: []*ciliumv2.ServiceListener{
 				{
 					Name:      "cilium-ingress",
 					Namespace: "kube-system",
 					Ports: []uint16{
 						80,
-						443,
 					},
+				},
+			},
+		},
+		{
+			name: "multi-port HTTPS (Gateway API)",
+			fields: fields{
+				name:      "cilium-ingress",
+				namespace: "default",
+			},
+			model: multiPortHTTPSModel,
+			want: []*ciliumv2.ServiceListener{
+				{
+					Name:      "cilium-ingress",
+					Namespace: "default",
+					Ports:     []uint16{80},
+					Listener:  "listener",
+				},
+				{
+					Name:      "cilium-ingress",
+					Namespace: "default",
+					Ports:     []uint16{443},
+					Listener:  "listener-443",
+				},
+				{
+					Name:      "cilium-ingress",
+					Namespace: "default",
+					Ports:     []uint16{50051},
+					Listener:  "listener-50051",
+				},
+			},
+		},
+		{
+			name: "catch-all HTTPS with multi-port TLS passthrough",
+			fields: fields{
+				name:      "cilium-ingress",
+				namespace: "default",
+			},
+			model: &model.Model{
+				HTTP: []model.HTTPListener{
+					{
+						Port:     443,
+						Hostname: "*",
+						TLS: []model.TLSSecret{
+							{Name: "example-tls", Namespace: "default"},
+						},
+					},
+				},
+				TLSPassthrough: []model.TLSPassthroughListener{
+					{
+						Port: 50051,
+						Routes: []model.TLSPassthroughRoute{
+							{Hostnames: []string{"api.example.test"}},
+						},
+					},
+					{
+						Port: 9443,
+						Routes: []model.TLSPassthroughRoute{
+							{Hostnames: []string{"api.example.test"}},
+						},
+					},
+				},
+			},
+			want: []*ciliumv2.ServiceListener{
+				{
+					Name:      "cilium-ingress",
+					Namespace: "default",
+					Ports:     []uint16{443},
+					Listener:  "listener-443",
+				},
+				{
+					Name:      "cilium-ingress",
+					Namespace: "default",
+					Ports:     []uint16{9443},
+					Listener:  "listener-9443",
+				},
+				{
+					Name:      "cilium-ingress",
+					Namespace: "default",
+					Ports:     []uint16{50051},
+					Listener:  "listener-50051",
 				},
 			},
 		},
@@ -349,7 +432,7 @@ func TestSharedIngressTranslator_getListener(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, downStreamTLS.CommonTlsContext.TlsCertificateSdsSecretConfigs, 1)
-	require.Equal(t, "cilium-secrets/dummy-namespace-dummy-secret", downStreamTLS.CommonTlsContext.TlsCertificateSdsSecretConfigs[0].GetName())
+	require.Equal(t, syncnames.SyncedSDSSecretName("cilium-secrets", types.NamespacedName{Namespace: "dummy-namespace", Name: "dummy-secret"}), downStreamTLS.CommonTlsContext.TlsCertificateSdsSecretConfigs[0].GetName())
 	require.Nil(t, downStreamTLS.CommonTlsContext.TlsCertificateSdsSecretConfigs[0].GetSdsConfig())
 }
 
@@ -551,6 +634,13 @@ func TestSharedIngressTranslator_getEnvoyHTTPRouteConfiguration(t *testing.T) {
 				m: multipleRouteHostnamesModel,
 			},
 			expectedRouteConfigs: multipleRouteHostnamesExpectedConfig,
+		},
+		{
+			name: "multi-port HTTPS (Gateway API)",
+			args: args{
+				m: multiPortHTTPSModel,
+			},
+			expectedRouteConfigs: multiPortHTTPSExpectedRouteConfigs,
 		},
 	}
 

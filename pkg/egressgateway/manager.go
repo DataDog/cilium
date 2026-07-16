@@ -350,7 +350,11 @@ func (manager *Manager) processEvents(ctx context.Context) {
 		case <-ctx.Done():
 			return
 
-		case event := <-policyEvents:
+		case event, ok := <-policyEvents:
+			if !ok {
+				policyEvents = nil
+				continue
+			}
 			if event.Kind == resource.Sync {
 				policySync = true
 				maybeTriggerReconcile()
@@ -359,7 +363,11 @@ func (manager *Manager) processEvents(ctx context.Context) {
 				manager.handlePolicyEvent(event)
 			}
 
-		case event := <-nodeEvents:
+		case event, ok := <-nodeEvents:
+			if !ok {
+				nodeEvents = nil
+				continue
+			}
 			if event.Kind == resource.Sync {
 				nodeSync = true
 				maybeTriggerReconcile()
@@ -368,7 +376,11 @@ func (manager *Manager) processEvents(ctx context.Context) {
 				manager.handleNodeEvent(event)
 			}
 
-		case event := <-endpointEvents:
+		case event, ok := <-endpointEvents:
+			if !ok {
+				endpointEvents = nil
+				continue
+			}
 			if event.Kind == resource.Sync {
 				endpointSync = true
 				maybeTriggerReconcile()

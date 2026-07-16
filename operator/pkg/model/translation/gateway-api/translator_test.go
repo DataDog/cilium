@@ -39,6 +39,7 @@ func Test_translator_Translate(t *testing.T) {
 		{name: "basic_http_listener_load_balancer"},
 		{name: "basic_tls_sni_listener"},
 		{name: "tls_sni_weighted_backends"},
+		{name: "basic_https_multi_port_listener"},
 		{name: "conformance/httproute_simple_same_namespace"},
 		{name: "conformance/httproute_backend_protocol_h_2_c"},
 		{name: "conformance/httproute_cross_namespace"},
@@ -265,7 +266,7 @@ func Test_translator_Translate_WithXffNumTrustedHops(t *testing.T) {
 			}
 
 			require.NotNil(t, svc)
-			assert.Equal(t, corev1.ServiceTypeClusterIP, svc.Spec.Type)
+			assert.Equal(t, corev1.ServiceTypeNodePort, svc.Spec.Type)
 
 			require.NotNil(t, ep)
 		})

@@ -4,6 +4,7 @@
 package secretsync_test
 
 import (
+	"context"
 	"log/slog"
 	"testing"
 	"time"
@@ -28,6 +29,7 @@ import (
 	"github.com/cilium/cilium/operator/pkg/ingress"
 	"github.com/cilium/cilium/operator/pkg/secretsync"
 	ciliumv2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
+	syncnames "github.com/cilium/cilium/pkg/secretsync/names"
 )
 
 var secretsNamespace = "cilium-secrets-test"
@@ -55,7 +57,7 @@ var secretFixture = []client.Object{
 			Name:      "test-synced-secret-no-reference",
 			Labels: map[string]string{
 				secretsync.OwningSecretNamespace: "test",
-				secretsync.OwningSecretName:      "syced-secret-no-reference",
+				secretsync.OwningSecretName:      "synced-secret-no-reference",
 			},
 		},
 	},
@@ -268,7 +270,7 @@ func Test_SecretSync_Reconcile(t *testing.T) {
 		require.True(t, resultHasResync(result))
 
 		secret := &corev1.Secret{}
-		err = c.Get(t.Context(), types.NamespacedName{Namespace: secretsNamespace, Name: "test-synced-secret-with-source-and-ref"}, secret)
+		err = c.Get(t.Context(), syncedSecretKey(secretsNamespace, "test", "synced-secret-with-source-and-ref"), secret)
 		require.NoError(t, err)
 	})
 
@@ -284,10 +286,9 @@ func Test_SecretSync_Reconcile(t *testing.T) {
 		require.Equal(t, ctrl.Result{}, result)
 
 		secret := &corev1.Secret{}
-		err = c.Get(t.Context(), types.NamespacedName{Namespace: secretsNamespace, Name: "test-synced-secret-non-cilium-ref"}, secret)
+		err = c.Get(t.Context(), syncedSecretKey(secretsNamespace, "test", "secret-with-non-cilium-ref"), secret)
 
-		require.Error(t, err)
-		require.ErrorContains(t, err, "secrets \"test-synced-secret-non-cilium-ref\" not found")
+		require.True(t, k8sErrors.IsNotFound(err))
 	})
 
 	t.Run("create synced secret for source secret that is referenced by a Cilium Gateway resource", func(t *testing.T) {
@@ -301,8 +302,9 @@ func Test_SecretSync_Reconcile(t *testing.T) {
 		require.True(t, resultHasResync(result))
 
 		secret := &corev1.Secret{}
-		err = c.Get(t.Context(), types.NamespacedName{Namespace: secretsNamespace, Name: "test-secret-with-ref-not-synced"}, secret)
+		err = c.Get(t.Context(), syncedSecretKey(secretsNamespace, "test", "secret-with-ref-not-synced"), secret)
 		require.NoError(t, err)
+		requireSourceAnnotations(t, secret, secretsync.SourceKindSecret, "test", "secret-with-ref-not-synced")
 	})
 
 	t.Run("create synced secret in multiple namespaces for source secret that is referenced by a Gateway and Ingress", func(t *testing.T) {
@@ -315,10 +317,10 @@ func Test_SecretSync_Reconcile(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, resultHasResync(result))
 
-		err = c.Get(t.Context(), types.NamespacedName{Namespace: secretsNamespace, Name: "test-secret-shared-not-synced"}, &corev1.Secret{})
+		err = c.Get(t.Context(), syncedSecretKey(secretsNamespace, "test", "secret-shared-not-synced"), &corev1.Secret{})
 		require.NoError(t, err)
 
-		err = c.Get(t.Context(), types.NamespacedName{Namespace: secretsNamespace + "-2", Name: "test-secret-shared-not-synced"}, &corev1.Secret{})
+		err = c.Get(t.Context(), syncedSecretKey(secretsNamespace+"-2", "test", "secret-shared-not-synced"), &corev1.Secret{})
 		require.NoError(t, err)
 	})
 
@@ -344,10 +346,10 @@ func Test_SecretSync_Reconcile(t *testing.T) {
 		// This should resync because it's still referred to by the Gateway resource.
 		require.True(t, resultHasResync(result))
 
-		err = c.Get(t.Context(), types.NamespacedName{Namespace: secretsNamespace, Name: "test-secret-shared-not-synced"}, &corev1.Secret{})
+		err = c.Get(t.Context(), syncedSecretKey(secretsNamespace, "test", "secret-shared-not-synced"), &corev1.Secret{})
 		require.NoError(t, err)
 
-		err = c.Get(t.Context(), types.NamespacedName{Namespace: secretsNamespace + "-2", Name: "test-secret-shared-not-synced"}, &corev1.Secret{})
+		err = c.Get(t.Context(), syncedSecretKey(secretsNamespace+"-2", "test", "secret-shared-not-synced"), &corev1.Secret{})
 		require.True(t, k8sErrors.IsNotFound(err))
 	})
 }
@@ -367,7 +369,7 @@ var secretFixtureTypeChange = []client.Object{
 	&corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: secretsNamespace,
-			Name:      "test-cert-tls",
+			Name:      syncnames.SyncedSecretName(types.NamespacedName{Namespace: "test", Name: "cert-tls"}),
 			UID:       "stale-opaque-uid",
 			Labels: map[string]string{
 				secretsync.OwningSecretNamespace: "test",
@@ -430,7 +432,7 @@ func Test_SecretSync_Reconcile_TypeChange(t *testing.T) {
 
 	t.Run("synced secret type is updated when source secret type changes", func(t *testing.T) {
 		synced := &corev1.Secret{}
-		err := c.Get(t.Context(), types.NamespacedName{Namespace: secretsNamespace, Name: "test-cert-tls"}, synced)
+		err := c.Get(t.Context(), syncedSecretKey(secretsNamespace, "test", "cert-tls"), synced)
 		require.NoError(t, err)
 		require.Equal(t, corev1.SecretTypeOpaque, synced.Type)
 
@@ -443,7 +445,7 @@ func Test_SecretSync_Reconcile_TypeChange(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, resultHasResync(result))
 		synced = &corev1.Secret{}
-		err = c.Get(t.Context(), types.NamespacedName{Namespace: secretsNamespace, Name: "test-cert-tls"}, synced)
+		err = c.Get(t.Context(), syncedSecretKey(secretsNamespace, "test", "cert-tls"), synced)
 		require.NoError(t, err)
 		require.Equal(t, corev1.SecretTypeTLS, synced.Type, "synced secret should adopt the source secret's type")
 		require.Equal(t, []byte("cert"), synced.Data["tls.crt"])
@@ -496,9 +498,80 @@ func Test_SecretSync_Reconcile_WithDefaultSecret(t *testing.T) {
 		require.True(t, resultHasResync(result))
 
 		secret := &corev1.Secret{}
-		err = c.Get(t.Context(), types.NamespacedName{Namespace: secretsNamespace, Name: "test-unsynced-secret-no-reference"}, secret)
+		err = c.Get(t.Context(), syncedSecretKey(secretsNamespace, "test", "unsynced-secret-no-reference"), secret)
 		require.NoError(t, err)
+		requireSourceAnnotations(t, secret, secretsync.SourceKindSecret, "test", "unsynced-secret-no-reference")
 	})
+}
+
+func Test_SecretSync_Reconcile_SourceNameCollision(t *testing.T) {
+	logger := hivetest.Logger(t, hivetest.LogLevel(slog.LevelDebug))
+
+	first := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "secret-prod"},
+		Data:       map[string][]byte{"tls.crt": []byte("first")},
+	}
+	second := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a-secret", Name: "prod"},
+		Data:       map[string][]byte{"tls.crt": []byte("second")},
+	}
+
+	c := fake.NewClientBuilder().
+		WithScheme(testScheme()).
+		WithObjects(first, second).
+		Build()
+
+	referenced := map[types.NamespacedName]struct{}{
+		{Namespace: first.Namespace, Name: first.Name}:   {},
+		{Namespace: second.Namespace, Name: second.Name}: {},
+	}
+	r := secretsync.NewSecretSyncReconciler(c, logger, []*secretsync.SecretSyncRegistration{
+		{
+			RefObjectCheckFunc: func(_ context.Context, _ client.Client, _ *slog.Logger, obj *corev1.Secret) bool {
+				_, ok := referenced[types.NamespacedName{Namespace: obj.Namespace, Name: obj.Name}]
+				return ok
+			},
+			SecretsNamespace: secretsNamespace,
+		},
+	}, time.Minute, 0.1)
+
+	for _, source := range []*corev1.Secret{first, second} {
+		result, err := r.Reconcile(t.Context(), ctrl.Request{
+			NamespacedName: types.NamespacedName{Namespace: source.Namespace, Name: source.Name},
+		})
+		require.NoError(t, err)
+		require.True(t, resultHasResync(result))
+	}
+
+	firstSynced := &corev1.Secret{}
+	err := c.Get(t.Context(), syncedSecretKey(secretsNamespace, first.Namespace, first.Name), firstSynced)
+	require.NoError(t, err)
+	require.Equal(t, []byte("first"), firstSynced.Data["tls.crt"])
+	requireSourceAnnotations(t, firstSynced, secretsync.SourceKindSecret, first.Namespace, first.Name)
+
+	secondSynced := &corev1.Secret{}
+	err = c.Get(t.Context(), syncedSecretKey(secretsNamespace, second.Namespace, second.Name), secondSynced)
+	require.NoError(t, err)
+	require.Equal(t, []byte("second"), secondSynced.Data["tls.crt"])
+	requireSourceAnnotations(t, secondSynced, secretsync.SourceKindSecret, second.Namespace, second.Name)
+	require.NotEqual(t, firstSynced.Name, secondSynced.Name)
+}
+
+func syncedSecretKey(secretsNamespace, sourceNamespace, sourceName string) types.NamespacedName {
+	return types.NamespacedName{
+		Namespace: secretsNamespace,
+		Name: syncnames.SyncedSecretName(types.NamespacedName{
+			Namespace: sourceNamespace,
+			Name:      sourceName,
+		}),
+	}
+}
+
+func requireSourceAnnotations(t *testing.T, secret *corev1.Secret, kind, namespace, name string) {
+	t.Helper()
+	require.Equal(t, kind, secret.Annotations[secretsync.SourceKindAnnotation])
+	require.Equal(t, namespace, secret.Annotations[secretsync.SourceNamespaceAnnotation])
+	require.Equal(t, name, secret.Annotations[secretsync.SourceNameAnnotation])
 }
 
 func testScheme() *runtime.Scheme {

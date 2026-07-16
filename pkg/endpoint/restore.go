@@ -428,6 +428,7 @@ func (e *Endpoint) restoreIdentity(regenerator *Regenerator) error {
 // toSerializedEndpoint converts the Endpoint to its corresponding
 // serializableEndpoint, which contains all of the fields that are needed upon
 // restoring an Endpoint after cilium-agent restarts.
+// e.mutex must be held.
 func (e *Endpoint) toSerializedEndpoint() *serializableEndpoint {
 	return &serializableEndpoint{
 		ID:                       e.ID,
@@ -607,6 +608,7 @@ func (ep *Endpoint) UnmarshalJSON(raw []byte) error {
 }
 
 // MarshalJSON marshals the Endpoint as its serializableEndpoint representation.
+// e.mutex must be held.
 func (ep *Endpoint) MarshalJSON() ([]byte, error) {
 	return json.Marshal(ep.toSerializedEndpoint())
 }

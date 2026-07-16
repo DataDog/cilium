@@ -57,7 +57,7 @@ concurrency:
 
 env:
   # renovate: datasource=golang-version depName=go
-  go-version: 1.25.11
+  go-version: 1.25.12
 
 jobs:
   echo-inputs:
@@ -74,7 +74,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Set initial commit status
-        uses: cilium/cilium/.github/actions/set-commit-status@74fb5f98372c3a0ab060b7256a53ec7dfb6dd9be # main
+        uses: cilium/cilium/.github/actions/set-commit-status@main # main
         with:
           sha: ${{ inputs.SHA || github.sha }}
 
@@ -106,12 +106,12 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Set commit status to pending
-        uses: cilium/cilium/.github/actions/set-commit-status@74fb5f98372c3a0ab060b7256a53ec7dfb6dd9be # main
+        uses: cilium/cilium/.github/actions/set-commit-status@main # main
         with:
           sha: ${{ inputs.SHA || github.sha }}
 
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -120,7 +120,7 @@ jobs:
         uses: ./.github/actions/disk-cleanup
 
       - name: Checkout base branch
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.base-SHA || github.sha }}
           persist-credentials: false
@@ -129,11 +129,13 @@ jobs:
       # Warning: since this is a privileged workflow, subsequent workflow job
       # steps must take care not to execute untrusted code.
       - name: Checkout pull request branch (NOT TRUSTED)
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         if: ${{ github.event_name == 'workflow_dispatch' }}
         with:
           ref: ${{ inputs.SHA }}
           persist-credentials: false
+          # Required by checkout v7+ to fetch fork PR code; see the NOT TRUSTED warning above.
+          allow-unsafe-pr-checkout: true
           path: ./pull
 
       - name: Resolve full kernel version
@@ -237,10 +239,12 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
     - name: Checkout pull request branch (NOT TRUSTED)
-      uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       with:
         ref: ${{ inputs.SHA || github.sha }}
         persist-credentials: false
+        # Required by checkout v7+ to fetch fork PR code; see the NOT TRUSTED warning above.
+        allow-unsafe-pr-checkout: true
 
     - name: Download per-kernel results
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -276,7 +280,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Set final commit status
-        uses: cilium/cilium/.github/actions/set-commit-status@74fb5f98372c3a0ab060b7256a53ec7dfb6dd9be # main
+        uses: cilium/cilium/.github/actions/set-commit-status@main # main
         with:
           sha: ${{ inputs.SHA || github.sha }}
           status: ${{ needs.setup-and-test.result }}

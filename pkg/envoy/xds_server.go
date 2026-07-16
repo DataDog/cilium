@@ -53,6 +53,7 @@ import (
 	"github.com/cilium/cilium/pkg/policy/api"
 	"github.com/cilium/cilium/pkg/promise"
 	"github.com/cilium/cilium/pkg/proxy/endpoint"
+	syncnames "github.com/cilium/cilium/pkg/secretsync/names"
 	"github.com/cilium/cilium/pkg/time"
 	"github.com/cilium/cilium/pkg/u8proto"
 )
@@ -1359,10 +1360,7 @@ func toEnvoyTerminatingTLSContext(tls *policy.TLSContext, policySecretsNamespace
 }
 
 func namespacedNametoSyncedSDSSecretName(namespacedName types.NamespacedName, policySecretsNamespace string) string {
-	if policySecretsNamespace == "" {
-		return fmt.Sprintf("%s/%s", namespacedName.Namespace, namespacedName.Name)
-	}
-	return fmt.Sprintf("%s/%s-%s", policySecretsNamespace, namespacedName.Namespace, namespacedName.Name)
+	return syncnames.SyncedSDSSecretName(policySecretsNamespace, namespacedName)
 }
 
 func (s *xdsServer) getPortNetworkPolicyRule(ep endpoint.EndpointUpdater, selectors policy.SelectorSnapshot, sel policy.CachedSelector, l7Rules *policy.PerSelectorPolicy, useFullTLSContext, useSDS bool, policySecretsNamespace string) (*cilium.PortNetworkPolicyRule, bool) {

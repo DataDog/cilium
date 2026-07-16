@@ -4,9 +4,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ARG BASE_IMAGE=scratch
-ARG GOLANG_IMAGE=docker.io/library/golang:1.25.11@sha256:379065f16fe8cce7949001ba9cffc827cd4b93d69495dec405befd1c13e19bb3
-ARG ALPINE_IMAGE=docker.io/library/alpine:3.23.4@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
-ARG CILIUM_BUILDER_IMAGE=quay.io/cilium/cilium-builder:6575744abb6036cc127c1b4d5845c5c03277c44a@sha256:1e623ddfc58fc4e4012861b3b854b02ecfea073011fe05a2d05deccc6474d144
+ARG GOLANG_IMAGE=docker.io/library/golang:1.25.12@sha256:d7912cedddfa15b2900a8dfb7187df0af5ec2cb424a371139b5b352fd3e6b740
+ARG ALPINE_IMAGE=docker.io/library/alpine:3.23.5@sha256:fd791d74b68913cbb027c6546007b3f0d3bc45125f797758156952bc2d6daf40
+ARG CILIUM_BUILDER_IMAGE=quay.io/cilium/cilium-builder:f22cbf4d510e3e403b6cc3e4670f5b157385ea2c@sha256:a7054a6dfac28873123b9047f025c21455dbcec681b4a02674703cbbdd73e0df
 
 # BUILDPLATFORM is an automatic platform ARG enabled by Docker BuildKit.
 # Represents the plataform where the build is happening, do not mix with
@@ -66,6 +66,7 @@ RUN apk --update add ca-certificates
 FROM ${GOLANG_IMAGE} AS gops
 
 WORKDIR /go/src/github.com/cilium/cilium/images/runtime
+ARG TARGETARCH
 RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium \
     --mount=type=cache,target=/root/.cache \
     --mount=type=cache,target=/go/pkg \

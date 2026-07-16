@@ -352,29 +352,27 @@ func serviceSelectorMatches(sel *api.K8sServiceSelectorNamespace, svc serviceDet
 	if !(sel.Namespace == svc.getNamespace() || sel.Namespace == "") {
 		return false
 	}
-	ls := policytypes.NewLabelSelector(api.EndpointSelector(sel.Selector))
-	r := policytypes.Matches(ls, labelsMatcher(svc.getLabels()))
-	return r
+
+	// NOTE: This is a v1.19 release specific fix for service selector parsing.
+	requirements, err := policytypes.UnsanitizedLabelSelectorToRequirements(sel.Selector.LabelSelector)
+	if err != nil {
+		// If there is a parsing error in label selector we can ignore it here.
+		// The error is bubbled up when the policy object(CNP) is parsed later.
+		return false
+	}
+
+	return policytypes.MatchesRequirements(requirements, labelsMatcher(svc.getLabels()))
 }
 
 type labelsMatcher labels.Labels
 
-// Get implements labels.LabelMatcher; label source is ignored
-func (l labelsMatcher) GetLabel(label *labels.Label) (value string) {
-	v := l[label.Key]
-	return v.Value
-}
-
-// Has implements labels.LabelMatcher.
-func (l labelsMatcher) HasLabel(label *labels.Label) (exists bool) {
-	_, ok := l[label.Key]
-	return ok
-}
-
 // Lookup implements labels.LabelMatcher
 func (l labelsMatcher) LookupLabel(label *labels.Label) (value string, exists bool) {
 	v, ok := l[label.Key]
-	return v.Value, ok
+	if ok && (label.IsAnySource() || v.Source == label.Source) {
+		return v.Value, true
+	}
+	return "", false
 }
 
 var _ labels.LabelMatcher = labelsMatcher{}

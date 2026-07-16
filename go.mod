@@ -18,13 +18,13 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/cilium/coverbee v0.3.3-0.20240723084546-664438750fce
 	github.com/cilium/dns v1.1.51-0.20240603182237-af788769786a
-	github.com/cilium/ebpf v0.20.1-0.20260218191617-ee67e7f43dd9
+	github.com/cilium/ebpf v0.22.0
 	github.com/cilium/endpointslice-controller v0.0.0-20250410163339-ffb33e27879c
 	github.com/cilium/fake v0.7.0
 	github.com/cilium/hive v0.0.0-20260108104938-97756f6ff54c
 	github.com/cilium/lumberjack/v2 v2.4.1
 	github.com/cilium/proxy v0.0.0-20250623105955-2136f59a4ea1
-	github.com/cilium/statedb v0.5.8
+	github.com/cilium/statedb v0.5.9
 	github.com/cilium/stream v0.0.1
 	github.com/cilium/workerpool v1.3.0
 	github.com/cloudflare/cfssl v1.6.5
@@ -83,7 +83,7 @@ require (
 	github.com/prometheus/procfs v0.19.2
 	github.com/russross/blackfriday/v2 v2.1.0
 	github.com/sasha-s/go-deadlock v0.3.6
-	github.com/sirupsen/logrus v1.9.3
+	github.com/sirupsen/logrus v1.9.4
 	github.com/spf13/afero v1.15.0
 	github.com/spf13/cast v1.10.0
 	github.com/spf13/cobra v1.10.2
@@ -127,7 +127,7 @@ require (
 	k8s.io/endpointslice v0.35.6
 	k8s.io/klog/v2 v2.130.1
 	k8s.io/kubectl v0.35.6
-	k8s.io/utils v0.0.0-20260507154919-ff6756f316d2
+	k8s.io/utils v0.0.0-20260707023825-cf1189d6abe3
 	sigs.k8s.io/controller-runtime v0.23.3
 	sigs.k8s.io/gateway-api v1.4.0-rc.2
 	sigs.k8s.io/mcs-api v0.3.1-0.20260224125735-0f775a3eff97
@@ -140,7 +140,6 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.11.2 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.6.0 // indirect
-	github.com/BurntSushi/toml v1.5.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/alecthomas/participle/v2 v2.1.0 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.0 // indirect

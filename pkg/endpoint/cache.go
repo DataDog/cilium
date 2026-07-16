@@ -57,7 +57,7 @@ type epInfoCache struct {
 
 // Must be called when endpoint is still locked.
 func (e *Endpoint) createEpInfoCache(epdir string) *epInfoCache {
-	if e.isProperty(PropertyAtHostNS) {
+	if e.isPropertyLocked(PropertyAtHostNS) {
 		return &epInfoCache{
 			revision: e.nextPolicyRevision,
 

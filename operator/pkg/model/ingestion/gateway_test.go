@@ -11,11 +11,13 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
 	"github.com/cilium/cilium/operator/pkg/model"
+	"github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2alpha1"
 )
 
 const (
@@ -53,14 +55,120 @@ func TestHTTPGatewayAPI(t *testing.T) {
 	for name := range tests {
 		t.Run(name, func(t *testing.T) {
 			input := readGatewayInput(t, name)
-			listeners, _ := GatewayAPI(input)
+			m := GatewayAPI(input)
 
 			expected := []model.HTTPListener{}
 			readOutput(t, fmt.Sprintf("%s/%s/%s", basedGatewayTestdataDir, rewriteTestName(name), "output-listeners.yaml"), &expected)
 
-			assert.Equal(t, toYaml(t, expected), toYaml(t, listeners), "Listeners did not match")
+			assert.Equal(t, toYaml(t, expected), toYaml(t, m.HTTP), "Listeners did not match")
 		})
 	}
+}
+
+func TestHTTPGatewayAPIFiltersSelectorNamespacesPerListener(t *testing.T) {
+	selector := gatewayv1.NamespacesFromSelector
+
+	m := GatewayAPI(Input{
+		Gateway: gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "selector-listener-conflict-gateway",
+				Namespace: "gateway-system",
+			},
+			Spec: gatewayv1.GatewaySpec{
+				Listeners: []gatewayv1.Listener{
+					{
+						Name:     "http-selected",
+						Hostname: ptr.To[gatewayv1.Hostname]("selected.example.test"),
+						Port:     80,
+						Protocol: gatewayv1.HTTPProtocolType,
+						AllowedRoutes: &gatewayv1.AllowedRoutes{
+							Namespaces: &gatewayv1.RouteNamespaces{
+								From:     &selector,
+								Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"expose": "true"}},
+							},
+						},
+					},
+					{
+						Name:     "http-unselected",
+						Hostname: ptr.To[gatewayv1.Hostname]("unselected.example.test"),
+						Port:     80,
+						Protocol: gatewayv1.HTTPProtocolType,
+						AllowedRoutes: &gatewayv1.AllowedRoutes{
+							Namespaces: &gatewayv1.RouteNamespaces{
+								From: &selector,
+								Selector: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
+									{Key: "expose", Operator: metav1.LabelSelectorOpDoesNotExist},
+								}},
+							},
+						},
+					},
+				},
+			},
+		},
+		HTTPRoutes: []gatewayv1.HTTPRoute{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "selector-conflict-route",
+					Namespace: "backend-a",
+				},
+				Spec: gatewayv1.HTTPRouteSpec{
+					CommonRouteSpec: gatewayv1.CommonRouteSpec{
+						ParentRefs: []gatewayv1.ParentReference{
+							{
+								Name:      "selector-listener-conflict-gateway",
+								Namespace: ptr.To[gatewayv1.Namespace]("gateway-system"),
+							},
+						},
+					},
+					Hostnames: []gatewayv1.Hostname{
+						"selected.example.test",
+						"unselected.example.test",
+					},
+					Rules: []gatewayv1.HTTPRouteRule{
+						{
+							BackendRefs: []gatewayv1.HTTPBackendRef{
+								{
+									BackendRef: gatewayv1.BackendRef{
+										BackendObjectReference: gatewayv1.BackendObjectReference{
+											Name: "api",
+											Port: ptr.To[gatewayv1.PortNumber](80),
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Namespaces: []corev1.Namespace{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "backend-a",
+					Labels: map[string]string{"expose": "true"},
+				},
+			},
+		},
+		Services: []corev1.Service{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "api",
+					Namespace: "backend-a",
+				},
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{{Port: 80}},
+				},
+			},
+		},
+	})
+
+	require.Len(t, m.HTTP, 2)
+	require.Equal(t, "http-selected", m.HTTP[0].Name)
+	require.Len(t, m.HTTP[0].Routes, 1)
+	assert.Equal(t, []string{"selected.example.test"}, m.HTTP[0].Routes[0].Hostnames)
+
+	require.Equal(t, "http-unselected", m.HTTP[1].Name)
+	assert.Empty(t, m.HTTP[1].Routes)
 }
 
 func TestTLSGatewayAPI(t *testing.T) {
@@ -75,11 +183,11 @@ func TestTLSGatewayAPI(t *testing.T) {
 	for name := range tests {
 		t.Run(name, func(t *testing.T) {
 			input := readGatewayInput(t, name)
-			_, listeners := GatewayAPI(input)
+			m := GatewayAPI(input)
 
 			expected := []model.TLSPassthroughListener{}
 			readOutput(t, fmt.Sprintf("%s/%s/%s", basedGatewayTestdataDir, rewriteTestName(name), "output-listeners.yaml"), &expected)
-			assert.Equal(t, toYaml(t, expected), toYaml(t, listeners), "Listeners did not match")
+			assert.Equal(t, toYaml(t, expected), toYaml(t, m.TLSPassthrough), "Listeners did not match")
 		})
 	}
 }
@@ -93,11 +201,11 @@ func TestGRPCGatewayAPI(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			input := readGatewayInput(t, name)
 
-			listeners, _ := GatewayAPI(input)
+			m := GatewayAPI(input)
 
 			expected := []model.HTTPListener{}
 			readOutput(t, fmt.Sprintf("%s/%s/%s", basedGatewayTestdataDir, rewriteTestName(name), "output-listeners.yaml"), &expected)
-			assert.Equal(t, toYaml(t, expected), toYaml(t, listeners), "Listeners did not match")
+			assert.Equal(t, toYaml(t, expected), toYaml(t, m.HTTP), "Listeners did not match")
 		})
 	}
 }
@@ -510,6 +618,194 @@ func TestGRPCRequestMirrorCrossNamespaceWithReferenceGrantIsKept(t *testing.T) {
 	assert.Equal(t, "other-ns", routes[0].RequestMirrors[0].Backend.Namespace)
 }
 
+func TestGatewayAPI_GatewayClassConfig(t *testing.T) {
+	t.Run("returns nil telemetry when GatewayClassConfig telemetry is nil", func(t *testing.T) {
+		m := GatewayAPI(Input{
+			GatewayClassConfig: &v2alpha1.CiliumGatewayClassConfig{},
+		})
+
+		assert.Nil(t, m.Telemetry)
+	})
+	t.Run("returns model with telemetry when GatewayClassConfig has access log config", func(t *testing.T) {
+		m := GatewayAPI(Input{
+			Gateway: gatewayv1.Gateway{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "default",
+					Name:      "cilium",
+				},
+			},
+			GatewayClassConfig: &v2alpha1.CiliumGatewayClassConfig{
+				Spec: v2alpha1.CiliumGatewayClassConfigSpec{
+					Telemetry: &v2alpha1.Telemetry{
+						AccessLogs: []v2alpha1.AccessLogs{
+							{
+								Format: v2alpha1.AccessLogsFormatText,
+								Text:   "%REQ(:METHOD)% %RESPONSE_CODE%",
+							},
+						},
+					},
+				},
+			},
+		})
+
+		assert.Equal(t, &model.Telemetry{
+			NamespacedName: types.NamespacedName{
+				Namespace: "default",
+				Name:      "cilium",
+			},
+			AccessLogs: map[model.AccessLogsTarget][]model.AccessLogs{
+				model.AccessLogsTargetHTTP: {
+					{
+						Format: model.AccessLogsFormatText,
+						Text:   "%REQ(:METHOD)% %RESPONSE_CODE%",
+					},
+				},
+			},
+		}, m.Telemetry)
+	})
+}
+
+func TestGatewayAPI_GatewayClassConfigTelemetry(t *testing.T) {
+	nn := types.NamespacedName{
+		Namespace: "default",
+		Name:      "cilium",
+	}
+	tests := []struct {
+		name string
+		cfg  *v2alpha1.Telemetry
+		want *model.Telemetry
+	}{
+		{
+			name: "telemetry config without access logs",
+			cfg:  &v2alpha1.Telemetry{},
+			want: &model.Telemetry{
+				NamespacedName: nn,
+			},
+		},
+		{
+			name: "text access logs",
+			cfg: &v2alpha1.Telemetry{
+				AccessLogs: []v2alpha1.AccessLogs{
+					{
+						Format: v2alpha1.AccessLogsFormatText,
+						Text:   "%REQ(:METHOD)% %RESPONSE_CODE%",
+					},
+				},
+			},
+			want: &model.Telemetry{
+				NamespacedName: nn,
+				AccessLogs: map[model.AccessLogsTarget][]model.AccessLogs{
+					model.AccessLogsTargetHTTP: {
+						{
+							Format: model.AccessLogsFormatText,
+							Text:   "%REQ(:METHOD)% %RESPONSE_CODE%",
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "json access logs",
+			cfg: &v2alpha1.Telemetry{
+				AccessLogs: []v2alpha1.AccessLogs{
+					{
+						Format: v2alpha1.AccessLogsFormatJSON,
+						JSON: map[string]string{
+							"method": "%REQ(:METHOD)%",
+						},
+					},
+				},
+			},
+			want: &model.Telemetry{
+				NamespacedName: nn,
+				AccessLogs: map[model.AccessLogsTarget][]model.AccessLogs{
+					model.AccessLogsTargetHTTP: {
+						{
+							Format: model.AccessLogsFormatJSON,
+							JSON: map[string]string{
+								"method": "%REQ(:METHOD)%",
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "text access logs with tcp target",
+			cfg: &v2alpha1.Telemetry{
+				AccessLogs: []v2alpha1.AccessLogs{
+					{
+						Format: v2alpha1.AccessLogsFormatText,
+						Text:   "%REQ(:METHOD)% %RESPONSE_CODE%",
+						Targets: []v2alpha1.AccessLogsTarget{
+							v2alpha1.AccessLogsTargetTCP,
+						},
+					},
+				},
+			},
+			want: &model.Telemetry{
+				NamespacedName: nn,
+				AccessLogs: map[model.AccessLogsTarget][]model.AccessLogs{
+					model.AccessLogsTargetTCP: {
+						{
+							Format: model.AccessLogsFormatText,
+							Text:   "%REQ(:METHOD)% %RESPONSE_CODE%",
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "target-specific access logs",
+			cfg: &v2alpha1.Telemetry{
+				AccessLogs: []v2alpha1.AccessLogs{
+					{
+						Format: v2alpha1.AccessLogsFormatText,
+						Text:   "%REQ(:METHOD)% %RESPONSE_CODE%",
+						Targets: []v2alpha1.AccessLogsTarget{
+							v2alpha1.AccessLogsTargetHTTP,
+						},
+					},
+					{
+						Format: v2alpha1.AccessLogsFormatJSON,
+						JSON: map[string]string{
+							"response_code": "%RESPONSE_CODE%",
+						},
+						Targets: []v2alpha1.AccessLogsTarget{
+							v2alpha1.AccessLogsTargetTCP,
+						},
+					},
+				},
+			},
+			want: &model.Telemetry{
+				NamespacedName: nn,
+				AccessLogs: map[model.AccessLogsTarget][]model.AccessLogs{
+					model.AccessLogsTargetHTTP: {
+						{
+							Format: model.AccessLogsFormatText,
+							Text:   "%REQ(:METHOD)% %RESPONSE_CODE%",
+						},
+					},
+					model.AccessLogsTargetTCP: {
+						{
+							Format: model.AccessLogsFormatJSON,
+							JSON: map[string]string{
+								"response_code": "%RESPONSE_CODE%",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, toTelemetryConfig(nn, tt.cfg))
+		})
+	}
+}
+
 func testService(namespace, name string, port int32) corev1.Service {
 	return corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -558,6 +854,7 @@ func readGatewayInput(t *testing.T, testName string) Input {
 	readInput(t, fmt.Sprintf("%s/%s/%s", basedGatewayTestdataDir, rewriteTestName(testName), "input-httproute.yaml"), &input.HTTPRoutes)
 	readInput(t, fmt.Sprintf("%s/%s/%s", basedGatewayTestdataDir, rewriteTestName(testName), "input-tlsroute.yaml"), &input.TLSRoutes)
 	readInput(t, fmt.Sprintf("%s/%s/%s", basedGatewayTestdataDir, rewriteTestName(testName), "input-grpcroute.yaml"), &input.GRPCRoutes)
+	readInput(t, fmt.Sprintf("%s/%s/%s", basedGatewayTestdataDir, rewriteTestName(testName), "input-namespace.yaml"), &input.Namespaces)
 	readInput(t, fmt.Sprintf("%s/%s/%s", basedGatewayTestdataDir, rewriteTestName(testName), "input-service.yaml"), &input.Services)
 	readInput(t, fmt.Sprintf("%s/%s/%s", basedGatewayTestdataDir, rewriteTestName(testName), "input-serviceimport.yaml"), &input.ServiceImports)
 

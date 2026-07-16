@@ -44,9 +44,8 @@ jobs:
     outputs:
       sha: ${{ steps.tag.outputs.sha }}
     strategy:
-      # Only fail-fast on pull_request_target events. For push and merge_group events, we want to run all builds even
-      # if some of them fail, to make sure one of the image is not broken accidentally and the PR is still merged.
-      fail-fast: ${{ github.event_name != 'pull_request_target' }}
+      # Do not cancel the other image builds if one of them fails.
+      fail-fast: false
       matrix:
         include:
           - name: cilium
@@ -88,7 +87,7 @@ jobs:
 
     steps:
       - name: Checkout base or default branch (trusted)
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           # We first check if base_ref exist, meaning we're in pull_request_target context, and if not we just use default_branch
           ref: ${{ github.base_ref || github.event.repository.default_branch }}
@@ -128,7 +127,7 @@ jobs:
           sudo systemctl start docker
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
         # Disable GC entirely to avoid buildkit from GC caches.
         with:
           buildkitd-config-inline: |
@@ -136,7 +135,7 @@ jobs:
              gc=false
 
       - name: Login to ${{ env.REGISTRY_DEV }} for CI
-        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           registry: ${{ env.REGISTRY_DEV }}
           username: ${{ secrets.QUAY_USERNAME_CI }}
@@ -184,14 +183,17 @@ jobs:
           echo normal_tag=${normal_tag} >> $GITHUB_OUTPUT
           echo race_tag=${race_tag} >> $GITHUB_OUTPUT
           echo unstripped_tag=${unstripped_tag} >> $GITHUB_OUTPUT
+          echo parent_tag="$(cat VERSION)" >> $GITHUB_OUTPUT
 
       # Warning: since this is a privileged workflow, subsequent workflow job
       # steps must take care not to execute untrusted code.
       - name: Checkout pull request branch (NOT TRUSTED)
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
           ref: ${{ steps.tag.outputs.sha }}
+          # Required by checkout v7+ to fetch fork PR code; see the NOT TRUSTED warning above.
+          allow-unsafe-pr-checkout: true
 
       - name: Check for disk usage
         shell: bash
@@ -209,7 +211,7 @@ jobs:
 
       # Load Golang cache build from GitHub
       - name: Restore Golang cache build from GitHub
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: go-cache
         with:
           path: /tmp/.cache/go
@@ -231,7 +233,7 @@ jobs:
 
       # Import GitHub's cache build to docker cache
       - name: Copy ${{ matrix.name }} Golang cache to docker cache
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           provenance: false
           context: /tmp/.cache/go
@@ -254,8 +256,20 @@ jobs:
             echo build="true" >> $GITHUB_OUTPUT
           fi
 
+      - name: Tag local module version
+        id: create-local-tag
+        env:
+          PARENT: ${{ steps.tag.outputs.parent_tag }}
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "github-actions@users.noreply.github.com"
+          REV="$(git show -s --date=format:'%Y%m%d%H%M%S' --format='%cd-%h')"
+          LOCAL_TAG="v$PARENT+$REV"
+          git tag -m "$LOCAL_TAG" --no-sign "$LOCAL_TAG" HEAD
+          git log -1 "$LOCAL_TAG"
+
       - name: CI Build ${{ matrix.name }}
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         id: docker_build_ci
         if: ${{ steps.check.outputs.build != '' }}
         with:
@@ -271,7 +285,7 @@ jobs:
             OPERATOR_VARIANT=${{ matrix.name }}
 
       - name: CI race detection Build ${{ matrix.name }}
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         id: docker_build_ci_detect_race_condition
         if: ${{ steps.check.outputs.build != '' && steps.tag.outputs.race_tag != ''}}
         with:
@@ -289,7 +303,7 @@ jobs:
             OPERATOR_VARIANT=${{ matrix.name }}
 
       - name: CI Unstripped Binaries Build ${{ matrix.name }}
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         id: docker_build_ci_unstripped
         if: ${{ steps.check.outputs.build != '' && steps.tag.outputs.unstripped_tag != ''}}
         with:
@@ -418,7 +432,9 @@ jobs:
     name: Post test comment for Renovate PRs after images built
     runs-on: ubuntu-24.04
     needs: pre-comment
-    environment: "Trigger CI from renovate PRs"
+    environment:
+      name: "Trigger CI from renovate PRs"
+      deployment: false
     if: ${{
          github.event_name == 'pull_request_target' &&
          github.event.pull_request.user.login == vars.RENOVATE_BOT_USERNAME

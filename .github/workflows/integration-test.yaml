@@ -76,7 +76,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Set initial commit status
-        uses: cilium/cilium/.github/actions/set-commit-status@74fb5f98372c3a0ab060b7256a53ec7dfb6dd9be # main
+        uses: cilium/cilium/.github/actions/set-commit-status@main # main
         with:
           sha: ${{ inputs.SHA || github.sha }}
 
@@ -94,7 +94,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Set commit status to pending
-        uses: cilium/cilium/.github/actions/set-commit-status@74fb5f98372c3a0ab060b7256a53ec7dfb6dd9be # main
+        uses: cilium/cilium/.github/actions/set-commit-status@main # main
         with:
           sha: ${{ inputs.SHA || github.sha }}
 
@@ -130,7 +130,7 @@ jobs:
           sudo apt update && sudo apt install -y --no-install-recommends build-essential make libtinfo6
 
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -154,21 +154,23 @@ jobs:
       # Warning: since this is a privileged workflow, subsequent workflow job
       # steps must take care not to execute untrusted code.
       - name: Checkout pull request branch (NOT TRUSTED)
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ steps.vars.outputs.sha }}
           persist-credentials: false
+          # Required by checkout v7+ to fetch fork PR code; see the NOT TRUSTED warning above.
+          allow-unsafe-pr-checkout: true
 
       - name: Install Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           cache: false
           # renovate: datasource=golang-version depName=go
-          go-version: 1.25.11
+          go-version: 1.25.12
 
       # Load Golang cache build from GitHub
       - name: Load Golang cache build from GitHub
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: go-cache
         with:
           path: /tmp/.cache/go
@@ -253,7 +255,7 @@ jobs:
     needs: integration-test
     steps:
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -271,7 +273,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Set final commit status
-        uses: cilium/cilium/.github/actions/set-commit-status@74fb5f98372c3a0ab060b7256a53ec7dfb6dd9be # main
+        uses: cilium/cilium/.github/actions/set-commit-status@main # main
         with:
           sha: ${{ inputs.SHA || github.sha }}
           status: ${{ needs.integration-test.result }}

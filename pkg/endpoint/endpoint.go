@@ -573,7 +573,7 @@ func (e *Endpoint) LXCMac() mac.MAC {
 }
 
 func (e *Endpoint) IsAtHostNS() bool {
-	return e.isProperty(PropertyAtHostNS)
+	return e.IsProperty(PropertyAtHostNS)
 }
 
 func (e *Endpoint) IsHost() bool {
@@ -581,11 +581,11 @@ func (e *Endpoint) IsHost() bool {
 }
 
 func (e *Endpoint) SkipMasqueradeV4() bool {
-	return e.isProperty(PropertySkipMasqueradeV4)
+	return e.IsProperty(PropertySkipMasqueradeV4)
 }
 
 func (e *Endpoint) SkipMasqueradeV6() bool {
-	return e.isProperty(PropertySkipMasqueradeV6)
+	return e.IsProperty(PropertySkipMasqueradeV6)
 }
 
 // SetIsHost is a convenient method to create host endpoints for testing.
@@ -1321,7 +1321,7 @@ func (e *Endpoint) leaveLocked(conf DeleteConfig) []error {
 	e.controllers.RemoveAll()
 	e.cleanPolicySignals()
 
-	if !e.isProperty(PropertyFakeEndpoint) {
+	if !e.isPropertyLocked(PropertyFakeEndpoint) {
 		e.scrubIPsInConntrackTableLocked()
 	}
 
@@ -1389,7 +1389,10 @@ type CEPOwnerInterface interface {
 // GetCEPOwner retrieves the cep owner related to this endpoint which will be,
 // by default, the pod associated with this endpoint.
 func (e *Endpoint) GetCEPOwner() CEPOwnerInterface {
-	if cepOwnerInt, ok := e.properties[PropertyCEPOwner]; ok {
+	e.mutex.RWMutex.RLock()
+	cepOwnerInt, ok := e.properties[PropertyCEPOwner]
+	e.mutex.RWMutex.RUnlock()
+	if ok {
 		cepOwner, ok := cepOwnerInt.(CEPOwnerInterface)
 		if ok {
 			return cepOwner
@@ -2601,7 +2604,7 @@ func (e *Endpoint) Delete(conf DeleteConfig) []error {
 	}
 
 	// If dry mode is enabled, no changes to system state are made.
-	if !e.isProperty(PropertyFakeEndpoint) {
+	if !e.isPropertyLocked(PropertyFakeEndpoint) {
 		// Set the Endpoint's interface down to prevent it from passing any traffic
 		// after its tc filters are removed.
 		if err := e.setDown(); err != nil {
@@ -2740,12 +2743,12 @@ func (e *Endpoint) SetPropertyValue(key string, value any) any {
 func (e *Endpoint) IsProperty(propertyKey string) bool {
 	e.mutex.RWMutex.RLock()
 	defer e.mutex.RWMutex.RUnlock()
-	return e.isProperty(propertyKey)
+	return e.isPropertyLocked(propertyKey)
 }
 
 // isProperty checks if the value of the properties map is set, it's a boolean
-// and its value is 'true'.
-func (e *Endpoint) isProperty(propertyKey string) bool {
+// and its value is 'true'. Must be called with the endpoint being (read)-locked.
+func (e *Endpoint) isPropertyLocked(propertyKey string) bool {
 	if v, ok := e.properties[propertyKey]; ok {
 		isSet, ok := v.(bool)
 		return ok && isSet

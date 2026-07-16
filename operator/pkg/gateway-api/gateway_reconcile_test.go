@@ -27,6 +27,7 @@ import (
 	"github.com/cilium/cilium/operator/pkg/model/translation"
 	gatewayApiTranslation "github.com/cilium/cilium/operator/pkg/model/translation/gateway-api"
 	ciliumv2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
+	"github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2alpha1"
 )
 
 var (
@@ -85,6 +86,7 @@ func Test_Conformance(t *testing.T) {
 		gateway              []gwDetails
 		disableServiceImport bool
 		wantErr              bool
+		hostNetwork          bool
 	}{
 		{
 			name: "gateway-http-listener-isolation",
@@ -192,6 +194,10 @@ func Test_Conformance(t *testing.T) {
 		{name: "httproute-backend-protocol-websocket", gateway: []gwDetails{gatewaySameNamespace}},
 		{name: "httproute-cross-namespace", gateway: []gwDetails{gatewayBackendNamespace}},
 		{
+			name:    "httproute-allowed-kind-by-section-name",
+			gateway: []gwDetails{{FullName: types.NamespacedName{Name: "kind-restricted-multi-listener", Namespace: "gateway-conformance-infra"}}},
+		},
+		{
 			name:    "httproute-disallowed-kind",
 			gateway: []gwDetails{{FullName: types.NamespacedName{Name: "tlsroutes-only", Namespace: "gateway-conformance-infra"}}},
 		},
@@ -241,6 +247,7 @@ func Test_Conformance(t *testing.T) {
 			name: "httproute-invalid-serviceimport-no-crd", gateway: []gwDetails{gatewaySameNamespace},
 			disableServiceImport: true,
 		},
+		{name: "gateway-multi-port-https", gateway: []gwDetails{{FullName: types.NamespacedName{Name: "multi-port-https", Namespace: "gateway-conformance-infra"}}}},
 		{name: "tlsroute-invalid-reference-grant", gateway: []gwDetails{{FullName: types.NamespacedName{Name: "gateway-tlsroute-referencegrant", Namespace: "gateway-conformance-infra"}}}},
 		{name: "tlsroute-simple-same-namespace", gateway: []gwDetails{{FullName: types.NamespacedName{Name: "gateway-tlsroute", Namespace: "gateway-conformance-infra"}}}},
 		{name: "tlsroute-hostname-intersection", gateway: []gwDetails{
@@ -257,6 +264,14 @@ func Test_Conformance(t *testing.T) {
 		{name: "tlsroute-mixed-protocol-listeners", gateway: []gwDetails{
 			{FullName: types.NamespacedName{Name: "gateway-tlsroute-mixed", Namespace: "gateway-conformance-infra"}},
 		}},
+		{name: "gateway-multi-port-tls-passthrough", gateway: []gwDetails{{FullName: types.NamespacedName{Name: "multi-port-tls-passthrough", Namespace: "gateway-conformance-infra"}}}},
+		{name: "gateway-multi-port-https-with-multi-port-tls-passthrough", gateway: []gwDetails{{FullName: types.NamespacedName{Name: "multi-port-https-with-multi-port-tls-passthrough", Namespace: "gateway-conformance-infra"}}}},
+		{name: "gateway-cross-protocol-same-hostname", gateway: []gwDetails{{FullName: types.NamespacedName{Name: "cross-protocol-same-hostname", Namespace: "gateway-conformance-infra"}}}},
+		{name: "gateway-cross-protocol-same-port-same-hostname", gateway: []gwDetails{{FullName: types.NamespacedName{Name: "cross-protocol-same-port-same-hostname", Namespace: "gateway-conformance-infra"}, wantErr: true}}},
+		{name: "gateway-ns-restricted-same-hostname", gateway: []gwDetails{{FullName: types.NamespacedName{Name: "ns-restricted-same-hostname", Namespace: "gateway-conformance-infra"}}}},
+		{name: "hostNetwork-enabled-valid", gateway: []gwDetails{{FullName: types.NamespacedName{Name: "hostnetwork-enabled", Namespace: "gateway-conformance-infra"}}}, hostNetwork: true},
+		{name: "hostNetwork-enabled-exceed-max-address", gateway: []gwDetails{{FullName: types.NamespacedName{Name: "hostnetwork-enabled", Namespace: "gateway-conformance-infra"}}}, hostNetwork: true},
+		{name: "gatewayclassconfig-nodeport", gateway: []gwDetails{{FullName: types.NamespacedName{Name: "nodeport-gateway", Namespace: "gateway-conformance-infra"}}}},
 	}
 
 	for _, tt := range tests {
@@ -287,7 +302,19 @@ func Test_Conformance(t *testing.T) {
 					clientBuilder.WithIndex(&gatewayv1.HTTPRoute{}, gatewayHTTPRouteIndex, indexers.IndexHTTPRouteByGateway)
 					clientBuilder.WithIndex(&gatewayv1.GRPCRoute{}, gatewayGRPCRouteIndex, indexers.IndexGRPCRouteByGateway)
 					clientBuilder.WithIndex(&gatewayv1alpha2.TLSRoute{}, gatewayTLSRouteIndex, indexers.IndexTLSRouteByGateway)
-
+					if tt.hostNetwork {
+						gatewayAPITranslator = gatewayApiTranslation.NewTranslator(cecTranslator, translation.Config{
+							ServiceConfig: translation.ServiceConfig{
+								ExternalTrafficPolicy: string(corev1.ServiceExternalTrafficPolicyCluster),
+							},
+							OriginalIPDetectionConfig: translation.OriginalIPDetectionConfig{
+								UseRemoteAddress: true,
+							},
+							HostNetworkConfig: translation.HostNetworkConfig{
+								Enabled: true,
+							},
+						})
+					}
 					c := clientBuilder.Build()
 
 					r := &gatewayReconciler{
@@ -375,6 +402,54 @@ func Test_Conformance(t *testing.T) {
 					}
 				})
 			}
+		})
+	}
+}
+
+func Test_isAccessLogsConfigured(t *testing.T) {
+	tests := []struct {
+		name   string
+		config *v2alpha1.Telemetry
+		want   bool
+	}{
+		{
+			name: "nil config",
+			want: false,
+		},
+		{
+			name:   "empty config",
+			config: &v2alpha1.Telemetry{},
+			want:   false,
+		},
+		{
+			name:   "telemetry without access logs",
+			config: &v2alpha1.Telemetry{},
+			want:   false,
+		},
+		{
+			name: "empty access logs",
+			config: &v2alpha1.Telemetry{
+				AccessLogs: []v2alpha1.AccessLogs{},
+			},
+			want: false,
+		},
+		{
+			name: "access logs",
+			config: &v2alpha1.Telemetry{
+				AccessLogs: []v2alpha1.AccessLogs{
+					{
+						Format: v2alpha1.AccessLogsFormatText,
+						Text:   "%REQ(:METHOD)%",
+					},
+				},
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.config.IsAccessLogsConfigured())
 		})
 	}
 }
