@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/vishvananda/netlink"
@@ -23,6 +24,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	alibabaCloud "github.com/cilium/cilium/pkg/alibabacloud/utils"
+	azureTypes "github.com/cilium/cilium/pkg/azure/types"
 	"github.com/cilium/cilium/pkg/cidr"
 	"github.com/cilium/cilium/pkg/datapath/linux/sysctl"
 	"github.com/cilium/cilium/pkg/ip"
@@ -235,7 +237,54 @@ func newNodeStore(logger *slog.Logger, nodeName string, conf *option.DaemonConfi
 	return store
 }
 
-func deriveVpcCIDRs(node *ciliumv2.CiliumNode) (primaryCIDR *cidr.CIDR, secondaryCIDRs []*cidr.CIDR) {
+// deriveAzureCIDRsFromPool returns the ID-sorted CIDRs of the Azure interfaces
+// backing node's Spec.IPAM.Pool allocations, or nil if none resolve yet.
+func deriveAzureCIDRsFromPool(logger *slog.Logger, node *ciliumv2.CiliumNode) []*cidr.CIDR {
+	if len(node.Spec.IPAM.Pool) == 0 {
+		return nil
+	}
+
+	poolResources := make(map[string]struct{}, len(node.Spec.IPAM.Pool))
+	for _, allocIP := range node.Spec.IPAM.Pool {
+		if allocIP.Resource != "" {
+			poolResources[allocIP.Resource] = struct{}{}
+		}
+	}
+	if len(poolResources) == 0 {
+		return nil
+	}
+
+	ifaces := make([]azureTypes.AzureInterface, 0, len(poolResources))
+	for _, azif := range node.Status.Azure.Interfaces {
+		if _, ok := poolResources[azif.ID]; !ok {
+			continue
+		}
+		ifaces = append(ifaces, azif)
+	}
+	slices.SortFunc(ifaces, func(a, b azureTypes.AzureInterface) int {
+		return strings.Compare(a.ID, b.ID)
+	})
+
+	cidrs := make([]*cidr.CIDR, 0, len(ifaces))
+	for _, azif := range ifaces {
+		c, err := cidr.ParseCIDR(azif.CIDR)
+		if err != nil {
+			if logger != nil {
+				logger.Warn(
+					"Unable to parse CIDR of Azure interface backing IPAM pool allocation, skipping",
+					logfields.Error, err,
+					logfields.CIDR, azif.CIDR,
+					logfields.Interface, azif.ID,
+				)
+			}
+			continue
+		}
+		cidrs = append(cidrs, c)
+	}
+	return cidrs
+}
+
+func deriveVpcCIDRs(logger *slog.Logger, node *ciliumv2.CiliumNode) (primaryCIDR *cidr.CIDR, secondaryCIDRs []*cidr.CIDR) {
 	// A node belongs to a single VPC so we can pick the first ENI
 	// in the list and derive the VPC CIDR from it.
 	for _, eni := range node.Status.ENI.ENIs {
@@ -251,8 +300,55 @@ func deriveVpcCIDRs(node *ciliumv2.CiliumNode) (primaryCIDR *cidr.CIDR, secondar
 			return
 		}
 	}
-	for _, azif := range node.Status.Azure.Interfaces {
-		c, err := cidr.ParseCIDR(azif.CIDR)
+	// Azure NICs can be on different subnets; each Spec.IPAM.Pool entry records
+	// (via Resource) its interface, so the backing CIDRs are the pool's
+	// interfaces' CIDRs, not an arbitrary single one.
+	if azureCIDRs := deriveAzureCIDRsFromPool(logger, node); len(azureCIDRs) > 0 {
+		primaryCIDR = azureCIDRs[0]
+		secondaryCIDRs = azureCIDRs[1:]
+		return
+	}
+	// No pool allocation yet: fall back to a deterministic choice -- the pinned
+	// Spec.Azure.InterfaceName if present and parseable, else the smallest-ID
+	// interface with a parseable CIDR.
+	requiredIfaceName := node.Spec.Azure.InterfaceName
+	var azureNamedIface, azureFallbackIface *azureTypes.AzureInterface
+	for i, azif := range node.Status.Azure.Interfaces {
+		if _, err := cidr.ParseCIDR(azif.CIDR); err != nil {
+			if logger != nil {
+				logger.Warn(
+					"Unable to parse Azure interface CIDR, skipping",
+					logfields.Error, err,
+					logfields.CIDR, azif.CIDR,
+					logfields.Interface, azif.ID,
+				)
+			}
+			continue
+		}
+		if requiredIfaceName != "" && azif.Name == requiredIfaceName {
+			azureNamedIface = &node.Status.Azure.Interfaces[i]
+		}
+		if azureFallbackIface == nil || azif.ID < azureFallbackIface.ID {
+			azureFallbackIface = &node.Status.Azure.Interfaces[i]
+		}
+	}
+	azurePrimaryIface := azureFallbackIface
+	if requiredIfaceName != "" {
+		if azureNamedIface != nil {
+			azurePrimaryIface = azureNamedIface
+		} else {
+			// Pinned interface absent/unparseable and no pool data; log it and
+			// use the deterministic fallback rather than disabling autodetection.
+			if logger != nil {
+				logger.Warn(
+					"Pinned Azure interface (Spec.Azure.InterfaceName) not found or has an unparseable CIDR; falling back to auto-selected primary VPC CIDR",
+					logfields.Interface, requiredIfaceName,
+				)
+			}
+		}
+	}
+	if azurePrimaryIface != nil {
+		c, err := cidr.ParseCIDR(azurePrimaryIface.CIDR)
 		if err == nil {
 			primaryCIDR = c
 			return
@@ -278,7 +374,7 @@ func deriveVpcCIDRs(node *ciliumv2.CiliumNode) (primaryCIDR *cidr.CIDR, secondar
 }
 
 func (n *nodeStore) autoDetectIPv4NativeRoutingCIDR(localNodeStore *node.LocalNodeStore) bool {
-	if primaryCIDR, secondaryCIDRs := deriveVpcCIDRs(n.ownNode); primaryCIDR != nil {
+	if primaryCIDR, secondaryCIDRs := deriveVpcCIDRs(n.logger, n.ownNode); primaryCIDR != nil {
 		allCIDRs := append([]*cidr.CIDR{primaryCIDR}, secondaryCIDRs...)
 		if nativeCIDR := n.conf.IPv4NativeRoutingCIDR; nativeCIDR != nil {
 			found := false

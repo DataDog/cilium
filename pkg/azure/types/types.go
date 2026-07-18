@@ -4,6 +4,7 @@
 package types
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
@@ -57,6 +58,23 @@ type AzureStatus struct {
 	//
 	// +optional
 	Interfaces []AzureInterface `json:"interfaces,omitempty"`
+}
+
+// SetInterfaces replaces Interfaces with a copy of ifaces sorted
+// deterministically by ID.
+//
+// Interfaces must be kept sorted by ID: the generated AzureStatus.DeepEqual
+// compares the slice index-by-index, and the operator's status-update path
+// relies on that DeepEqual to skip no-op CiliumNode /status writes. Any code
+// that populates Interfaces from a non-deterministically ordered source (e.g.
+// Go map iteration) MUST use this method rather than assigning the field
+// directly, to preserve that invariant.
+func (s *AzureStatus) SetInterfaces(ifaces []AzureInterface) {
+	sorted := slices.Clone(ifaces)
+	slices.SortFunc(sorted, func(a, b AzureInterface) int {
+		return strings.Compare(a.ID, b.ID)
+	})
+	s.Interfaces = sorted
 }
 
 // AzureAddress is an IP address assigned to an AzureInterface
@@ -121,14 +139,19 @@ type AzureInterface struct {
 	// +optional
 	CIDR string `json:"cidr,omitempty"`
 
-	// vmssName is the name of the virtual machine scale set. This field is
-	// set by extractIDs()
+	// vmssName is set by extractIDs() and is never serialized (json:"-"), so it
+	// is excluded from DeepEqual to avoid spurious diffs against apiserver copies.
+	// +deepequal-gen=false
 	vmssName string `json:"-"`
 
 	// vmID is the ID of the virtual machine
+	//
+	// +deepequal-gen=false
 	vmID string `json:"-"`
 
 	// resourceGroup is the resource group the interface belongs to
+	//
+	// +deepequal-gen=false
 	resourceGroup string `json:"-"`
 }
 
