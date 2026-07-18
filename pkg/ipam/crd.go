@@ -77,6 +77,26 @@ type nodeStore struct {
 	restoreFinished  chan struct{}
 	restoreCloseOnce sync.Once
 
+	// lastAppliedUsed is the Status.IPAM.Used map last successfully written
+	// to the apiserver by refreshNode(), taken from the apiserver-returned
+	// object. refreshNode() skips its UpdateStatus() call when the freshly
+	// rebuilt allocation map is unchanged from this value. This is only
+	// safe for Used because the agent is its sole writer (the operator only
+	// initializes it once when nil; see PopulateStatusFields).
+	lastAppliedUsed ipamTypes.AllocationMap
+
+	// pendingReleaseIPsWrite is set by updateLocalNodeResource whenever it
+	// makes a genuine local change to Status.IPAM.ReleaseIPs (the release-IP
+	// ACK/NACK handshake with the operator), and consumed by refreshNode(),
+	// which must not skip its write while this is set. ReleaseIPs is a
+	// shared field with the operator, so unlike Used, a value-equality check
+	// against our own last write is not a reliable no-op signal here: the
+	// operator can re-mark an IP for release with the same string value the
+	// agent already ACKed in a previous round, which would look identical
+	// to our own history even though the current apiserver state (as of the
+	// most recent watch delivery) genuinely requires a fresh ACK/NACK.
+	pendingReleaseIPsWrite bool
+
 	clientset client.Clientset
 
 	conf      *option.DaemonConfig
@@ -377,6 +397,11 @@ func (n *nodeStore) staticIPStatus() (requested bool, assigned string) {
 func (n *nodeStore) deleteLocalNodeResource() {
 	n.mutex.Lock()
 	n.ownNode = nil
+	// The next CiliumNode we observe (e.g. after a delete+recreate while the
+	// agent keeps running) is a distinct object; do not let a stale
+	// no-op-write baseline suppress its first write.
+	n.lastAppliedUsed = nil
+	n.pendingReleaseIPsWrite = false
 	n.mutex.Unlock()
 }
 
@@ -437,6 +462,15 @@ func (n *nodeStore) updateLocalNodeResource(node *ciliumv2.CiliumNode) {
 		}
 
 		configureENIDevices(n.logger, n.ownNode, node, n.mtuConfig, n.sysctl)
+	}
+
+	if n.ownNode != nil && n.ownNode.UID != node.UID {
+		// The object was deleted and recreated (same name, different UID)
+		// without us observing a distinct delete event, e.g. via an
+		// informer relist. Do not let the previous object's no-op-write
+		// baseline suppress this new object's first write.
+		n.lastAppliedUsed = nil
+		n.pendingReleaseIPsWrite = false
 	}
 
 	n.ownNode = node
@@ -538,6 +572,10 @@ func (n *nodeStore) updateLocalNodeResource(node *ciliumv2.CiliumNode) {
 	}
 
 	if releaseUpstreamSyncNeeded {
+		// Mark the release-IP handshake state as dirty so that refreshNode()
+		// is guaranteed to write it upstream, even if the resulting
+		// ReleaseIPs content happens to match what we last wrote.
+		n.pendingReleaseIPsWrite = true
 		n.refreshTrigger.TriggerWithReason("excess IP release")
 	}
 }
@@ -575,29 +613,68 @@ func (n *nodeStore) refreshNodeTrigger(reasons []string) {
 // refreshNode updates the custom resource in the apiserver based on the latest
 // information in the local node store
 func (n *nodeStore) refreshNode() error {
-	n.mutex.RLock()
+	n.mutex.Lock()
 	if n.ownNode == nil {
-		n.mutex.RUnlock()
+		n.mutex.Unlock()
 		return nil
 	}
 
 	node := n.ownNode.DeepCopy()
 	staleCopyOfAllocators := make([]*crdAllocator, len(n.allocators))
 	copy(staleCopyOfAllocators, n.allocators)
-	n.mutex.RUnlock()
+	lastAppliedUsed := n.lastAppliedUsed
+	// Consume the release-IP dirty flag now: if the write below fails, it is
+	// restored so the pending handshake state is not lost (see below).
+	forceWrite := n.pendingReleaseIPsWrite
+	n.pendingReleaseIPsWrite = false
+	n.mutex.Unlock()
 
 	node.Status.IPAM.Used = ipamTypes.AllocationMap{}
-
 	for _, a := range staleCopyOfAllocators {
 		a.mutex.RLock()
 		maps.Copy(node.Status.IPAM.Used, a.allocated)
 		a.mutex.RUnlock()
 	}
 
-	var err error
-	_, err = n.clientset.CiliumV2().CiliumNodes().UpdateStatus(context.TODO(), node, metav1.UpdateOptions{})
+	// Skip the UpdateStatus() round-trip entirely when there is no pending
+	// release-IP handshake change (forceWrite) and the freshly rebuilt
+	// allocation map is unchanged from what we last successfully wrote.
+	// refreshNode() is re-triggered on every IP allocate/release, on every
+	// release-IP handshake update, and on every retry-after-error, so
+	// without this check the agent issues a full-object status write even
+	// when nothing actually changed, needlessly contending with the
+	// operator and with itself for the object's shared resourceVersion.
+	if !forceWrite && lastAppliedUsed != nil && maps.Equal(lastAppliedUsed, node.Status.IPAM.Used) {
+		return nil
+	}
 
-	return err
+	updatedNode, err := n.clientset.CiliumV2().CiliumNodes().UpdateStatus(context.TODO(), node, metav1.UpdateOptions{})
+	if err != nil {
+		if forceWrite {
+			// Don't lose track of the pending release-IP handshake change;
+			// the next attempt (triggered by refreshNodeTrigger's own
+			// retry-after-error) must not skip it.
+			n.mutex.Lock()
+			n.pendingReleaseIPsWrite = true
+			n.mutex.Unlock()
+		}
+		return err
+	}
+
+	// Record what the apiserver confirmed, not merely what we sent, so that
+	// any server-side mutation (e.g. a defaulting/mutating webhook) is
+	// reflected in future no-op comparisons. Guarded on ownNode still
+	// referring to the same object we just wrote: if it was deleted or
+	// replaced by a differently-UID'd object while this call was in
+	// flight, committing this baseline would incorrectly suppress that new
+	// object's own first write.
+	n.mutex.Lock()
+	if n.ownNode != nil && n.ownNode.UID == node.UID {
+		n.lastAppliedUsed = updatedNode.Status.IPAM.Used
+	}
+	n.mutex.Unlock()
+
+	return nil
 }
 
 // addAllocator adds a new CRD allocator to the node store

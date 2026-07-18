@@ -4,6 +4,7 @@
 package ipam
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -14,6 +15,9 @@ import (
 	"github.com/cilium/hive/hivetest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	k8sTesting "k8s.io/client-go/testing"
 
 	eniTypes "github.com/cilium/cilium/pkg/aws/eni/types"
 	azureTypes "github.com/cilium/cilium/pkg/azure/types"
@@ -22,6 +26,7 @@ import (
 	ipamTypes "github.com/cilium/cilium/pkg/ipam/types"
 	"github.com/cilium/cilium/pkg/ipmasq"
 	ciliumv2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
+	k8sClientTestUtils "github.com/cilium/cilium/pkg/k8s/client/testutils"
 	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/node"
@@ -557,4 +562,139 @@ func Test_validateENIConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRefreshNodeSkipsNoopStatusWrite verifies that refreshNode() only skips
+// the UpdateStatus() apiserver call when Status.IPAM.Used is unchanged from
+// what it last successfully wrote and there is no pending release-IP
+// handshake change -- and, critically, that a pending handshake change is
+// never dropped even if its resulting content happens to be
+// byte-for-byte identical to a value the agent already wrote in a previous
+// round (which a pure content-equality check on ReleaseIPs would miss).
+func TestRefreshNodeSkipsNoopStatusWrite(t *testing.T) {
+	logger := hivetest.Logger(t)
+	fakeClientset, clientset := k8sClientTestUtils.NewFakeClientset(logger)
+
+	cn := newCiliumNode("node1", 0, 0, 0)
+	cn.Spec.IPAM.Pool = ipamTypes.AllocationMap{
+		"1.1.1.1": {Resource: "foo"},
+		"1.1.1.2": {Resource: "foo"},
+	}
+	cn.Status.IPAM.Used = ipamTypes.AllocationMap{
+		"1.1.1.1": {Resource: "foo"},
+	}
+	created, err := clientset.CiliumV2().CiliumNodes().Create(context.Background(), cn, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	var updateStatusCalls int
+	fakeClientset.CiliumFakeClientset.PrependReactor("update", "ciliumnodes", func(action k8sTesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() == "status" {
+			updateStatusCalls++
+		}
+		return false, nil, nil
+	})
+
+	store := newFakeNodeStore(testDaemonConfig(), t)
+	store.clientset = clientset
+	store.ownNode = created.DeepCopy()
+
+	alloc := &crdAllocator{
+		allocated: ipamTypes.AllocationMap{
+			"1.1.1.1": {Resource: "foo"},
+		},
+		family: IPv4,
+	}
+	store.addAllocator(alloc)
+
+	// syncOwnNode re-fetches the object from the fake apiserver and installs
+	// it as ownNode, standing in for the informer watch delivering back the
+	// resourceVersion of our own just-applied write (refreshNode() itself
+	// never updates ownNode).
+	syncOwnNode := func() {
+		fresh, err := clientset.CiliumV2().CiliumNodes().Get(context.Background(), "node1", metav1.GetOptions{})
+		require.NoError(t, err)
+		store.mutex.Lock()
+		store.ownNode = fresh
+		store.mutex.Unlock()
+	}
+
+	// First call: there is no previously-applied baseline yet, so the write
+	// must happen even though the allocator already matches ownNode's Used.
+	require.NoError(t, store.refreshNode())
+	require.Equal(t, 1, updateStatusCalls, "expected the first refreshNode() call to write unconditionally")
+	syncOwnNode()
+
+	// Second call with unchanged allocator state: now that a baseline has
+	// been recorded, this must be skipped.
+	require.NoError(t, store.refreshNode())
+	require.Equal(t, 1, updateStatusCalls, "expected an unchanged refreshNode() call to skip the UpdateStatus call")
+
+	// Change the allocator state: the write should happen again.
+	alloc.mutex.Lock()
+	alloc.allocated = ipamTypes.AllocationMap{
+		"1.1.1.1": {Resource: "foo"},
+		"1.1.1.3": {Resource: "bar"},
+	}
+	alloc.mutex.Unlock()
+
+	require.NoError(t, store.refreshNode())
+	require.Equal(t, 2, updateStatusCalls, "expected a changed allocation map to trigger an UpdateStatus call")
+	syncOwnNode()
+
+	// The operator marks 1.1.1.2 for release. It is not held by the
+	// allocator, so updateLocalNodeResource() ACKs it to ready-for-release.
+	// Status.IPAM.Used does not change in this round, but the handshake
+	// change must still be written.
+	round1 := store.ownNode.DeepCopy()
+	round1.Status.IPAM.ReleaseIPs = map[string]ipamTypes.IPReleaseStatus{
+		"1.1.1.2": ipamOption.IPAMMarkForRelease,
+	}
+	store.updateLocalNodeResource(round1)
+	require.Equal(t,
+		ipamTypes.IPReleaseStatus(ipamOption.IPAMReadyForRelease),
+		store.ownNode.Status.IPAM.ReleaseIPs["1.1.1.2"],
+	)
+
+	require.NoError(t, store.refreshNode())
+	require.Equal(t, 3, updateStatusCalls, "expected the release-IP ACK to trigger an UpdateStatus call")
+	syncOwnNode()
+
+	// Regression case for the bug a pure content-equality check on
+	// ReleaseIPs would have: the operator marks the *same* IP for release
+	// again in a later round. The allocator state is unchanged, so the
+	// agent's ACK is, byte-for-byte, the same "ready-for-release" value it
+	// already wrote in the previous round -- yet the apiserver's current
+	// value (as of this watch delivery) is "marked-for-release" again and
+	// genuinely needs a fresh ACK written back.
+	round2 := store.ownNode.DeepCopy()
+	round2.Status.IPAM.ReleaseIPs = map[string]ipamTypes.IPReleaseStatus{
+		"1.1.1.2": ipamOption.IPAMMarkForRelease,
+	}
+	store.updateLocalNodeResource(round2)
+	require.Equal(t,
+		ipamTypes.IPReleaseStatus(ipamOption.IPAMReadyForRelease),
+		store.ownNode.Status.IPAM.ReleaseIPs["1.1.1.2"],
+	)
+
+	require.NoError(t, store.refreshNode())
+	require.Equal(t, 4, updateStatusCalls,
+		"expected a repeated (but genuinely re-required) release-IP ACK to still trigger an UpdateStatus call")
+	syncOwnNode()
+
+	// Regression guard: a same-name object with a different UID (e.g. a
+	// delete+recreate observed as a plain informer update, without a
+	// distinct delete event) must not inherit the old object's no-op-write
+	// baseline. If Used on the "new" object happens to match the stale
+	// baseline, the write must still happen.
+	recreated := store.ownNode.DeepCopy()
+	recreated.UID = store.ownNode.UID + "-recreated"
+	recreated.Status.IPAM.Used = ipamTypes.AllocationMap{
+		"1.1.1.1": {Resource: "foo"},
+		"1.1.1.3": {Resource: "bar"},
+	}
+	store.updateLocalNodeResource(recreated)
+
+	require.NoError(t, store.refreshNode())
+	require.Equal(t, 5, updateStatusCalls,
+		"expected a recreated (different UID) object to write unconditionally despite a matching Used map")
 }
