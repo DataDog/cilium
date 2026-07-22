@@ -17,6 +17,7 @@ import (
 
 	eniTypes "github.com/cilium/cilium/pkg/aws/eni/types"
 	azureTypes "github.com/cilium/cilium/pkg/azure/types"
+	"github.com/cilium/cilium/pkg/cidr"
 	fakeTypes "github.com/cilium/cilium/pkg/datapath/fake/types"
 	ipamOption "github.com/cilium/cilium/pkg/ipam/option"
 	ipamTypes "github.com/cilium/cilium/pkg/ipam/types"
@@ -348,6 +349,158 @@ func TestAzureIPMasq(t *testing.T) {
 	)
 
 	ipMasqAgent.Stop()
+}
+
+// TestDeriveVpcCIDRsAzure covers the primary-CIDR selection criterion for
+// Azure nodes: when Spec.Azure.InterfaceName pins the node to a specific
+// interface, that interface's CIDR must be selected regardless of slice
+// order; otherwise selection must be permutation-invariant (deterministic
+// regardless of Status.Azure.Interfaces ordering), unparseable CIDRs must
+// be skipped rather than aborting selection, and an empty/all-unparseable
+// interface list must fall through cleanly without panicking.
+func TestDeriveVpcCIDRsAzure(t *testing.T) {
+	logger := hivetest.Logger(t)
+
+	mkIfaces := func(order []int) []azureTypes.AzureInterface {
+		all := map[int]azureTypes.AzureInterface{
+			0: {ID: "intf-b", Name: "eth1", CIDR: "10.0.10.0/24"},
+			1: {ID: "intf-a", Name: "eth0", CIDR: "10.0.9.0/24"},
+			2: {ID: "intf-c", Name: "eth2", CIDR: "bogus-cidr"},
+		}
+		out := make([]azureTypes.AzureInterface, 0, len(order))
+		for _, i := range order {
+			out = append(out, all[i])
+		}
+		return out
+	}
+
+	t.Run("permutation invariant without configured interface name", func(t *testing.T) {
+		orderings := [][]int{{0, 1, 2}, {1, 0, 2}, {2, 0, 1}, {2, 1, 0}}
+		var want *cidr.CIDR
+		for i, order := range orderings {
+			cn := &ciliumv2.CiliumNode{}
+			cn.Status.Azure.Interfaces = mkIfaces(order)
+			got, secondary := deriveVpcCIDRs(logger, cn)
+			require.NotNil(t, got, "ordering %v", order)
+			require.Empty(t, secondary)
+			if i == 0 {
+				want = got
+			} else {
+				require.Equal(t, want.String(), got.String(), "ordering %v selected a different primary CIDR than ordering %v", order, orderings[0])
+			}
+		}
+		// The deterministic winner must be one of the parseable CIDRs.
+		require.Contains(t, []string{"10.0.9.0/24", "10.0.10.0/24"}, want.String())
+	})
+
+	t.Run("configured interface name takes precedence over determinism criterion", func(t *testing.T) {
+		cn := &ciliumv2.CiliumNode{}
+		cn.Spec.Azure.InterfaceName = "eth1"
+		cn.Status.Azure.Interfaces = mkIfaces([]int{1, 0, 2})
+		got, _ := deriveVpcCIDRs(logger, cn)
+		require.NotNil(t, got)
+		require.Equal(t, "10.0.10.0/24", got.String())
+	})
+
+	t.Run("configured interface name not found falls back to deterministic selection", func(t *testing.T) {
+		cn := &ciliumv2.CiliumNode{}
+		cn.Spec.Azure.InterfaceName = "eth99" // does not exist in mkIfaces
+		cn.Status.Azure.Interfaces = mkIfaces([]int{1, 0, 2})
+		got, secondary := deriveVpcCIDRs(logger, cn)
+		require.NotNil(t, got)
+		require.Empty(t, secondary)
+		require.Equal(t, "10.0.9.0/24", got.String()) // intf-a, lexicographically smallest ID
+	})
+
+	t.Run("configured interface name matches but has unparseable CIDR falls back to deterministic selection", func(t *testing.T) {
+		cn := &ciliumv2.CiliumNode{}
+		cn.Spec.Azure.InterfaceName = "eth2" // intf-c, CIDR is "bogus-cidr"
+		cn.Status.Azure.Interfaces = mkIfaces([]int{1, 0, 2})
+		got, secondary := deriveVpcCIDRs(logger, cn)
+		require.NotNil(t, got)
+		require.Empty(t, secondary)
+		require.Equal(t, "10.0.9.0/24", got.String()) // intf-a, lexicographically smallest ID
+	})
+
+	t.Run("configured interface name set but no interfaces have a parseable CIDR returns nil", func(t *testing.T) {
+		cn := &ciliumv2.CiliumNode{}
+		cn.Spec.Azure.InterfaceName = "eth1"
+		cn.Status.Azure.Interfaces = []azureTypes.AzureInterface{
+			{ID: "intf-1", Name: "eth1", CIDR: "not-a-cidr"},
+		}
+		got, secondary := deriveVpcCIDRs(logger, cn)
+		require.Nil(t, got)
+		require.Empty(t, secondary)
+	})
+
+	t.Run("all unparseable CIDRs falls through without panicking", func(t *testing.T) {
+		cn := &ciliumv2.CiliumNode{}
+		cn.Status.Azure.Interfaces = []azureTypes.AzureInterface{
+			{ID: "intf-1", CIDR: "not-a-cidr"},
+			{ID: "intf-2", CIDR: ""},
+		}
+		got, secondary := deriveVpcCIDRs(logger, cn)
+		require.Nil(t, got)
+		require.Empty(t, secondary)
+	})
+
+	t.Run("empty interfaces slice falls through cleanly", func(t *testing.T) {
+		cn := &ciliumv2.CiliumNode{}
+		got, secondary := deriveVpcCIDRs(logger, cn)
+		require.Nil(t, got)
+		require.Empty(t, secondary)
+	})
+
+	t.Run("pool spanning multiple interfaces returns all backing CIDRs, ignoring InterfaceName pin", func(t *testing.T) {
+		// intf-a and intf-c both back live pool allocations; intf-b does
+		// not and must not be selected even though it would otherwise win
+		// the lexicographic-ID tie-break, and even though InterfaceName is
+		// pinned to it.
+		cn := &ciliumv2.CiliumNode{}
+		cn.Spec.Azure.InterfaceName = "eth1"                  // intf-b, not in the pool
+		cn.Status.Azure.Interfaces = mkIfaces([]int{0, 1, 2}) // intf-b, intf-a, intf-c(bogus)
+		cn.Spec.IPAM.Pool = ipamTypes.AllocationMap{
+			"10.0.9.4":  {Resource: "intf-a"},
+			"10.0.9.5":  {Resource: "intf-a"},
+			"10.0.11.4": {Resource: "intf-d"},
+		}
+		cn.Status.Azure.Interfaces = append(cn.Status.Azure.Interfaces, azureTypes.AzureInterface{
+			ID: "intf-d", Name: "eth3", CIDR: "10.0.11.0/24",
+		})
+
+		got, secondary := deriveVpcCIDRs(logger, cn)
+		require.NotNil(t, got)
+		require.Equal(t, "10.0.9.0/24", got.String(), "primary must be the lowest-ID interface actually backing the pool")
+		require.Len(t, secondary, 1)
+		require.Equal(t, "10.0.11.0/24", secondary[0].String())
+	})
+
+	t.Run("pool referencing an interface without a parseable CIDR is skipped but other pool interfaces are still returned", func(t *testing.T) {
+		cn := &ciliumv2.CiliumNode{}
+		cn.Status.Azure.Interfaces = mkIfaces([]int{0, 1, 2}) // intf-b, intf-a, intf-c(bogus)
+		cn.Spec.IPAM.Pool = ipamTypes.AllocationMap{
+			"10.0.9.4": {Resource: "intf-a"},
+			"10.0.x.4": {Resource: "intf-c"}, // intf-c's CIDR is unparseable
+		}
+
+		got, secondary := deriveVpcCIDRs(logger, cn)
+		require.NotNil(t, got)
+		require.Equal(t, "10.0.9.0/24", got.String())
+		require.Empty(t, secondary)
+	})
+
+	t.Run("pool referencing an interface not present in status falls through to auto-selected CIDR", func(t *testing.T) {
+		cn := &ciliumv2.CiliumNode{}
+		cn.Status.Azure.Interfaces = mkIfaces([]int{1, 0, 2})
+		cn.Spec.IPAM.Pool = ipamTypes.AllocationMap{
+			"10.0.99.4": {Resource: "intf-not-attached"},
+		}
+
+		got, secondary := deriveVpcCIDRs(logger, cn)
+		require.NotNil(t, got)
+		require.Empty(t, secondary)
+		require.Equal(t, "10.0.9.0/24", got.String(), "intf-a, lexicographically smallest ID fallback since the pool does not resolve to any attached interface")
+	})
 }
 
 func Test_validateENIConfig(t *testing.T) {
