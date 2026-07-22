@@ -51,6 +51,52 @@ func TestForeachAddresses(t *testing.T) {
 	require.Equal(t, 2, interfaces)
 }
 
+// TestAzureInterfaceDeepEqualIgnoresUnexportedFields locks in that
+// AzureInterface.DeepEqual ignores the unexported, non-serialized
+// (json:"-") vmssName/vmID/resourceGroup fields, while still comparing all
+// exported fields. This is the exact write-suppression behavior the
+// +deepequal-gen=false markers on those fields exist to provide: a
+// freshly-populated in-memory AzureInterface (with vmssName/vmID/
+// resourceGroup set by SetID) must compare equal to a copy that round-
+// tripped through the apiserver (where those fields are always empty,
+// since they are never serialized).
+func TestAzureInterfaceDeepEqualIgnoresUnexportedFields(t *testing.T) {
+	resourceID := "/subscriptions/xxx/resourceGroups/rg1/providers/Microsoft.Compute/virtualMachineScaleSets/vmss1/virtualMachines/0/networkInterfaces/vmss1"
+	base := &AzureInterface{Name: "eth0", MAC: "aa:bb:cc:dd:ee:ff", CIDR: "10.0.0.0/24"}
+	base.SetID(resourceID)
+	require.NotEmpty(t, base.GetResourceGroup())
+	require.NotEmpty(t, base.GetVMID())
+	require.NotEmpty(t, base.GetVMScaleSetName())
+
+	// apiserverRoundTripped simulates the same interface as fetched back
+	// from the apiserver: identical exported fields (including ID, which
+	// IS serialized), but the unexported vmssName/vmID/resourceGroup are
+	// zero-valued because those json:"-" fields are never serialized.
+	apiserverRoundTripped := &AzureInterface{ID: resourceID, Name: "eth0", MAC: "aa:bb:cc:dd:ee:ff", CIDR: "10.0.0.0/24"}
+
+	require.True(t, base.DeepEqual(apiserverRoundTripped),
+		"AzureInterface.DeepEqual must ignore vmssName/vmID/resourceGroup so identical exported fields compare equal")
+	require.True(t, apiserverRoundTripped.DeepEqual(base))
+
+	tests := []struct {
+		name   string
+		mutate func(*AzureInterface)
+	}{
+		{"ID differs", func(a *AzureInterface) { a.ID = "intf-2" }},
+		{"Name differs", func(a *AzureInterface) { a.Name = "eth1" }},
+		{"MAC differs", func(a *AzureInterface) { a.MAC = "ff:ee:dd:cc:bb:aa" }},
+		{"CIDR differs", func(a *AzureInterface) { a.CIDR = "10.0.1.0/24" }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			other := apiserverRoundTripped.DeepCopy()
+			tt.mutate(other)
+			require.False(t, base.DeepEqual(other),
+				"AzureInterface.DeepEqual must still detect differences in exported field: %s", tt.name)
+		})
+	}
+}
+
 func TestExtractIDs(t *testing.T) {
 	tests := []struct {
 		name             string
