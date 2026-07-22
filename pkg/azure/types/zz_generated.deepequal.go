@@ -76,15 +76,6 @@ func (in *AzureInterface) DeepEqual(other *AzureInterface) bool {
 	if in.CIDR != other.CIDR {
 		return false
 	}
-	if in.vmssName != other.vmssName {
-		return false
-	}
-	if in.vmID != other.vmID {
-		return false
-	}
-	if in.resourceGroup != other.resourceGroup {
-		return false
-	}
 
 	return true
 }

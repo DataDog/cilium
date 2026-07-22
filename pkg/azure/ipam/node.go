@@ -7,6 +7,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
+	"strings"
 
 	"github.com/cilium/cilium/pkg/azure/types"
 	"github.com/cilium/cilium/pkg/defaults"
@@ -44,17 +46,22 @@ func (n *Node) UpdatedNode(obj *v2.CiliumNode) {
 // PopulateStatusFields fills in the status field of the CiliumNode custom
 // resource with Azure specific information
 func (n *Node) PopulateStatusFields(k8sObj *v2.CiliumNode) {
-	k8sObj.Status.Azure.Interfaces = []types.AzureInterface{}
+	interfaces := []types.AzureInterface{}
 
 	n.manager.mutex.RLock()
 	defer n.manager.mutex.RUnlock()
 	n.manager.instances.ForeachInterface(n.node.InstanceID(), func(instanceID, interfaceID string, interfaceObj ipamTypes.InterfaceRevision) error {
 		iface, ok := interfaceObj.Resource.(*types.AzureInterface)
 		if ok {
-			k8sObj.Status.Azure.Interfaces = append(k8sObj.Status.Azure.Interfaces, *(iface.DeepCopy()))
+			interfaces = append(interfaces, *(iface.DeepCopy()))
 		}
 		return nil
 	})
+
+	slices.SortFunc(interfaces, func(a, b types.AzureInterface) int {
+		return strings.Compare(a.ID, b.ID)
+	})
+	k8sObj.Status.Azure.Interfaces = interfaces
 }
 
 // PrepareIPRelease prepares the release of IPs

@@ -123,12 +123,15 @@ type AzureInterface struct {
 
 	// vmssName is the name of the virtual machine scale set. This field is
 	// set by extractIDs()
+	// +deepequal-gen=false
 	vmssName string `json:"-"`
 
 	// vmID is the ID of the virtual machine
+	// +deepequal-gen=false
 	vmID string `json:"-"`
 
 	// resourceGroup is the resource group the interface belongs to
+	// +deepequal-gen=false
 	resourceGroup string `json:"-"`
 }
 
