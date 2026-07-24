@@ -64,6 +64,21 @@ type AzureAddress struct {
 
 	// State is the provisioning state of the address
 	State string `json:"state,omitempty"`
+
+	// ipConfigName is the Azure IPConfiguration name, used to release IPs from
+	// VMSS instances whose compute model exposes the name but not the IP.
+	// +deepequal-gen=false
+	ipConfigName string `json:"-"`
+}
+
+// SetIPConfigName sets the Azure IPConfiguration name backing this address.
+func (a *AzureAddress) SetIPConfigName(name string) {
+	a.ipConfigName = name
+}
+
+// IPConfigName returns the Azure IPConfiguration name backing this address.
+func (a AzureAddress) IPConfigName() string {
+	return a.ipConfigName
 }
 
 // AzureSubnet describes the subnet an AzureInterface is attached to. Azure
