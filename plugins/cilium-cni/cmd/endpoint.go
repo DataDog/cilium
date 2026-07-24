@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 
@@ -12,9 +13,11 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/cilium/cilium/api/v1/models"
+	linuxrouting "github.com/cilium/cilium/pkg/datapath/linux/routing"
 	"github.com/cilium/cilium/pkg/datapath/linux/safenetlink"
 	ipamOption "github.com/cilium/cilium/pkg/ipam/option"
 	"github.com/cilium/cilium/pkg/logging/logfields"
+	"github.com/cilium/cilium/pkg/mac"
 	"github.com/cilium/cilium/plugins/cilium-cni/types"
 )
 
@@ -96,6 +99,27 @@ func (c *defaultEndpointConfiguration) PrepareEndpoint(ipam *models.IPAMResponse
 	}
 
 	if c.Conf.IpamMode == ipamOption.IPAMENI {
+		// Wait for the ENI netlink interface to appear before resolving the
+		// parent ifindex. Otherwise ifindexFromMac can fail and leave
+		// ParentInterfaceIndex at 0, silently breaking IPv4 masquerade reply
+		// routing.
+		//
+		// context.TODO(): the CNI skel API has no ADD deadline to thread
+		// through; the wait is bounded by WaitForENIInterfaceBackoff instead.
+		if parsedMAC, perr := mac.ParseMAC(ipam.IPv4.MasterMac); perr != nil {
+			c.Log.Error(
+				"Invalid ENI master MAC address",
+				logfields.MACAddr, ipam.IPv4.MasterMac,
+				logfields.Error, perr,
+			)
+		} else if werr := linuxrouting.WaitForENIInterface(context.TODO(), parsedMAC); werr != nil {
+			c.Log.Warn(
+				"Unable to find ENI netlink interface before resolving the parent ifindex; IPv4 masquerade reply routing may be misconfigured for this endpoint",
+				logfields.MACAddr, ipam.IPv4.MasterMac,
+				logfields.Error, werr,
+			)
+		}
+
 		ifindex, err := ifindexFromMac(ipam.IPv4.MasterMac)
 		if err == nil {
 			ep.ParentInterfaceIndex = ifindex

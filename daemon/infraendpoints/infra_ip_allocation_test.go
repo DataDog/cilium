@@ -4,6 +4,7 @@
 package infraendpoints
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -312,4 +313,14 @@ func Test_getCiliumHostIPsFromFile(t *testing.T) {
 			require.Equal(t, tt.wantIpv6Router, gotIpv6Router)
 		})
 	}
+}
+
+func TestWaitForENIInvalidMAC(t *testing.T) {
+	r := &infraIPAllocator{
+		logger: hivetest.Logger(t),
+	}
+
+	err := r.waitForENI(context.Background(), "not-a-valid-mac")
+	require.Error(t, err)
+	require.ErrorContains(t, err, "invalid MAC address")
 }

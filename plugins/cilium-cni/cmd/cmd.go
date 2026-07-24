@@ -789,15 +789,17 @@ func (cmd *Cmd) Add(args *skel.CmdArgs) (err error) {
 			res.Routes = append(res.Routes, routes...)
 		}
 
+		// context.TODO(): the CNI skel API has no ADD deadline to thread through;
+		// the wait inside interfaceAdd is bounded by WaitForENIInterfaceBackoff instead.
 		if needsEndpointRoutingOnHost(conf, ipam.IPv4, ipConfig) {
-			err = interfaceAdd(scopedLogger, ipConfig, ipam.IPv4, conf)
+			err = interfaceAdd(context.TODO(), scopedLogger, ipConfig, ipam.IPv4, conf)
 			if err != nil {
 				return fmt.Errorf("unable to setup interface datapath: %w", err)
 			}
 		}
 
 		if needsEndpointRoutingOnHost(conf, ipam.IPv6, ipv6Config) {
-			err = interfaceAdd(scopedLogger, ipv6Config, ipam.IPv6, conf)
+			err = interfaceAdd(context.TODO(), scopedLogger, ipv6Config, ipam.IPv6, conf)
 			if err != nil {
 				return fmt.Errorf("unable to setup interface datapath: %w", err)
 			}

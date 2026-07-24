@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net"
@@ -13,9 +14,11 @@ import (
 	"github.com/cilium/cilium/api/v1/models"
 	linuxrouting "github.com/cilium/cilium/pkg/datapath/linux/routing"
 	"github.com/cilium/cilium/pkg/ip"
+	ipamOption "github.com/cilium/cilium/pkg/ipam/option"
+	"github.com/cilium/cilium/pkg/logging/logfields"
 )
 
-func interfaceAdd(logger *slog.Logger, ipConfig *current.IPConfig, ipam *models.IPAMAddressResponse, conf *models.DaemonConfigurationStatus) error {
+func interfaceAdd(ctx context.Context, logger *slog.Logger, ipConfig *current.IPConfig, ipam *models.IPAMAddressResponse, conf *models.DaemonConfigurationStatus) error {
 	if ipam == nil {
 		return fmt.Errorf("missing IPAM configuration")
 	}
@@ -66,6 +69,18 @@ func interfaceAdd(logger *slog.Logger, ipConfig *current.IPConfig, ipam *models.
 	)
 	if err != nil {
 		return fmt.Errorf("unable to parse routing info: %w", err)
+	}
+
+	// Otherwise Configure can transiently fail CNI ADD with "interface with MAC ... not found",
+	// leaving the pod stuck in ContainerCreating.
+	if conf.IpamMode == ipamOption.IPAMENI {
+		if err := linuxrouting.WaitForENIInterface(ctx, routingInfo.MasterIfMAC); err != nil {
+			logger.Warn(
+				"Unable to find ENI netlink interface, this will likely lead to an error configuring the pod's IP rules and routes",
+				logfields.MACAddr, routingInfo.MasterIfMAC,
+				logfields.Error, err,
+			)
+		}
 	}
 
 	if err := routingInfo.Configure(

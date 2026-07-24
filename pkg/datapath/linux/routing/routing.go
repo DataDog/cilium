@@ -4,6 +4,7 @@
 package linuxrouting
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -13,6 +14,7 @@ import (
 	"github.com/vishvananda/netlink"
 	"go4.org/netipx"
 	"golang.org/x/sys/unix"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/cilium/statedb"
 
@@ -26,7 +28,41 @@ import (
 	"github.com/cilium/cilium/pkg/mac"
 	"github.com/cilium/cilium/pkg/node"
 	"github.com/cilium/cilium/pkg/option"
+	"github.com/cilium/cilium/pkg/time"
 )
+
+// ENI attachment is asynchronous; resolving its ifindex by MAC can race the
+// netlink device becoming visible.
+var WaitForENIInterfaceBackoff = wait.Backoff{
+	Duration: 250 * time.Millisecond,
+	Factor:   2,
+	Jitter:   0.2,
+	Steps:    7,
+}
+
+// WaitForENIInterface polls until an interface with the given MAC appears, or
+// the context or backoff is exhausted.
+func WaitForENIInterface(ctx context.Context, macAddr mac.MAC) error {
+	findENIByMAC := func(ctx context.Context) (bool, error) {
+		links, err := safenetlink.LinkList()
+		if err != nil {
+			return false, fmt.Errorf("unable to list interfaces: %w", err)
+		}
+
+		for _, l := range links {
+			// Slave devices share their master's MAC; skip them.
+			if l.Attrs().RawFlags&unix.IFF_SLAVE != 0 {
+				continue
+			}
+			if l.Attrs().HardwareAddr.String() == macAddr.String() {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+
+	return wait.ExponentialBackoffWithContext(ctx, WaitForENIInterfaceBackoff, findENIByMAC)
+}
 
 // useCompatEgressPriority determines whether to use the new or old style egress rule.
 // Old style rules are only used in Azure IPAM mode.
