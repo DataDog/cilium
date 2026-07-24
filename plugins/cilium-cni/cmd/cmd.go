@@ -33,6 +33,7 @@ import (
 	"github.com/cilium/cilium/pkg/datapath/connector"
 	"github.com/cilium/cilium/pkg/datapath/link"
 	"github.com/cilium/cilium/pkg/datapath/linux/route"
+	linuxrouting "github.com/cilium/cilium/pkg/datapath/linux/routing"
 	"github.com/cilium/cilium/pkg/datapath/linux/safenetlink"
 	"github.com/cilium/cilium/pkg/datapath/linux/sysctl"
 	"github.com/cilium/cilium/pkg/datapath/tables"
@@ -704,6 +705,22 @@ func (cmd *Cmd) Add(args *skel.CmdArgs) (err error) {
 		//
 		// See nodeport_snat_fwd_ipv4 in bpf/lib/nodeport_egress.h
 		if ipv4IsEnabled(ipam) {
+			// Otherwise ifindexFromMac can fail and leave ParentInterfaceIndex at 0,
+			// silently breaking IPv4 masquerade reply routing.
+			if parsedMAC, perr := mac.ParseMAC(ipam.IPv4.MasterMac); perr != nil {
+				scopedLogger.Error(
+					"Invalid ENI master MAC address",
+					logfields.MACAddr, ipam.IPv4.MasterMac,
+					logfields.Error, perr,
+				)
+			} else if werr := linuxrouting.WaitForENIInterface(context.TODO(), parsedMAC); werr != nil {
+				scopedLogger.Warn(
+					"Unable to find ENI netlink interface before resolving the parent ifindex; IPv4 masquerade reply routing may be misconfigured for this endpoint",
+					logfields.MACAddr, ipam.IPv4.MasterMac,
+					logfields.Error, werr,
+				)
+			}
+
 			ifindex, err := ifindexFromMac(ipam.IPv4.MasterMac)
 			if err == nil {
 				ep.ParentInterfaceIndex = ifindex
@@ -815,15 +832,17 @@ func (cmd *Cmd) Add(args *skel.CmdArgs) (err error) {
 	}
 
 	if needsEndpointRoutingOnHost(conf) {
+		// context.TODO(): the CNI skel API has no ADD deadline to thread through;
+		// the wait inside interfaceAdd is bounded by WaitForENIInterfaceBackoff instead.
 		if ipam.IPv4 != nil && ipConfig != nil {
-			err = interfaceAdd(scopedLogger, ipConfig, ipam.IPv4, conf)
+			err = interfaceAdd(context.TODO(), scopedLogger, ipConfig, ipam.IPv4, conf)
 			if err != nil {
 				return fmt.Errorf("unable to setup interface datapath: %w", err)
 			}
 		}
 
 		if ipam.IPv6 != nil && ipv6Config != nil {
-			err = interfaceAdd(scopedLogger, ipv6Config, ipam.IPv6, conf)
+			err = interfaceAdd(context.TODO(), scopedLogger, ipv6Config, ipam.IPv6, conf)
 			if err != nil {
 				return fmt.Errorf("unable to setup interface datapath: %w", err)
 			}

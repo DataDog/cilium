@@ -21,8 +21,6 @@ import (
 	"github.com/cilium/statedb"
 	"github.com/vishvananda/netlink"
 	"go4.org/netipx"
-	"golang.org/x/sys/unix"
-	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/cilium/cilium/pkg/common"
 	linuxrouting "github.com/cilium/cilium/pkg/datapath/linux/routing"
@@ -33,6 +31,7 @@ import (
 	"github.com/cilium/cilium/pkg/ipam"
 	ipamOption "github.com/cilium/cilium/pkg/ipam/option"
 	"github.com/cilium/cilium/pkg/logging/logfields"
+	"github.com/cilium/cilium/pkg/mac"
 	"github.com/cilium/cilium/pkg/mtu"
 	"github.com/cilium/cilium/pkg/node"
 	"github.com/cilium/cilium/pkg/option"
@@ -221,32 +220,11 @@ func (r *infraIPAllocator) reallocateOldRouterIPs(fromK8s, fromFS net.IP) (resul
 }
 
 func (r *infraIPAllocator) waitForENI(ctx context.Context, macAddr string) error {
-	bo := wait.Backoff{
-		Duration: 250 * time.Millisecond,
-		Factor:   2,
-		Jitter:   0.2,
-		Steps:    5,
+	parsedMAC, err := net.ParseMAC(macAddr)
+	if err != nil {
+		return fmt.Errorf("invalid MAC address %q: %w", macAddr, err)
 	}
-
-	findENIByMAC := func(ctx context.Context) (bool, error) {
-		links, err := safenetlink.LinkList()
-		if err != nil {
-			return false, fmt.Errorf("unable to list interfaces: %w", err)
-		}
-
-		for _, l := range links {
-			// filter out slave devices
-			if l.Attrs().RawFlags&unix.IFF_SLAVE != 0 {
-				continue
-			}
-			if l.Attrs().HardwareAddr.String() == macAddr {
-				return true, nil
-			}
-		}
-		return false, nil
-	}
-
-	return wait.ExponentialBackoffWithContext(ctx, bo, findENIByMAC)
+	return linuxrouting.WaitForENIInterface(ctx, mac.MAC(parsedMAC))
 }
 
 func (r *infraIPAllocator) reallocateRouterIPs(ctx context.Context, family node.AddressingFamily, fromK8s, fromFS net.IP) (routerIP net.IP, err error) {
@@ -298,6 +276,7 @@ func (r *infraIPAllocator) reallocateRouterIPs(ctx context.Context, family node.
 			if err := r.waitForENI(ctx, result.PrimaryMAC); err != nil {
 				r.logger.Error("Unable to find ENI netlink interface, this will likely lead to an error in configuring the router routes and rules",
 					logfields.MACAddr, result.PrimaryMAC,
+					logfields.Error, err,
 				)
 			}
 		}
@@ -480,6 +459,7 @@ func (r *infraIPAllocator) allocateIngressIPs(ctx context.Context, oldV4IngressI
 				if err := r.waitForENI(ctx, result.PrimaryMAC); err != nil {
 					r.logger.Error("Unable to find ENI netlink interface, this will likely lead to an error in configuring the ingress routes and rules",
 						logfields.MACAddr, result.PrimaryMAC,
+						logfields.Error, err,
 					)
 				}
 

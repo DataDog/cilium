@@ -4,13 +4,16 @@
 package linuxrouting
 
 import (
+	"context"
 	"net"
 	"net/netip"
 	"testing"
+	"time"
 
 	"github.com/cilium/hive/hivetest"
 	"github.com/stretchr/testify/require"
 	"github.com/vishvananda/netlink"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/cilium/cilium/pkg/datapath/linux/linux_defaults"
 	"github.com/cilium/cilium/pkg/datapath/linux/route"
@@ -329,6 +332,125 @@ func getFakes(t *testing.T, ipamMode string, masquerade bool, withZeroCIDR bool)
 	option.Config.EnableIPv4Masquerade = fakeRoutingInfo.Masquerade
 
 	return netip.MustParseAddr("192.168.2.123"), *fakeRoutingInfo
+}
+
+// withTestBackoff swaps in a faster backoff for tests. Mutates a package
+// global, so callers must not use t.Parallel().
+func withTestBackoff(t *testing.T, bo wait.Backoff) {
+	t.Helper()
+	orig := WaitForENIInterfaceBackoff
+	WaitForENIInterfaceBackoff = bo
+	t.Cleanup(func() { WaitForENIInterfaceBackoff = orig })
+}
+
+func TestPrivilegedWaitForENIInterfaceAlreadyPresent(t *testing.T) {
+	setupLinuxRoutingSuite(t)
+	withTestBackoff(t, wait.Backoff{Duration: 10 * time.Millisecond, Factor: 2, Steps: 3})
+
+	ns := netns.NewNetNS(t)
+	require.NoError(t, ns.Do(func() error {
+		macAddr, err := mac.ParseMAC("00:11:22:33:44:66")
+		require.NoError(t, err)
+
+		cleanup := createDummyDevice(t, macAddr)
+		defer cleanup()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		require.NoError(t, WaitForENIInterface(ctx, macAddr))
+		return nil
+	}))
+}
+
+func TestPrivilegedWaitForENIInterfaceAppearsLate(t *testing.T) {
+	setupLinuxRoutingSuite(t)
+	withTestBackoff(t, wait.Backoff{Duration: 20 * time.Millisecond, Factor: 1.5, Jitter: 0.1, Steps: 10})
+
+	// ns.Do pins the netns to its own goroutine's OS thread; a bare
+	// `go func(){}()` inside it would run in the host netns instead.
+	ns := netns.NewNetNS(t)
+
+	macAddr, err := mac.ParseMAC("00:11:22:33:44:77")
+	require.NoError(t, err)
+
+	require.NoError(t, ns.Do(func() error {
+		require.False(t, linkExistsWithMAC(t, macAddr), "interface must not exist yet")
+		return nil
+	}))
+
+	// require/FailNow must run on the test goroutine, so failures are propagated back over a channel instead.
+	type deviceResult struct {
+		cleanup func()
+		err     error
+	}
+	resultCh := make(chan deviceResult, 1)
+	go func() {
+		time.Sleep(60 * time.Millisecond)
+		var res deviceResult
+		res.err = ns.Do(func() error {
+			dummy := &netlink.Dummy{
+				LinkAttrs: netlink.LinkAttrs{
+					Name:         "linuxrout-test",
+					HardwareAddr: net.HardwareAddr(macAddr),
+				},
+			}
+			if err := netlink.LinkAdd(dummy); err != nil {
+				return err
+			}
+			// Wrapped in ns.Do because cleanup runs after the host netns has been restored.
+			res.cleanup = func() { _ = ns.Do(func() error { return netlink.LinkDel(dummy) }) }
+			return nil
+		})
+		resultCh <- res
+	}()
+
+	var waitErr error
+	require.NoError(t, ns.Do(func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		waitErr = WaitForENIInterface(ctx, macAddr)
+		return nil
+	}))
+
+	res := <-resultCh
+	require.NoError(t, res.err, "failed to create dummy device asynchronously")
+	require.NotNil(t, res.cleanup)
+	defer res.cleanup()
+
+	require.NoError(t, waitErr, "WaitForENIInterface should succeed once the interface appears")
+}
+
+func TestPrivilegedWaitForENIInterfaceTimeout(t *testing.T) {
+	setupLinuxRoutingSuite(t)
+	withTestBackoff(t, wait.Backoff{Duration: 10 * time.Millisecond, Factor: 1.5, Steps: 3})
+
+	ns := netns.NewNetNS(t)
+	require.NoError(t, ns.Do(func() error {
+		macAddr, err := mac.ParseMAC("00:11:22:33:44:88")
+		require.NoError(t, err)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		err = WaitForENIInterface(ctx, macAddr)
+		require.Error(t, err, "interface never appears, so WaitForENIInterface should give up and return an error")
+		return nil
+	}))
+}
+
+// Backoff is deliberately enormous so the test hangs (rather than passing spuriously) if cancellation is not honored.
+func TestWaitForENIInterfaceContextCancelled(t *testing.T) {
+	withTestBackoff(t, wait.Backoff{Duration: time.Hour, Factor: 1, Steps: 100})
+
+	macAddr, err := mac.ParseMAC("00:11:22:33:44:99")
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err = WaitForENIInterface(ctx, macAddr)
+	require.Error(t, err, "an already-cancelled context should cause WaitForENIInterface to return without exhausting the backoff")
 }
 
 func linkExistsWithMAC(t *testing.T, macAddr mac.MAC) bool {
