@@ -20,6 +20,10 @@ const (
 )
 
 const (
+	// Kernel default overflows under high neighbor churn, causing
+	// ENOBUFS-triggered subscription restarts.
+	NeighborNetlinkBufferSize = 4 << 20 // 4MiB
+
 	// ClusterHealthPort is the default value for option.ClusterHealthPort
 	ClusterHealthPort = 4240
 

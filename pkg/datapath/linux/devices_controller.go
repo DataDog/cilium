@@ -7,12 +7,14 @@ package linux
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/netip"
 	"slices"
 	"strings"
+	"sync/atomic"
 
 	"github.com/cilium/hive/cell"
 	"github.com/cilium/statedb"
@@ -66,6 +68,8 @@ func (c DevicesConfig) Flags(flags *pflag.FlagSet) {
 	flags.StringSlice(option.Devices, []string{}, "List of devices facing cluster/external network (used for BPF NodePort, BPF masquerading and host firewall); supports '+' as wildcard in device name, e.g. 'eth+'; support '!' to exclude devices, e.g. '!eth+' excludes any device with prefix 'eth'. Note '!' says nothing about which ones to include. A device must match other criteria to be selected; The filters are matched in order and whatever matched first wins.")
 
 	flags.Bool(option.ForceDeviceDetection, false, "Forces the auto-detection of devices, even if specific devices are explicitly listed")
+
+	flags.Int(option.NeighborNetlinkBufferSize, defaults.NeighborNetlinkBufferSize, "Size (in bytes) of the netlink socket receive buffer used to subscribe to neighbor updates; a larger buffer reduces the chance of ENOBUFS errors and subscription restarts under high neighbor churn")
 }
 
 var (
@@ -92,7 +96,8 @@ type DevicesConfig struct {
 	Devices []string
 	// ForceDeviceDetection forces the auto-detection of devices,
 	// even if user-specific devices are explicitly listed.
-	ForceDeviceDetection bool
+	ForceDeviceDetection      bool
+	NeighborNetlinkBufferSize int
 }
 
 type devicesControllerParams struct {
@@ -141,7 +146,7 @@ func newDevicesController(lc cell.Lifecycle, p devicesControllerParams) (*device
 func (dc *devicesController) Start(startCtx cell.HookContext) error {
 	if dc.params.NetlinkFuncs == nil {
 		var err error
-		dc.params.NetlinkFuncs, err = makeNetlinkFuncs()
+		dc.params.NetlinkFuncs, err = makeNetlinkFuncs(dc.log, dc.params.Config.NeighborNetlinkBufferSize)
 		if err != nil {
 			return err
 		}
@@ -715,9 +720,55 @@ type netlinkFuncs struct {
 	NeighList         func(linkIndex, family int) ([]netlink.Neigh, error)
 }
 
+// neighSubscribeOptions normalizes negative sizes to 0: the underlying library
+// skips setsockopt only when the size is exactly 0, so a negative size would
+// otherwise reach setsockopt(SO_RCVBUF) and be silently clamped by the kernel.
+func neighSubscribeOptions(receiveBufferSize int, ns *vns.NsHandle, errorCallback func(error)) netlink.NeighSubscribeOptions {
+	if receiveBufferSize < 0 {
+		receiveBufferSize = 0
+	}
+	return netlink.NeighSubscribeOptions{
+		ListExisting:           false,
+		ErrorCallback:          errorCallback,
+		Namespace:              ns,
+		ReceiveBufferSize:      receiveBufferSize,
+		ReceiveBufferForceSize: receiveBufferSize > 0,
+	}
+}
+
+// subscribeNeighWithBufferFallback forces the receive buffer via SO_RCVBUFFORCE,
+// which needs CAP_NET_ADMIN and otherwise fails with EPERM. It latches after an
+// EPERM because the vendored library orphans its netlink socket on the
+// setsockopt-failure path, so re-forcing on every restart would leak sockets.
+func subscribeNeighWithBufferFallback(
+	subscribe func(netlink.NeighSubscribeOptions) error,
+	bufferSize int,
+	ns *vns.NsHandle,
+	errorCallback func(error),
+	forceFailed *atomic.Bool,
+	log *slog.Logger,
+) error {
+	forceBufferSize := bufferSize
+	if forceFailed.Load() {
+		forceBufferSize = 0
+	}
+
+	err := subscribe(neighSubscribeOptions(forceBufferSize, ns, errorCallback))
+	if err == nil || forceBufferSize <= 0 || !errors.Is(err, unix.EPERM) {
+		return err
+	}
+
+	forceFailed.Store(true)
+	log.Warn("Failed to subscribe to neighbor updates with a forced netlink receive buffer (the agent likely lacks CAP_NET_ADMIN, which SO_RCVBUFFORCE requires); retrying without forcing it. Neighbor updates may be dropped more often under high neighbor churn.",
+		logfields.Error, err,
+		logfields.BufferSize, bufferSize,
+	)
+	return subscribe(neighSubscribeOptions(0, ns, errorCallback))
+}
+
 // makeNetlinkFuncs returns a *netlinkFuncs containing netlink accessors to the
 // network namespace of the calling goroutine's OS thread.
-func makeNetlinkFuncs() (*netlinkFuncs, error) {
+func makeNetlinkFuncs(log *slog.Logger, neighborReceiveBufferSize int) (*netlinkFuncs, error) {
 	netlinkHandle, err := safenetlink.NewHandle(&safenetlink.HandleConfig{NLFamilies: []int{unix.NETLINK_ROUTE}})
 	if err != nil {
 		return nil, fmt.Errorf("creating netlink handle: %w", err)
@@ -727,6 +778,8 @@ func makeNetlinkFuncs() (*netlinkFuncs, error) {
 	if err != nil {
 		return nil, fmt.Errorf("getting current netns: %w", err)
 	}
+
+	var neighForceBufferFailed atomic.Bool
 
 	return &netlinkFuncs{
 		RouteSubscribe: func(ch chan<- netlink.RouteUpdate, done <-chan struct{}, errorCallback func(error)) error {
@@ -758,12 +811,11 @@ func makeNetlinkFuncs() (*netlinkFuncs, error) {
 		},
 		NeighSubscribe: func(ch chan<- netlink.NeighUpdate, done <-chan struct{}, errorCallback func(error)) error {
 			h := vns.NsHandle(cur.FD())
-			return safenetlink.NeighSubscribeWithOptions(ch, done,
-				netlink.NeighSubscribeOptions{
-					ListExisting:  false,
-					ErrorCallback: errorCallback,
-					Namespace:     &h,
-				})
+			return subscribeNeighWithBufferFallback(
+				func(opts netlink.NeighSubscribeOptions) error {
+					return safenetlink.NeighSubscribeWithOptions(ch, done, opts)
+				},
+				neighborReceiveBufferSize, &h, errorCallback, &neighForceBufferFailed, log)
 		},
 		LinkList: func() ([]netlink.Link, error) {
 			return safenetlink.WithRetryResult(func() ([]netlink.Link, error) {
