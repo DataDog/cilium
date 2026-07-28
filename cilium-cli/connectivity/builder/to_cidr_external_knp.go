@@ -23,7 +23,7 @@ func (t toCidrExternalKnp) build(ct *check.ConnectivityTest, templates map[strin
 			if a.Destination().Address(features.IPFamilyV4) == ct.Params().ExternalOtherIPv4 ||
 				a.Destination().Address(features.IPFamilyV6) == ct.Params().ExternalOtherIPv6 {
 				// Expect packets for ExternalOtherIP to be dropped.
-				return check.ResultDropCurlTimeout, check.ResultNone
+				return check.ResultPolicyDenyEgressDropCurlTimeout, check.ResultNone
 			}
 			return check.ResultOK, check.ResultNone
 		})

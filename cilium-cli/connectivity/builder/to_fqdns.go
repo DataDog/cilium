@@ -35,7 +35,7 @@ func (t toFqdns) build(ct *check.ConnectivityTest, templates map[string]string) 
 			if a.Destination().Address(features.IPFamilyAny) == ct.Params().ExternalOtherTarget {
 				if a.Destination().Path() == "/" || a.Destination().Path() == "" {
 					// Expect packets to other external target to be dropped.
-					return check.ResultDropCurlTimeout, check.ResultNone
+					return check.ResultPolicyDenyEgressDropCurlTimeout, check.ResultNone
 				}
 				// Else expect HTTP drop by proxy
 				return check.ResultDNSOKDropCurlHTTPError, check.ResultNone
@@ -56,8 +56,8 @@ func (t toFqdns) build(ct *check.ConnectivityTest, templates map[string]string) 
 				// Else expect HTTP drop by proxy
 				return check.ResultDNSOKDropCurlHTTPError, check.ResultNone
 			}
-			// No HTTP proxy on other ports
-			return check.ResultDNSOKDropCurlTimeout, check.ResultNone
+			// No HTTP proxy on other ports: denied by the FQDN policy.
+			return check.ResultDNSOKPolicyDenyEgressDropCurlTimeout, check.ResultNone
 		})
 }
 
@@ -85,7 +85,7 @@ func (t toFqdnsWithProxy) build(ct *check.ConnectivityTest, templates map[string
 			if a.Destination().Address(features.IPFamilyAny) == ct.Params().ExternalOtherTarget {
 				if a.Destination().Path() == "/" || a.Destination().Path() == "" {
 					// Expect packets to other external target to be dropped.
-					return check.ResultDropCurlTimeout, check.ResultNone
+					return check.ResultPolicyDenyEgressDropCurlTimeout, check.ResultNone
 				}
 				// Else expect HTTP drop by proxy
 				return check.ResultDNSOKDropCurlHTTPError, check.ResultNone
@@ -106,8 +106,8 @@ func (t toFqdnsWithProxy) build(ct *check.ConnectivityTest, templates map[string
 				// Else expect HTTP drop by proxy
 				return check.ResultDNSOKDropCurlHTTPError, check.ResultNone
 			}
-			// No HTTP proxy on other ports
-			return check.ResultDNSOKDropCurlTimeout, check.ResultNone
+			// No HTTP proxy on other ports: denied by the FQDN policy.
+			return check.ResultDNSOKPolicyDenyEgressDropCurlTimeout, check.ResultNone
 		})
 
 	newTest("to-fqdns-with-ccec-listener", ct).
@@ -141,9 +141,11 @@ func (t toFqdnsWithProxy) build(ct *check.ConnectivityTest, templates map[string
 					// port 443 gets the Curl SSL connect error
 					return check.ResultCurlSSLError, check.ResultNone
 				}
-				// other ports get the curl timeout
+				// Other ports are allowed by the policy, so they are not
+				// rejected by the datapath, they just get the curl timeout.
+				return check.ResultDNSOKDropCurlTimeout, check.ResultNone
 			}
-			// No HTTP proxy on other ports/target
-			return check.ResultDNSOKDropCurlTimeout, check.ResultNone
+			// Any other target is denied by the FQDN policy.
+			return check.ResultDNSOKPolicyDenyEgressDropCurlTimeout, check.ResultNone
 		})
 }

@@ -129,6 +129,24 @@ const (
 	DefaultGlobalNamespace Feature = "clustermesh-default-global-namespace"
 
 	SubnetTopology Feature = "subnet-topology"
+
+	// PolicyDenyResponse reflects the --policy-deny-response agent option, which
+	// controls how the datapath handles pod egress traffic denied by network
+	// policy. Mode is either PolicyDenyResponseNone (silently drop the packet,
+	// the default) or PolicyDenyResponseICMP (reject with an ICMP Destination
+	// Unreachable). Enabled is true only for the latter.
+	PolicyDenyResponse Feature = "policy-deny-response"
+)
+
+const (
+	// PolicyDenyResponseNone is the PolicyDenyResponse mode in which packets
+	// denied by egress policy are silently dropped.
+	PolicyDenyResponseNone = "none"
+
+	// PolicyDenyResponseICMP is the PolicyDenyResponse mode in which packets
+	// denied by egress policy are rejected with an ICMP Destination Unreachable
+	// sent back to the source pod.
+	PolicyDenyResponseICMP = "icmp"
 )
 
 // Feature is the name of a Cilium Feature (e.g. l7-proxy, cni chaining mode etc)
@@ -418,6 +436,18 @@ func (fs Set) ExtractFromConfigMap(cm *v1.ConfigMap) {
 
 	fs[L7LoadBalancer] = Status{
 		Enabled: cm.Data[string(L7LoadBalancer)] == "envoy",
+	}
+
+	// The option is only present in the ConfigMap when explicitly set, and was
+	// only introduced recently, so an absent key means the default behaviour of
+	// silently dropping denied packets.
+	denyResponse := cm.Data[string(PolicyDenyResponse)]
+	if denyResponse == "" {
+		denyResponse = PolicyDenyResponseNone
+	}
+	fs[PolicyDenyResponse] = Status{
+		Enabled: denyResponse == PolicyDenyResponseICMP,
+		Mode:    denyResponse,
 	}
 
 	st, ok := cm.Data[string(SubnetTopology)]

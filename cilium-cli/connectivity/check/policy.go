@@ -267,6 +267,16 @@ func (t *Test) expectations(a *Action) (egress, ingress Result) {
 	}
 
 	egress, ingress = t.expectFunc(a)
+
+	// When the agent runs with --policy-deny-response=icmp, traffic denied by
+	// policy on the egress of the source pod is rejected with an ICMP
+	// Destination Unreachable rather than silently dropped, so the client
+	// reports a connection failure instead of a timeout. Ingress denials are
+	// unaffected, hence only the egress expectation is adjusted.
+	if egress.EgressPolicyDenied && t.Context().Features[features.PolicyDenyResponse].Enabled {
+		egress = egress.withICMPDenyResponse(a.ipFam)
+	}
+
 	if egress.Drop {
 		t.Debugf("Expecting egress drops for Action %s: %v", a.name, egress)
 	}

@@ -24,6 +24,6 @@ func (t dnsOnly) build(ct *check.ConnectivityTest, templates map[string]string) 
 			),
 		).
 		WithExpectations(func(_ *check.Action) (egress check.Result, ingress check.Result) {
-			return check.ResultDropCurlTimeout, check.ResultNone
+			return check.ResultPolicyDenyEgressDropCurlTimeout, check.ResultNone
 		})
 }

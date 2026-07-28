@@ -43,6 +43,6 @@ func toEntitiesWorldTest(ct *check.ConnectivityTest, portRanges bool) {
 				return check.ResultOK, check.ResultNone
 			}
 			// PodToWorld traffic to port 443 will be dropped by the policy
-			return check.ResultDropCurlTimeout, check.ResultNone
+			return check.ResultPolicyDenyEgressDropCurlTimeout, check.ResultNone
 		})
 }

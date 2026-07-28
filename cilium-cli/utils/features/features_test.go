@@ -145,3 +145,42 @@ func TestFeatureSet_extractFromConfigMap(t *testing.T) {
 	assert.True(t, fs[BGPControlPlane].Enabled)
 	assert.Equal(t, "eni", fs[CiliumIPAMMode].Mode)
 }
+
+func TestFeatureSet_extractPolicyDenyResponseFromConfigMap(t *testing.T) {
+	tests := []struct {
+		name        string
+		data        map[string]string
+		wantEnabled bool
+		wantMode    string
+	}{
+		{
+			name:        "unset defaults to none",
+			data:        map[string]string{},
+			wantEnabled: false,
+			wantMode:    PolicyDenyResponseNone,
+		},
+		{
+			name:        "explicitly none",
+			data:        map[string]string{"policy-deny-response": "none"},
+			wantEnabled: false,
+			wantMode:    PolicyDenyResponseNone,
+		},
+		{
+			name:        "icmp",
+			data:        map[string]string{"policy-deny-response": "icmp"},
+			wantEnabled: true,
+			wantMode:    PolicyDenyResponseICMP,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fs := Set{}
+			cm := corev1.ConfigMap{Data: tt.data}
+			fs.ExtractFromConfigMap(&cm)
+
+			assert.Equal(t, tt.wantEnabled, fs[PolicyDenyResponse].Enabled)
+			assert.Equal(t, tt.wantMode, fs[PolicyDenyResponse].Mode)
+		})
+	}
+}

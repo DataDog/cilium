@@ -12,6 +12,7 @@ import (
 	dto "github.com/prometheus/client_model/go"
 
 	flowpb "github.com/cilium/cilium/api/v1/flow"
+	"github.com/cilium/cilium/cilium-cli/utils/features"
 )
 
 type Result struct {
@@ -23,6 +24,23 @@ type Result struct {
 
 	// Request is dropped at Ingress
 	IngressDrop bool
+
+	// EgressPolicyDenied marks a result where the request is denied by network
+	// policy on the egress of the source pod itself. Such traffic is subject to
+	// the --policy-deny-response agent option: when it is set to "icmp", the
+	// datapath rejects the packet with an ICMP Destination Unreachable instead
+	// of silently dropping it, which changes the expected exit code.
+	//
+	// Do not set this for requests dropped on the destination's ingress, or for
+	// egress drops with a reason other than policy (e.g. unencrypted traffic),
+	// as those are always silently dropped.
+	EgressPolicyDenied bool
+
+	// ICMPDenyResponse is set by the framework when EgressPolicyDenied is set
+	// and the cluster runs with --policy-deny-response=icmp, i.e. when the
+	// request is expected to be rejected rather than silently dropped. It is
+	// only used to make the expectation visible in the test output.
+	ICMPDenyResponse bool
 
 	// DropReasonFunc
 	DropReasonFunc func(flow *flowpb.Flow) bool
@@ -71,6 +89,11 @@ type ExitCode int16
 const (
 	ExitAnyError    ExitCode = -1
 	ExitInvalidCode ExitCode = -2
+
+	// ExitCurlCouldntConnect is returned by curl when the connection attempt is
+	// actively refused, e.g. because an ICMP Destination Unreachable was
+	// received in response to the SYN.
+	ExitCurlCouldntConnect ExitCode = 7
 
 	ExitCurlHTTPError ExitCode = 22
 	ExitCurlTimeout   ExitCode = 28
@@ -204,6 +227,26 @@ var (
 		ExitCode: ExitCurlTimeout,
 	}
 
+	// ResultPolicyDenyEgressDropCurlTimeout is ResultDropCurlTimeout for traffic
+	// denied by network policy on the egress of the source pod. See
+	// Result.EgressPolicyDenied.
+	ResultPolicyDenyEgressDropCurlTimeout = Result{
+		Drop:               true,
+		EgressPolicyDenied: true,
+		ExitCode:           ExitCurlTimeout,
+	}
+
+	// ResultDNSOKPolicyDenyEgressDropCurlTimeout is ResultDNSOKDropCurlTimeout
+	// for traffic denied by network policy on the egress of the source pod. See
+	// Result.EgressPolicyDenied.
+	ResultDNSOKPolicyDenyEgressDropCurlTimeout = Result{
+		DNSProxy:           true,
+		Drop:               true,
+		DropReasonFunc:     defaultDropReason,
+		EgressPolicyDenied: true,
+		ExitCode:           ExitCurlTimeout,
+	}
+
 	// ResultDropCurlHTTPError expects a dropped flow and a failed command.
 	ResultDropCurlHTTPError = Result{
 		L7Proxy:  true,
@@ -233,6 +276,37 @@ func (e ExitCode) Check(code uint8) bool {
 	return false
 }
 
+// withICMPDenyResponse adapts an egress policy-deny expectation to a cluster
+// running with --policy-deny-response=icmp. In that mode the datapath replies
+// with an ICMP Destination Unreachable instead of silently dropping the packet,
+// so the client fails to connect right away rather than timing out.
+//
+// Expectations that already accept any error code are left alone, as the
+// datapath only rejects DROP_POLICY and DROP_POLICY_DENY verdicts and we cannot
+// tell from here whether that is the reason the traffic is denied.
+func (r Result) withICMPDenyResponse(ipFam features.IPFamily) Result {
+	if r.ExitCode != ExitCurlTimeout {
+		return r
+	}
+
+	r.ICMPDenyResponse = true
+
+	// Only IPv4 is known to reliably deliver the reject to the client. The
+	// ICMPv6 path is rate limited and falls back to silently dropping the
+	// packet when the bucket is empty (see tail_policy_denied_ipv6 in
+	// bpf/bpf_lxc.c), and has been observed to time out in practice, so we
+	// only require that the connection fails rather than pinning an exit code.
+	// The same applies when the family is not known upfront, e.g. when curling
+	// a DNS name that may resolve to either family.
+	if ipFam != features.IPFamilyV4 {
+		r.ExitCode = ExitAnyError
+		return r
+	}
+
+	r.ExitCode = ExitCurlCouldntConnect
+	return r
+}
+
 func (r Result) String() string {
 	if r.None {
 		return "None"
@@ -240,6 +314,9 @@ func (r Result) String() string {
 	ret := "Allow"
 	if r.Drop {
 		ret = "Drop"
+	}
+	if r.ICMPDenyResponse {
+		ret += "-ICMPReject"
 	}
 	if r.DNSProxy {
 		ret += "-DNS"
