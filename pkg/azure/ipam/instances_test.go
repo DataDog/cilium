@@ -83,7 +83,7 @@ func iteration1(t *testing.T, api *apimock.API, mngr *InstancesManager) {
 		},
 		State: types.StateSucceeded,
 	}
-	resource.SetID("intf-1")
+	resource.ID = "intf-1"
 	instances.Update("i-1", ipamTypes.InterfaceRevision{
 		Resource: resource.DeepCopy(),
 	})
@@ -99,7 +99,7 @@ func iteration1(t *testing.T, api *apimock.API, mngr *InstancesManager) {
 		},
 		State: types.StateSucceeded,
 	}
-	resource.SetID("intf-3")
+	resource.ID = "intf-3"
 	instances.Update("i-2", ipamTypes.InterfaceRevision{
 		Resource: resource.DeepCopy(),
 	})
@@ -124,7 +124,7 @@ func iteration2(t *testing.T, api *apimock.API, mngr *InstancesManager) {
 		},
 		State: types.StateSucceeded,
 	}
-	resource.SetID("intf-1")
+	resource.ID = "intf-1"
 	instances.Update("i-1", ipamTypes.InterfaceRevision{
 		Resource: resource.DeepCopy(),
 	})
@@ -140,7 +140,7 @@ func iteration2(t *testing.T, api *apimock.API, mngr *InstancesManager) {
 		},
 		State: types.StateSucceeded,
 	}
-	resource.SetID("intf-2")
+	resource.ID = "intf-2"
 	instances.Update("i-1", ipamTypes.InterfaceRevision{
 		Resource: resource.DeepCopy(),
 	})
@@ -156,7 +156,7 @@ func iteration2(t *testing.T, api *apimock.API, mngr *InstancesManager) {
 		},
 		State: types.StateSucceeded,
 	}
-	resource.SetID("intf-3")
+	resource.ID = "intf-3"
 	instances.Update("i-2", ipamTypes.InterfaceRevision{
 		Resource: resource.DeepCopy(),
 	})
@@ -223,7 +223,7 @@ func TestResyncInstancePreservesOtherNodesSubnets(t *testing.T) {
 		},
 		State: types.StateSucceeded,
 	}
-	iface1.SetID("intf-vm-1")
+	iface1.ID = "intf-vm-1"
 	instances.Update("vm-1", ipamTypes.InterfaceRevision{
 		Resource: iface1.DeepCopy(),
 	})
@@ -239,7 +239,7 @@ func TestResyncInstancePreservesOtherNodesSubnets(t *testing.T) {
 		},
 		State: types.StateSucceeded,
 	}
-	iface2.SetID("intf-vm-2")
+	iface2.ID = "intf-vm-2"
 	instances.Update("vm-2", ipamTypes.InterfaceRevision{
 		Resource: iface2.DeepCopy(),
 	})
@@ -292,7 +292,7 @@ func TestExtractSubnetIDs(t *testing.T) {
 				},
 			},
 		}
-		resource.SetID(interfaceID)
+		resource.ID = interfaceID
 
 		instances.Update(instanceID, ipamTypes.InterfaceRevision{
 			Resource: resource.DeepCopy(),

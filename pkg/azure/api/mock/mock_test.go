@@ -35,7 +35,7 @@ func TestMock(t *testing.T) {
 	ifaceID := "/subscriptions/xxx/resourceGroups/g1/providers/Microsoft.Compute/virtualMachineScaleSets/vmss11/virtualMachines/vm1/networkInterfaces/vmss11"
 	instances = ipamTypes.NewInstanceMap()
 	resource := &types.AzureInterface{Name: "eth0"}
-	resource.SetID(ifaceID)
+	resource.ID = ifaceID
 	instances.Update("vm1", ipamTypes.InterfaceRevision{
 		Resource: resource.DeepCopy(),
 	})
@@ -69,7 +69,7 @@ func TestMock(t *testing.T) {
 	vmIfaceID := "/subscriptions/xxx/resourceGroups/g1/providers/Microsoft.Network/networkInterfaces/vm22-if"
 	vmInstances := ipamTypes.NewInstanceMap()
 	resource = &types.AzureInterface{Name: "eth0"}
-	resource.SetID(vmIfaceID)
+	resource.ID = vmIfaceID
 	vmInstances.Update("vm2", ipamTypes.InterfaceRevision{
 		Resource: resource.DeepCopy(),
 	})

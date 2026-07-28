@@ -73,6 +73,9 @@ type AzureAddress struct {
 
 // AzureInterface represents an Azure Interface
 //
+// Every field must be exported and JSON-serialized; see
+// TestAzureStatusHasNoUnserializedState.
+//
 // +k8s:deepcopy-gen=true
 type AzureInterface struct {
 	// ID is the identifier
@@ -120,27 +123,10 @@ type AzureInterface struct {
 	//
 	// +optional
 	CIDR string `json:"cidr,omitempty"`
-
-	// vmssName is the name of the virtual machine scale set. This field is
-	// set by extractIDs()
-	vmssName string `json:"-"`
-
-	// vmID is the ID of the virtual machine
-	vmID string `json:"-"`
-
-	// resourceGroup is the resource group the interface belongs to
-	resourceGroup string `json:"-"`
 }
 
 func (a *AzureInterface) DeepCopyInterface() types.Interface {
 	return a.DeepCopy()
-}
-
-// SetID sets the Azure interface ID, as well as extracting other fields from
-// the ID itself.
-func (a *AzureInterface) SetID(id string) {
-	a.ID = id
-	a.extractIDs()
 }
 
 // InterfaceID returns the identifier of the interface
@@ -148,16 +134,16 @@ func (a *AzureInterface) InterfaceID() string {
 	return a.ID
 }
 
-// extractIDs extracts resource group name, VMSS name, and VM ID from the network interface Azure resource ID
-func (a *AzureInterface) extractIDs() {
-	resourceID, err := arm.ParseResourceID(a.ID)
+// parseAzureResourceID extracts the resource group name, VMSS name, and VM ID
+// from a network interface Azure resource ID. Missing or unparseable components
+// yield empty strings.
+func parseAzureResourceID(id string) (resourceGroup, vmssName, vmID string) {
+	resourceID, err := arm.ParseResourceID(id)
 	if err != nil {
-		// If parsing fails, leave fields empty
-		return
+		return "", "", ""
 	}
 
-	// Extract resource group name directly from the parsed ID
-	a.resourceGroup = resourceID.ResourceGroupName
+	resourceGroup = resourceID.ResourceGroupName
 
 	// For VMSS instances, walk up the parent chain to extract VMSS name and VM ID
 	// Resource ID structure for VMSS VM interfaces:
@@ -173,30 +159,35 @@ func (a *AzureInterface) extractIDs() {
 		lastType := resourceType.Types[len(resourceType.Types)-1]
 
 		if strings.EqualFold(lastType, resourceTypeVirtualMachines) {
-			a.vmID = current.Name
+			vmID = current.Name
 		}
 
 		if strings.EqualFold(lastType, resourceTypeVirtualMachineScaleSets) {
-			a.vmssName = current.Name
+			vmssName = current.Name
 		}
 
 		current = current.Parent
 	}
+
+	return resourceGroup, vmssName, vmID
 }
 
 // GetResourceGroup returns the resource group the interface belongs to
 func (a *AzureInterface) GetResourceGroup() string {
-	return a.resourceGroup
+	resourceGroup, _, _ := parseAzureResourceID(a.ID)
+	return resourceGroup
 }
 
 // GetVMScaleSetName returns the VM scale set name the interface belongs to
 func (a *AzureInterface) GetVMScaleSetName() string {
-	return a.vmssName
+	_, vmssName, _ := parseAzureResourceID(a.ID)
+	return vmssName
 }
 
 // GetVMID returns the VM ID the interface belongs to
 func (a *AzureInterface) GetVMID() string {
-	return a.vmID
+	_, _, vmID := parseAzureResourceID(a.ID)
+	return vmID
 }
 
 // ForeachAddress iterates over all addresses and calls fn
