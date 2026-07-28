@@ -4,9 +4,12 @@
 package ipam
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
+	"strings"
 
 	"github.com/cilium/cilium/pkg/azure/types"
 	"github.com/cilium/cilium/pkg/defaults"
@@ -42,19 +45,42 @@ func (n *Node) UpdatedNode(obj *v2.CiliumNode) {
 }
 
 // PopulateStatusFields fills in the status field of the CiliumNode custom
-// resource with Azure specific information
+// resource with Azure specific information.
+//
+// ForeachInterface iterates a map and Azure does not document an order for an
+// interface's IP configurations, so both levels are sorted into a total order:
+// an unchanged node then compares equal in
+// ciliumNodeUpdateImplementation.UpdateStatus and the /status write is skipped
 func (n *Node) PopulateStatusFields(k8sObj *v2.CiliumNode) {
-	k8sObj.Status.Azure.Interfaces = []types.AzureInterface{}
+	interfaces := []types.AzureInterface{}
 
 	n.manager.mutex.RLock()
 	defer n.manager.mutex.RUnlock()
 	n.manager.instances.ForeachInterface(n.node.InstanceID(), func(instanceID, interfaceID string, interfaceObj ipamTypes.InterfaceRevision) error {
 		iface, ok := interfaceObj.Resource.(*types.AzureInterface)
-		if ok {
-			k8sObj.Status.Azure.Interfaces = append(k8sObj.Status.Azure.Interfaces, *(iface.DeepCopy()))
+		if !ok {
+			return nil
 		}
+		// Copied because the sorts below mutate in place and the instance
+		// cache is only read locked.
+		interfaces = append(interfaces, *iface.DeepCopy())
 		return nil
 	})
+
+	// ID alone is a total order: it is the instance's interface map key.
+	slices.SortFunc(interfaces, func(a, b types.AzureInterface) int {
+		return strings.Compare(a.ID, b.ID)
+	})
+	for i := range interfaces {
+		slices.SortFunc(interfaces[i].Addresses, func(a, b types.AzureAddress) int {
+			return cmp.Or(
+				strings.Compare(a.IP, b.IP),
+				strings.Compare(a.Subnet, b.Subnet),
+				strings.Compare(a.State, b.State),
+			)
+		})
+	}
+	k8sObj.Status.Azure.Interfaces = interfaces
 }
 
 // PrepareIPRelease prepares the release of IPs
