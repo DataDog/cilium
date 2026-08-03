@@ -11,6 +11,7 @@ import (
 	"maps"
 	"net/netip"
 	"slices"
+	"sync/atomic"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/ratelimit"
@@ -46,6 +47,12 @@ const (
 	// OperationNotPermittedStr indicates the request returned too many results without sufficient filtering or pagination
 	OperationNotPermittedStr = "OperationNotPermitted"
 
+	// UnauthorizedOperationStr indicates the caller lacks the IAM permission for the requested action
+	UnauthorizedOperationStr = "UnauthorizedOperation"
+
+	// InvalidActionStr indicates the requested action is not available on the endpoint being called
+	InvalidActionStr = "InvalidAction"
+
 	AssignPrivateIpAddresses        = "AssignPrivateIpAddresses"
 	AssignIPv6Addresses             = "AssignIPv6Addresses"
 	AssociateAddress                = "AssociateAddress"
@@ -60,6 +67,7 @@ const (
 	DescribeSubnets                 = "DescribeSubnets"
 	DescribeVpcs                    = "DescribeVpcs"
 	DescribeRouteTables             = "DescribeRouteTables"
+	GetSecurityGroupsForVpc         = "GetSecurityGroupsForVpc"
 	ModifyNetworkInterface          = "ModifyNetworkInterface"
 	ModifyNetworkInterfaceAttribute = "ModifyNetworkInterfaceAttribute"
 	UnassignPrivateIpAddresses      = "UnassignPrivateIpAddresses"
@@ -79,6 +87,11 @@ type Client struct {
 	eniTagSpecification ec2_types.TagSpecification
 	usePrimary          bool
 	maxResultsPerCall   int32 // Maximum results per API call; 0 means let AWS decide
+
+	// getSecurityGroupsForVpcUnavailable is set once the GetSecurityGroupsForVpc
+	// API has been found to be unusable, so that the fallback to
+	// DescribeSecurityGroups is only decided once.
+	getSecurityGroupsForVpcUnavailable atomic.Bool
 }
 
 // MetricsAPI represents the metrics maintained by the AWS API client
@@ -122,6 +135,26 @@ func isOperationNotPermitted(err error) bool {
 	var apiErr smithy.APIError
 	if errors.As(err, &apiErr) {
 		return apiErr.ErrorCode() == OperationNotPermittedStr
+	}
+	return false
+}
+
+// isUnsupportedOperation checks if an error indicates that an API cannot be
+// used at all, either because the caller lacks the IAM permission for it or
+// because the endpoint does not offer it.
+//
+// Both codes are treated as unusable because it is not yet confirmed which one
+// EC2 returns for a missing privilege: UnauthorizedOperation is documented for
+// denied actions, while an endpoint that does not implement the action at all
+// answers InvalidAction. Callers log the observed code so the set can be
+// narrowed once a real deployment reports it.
+func isUnsupportedOperation(err error) bool {
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		switch apiErr.ErrorCode() {
+		case UnauthorizedOperationStr, InvalidActionStr:
+			return true
+		}
 	}
 	return false
 }
@@ -1113,8 +1146,82 @@ retry:
 	}
 }
 
+// getSecurityGroupsForVpc lists the security groups usable by interfaces in
+// vpcID via the GetSecurityGroupsForVpc API.
+func (c *Client) getSecurityGroupsForVpc(ctx context.Context, vpcID string) (types.SecurityGroupMap, error) {
+retry:
+	for {
+		securityGroups := types.SecurityGroupMap{}
+		input := &ec2.GetSecurityGroupsForVpcInput{
+			VpcId: aws.String(vpcID),
+			// Set MaxResults based on current configuration (nil means let AWS decide)
+			MaxResults: c.getMaxResults(),
+		}
+
+		paginator := ec2.NewGetSecurityGroupsForVpcPaginator(c.ec2Client, input)
+		for paginator.HasMorePages() {
+			c.limiter.Limit(ctx, GetSecurityGroupsForVpc)
+			sinceStart := spanstat.Start()
+			output, err := paginator.NextPage(ctx)
+			c.metricsAPI.ObserveAPICall(GetSecurityGroupsForVpc, deriveStatus(err), sinceStart.Seconds())
+			if err != nil {
+				// If OperationNotPermitted and we switch to pagination, retry the entire request
+				if c.switchToPagination(err) {
+					continue retry
+				}
+				return nil, err
+			}
+			for _, secGroup := range output.SecurityGroupForVpcs {
+				id := aws.ToString(secGroup.GroupId)
+				// PrimaryVpcId is the VPC the group was created in. Groups that
+				// are merely usable from vpcID report their original VPC ID,
+				// which is what DescribeSecurityGroups reports as well.
+				securityGroups[id] = newSecurityGroup(id, aws.ToString(secGroup.PrimaryVpcId), secGroup.Tags)
+			}
+		}
+
+		return securityGroups, nil
+	}
+}
+
 // GetSecurityGroups returns the security groups in the vpcID, or all security groups if the vpcID is empty.
 func (c *Client) GetSecurityGroups(ctx context.Context, vpcID string) (types.SecurityGroupMap, error) {
+	// GetSecurityGroupsForVpc returns a much smaller response than
+	// DescribeSecurityGroups because it omits the ingress and egress rule sets,
+	// which are discarded here anyway. It cannot be used unconditionally: it
+	// requires a VPC ID, and it requires the ec2:GetSecurityGroupsForVpc IAM
+	// permission, which existing deployments may not grant.
+	if vpcID != "" && !c.getSecurityGroupsForVpcUnavailable.Load() {
+		securityGroups, err := c.getSecurityGroupsForVpc(ctx, vpcID)
+		if err == nil {
+			return securityGroups, nil
+		}
+
+		// The API error code AWS returns when the ec2:GetSecurityGroupsForVpc
+		// privilege is missing has not been confirmed against a real
+		// deployment, so report the code and HTTP status of every failure of
+		// this call. Once the code is known, isUnsupportedOperation can be
+		// narrowed to it and this log removed. Note that EC2 never populates
+		// the smithy error fault, hence the HTTP status instead.
+		var apiErr smithy.APIError
+		if errors.As(err, &apiErr) {
+			c.logger.Warn("EC2 GetSecurityGroupsForVpc call failed",
+				logfields.Code, apiErr.ErrorCode(),
+				logfields.Status, deriveStatus(err),
+				logfields.Error, err)
+		}
+
+		if !isUnsupportedOperation(err) {
+			return types.SecurityGroupMap{}, err
+		}
+		if c.getSecurityGroupsForVpcUnavailable.CompareAndSwap(false, true) {
+			c.logger.Warn("Unable to use the EC2 GetSecurityGroupsForVpc API, falling back to DescribeSecurityGroups. "+
+				"Granting the ec2:GetSecurityGroupsForVpc privilege to the operator lowers the cost of every IPAM resync",
+				logfields.Code, apiErr.ErrorCode(),
+				logfields.Error, err)
+		}
+	}
+
 	securityGroups := types.SecurityGroupMap{}
 
 	secGroupList, err := c.describeSecurityGroups(ctx, vpcID)
@@ -1124,22 +1231,26 @@ func (c *Client) GetSecurityGroups(ctx context.Context, vpcID string) (types.Sec
 
 	for _, secGroup := range secGroupList {
 		id := aws.ToString(secGroup.GroupId)
-
-		securityGroup := &types.SecurityGroup{
-			ID:    id,
-			VpcID: aws.ToString(secGroup.VpcId),
-			Tags:  map[string]string{},
-		}
-		for _, tag := range secGroup.Tags {
-			key := aws.ToString(tag.Key)
-			value := aws.ToString(tag.Value)
-			securityGroup.Tags[key] = value
-		}
-
-		securityGroups[id] = securityGroup
+		securityGroups[id] = newSecurityGroup(id, aws.ToString(secGroup.VpcId), secGroup.Tags)
 	}
 
 	return securityGroups, nil
+}
+
+// newSecurityGroup returns the security group representation cached by the
+// operator. Only the ID, VPC ID and tags are retained; the ingress and egress
+// rules reported by EC2 are not used.
+func newSecurityGroup(id, vpcID string, tags []ec2_types.Tag) *types.SecurityGroup {
+	securityGroup := &types.SecurityGroup{
+		ID:    id,
+		VpcID: vpcID,
+		Tags:  make(ipamTypes.Tags, len(tags)),
+	}
+	for _, tag := range tags {
+		securityGroup.Tags[aws.ToString(tag.Key)] = aws.ToString(tag.Value)
+	}
+
+	return securityGroup
 }
 
 // GetInstanceTypes returns all the known EC2 instance types in the configured region
