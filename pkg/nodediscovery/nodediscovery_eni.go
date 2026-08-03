@@ -30,6 +30,8 @@ type ENIMutateInputs struct {
 	IPAMMinAllocate         int
 	IPAMPreAllocate         int
 	IPAMMaxAllocate         int
+	EnableIPv4              bool
+	EnableIPv6              bool
 	CNIConfigManager        cni.CNIConfigManager
 }
 
@@ -70,6 +72,8 @@ func (n *NodeDiscovery) mutateENINodeResource(ctx context.Context, nodeResource 
 		IPAMMinAllocate:         n.config.IPAMMinAllocate,
 		IPAMPreAllocate:         n.config.IPAMPreAllocate,
 		IPAMMaxAllocate:         n.config.IPAMMaxAllocate,
+		EnableIPv4:              n.daemonConfig.EnableIPv4,
+		EnableIPv6:              n.daemonConfig.EnableIPv6,
 		CNIConfigManager:        n.cniConfigManager,
 	}, nodeResource)
 }

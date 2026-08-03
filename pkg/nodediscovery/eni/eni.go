@@ -17,6 +17,8 @@ import (
 
 	awsMetadata "github.com/cilium/cilium/pkg/aws/metadata"
 	awsTypes "github.com/cilium/cilium/pkg/aws/types"
+	"github.com/cilium/cilium/pkg/defaults"
+	ipamTypes "github.com/cilium/cilium/pkg/ipam/types"
 	ciliumv2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 	"github.com/cilium/cilium/pkg/nodediscovery"
 )
@@ -103,9 +105,55 @@ func mutate(ctx context.Context, in nodediscovery.ENIMutateInputs, nodeResource 
 		nodeResource.Spec.ENI.DeleteOnTermination = c.ENI.DeleteOnTermination
 	}
 
+	seedPoolRequest(nodeResource, in)
+
 	nodeResource.Spec.InstanceID = info.InstanceID
 	nodeResource.Spec.ENI.InstanceType = info.InstanceType
 	nodeResource.Spec.ENI.AvailabilityZone = info.AvailabilityZone
 	nodeResource.Spec.ENI.NodeSubnetID = info.SubnetID
 	return nil
+}
+
+// seedPoolRequest populates the "default" pool entry of
+// Spec.IPAM.Pools.Requested with the demand implied by the agent
+// configuration, unless the IPAM layer has already published a demand of its
+// own.
+//
+// The IPAM layer only writes Spec.IPAM.Pools.Requested once the restoration of
+// the local IPs has finished, which happens well after the CiliumNode resource
+// is first created. The operator does not know which address families this node
+// wants until then, and falls back to its pre-1.20 behavior of pre-allocating
+// min-allocate IPv4 addresses, even for a node running in IPv6-only mode.
+// Seeding the demand closes that window: the operator honors the enabled
+// families from the very first reconciliation onwards.
+func seedPoolRequest(nodeResource *ciliumv2.CiliumNode, in nodediscovery.ENIMutateInputs) {
+	for _, req := range nodeResource.Spec.IPAM.Pools.Requested {
+		if req.Pool == defaults.IPAMDefaultIPPool {
+			return
+		}
+	}
+
+	// No address is in use yet, so the linear pre-allocation formula used by
+	// the IPAM layer (inUse + preAllocate) boils down to preAllocate.
+	preAllocate := nodeResource.Spec.IPAM.PreAllocate
+	if preAllocate == 0 {
+		preAllocate = defaults.IPAMPreAllocation
+	}
+
+	var needed ipamTypes.IPAMPoolDemand
+	if in.EnableIPv4 {
+		needed.IPv4Addrs = preAllocate
+	}
+	if in.EnableIPv6 {
+		needed.IPv6Addrs = preAllocate
+	}
+	if needed.IPv4Addrs == 0 && needed.IPv6Addrs == 0 {
+		return
+	}
+
+	nodeResource.Spec.IPAM.Pools.Requested = append(nodeResource.Spec.IPAM.Pools.Requested,
+		ipamTypes.IPAMPoolRequest{
+			Pool:   defaults.IPAMDefaultIPPool,
+			Needed: needed,
+		})
 }
