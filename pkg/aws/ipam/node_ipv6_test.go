@@ -137,5 +137,9 @@ func TestCreateInterface_IPv6Only(t *testing.T) {
 
 	n.mutex.RLock()
 	require.Len(t, n.enis, 2)
+	// No secondary IPv4 address must have been assigned to any of the ENIs.
+	for _, eni := range n.enis {
+		require.Empty(t, eni.Addresses, "ENI %s got secondary IPv4 addresses", eni.ID)
+	}
 	n.mutex.RUnlock()
 }

@@ -454,6 +454,19 @@ func (n *Node) isMultiPoolNodeLocked() bool {
 	return hasPoolRequest && len(n.resource.Status.IPAM.Used) == 0
 }
 
+// isIPv6OnlyNodeLocked returns true if this node's agent uses the multi-pool
+// allocator and requests no IPv4 address at all, i.e. it runs in IPv6-only
+// mode. The agent's IPv4 demand is inUse + preAllocate and preAllocate is at
+// least 1, so a demand of zero can only mean the agent does not want IPv4.
+// Caller must hold n.mutex (at least RLock).
+func (n *Node) isIPv6OnlyNodeLocked() bool {
+	if n.resource == nil {
+		return false
+	}
+	requestedIPv4, _, ok := poolRequestedIPs(n.resource)
+	return ok && len(n.resource.Status.IPAM.Used) == 0 && requestedIPv4 == 0
+}
+
 // trackMultiPoolAllocatedLocked updates previousAllocatedCIDRs and detects
 // CIDRs the agent has removed from Spec.IPAM.Pools.Allocated. Removed CIDRs
 // are added to multiPoolCIDRsMarkedForRelease with the current timestamp.
@@ -986,23 +999,38 @@ func (n *Node) determineMaintenanceAction() (*maintenanceAction, error) {
 		return nil, err
 	}
 
+	n.mutex.RLock()
+	isIPv6Only := n.isIPv6OnlyNodeLocked()
+	n.mutex.RUnlock()
+
 	surgeAllocate := 0
-	numPendingPods, err := getPendingPodCount(n.name)
-	if err != nil {
-		if n.logLimiter.Allow() {
-			n.logger.Load().Warn(
-				"Unable to compute pending pods, will not surge-allocate",
-				logfields.Error, err,
-			)
+	if !isIPv6Only {
+		numPendingPods, err := getPendingPodCount(n.name)
+		if err != nil {
+			if n.logLimiter.Allow() {
+				n.logger.Load().Warn(
+					"Unable to compute pending pods, will not surge-allocate",
+					logfields.Error, err,
+				)
+			}
+		} else if numPendingPods > stats.IPv4.NeededIPs {
+			surgeAllocate = numPendingPods - stats.IPv4.NeededIPs
 		}
-	} else if numPendingPods > stats.IPv4.NeededIPs {
-		surgeAllocate = numPendingPods - stats.IPv4.NeededIPs
 	}
 
 	n.mutex.RLock()
 	// handleIPAllocation() takes a min of MaxIPsToAllocate and IPs available for allocation on the interface.
 	// This makes sure we don't try to allocate more than what's available.
-	a.allocation.IPv4.MaxIPsToAllocate = stats.IPv4.NeededIPs + n.getMaxAboveWatermark() + surgeAllocate
+	//
+	// An IPv6-only node must never receive IPv4 addresses. This path is still
+	// reached for such nodes when they need an IPv6 prefix, so the IPv4 budget
+	// has to be pinned to zero: max-above-watermark and surge-allocation are
+	// both IPv4 notions and would otherwise make the operator assign IPv4
+	// addresses (or create an ENI carrying them) for a node that wants none.
+	a.allocation.IPv4.MaxIPsToAllocate = 0
+	if !isIPv6Only {
+		a.allocation.IPv4.MaxIPsToAllocate = stats.IPv4.NeededIPs + n.getMaxAboveWatermark() + surgeAllocate
+	}
 	n.mutex.RUnlock()
 
 	a.allocation.IPv6.MaxPrefixesToAllocate = stats.IPv6.NeededPrefixes

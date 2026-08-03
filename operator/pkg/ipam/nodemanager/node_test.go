@@ -6,18 +6,25 @@ package nodemanager
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/netip"
 	"testing"
 
 	"github.com/cilium/hive/hivetest"
 	"github.com/stretchr/testify/require"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/cache"
 
+	operatorK8s "github.com/cilium/cilium/operator/k8s"
+	"github.com/cilium/cilium/operator/watchers"
 	awsTypes "github.com/cilium/cilium/pkg/aws/types"
 	"github.com/cilium/cilium/pkg/defaults"
 	iputil "github.com/cilium/cilium/pkg/ip"
 	ipamTypes "github.com/cilium/cilium/pkg/ipam/types"
 	v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
+	slim_corev1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/core/v1"
+	slim_metav1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/apis/meta/v1"
 	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/time"
 )
@@ -737,5 +744,84 @@ func TestHandleMultiPoolCIDRRelease(t *testing.T) {
 		require.True(t, mutated)
 		require.Len(t, mock.releaseCalls, 2)
 		require.Empty(t, n.multiPoolCIDRsMarkedForRelease)
+	})
+}
+
+// setPendingPods installs a pod store holding numPending pending pods scheduled
+// on nodeName, mimicking what the operator's pod watcher would have cached.
+func setPendingPods(t *testing.T, nodeName string, numPending int) {
+	t.Helper()
+
+	indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{
+		operatorK8s.PodNodeNameIndex: operatorK8s.PodNodeNameIndexFunc,
+	})
+	for i := range numPending {
+		require.NoError(t, indexer.Add(&slim_corev1.Pod{
+			ObjectMeta: slim_metav1.ObjectMeta{
+				Name:      fmt.Sprintf("pending-%d", i),
+				Namespace: "default",
+			},
+			Spec:   slim_corev1.PodSpec{NodeName: nodeName},
+			Status: slim_corev1.PodStatus{Phase: slim_corev1.PodPending},
+		}))
+	}
+
+	orig := watchers.PodStore
+	watchers.PodStore = indexer
+	t.Cleanup(func() { watchers.PodStore = orig })
+}
+
+func TestDetermineMaintenanceActionSurgeAllocate(t *testing.T) {
+	// newNode returns a multi-pool node whose agent requests requestedIPv4
+	// IPv4 addresses, with the given IPv4 deficit and IPv6 prefix demand.
+	newNode := func(t *testing.T, requestedIPv4, neededIPs, neededPrefixes int) *Node {
+		cn := &v2.CiliumNode{
+			ObjectMeta: metav1.ObjectMeta{Name: "node1"},
+		}
+		cn.Spec.IPAM.Pools.Requested = []ipamTypes.IPAMPoolRequest{
+			{Pool: defaults.IPAMDefaultIPPool, Needed: ipamTypes.IPAMPoolDemand{
+				IPv4Addrs: requestedIPv4,
+				IPv6Addrs: 3,
+			}},
+		}
+		n := &Node{
+			rootLogger: hivetest.Logger(t),
+			name:       "node1",
+			resource:   cn,
+			ops:        &nodeOperationsMock{allocator: newAllocationImplementationMock()},
+			manager:    &NodeManager{},
+			logLimiter: logging.NewLimiter(10*time.Second, 3),
+		}
+		n.logger.Store(n.rootLogger)
+		n.stats.IPv4.NeededIPs = neededIPs
+		n.stats.IPv6.NeededPrefixes = neededPrefixes
+		return n
+	}
+
+	t.Run("IPv6-only node never allocates IPv4", func(t *testing.T) {
+		// The agent requests no IPv4 address at all, but needs an IPv6
+		// prefix. Pending pods must not surge-allocate IPv4 addresses,
+		// which would otherwise end up on the ENI created for the prefix.
+		setPendingPods(t, "node1", 6)
+		n := newNode(t, 0, 0, 1)
+
+		a, err := n.determineMaintenanceAction()
+		require.NoError(t, err)
+		require.NotNil(t, a)
+		require.NotNil(t, a.allocation)
+		require.Equal(t, 0, a.allocation.IPv4.MaxIPsToAllocate)
+		require.Equal(t, 1, a.allocation.IPv6.MaxPrefixesToAllocate)
+	})
+
+	t.Run("dual stack node surge-allocates IPv4 for pending pods", func(t *testing.T) {
+		setPendingPods(t, "node1", 6)
+		n := newNode(t, 16, 2, 0)
+
+		a, err := n.determineMaintenanceAction()
+		require.NoError(t, err)
+		require.NotNil(t, a)
+		require.NotNil(t, a.allocation)
+		// 2 needed + (6 pending - 2 needed) surge.
+		require.Equal(t, 6, a.allocation.IPv4.MaxIPsToAllocate)
 	})
 }
