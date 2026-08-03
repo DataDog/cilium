@@ -627,6 +627,7 @@ perform ENI creation and IP allocation:
  * ``DescribeVpcs``
  * ``DescribeRouteTables``
  * ``DescribeSecurityGroups``
+ * ``GetSecurityGroupsForVpc``
  * ``CreateNetworkInterface``
  * ``AttachNetworkInterface``
  * ``ModifyNetworkInterfaceAttribute``
