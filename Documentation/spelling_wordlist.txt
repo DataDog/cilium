@@ -316,6 +316,7 @@ demux
 denylist
 dereference
 deserialization
+deserialized
 detections
 dev
 disenroll
@@ -738,6 +739,7 @@ requireIPv
 resizable
 resolvers
 resync
+resyncs
 retpoline
 retransmission
 retransmissions
