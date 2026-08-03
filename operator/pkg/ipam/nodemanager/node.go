@@ -714,7 +714,18 @@ func (n *Node) recalculate(ctx context.Context) {
 	if requestedIPv4, requestedIPv6, ok := poolRequestedIPs(n.resource); ok && len(n.resource.Status.IPAM.Used) == 0 {
 		// The agent's demand is computed as inUse + preAllocate (linear
 		// pre-allocation). Subtracting preAllocate recovers exact usage.
-		n.stats.IPv4.UsedIPs = max(0, requestedIPv4-n.getPreAllocate())
+		n.stats.IPv4.UsedIPs = 0
+		n.stats.IPv4.NeededIPs = 0
+		n.stats.IPv4.ExcessIPs = 0
+		// If requestedIPv4 is 0 then the agent is in IPv6 only mode since pre-allocate
+		// is at least equal to 1.
+		// If a dual stack node switches to IPv6 only, it does not release allocated
+		// IPv4 addresses to avoid disruptions for pods scheduled prior to the switch.
+		if requestedIPv4 > 0 {
+			n.stats.IPv4.UsedIPs = max(0, requestedIPv4-n.getPreAllocate())
+			n.stats.IPv4.NeededIPs = calculateNeededIPs(n.stats.IPv4.AvailableIPs, n.stats.IPv4.UsedIPs, n.getPreAllocate(), n.getMinAllocate(), n.getMaxAllocate())
+			n.stats.IPv4.ExcessIPs = calculateExcessIPs(n.stats.IPv4.AvailableIPs, n.stats.IPv4.UsedIPs, n.getPreAllocate(), n.getMinAllocate(), n.getMaxAboveWatermark())
+		}
 		// If the agent uses IPv6 and no IPv6 prefix is available on the
 		// node, request one. A single prefix is enough and is never
 		// released, so reset to 0 once a prefix is present.
@@ -724,9 +735,9 @@ func (n *Node) recalculate(ctx context.Context) {
 		}
 	} else {
 		n.stats.IPv4.UsedIPs = len(n.resource.Status.IPAM.Used)
+		n.stats.IPv4.NeededIPs = calculateNeededIPs(n.stats.IPv4.AvailableIPs, n.stats.IPv4.UsedIPs, n.getPreAllocate(), n.getMinAllocate(), n.getMaxAllocate())
+		n.stats.IPv4.ExcessIPs = calculateExcessIPs(n.stats.IPv4.AvailableIPs, n.stats.IPv4.UsedIPs, n.getPreAllocate(), n.getMinAllocate(), n.getMaxAboveWatermark())
 	}
-	n.stats.IPv4.NeededIPs = calculateNeededIPs(n.stats.IPv4.AvailableIPs, n.stats.IPv4.UsedIPs, n.getPreAllocate(), n.getMinAllocate(), n.getMaxAllocate())
-	n.stats.IPv4.ExcessIPs = calculateExcessIPs(n.stats.IPv4.AvailableIPs, n.stats.IPv4.UsedIPs, n.getPreAllocate(), n.getMinAllocate(), n.getMaxAboveWatermark())
 
 	scopedLog.Debug(
 		"Recalculated needed addresses",
