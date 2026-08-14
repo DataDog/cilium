@@ -237,20 +237,9 @@ func newNodeStore(logger *slog.Logger, nodeName string, conf *option.DaemonConfi
 	return store
 }
 
+// deriveVpcCIDRs derives the VPC CIDRs from the CiliumNode status. It only
+// covers Azure and AlibabaCloud.
 func deriveVpcCIDRs(node *ciliumv2.CiliumNode) (primaryCIDR *cidr.CIDR, secondaryCIDRs []*cidr.CIDR) {
-	// A node belongs to a single VPC so we can pick the first ENI
-	// in the list and derive the VPC CIDR from it.
-	for _, eni := range node.Status.ENI.ENIs {
-		if p := eni.VPC.PrimaryCIDR; p.IsValid() {
-			primaryCIDR = cidr.NewCIDR(netipx.PrefixIPNet(p.Masked()))
-			for _, sc := range eni.VPC.CIDRs {
-				if sc.IsValid() {
-					secondaryCIDRs = append(secondaryCIDRs, cidr.NewCIDR(netipx.PrefixIPNet(sc.Masked())))
-				}
-			}
-			return
-		}
-	}
 	for _, azif := range node.Status.Azure.Interfaces {
 		if p := azureInterfaceCIDR(azif); p.IsValid() {
 			primaryCIDR = cidr.NewCIDR(netipx.PrefixIPNet(p.Masked()))
@@ -274,6 +263,8 @@ func deriveVpcCIDRs(node *ciliumv2.CiliumNode) (primaryCIDR *cidr.CIDR, secondar
 	return
 }
 
+// autoDetectIPv4NativeRoutingCIDR sets the IPv4 native routing CIDR for Azure and
+// AlibabaCloud
 func (n *nodeStore) autoDetectIPv4NativeRoutingCIDR(localNodeStore *node.LocalNodeStore) bool {
 	if primaryCIDR, secondaryCIDRs := deriveVpcCIDRs(n.ownNode); primaryCIDR != nil {
 		allCIDRs := append([]*cidr.CIDR{primaryCIDR}, secondaryCIDRs...)
