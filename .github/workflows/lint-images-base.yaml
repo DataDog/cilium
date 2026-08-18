@@ -29,20 +29,6 @@ on:
       - v1.20
       - ft/v1.20/**
 
-# By specifying the access of one of the scopes, all of those that are not
-# specified are set to 'none'.
-permissions:
-  # To read actions state with cilium/workflow-telemetry-action
-  actions: read
-  # To be able to access the repository with actions/checkout
-  contents: read
-  # To allow retrieving information from the PR API
-  pull-requests: read
-  # To be able to set commit status
-  statuses: write
-  # To be able to request the JWT from GitHub's OIDC provider
-  id-token: write
-
 concurrency:
   group: ${{ github.workflow }}-${{ inputs.PR-number || github.event.after }}
   cancel-in-progress: true
@@ -51,15 +37,20 @@ jobs:
   commit-status-start:
     name: Commit Status Start
     runs-on: ubuntu-24.04
+    permissions:
+      statuses: write
     steps:
       - name: Set initial commit status
-        uses: cilium/cilium/.github/actions/set-commit-status@main # main
+        uses: cilium/actions/set-commit-status@fe0702f5df0d8e44d48f1baa226c023b73ff6b5e # main
         with:
           sha: ${{ inputs.SHA || github.sha }}
 
   lint:
     name: Lint image build logic
     runs-on: ubuntu-24.04
+    permissions:
+      # To be able to access the repository with actions/checkout
+      contents: read
     steps:
       - name: Checkout base or default branch (trusted)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -102,8 +93,11 @@ jobs:
           entrypoint: make
           args: -C untrusted/images check-runtime-image RUNTIME_IMAGE=${{ env.CILIUM_RUNTIME_IMAGE }}
 
-      - name: Check Cilium Envoy image
-        run: make -C trusted/images check-envoy-image
+      - uses: docker://quay.io/cilium/image-maker:7de7f1c855ce063bdbe57fdfb28599a3ad5ec8f1@sha256:dde8500cbfbb6c41433d376fdfcb3831e2df9cec50cf4f49e8553dc6eba74e72
+        name: Check Cilium Envoy image
+        with:
+          entrypoint: make
+          args: -C untrusted/images check-envoy-image
 
   merge-upload-and-status:
     name: Merge Upload and Status
@@ -111,6 +105,10 @@ jobs:
     needs: lint
     uses: ./.github/workflows/common-post-jobs.yaml
     secrets: inherit
+    permissions:
+      actions: read
+      contents: read
+      statuses: write
     with:
       context-ref: ${{ inputs.context-ref || github.sha }}
       sha: ${{ inputs.SHA || github.sha }}

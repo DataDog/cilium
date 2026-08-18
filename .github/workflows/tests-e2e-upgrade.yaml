@@ -113,7 +113,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Set initial commit status
-        uses: cilium/cilium/.github/actions/set-commit-status@main # main
+        uses: cilium/actions/set-commit-status@fe0702f5df0d8e44d48f1baa226c023b73ff6b5e # main
         with:
           sha: ${{ inputs.SHA || github.sha }}
 
@@ -225,7 +225,7 @@ jobs:
           echo '${{ toJSON(matrix) }}'
 
       - name: Set commit status to pending
-        uses: cilium/cilium/.github/actions/set-commit-status@main # main
+        uses: cilium/actions/set-commit-status@fe0702f5df0d8e44d48f1baa226c023b73ff6b5e # main
         with:
           sha: ${{ inputs.SHA || github.sha }}
 
@@ -492,7 +492,7 @@ jobs:
 
       - name: Install Cilium CLI
         if: ${{ steps.vars.outputs.downgrade_version != '' && steps.cilium-stable-config.outputs.skip != 'true' && steps.cilium-newest-config.outputs.skip != 'true' }}
-        uses: cilium/cilium-cli@fc661364dd4962fb50f6415216d5f6edbfa6a822 # v0.19.6
+        uses: cilium/cilium-cli@7ca7fc53c20275f5c10ef5f3557076691fd1d720 # v0.19.7
         with:
           skip-build: ${{ env.CILIUM_CLI_SKIP_BUILD }}
           image-repo: ${{ env.CILIUM_CLI_IMAGE_REPO }}
@@ -760,14 +760,12 @@ jobs:
           json-filename: "${{ env.job_name }} - after downgrade"
 
       - name: Fetch artifacts
-        if: ${{ steps.vars.outputs.downgrade_version != '' && !success() }}
+        if: ${{ steps.vars.outputs.downgrade_version != '' && !success() && steps.kvstore.outcome == 'success' }}
         shell: bash
         run: |
-          if [ "${{ matrix.kvstore }}" == "true" ]; then
-            echo
-            echo "# Retrieving Cilium etcd logs"
-            kubectl -n kube-system logs kvstore
-          fi
+          echo
+          echo "# Retrieving Cilium etcd logs"
+          kubectl -n kube-system logs kvstore
 
       - name: Run common post steps
         if: ${{ always() && steps.vars.outputs.downgrade_version != '' && steps.install-cilium.outcome != 'skipped' }}

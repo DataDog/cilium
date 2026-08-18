@@ -3,10 +3,10 @@
 # Copyright Authors of Cilium
 # SPDX-License-Identifier: Apache-2.0
 
-ARG CILIUM_RUNTIME_IMAGE=quay.io/cilium/cilium-runtime:b3696ec9c32638840d771aab7394829863c2cad5@sha256:82dd10dc679e379847cdcbb2bf956143ff07ad931d9b47a4bfd2ef8c9b7d5d41
-ARG TESTER_IMAGE=quay.io/cilium/image-tester:1783861476-95bbb92@sha256:648e2bb2d69f17a4f13a2ed7fd71aa8d0de6a16554b13497655de869a95bcdfb
-ARG GOLANG_IMAGE=docker.io/library/golang:1.26.5@sha256:3aff6657219a4d9c14e27fb1d8976c49c29fddb70ba835014f477e1c70636647
-ARG CILIUM_LLVM_IMAGE=quay.io/cilium/cilium-llvm:19.1.7-1782898005-bed4da5@sha256:270bf0e70853c388b72c2247e4ade91d35d74898e2ec12edd5b72ace9ee34333
+ARG CILIUM_RUNTIME_IMAGE=quay.io/cilium/cilium-runtime:2677f03fc628894ad9020605a2eb4904f0977a2d@sha256:a81e91aab045c4f80738a63c222c5fa8a21e173a6c3b51131d9a70af4204d556
+ARG TESTER_IMAGE=quay.io/cilium/image-tester:1785710666-8cd4afc@sha256:fc644405b1fc62ffc009c27283307cddc5b210a7d42555b5f525b8285a163fb9
+ARG GOLANG_IMAGE=docker.io/library/golang:1.26.5@sha256:705e964a93a2fd2e75c7d59bb7d781b57e30f12293ffde5175c69229e18fb678
+ARG CILIUM_LLVM_IMAGE=quay.io/cilium/cilium-llvm:19.1.7-1785833026-d8383c5@sha256:80ae6ceb1a1556d5f65f7a086d873c4706ed548444c4d49d89cbeedf24f817d4
 
 FROM ${GOLANG_IMAGE} AS golang-dist
 

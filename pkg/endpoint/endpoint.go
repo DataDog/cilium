@@ -919,7 +919,8 @@ func FilterEPDir(dirFiles []os.DirEntry) []string {
 // caller must call `SetIdentity()` to make the returned endpoint's identity useful.
 func ParseEndpoint(p EndpointParams,
 	dnsRulesAPI DNSRulesAPI,
-	proxy EndpointProxy, epJSON []byte) (*Endpoint, error) {
+	proxy EndpointProxy, epJSON []byte,
+	policyDebugLog io.Writer) (*Endpoint, error) {
 	ep := Endpoint{
 		dnsRulesAPI:      dnsRulesAPI,
 		epBuildQueue:     p.EPBuildQueue,
@@ -937,10 +938,12 @@ func ParseEndpoint(p EndpointParams,
 		policyMapFactory: p.PolicyMapFactory,
 		policyRepo:       p.PolicyRepo,
 		policyFetcher:    p.PolicyFetcher,
+		ipcache:          p.IPCache,
 		proxy:            proxy,
 		allocator:        p.Allocator,
 		ctMapGC:          p.CTMapGC,
 		kvstoreSyncher:   p.KVStoreSynchronizer,
+		policyDebugLog:   policyDebugLog,
 	}
 
 	if err := ep.UnmarshalJSON(epJSON); err != nil {
@@ -2384,11 +2387,21 @@ func (e *Endpoint) identityLabelsChanged(ctx context.Context) (regenTriggered bo
 
 	if e.SecurityIdentity != nil && e.SecurityIdentity.Labels.Equals(newLabels) {
 		// Sets endpoint state to ready if was waiting for identity
+		var deferredRegen *regeneration.ExternalRegenerationMetadata
 		if e.getState() == StateWaitingForIdentity {
 			e.setState(StateReady, "Set identity for this endpoint")
+			// Regenerations requested while the endpoint was parked in
+			// waiting-for-identity were only buffered. No new identity is
+			// assigned here, so no regeneration is queued for us, flush the
+			// buffer instead of waiting for the periodic regeneration.
+			deferredRegen = e.consumeDeferredRegenerationLocked()
 		}
 		e.unlock()
 		scopedLog.Debug("Endpoint labels unchanged, skipping resolution of identity")
+		if deferredRegen != nil {
+			e.RegenerateIfAlive(deferredRegen)
+			return true, nil
+		}
 		return false, nil
 	}
 

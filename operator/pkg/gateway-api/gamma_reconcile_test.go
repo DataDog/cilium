@@ -6,15 +6,18 @@ package gateway_api
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/cilium/hive/hivetest"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/testing/protocmp"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -37,10 +40,6 @@ var (
 	serviceKeyEcho   = types.NamespacedName{Namespace: "gateway-conformance-mesh", Name: "echo"}
 	serviceKeyEchoV1 = types.NamespacedName{Namespace: "gateway-conformance-mesh", Name: "echo-v1"}
 	serviceKeyEchoV2 = types.NamespacedName{Namespace: "gateway-conformance-mesh", Name: "echo-v2"}
-	serviceTypeMeta  = metav1.TypeMeta{
-		Kind:       "Service",
-		APIVersion: corev1.SchemeGroupVersion.Version,
-	}
 )
 
 func Test_gammaReconciler_Reconcile(t *testing.T) {
@@ -95,15 +94,17 @@ func Test_gammaReconciler_Reconcile(t *testing.T) {
 				t.Run(serviceKey.String(), func(t *testing.T) {
 					base := readInputDir(t, "testdata/gamma/base")
 					input := readInputDir(t, fmt.Sprintf("testdata/gamma/%s/input", tt.name))
+					scheme := helpers.TestScheme(helpers.AllOptionalKinds)
 
 					c := fake.NewClientBuilder().
-						WithScheme(helpers.TestScheme(helpers.AllOptionalKinds)).
+						WithScheme(scheme).
 						WithObjects(append(base, input...)...).
 						WithIndex(&gatewayv1.HTTPRoute{}, indexers.GammaHTTPRouteParentRefsIndex, indexers.IndexHTTPRouteByGammaService).
 						WithIndex(&gatewayv1.GRPCRoute{}, indexers.GammaGRPCRouteParentRefsIndex, indexers.IndexGRPCRouteByGammaService).
 						WithStatusSubresource(&corev1.Service{}).
 						WithStatusSubresource(&gatewayv1.HTTPRoute{}).
 						WithStatusSubresource(&gatewayv1.GRPCRoute{}).
+						WithInterceptorFuncs(typeMetaInterceptor(scheme)).
 						Build()
 
 					r := &gammaReconciler{
@@ -135,13 +136,11 @@ func Test_gammaReconciler_Reconcile(t *testing.T) {
 					readOutput(t, fmt.Sprintf("testdata/gamma/%s/output/service-%s.yaml", tt.name, serviceKey.Name), expectedService)
 					actualService := &corev1.Service{}
 					err = c.Get(t.Context(), serviceKey, actualService)
-					actualService.TypeMeta = serviceTypeMeta
 					require.NoError(t, err)
 
 					for _, hr := range filterHTTPRouteList {
 						actualHR := &gatewayv1.HTTPRoute{}
 						err = c.Get(t.Context(), client.ObjectKeyFromObject(&hr), actualHR)
-						actualHR.TypeMeta = httpRouteTypeMeta
 						require.NoError(t, err, "error getting HTTPRoute %s/%s: %v", hr.Namespace, hr.Name, err)
 						expectedHR := &gatewayv1.HTTPRoute{}
 						readOutput(t, fmt.Sprintf("testdata/gamma/%s/output/httproute-%s.yaml", tt.name, hr.Name), expectedHR)
@@ -151,7 +150,6 @@ func Test_gammaReconciler_Reconcile(t *testing.T) {
 					for _, grpcr := range filterGRPCRouteList {
 						actualGRPCR := &gatewayv1.GRPCRoute{}
 						err = c.Get(t.Context(), client.ObjectKeyFromObject(&grpcr), actualGRPCR)
-						actualGRPCR.TypeMeta = grpcRouteTypeMeta
 						require.NoError(t, err, "error getting GRPCRoute %s/%s: %v", grpcr.Namespace, grpcr.Name, err)
 						expectedGRPCR := &gatewayv1.GRPCRoute{}
 						readOutput(t, fmt.Sprintf("testdata/gamma/%s/output/grpcroute-%s.yaml", tt.name, grpcr.Name), expectedGRPCR)
@@ -173,4 +171,190 @@ func Test_gammaReconciler_Reconcile(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_gammaReconciler_Reconcile_BackendRequestHeaderModifier(t *testing.T) {
+	logger := hivetest.Logger(t, hivetest.LogLevel(slog.LevelDebug))
+	cecTranslator := translation.NewCECTranslator(translation.Config{
+		RouteConfig: translation.RouteConfig{
+			HostNameSuffixMatch: true,
+		},
+		ListenerConfig: translation.ListenerConfig{
+			StreamIdleTimeoutSeconds: 300,
+		},
+		ClusterConfig: translation.ClusterConfig{
+			IdleTimeoutSeconds: 60,
+		},
+		OriginalIPDetectionConfig: translation.OriginalIPDetectionConfig{
+			UseRemoteAddress: true,
+		},
+	})
+	gatewayAPITranslator := gatewayApiTranslation.NewTranslator(cecTranslator, translation.Config{
+		ServiceConfig: translation.ServiceConfig{
+			ExternalTrafficPolicy: string(corev1.ServiceExternalTrafficPolicyCluster),
+		},
+		OriginalIPDetectionConfig: translation.OriginalIPDetectionConfig{
+			UseRemoteAddress: true,
+		},
+	})
+
+	base := readInputDir(t, "testdata/gamma/base")
+	input := readInputDir(t, "testdata/gamma/mesh-request-header-modifier-backend/input")
+	scheme := helpers.TestScheme(helpers.AllOptionalKinds)
+
+	c := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(append(base, input...)...).
+		WithIndex(&gatewayv1.HTTPRoute{}, indexers.GammaHTTPRouteParentRefsIndex, indexers.IndexHTTPRouteByGammaService).
+		WithIndex(&gatewayv1.GRPCRoute{}, indexers.GammaGRPCRouteParentRefsIndex, indexers.IndexGRPCRouteByGammaService).
+		WithStatusSubresource(&corev1.Service{}).
+		WithStatusSubresource(&gatewayv1.HTTPRoute{}).
+		WithStatusSubresource(&gatewayv1.GRPCRoute{}).
+		WithInterceptorFuncs(typeMetaInterceptor(scheme)).
+		Build()
+
+	r := &gammaReconciler{
+		Client:         c,
+		translator:     gatewayAPITranslator,
+		logger:         logger,
+		controllerName: defaultControllerName,
+	}
+
+	result, err := r.Reconcile(t.Context(), ctrl.Request{NamespacedName: serviceKeyEcho})
+	require.NoError(t, err)
+	require.Equal(t, ctrl.Result{}, result)
+
+	actualCEC := &ciliumv2.CiliumEnvoyConfig{}
+	err = c.Get(t.Context(), serviceKeyEcho, actualCEC)
+	require.NoError(t, err)
+
+	cecYAML := toYaml(t, actualCEC)
+	for _, want := range []string{
+		"requestHeadersToAdd:",
+		"key: X-Header-Set",
+		"value: set-overwrites-values",
+		"key: X-Header-Add",
+		"value: add-appends-values",
+		"requestHeadersToRemove:",
+		"- X-Header-Remove",
+	} {
+		assert.Contains(t, cecYAML, want)
+	}
+
+	actualHR := &gatewayv1.HTTPRoute{}
+	err = c.Get(t.Context(), types.NamespacedName{
+		Namespace: "gateway-conformance-mesh",
+		Name:      "mesh-request-header-modifier",
+	}, actualHR)
+	require.NoError(t, err)
+
+	hrYAML := toYaml(t, actualHR)
+	assert.True(t, strings.Contains(hrYAML, "filters:") || strings.Contains(hrYAML, "requestHeaderModifier:"))
+}
+
+func Test_gammaReconciler_Reconcile_ReplacesOwnerReferencesForRecreatedRoute(t *testing.T) {
+	logger := hivetest.Logger(t, hivetest.LogLevel(slog.LevelDebug))
+	cecTranslator := translation.NewCECTranslator(translation.Config{
+		RouteConfig: translation.RouteConfig{
+			HostNameSuffixMatch: true,
+		},
+		ListenerConfig: translation.ListenerConfig{
+			StreamIdleTimeoutSeconds: 300,
+		},
+		ClusterConfig: translation.ClusterConfig{
+			IdleTimeoutSeconds: 60,
+		},
+		OriginalIPDetectionConfig: translation.OriginalIPDetectionConfig{
+			UseRemoteAddress: true,
+		},
+	})
+	gatewayAPITranslator := gatewayApiTranslation.NewTranslator(cecTranslator, translation.Config{
+		ServiceConfig: translation.ServiceConfig{
+			ExternalTrafficPolicy: string(corev1.ServiceExternalTrafficPolicyCluster),
+		},
+		OriginalIPDetectionConfig: translation.OriginalIPDetectionConfig{
+			UseRemoteAddress: true,
+		},
+	})
+
+	base := readInputDir(t, "testdata/gamma/base")
+	originalInput := readInputDir(t, "testdata/gamma/mesh-request-header-modifier/input")
+	recreatedInput := readInputDir(t, "testdata/gamma/mesh-request-header-modifier-backend/input")
+	scheme := helpers.TestScheme(helpers.AllOptionalKinds)
+
+	setRouteIdentity := func(objs []client.Object, uid string) {
+		t.Helper()
+
+		for _, obj := range objs {
+			hr, ok := obj.(*gatewayv1.HTTPRoute)
+			if !ok {
+				continue
+			}
+			if hr.Name != "mesh-request-header-modifier" || hr.Namespace != "gateway-conformance-mesh" {
+				continue
+			}
+			hr.SetUID(types.UID(uid))
+			hr.SetGroupVersionKind(schema.GroupVersionKind{
+				Group:   gatewayv1.GroupVersion.Group,
+				Version: gatewayv1.GroupVersion.Version,
+				Kind:    "HTTPRoute",
+			})
+		}
+	}
+
+	setRouteIdentity(originalInput, "old-route-uid")
+	setRouteIdentity(recreatedInput, "new-route-uid")
+
+	c := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(base...).
+		WithIndex(&gatewayv1.HTTPRoute{}, indexers.GammaHTTPRouteParentRefsIndex, indexers.IndexHTTPRouteByGammaService).
+		WithIndex(&gatewayv1.GRPCRoute{}, indexers.GammaGRPCRouteParentRefsIndex, indexers.IndexGRPCRouteByGammaService).
+		WithStatusSubresource(&corev1.Service{}).
+		WithStatusSubresource(&gatewayv1.HTTPRoute{}).
+		WithStatusSubresource(&gatewayv1.GRPCRoute{}).
+		WithInterceptorFuncs(typeMetaInterceptor(scheme)).
+		Build()
+
+	r := &gammaReconciler{
+		Client:         c,
+		translator:     gatewayAPITranslator,
+		logger:         logger,
+		controllerName: defaultControllerName,
+	}
+
+	for _, obj := range originalInput {
+		require.NoError(t, c.Create(t.Context(), obj.DeepCopyObject().(client.Object)))
+	}
+
+	result, err := r.Reconcile(t.Context(), ctrl.Request{NamespacedName: serviceKeyEcho})
+	require.NoError(t, err)
+	require.Equal(t, ctrl.Result{}, result)
+
+	actualCEC := &ciliumv2.CiliumEnvoyConfig{}
+	err = c.Get(t.Context(), serviceKeyEcho, actualCEC)
+	require.NoError(t, err)
+	require.Len(t, actualCEC.OwnerReferences, 1)
+	assert.Equal(t, "old-route-uid", string(actualCEC.OwnerReferences[0].UID))
+
+	originalRoute := &gatewayv1.HTTPRoute{}
+	err = c.Get(t.Context(), types.NamespacedName{
+		Namespace: "gateway-conformance-mesh",
+		Name:      "mesh-request-header-modifier",
+	}, originalRoute)
+	require.NoError(t, err)
+	require.NoError(t, c.Delete(t.Context(), originalRoute))
+
+	for _, obj := range recreatedInput {
+		require.NoError(t, c.Create(t.Context(), obj.DeepCopyObject().(client.Object)))
+	}
+
+	result, err = r.Reconcile(t.Context(), ctrl.Request{NamespacedName: serviceKeyEcho})
+	require.NoError(t, err)
+	require.Equal(t, ctrl.Result{}, result)
+
+	err = c.Get(t.Context(), serviceKeyEcho, actualCEC)
+	require.NoError(t, err)
+	require.Len(t, actualCEC.OwnerReferences, 1)
+	assert.Equal(t, "new-route-uid", string(actualCEC.OwnerReferences[0].UID))
 }

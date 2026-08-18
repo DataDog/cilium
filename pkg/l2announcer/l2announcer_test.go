@@ -254,7 +254,7 @@ func TestHappyPath(t *testing.T) {
 
 	svc, fe := blueService()
 	fix.insertService(svc, fe)
-	err = fix.announcer.processSvcEvent(statedb.Change[*loadbalancer.Service]{
+	err = fix.announcer.processSvcEvent(fix.stateDB.ReadTxn(), statedb.Change[*loadbalancer.Service]{
 		Deleted: false,
 		Object:  svc,
 	})
@@ -311,7 +311,7 @@ func TestHappyPathPermutations(t *testing.T) {
 	addService := func(fix *fixture, tt *testing.T) {
 		svc, fe := blueService()
 		fix.insertService(svc, fe)
-		err := fix.announcer.processSvcEvent(statedb.Change[*loadbalancer.Service]{
+		err := fix.announcer.processSvcEvent(fix.stateDB.ReadTxn(), statedb.Change[*loadbalancer.Service]{
 			Deleted: false,
 			Object:  svc,
 		})
@@ -434,7 +434,7 @@ func TestPolicyRedundancy(t *testing.T) {
 	// Add service policy
 	svc, fe := blueService()
 	fix.insertService(svc, fe)
-	err = fix.announcer.processSvcEvent(statedb.Change[*loadbalancer.Service]{
+	err = fix.announcer.processSvcEvent(fix.stateDB.ReadTxn(), statedb.Change[*loadbalancer.Service]{
 		Deleted: false,
 		Object:  svc,
 	})
@@ -528,7 +528,7 @@ func baseUpdateSetup(t *testing.T) *fixture {
 
 	svc, fe := blueService()
 	fix.insertService(svc, fe)
-	err = fix.announcer.processSvcEvent(statedb.Change[*loadbalancer.Service]{
+	err = fix.announcer.processSvcEvent(fix.stateDB.ReadTxn(), statedb.Change[*loadbalancer.Service]{
 		Deleted: false,
 		Object:  svc,
 	})
@@ -614,7 +614,7 @@ func TestUpdateHostLabels_AdditionalMatch(t *testing.T) {
 	fe.ServiceName = svc.Name
 	require.NoError(t, fe.Address.ParseFromString("192.168.2.2:80/TCP"))
 	fix.insertService(svc, fe)
-	err = fix.announcer.processSvcEvent(statedb.Change[*loadbalancer.Service]{
+	err = fix.announcer.processSvcEvent(fix.stateDB.ReadTxn(), statedb.Change[*loadbalancer.Service]{
 		Deleted: false,
 		Object:  svc,
 	})
@@ -701,7 +701,7 @@ func TestUpdatePolicy_AdditionalMatch(t *testing.T) {
 	}, "k8s")
 	require.NoError(t, fe.Address.ParseFromString("192.168.2.2:80/TCP"))
 	fix.insertService(svc, fe)
-	err := fix.announcer.processSvcEvent(statedb.Change[*loadbalancer.Service]{
+	err := fix.announcer.processSvcEvent(fix.stateDB.ReadTxn(), statedb.Change[*loadbalancer.Service]{
 		Deleted: false,
 		Object:  svc,
 	})
@@ -761,7 +761,7 @@ func TestPolicySelection(t *testing.T) {
 	svc, fe := blueService()
 	fe.Type = loadbalancer.SVCTypeClusterIP
 	fix.insertService(svc, fe)
-	err = fix.announcer.processSvcEvent(statedb.Change[*loadbalancer.Service]{
+	err = fix.announcer.processSvcEvent(fix.stateDB.ReadTxn(), statedb.Change[*loadbalancer.Service]{
 		Deleted: false,
 		Object:  svc,
 	})
@@ -791,7 +791,7 @@ func TestPolicySelection(t *testing.T) {
 	fe.Type = loadbalancer.SVCTypeExternalIPs
 	require.NoError(t, fe.Address.ParseFromString("192.168.2.2:80/TCP"))
 	fix.insertService(svc, fe)
-	err = fix.announcer.processSvcEvent(statedb.Change[*loadbalancer.Service]{
+	err = fix.announcer.processSvcEvent(fix.stateDB.ReadTxn(), statedb.Change[*loadbalancer.Service]{
 		Deleted: false,
 		Object:  svc,
 	})
@@ -807,7 +807,7 @@ func TestPolicySelection(t *testing.T) {
 	require.NoError(t, fe.Address.ParseFromString("192.168.2.7:80/TCP"))
 	fix.insertService(svc, fe)
 
-	err = fix.announcer.processSvcEvent(statedb.Change[*loadbalancer.Service]{
+	err = fix.announcer.processSvcEvent(fix.stateDB.ReadTxn(), statedb.Change[*loadbalancer.Service]{
 		Deleted: false,
 		Object:  svc,
 	})
@@ -849,6 +849,59 @@ func TestPolicySelection(t *testing.T) {
 	})
 }
 
+func TestFrontendUpdateSelectsPreviouslyIgnoredService(t *testing.T) {
+	fix := newFixture(t)
+
+	policy := bluePolicy()
+	policy.Spec.LoadBalancerIPs = true
+	policy.Spec.ExternalIPs = false
+	fix.fakePolicyStore.slice = []*v2alpha1.CiliumL2AnnouncementPolicy{policy}
+
+	node := blueNode()
+	err := fix.announcer.processLocalNodeEvent(context.Background(), resource.Event[*v2.CiliumNode]{
+		Kind:   resource.Upsert,
+		Key:    resource.NewKey(node),
+		Object: node,
+		Done:   func(error) {},
+	})
+	require.NoError(t, err)
+
+	err = fix.announcer.processPolicyEvent(context.Background(), resource.Event[*v2alpha1.CiliumL2AnnouncementPolicy]{
+		Kind:   resource.Upsert,
+		Key:    resource.NewKey(policy),
+		Object: policy,
+		Done:   func(error) {},
+	})
+	require.NoError(t, err)
+
+	svc, fe := blueService()
+	fe.Type = loadbalancer.SVCTypeLoadBalancer
+
+	wtxn := fix.stateDB.WriteTxn(fix.svcs)
+	fix.svcs.Insert(wtxn, svc)
+	wtxn.Commit()
+
+	err = fix.announcer.processSvcEvent(fix.stateDB.ReadTxn(), statedb.Change[*loadbalancer.Service]{
+		Deleted: false,
+		Object:  svc,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, fix.announcer.selectedServices)
+
+	wtxn = fix.stateDB.WriteTxn(fix.fes)
+	fix.fes.Insert(wtxn, fe)
+	wtxn.Commit()
+
+	err = fix.announcer.processFrontendEvent(fix.stateDB.ReadTxn(), statedb.Change[*loadbalancer.Frontend]{
+		Deleted: false,
+		Object:  fe,
+	})
+	require.NoError(t, err)
+
+	assert.Len(t, fix.announcer.selectedServices, 1)
+	assert.Contains(t, fix.announcer.selectedServices, serviceKey(svc))
+}
+
 // Test that when the selected IP types in the policy changes, that proxy neighbor table is updated properly.
 func TestUpdatePolicy_ChangeIPType(t *testing.T) {
 	fix := baseUpdateSetup(t)
@@ -879,7 +932,7 @@ func TestUpdatePolicy_ChangeIPType(t *testing.T) {
 	fe.Type = loadbalancer.SVCTypeLoadBalancer
 	assert.NoError(t, fe.Address.ParseFromString("192.168.2.3:80/TCP"))
 	fix.insertService(svc, fe)
-	err = fix.announcer.processSvcEvent(statedb.Change[*loadbalancer.Service]{
+	err = fix.announcer.processSvcEvent(fix.stateDB.ReadTxn(), statedb.Change[*loadbalancer.Service]{
 		Deleted: false,
 		Object:  svc,
 	})
@@ -911,7 +964,7 @@ func TestUpdatePolicy_ChangeIPType(t *testing.T) {
 	fe = fe.Clone()
 	fe.Type = loadbalancer.SVCTypeClusterIP
 	fix.insertService(svc, fe)
-	err = fix.announcer.processSvcEvent(statedb.Change[*loadbalancer.Service]{
+	err = fix.announcer.processSvcEvent(fix.stateDB.ReadTxn(), statedb.Change[*loadbalancer.Service]{
 		Deleted: false,
 		Object:  svc,
 	})
@@ -973,7 +1026,7 @@ func TestUpdateService_DelIP(t *testing.T) {
 	fix.fes.Delete(wtxn, fe)
 	wtxn.Commit()
 
-	err := fix.announcer.processSvcEvent(statedb.Change[*loadbalancer.Service]{
+	err := fix.announcer.processSvcEvent(fix.stateDB.ReadTxn(), statedb.Change[*loadbalancer.Service]{
 		Deleted: false,
 		Object:  svc,
 	})
@@ -998,7 +1051,7 @@ func TestUpdateService_AddIP(t *testing.T) {
 	assert.NoError(t, fe2.Address.ParseFromString("192.168.2.2:80/TCP"))
 	fix.insertService(svc, fe1, fe2)
 
-	err := fix.announcer.processSvcEvent(statedb.Change[*loadbalancer.Service]{
+	err := fix.announcer.processSvcEvent(fix.stateDB.ReadTxn(), statedb.Change[*loadbalancer.Service]{
 		Deleted: false,
 		Object:  svc,
 	})
@@ -1019,7 +1072,7 @@ func TestUpdateService_NoMatch(t *testing.T) {
 	svc.Labels["color"] = labels.NewLabel("color", "red", "k8s")
 	fix.insertService(svc, fe)
 
-	err := fix.announcer.processSvcEvent(statedb.Change[*loadbalancer.Service]{
+	err := fix.announcer.processSvcEvent(fix.stateDB.ReadTxn(), statedb.Change[*loadbalancer.Service]{
 		Deleted: false,
 		Object:  svc,
 	})
@@ -1041,7 +1094,7 @@ func TestUpdateService_LoadBalancerClassMatch(t *testing.T) {
 	svc.LoadBalancerClass = ptr.To[string](v2alpha1.L2AnnounceLoadBalancerClass)
 	fix.insertService(svc, fe)
 
-	err := fix.announcer.processSvcEvent(statedb.Change[*loadbalancer.Service]{
+	err := fix.announcer.processSvcEvent(fix.stateDB.ReadTxn(), statedb.Change[*loadbalancer.Service]{
 		Deleted: false,
 		Object:  svc,
 	})
@@ -1063,7 +1116,7 @@ func TestUpdateService_LoadBalancerClassNotMatch(t *testing.T) {
 	svc.LoadBalancerClass = ptr.To[string]("unsupported.io/lb-class")
 	fix.insertService(svc, fe)
 
-	err := fix.announcer.processSvcEvent(statedb.Change[*loadbalancer.Service]{
+	err := fix.announcer.processSvcEvent(fix.stateDB.ReadTxn(), statedb.Change[*loadbalancer.Service]{
 		Deleted: false,
 		Object:  svc,
 	})
@@ -1086,7 +1139,7 @@ func TestDelService(t *testing.T) {
 	wtxn.Commit()
 	svc, _ := blueService()
 
-	err := fix.announcer.processSvcEvent(statedb.Change[*loadbalancer.Service]{
+	err := fix.announcer.processSvcEvent(fix.stateDB.ReadTxn(), statedb.Change[*loadbalancer.Service]{
 		Deleted: true,
 		Object:  svc,
 	})

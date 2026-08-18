@@ -108,7 +108,7 @@ jobs:
 
       - name: Login to ${{ env.REGISTRY_DEV }}
         if: ${{ steps.cilium-runtime-tag-in-repositories.outputs.exists == 'false' }}
-        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY_DEV }}
           username: ${{ secrets.QUAY_BASE_RELEASE_USERNAME_202411 }}
@@ -186,7 +186,7 @@ jobs:
 
       - name: Login to ${{ env.REGISTRY_DEV }}
         if: ${{ steps.cilium-builder-tag-in-repositories.outputs.exists == 'false' && steps.cilium-runtime-tag-in-repositories.outputs.exists != 'false' }}
-        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY_DEV }}
           username: ${{ secrets.QUAY_BASE_RELEASE_USERNAME_202411 }}
@@ -284,9 +284,22 @@ jobs:
       - name: Push changes into PR
         if: ${{ steps.update-runtime-image.outputs.committed == 'true' || steps.update-builder-image.outputs.committed == 'true' }}
         env:
+          GH_TOKEN: ${{ steps.get_token.outputs.app_token }}
+          pr_number: ${{ github.event.pull_request.number }}
+          pr_author: ${{ github.event.pull_request.user.login }}
           ref: ${{ github.event.pull_request.head.ref || github.ref }}
           repository:  ${{ github.event.pull_request.head.repo.full_name || github.repository }}
         run: |
+          if [ -n "${pr_number}" ] && [ "${pr_author}" = "cilium-renovate[bot]" ]; then
+            is_draft=$(gh -R ${repository} pr view ${pr_number} --json isDraft --jq .isDraft)
+            if [ "${is_draft}" = "false" ]; then
+              # Follow-up image updates should not trigger CODEOWNERS while the
+              # regenerated commit is being pushed. The auto-approve workflow
+              # will re-request review from ciliumbot, undraft the PR again,
+              # and only then approve and enable auto-merge.
+              gh -R ${repository} pr ready ${pr_number} --undo
+            fi
+          fi
           git diff HEAD^
           git push https://x-access-token:${{ steps.get_token.outputs.app_token }}@github.com/${{ env.repository }}.git HEAD:$ref
 

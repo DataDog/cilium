@@ -34,7 +34,8 @@ const (
 type ListenerWithContext struct {
 	gatewayv1.Listener
 	// Source is where this listener appears: Gateway or ListenerSet
-	Source model.FullyQualifiedResource
+	Source           model.FullyQualifiedResource
+	SourceGeneration int64
 
 	// AllowedNamespaces is the set of namespaces allowed for Route attachment
 	AllowedNamespaces map[string]struct{}
@@ -342,47 +343,7 @@ func toHTTPRoutes(log *slog.Logger,
 ) []model.HTTPRoute {
 	var httpRoutes []model.HTTPRoute
 	for _, r := range input {
-		listenerIsParent := false
-		// Check parents to see if r can attach to them.
-		// We have to consider _both_ SectionName and Port
-		for _, parent := range r.Spec.ParentRefs {
-			// First, if both SectionName and Port are unset, attach
-			if parent.SectionName == nil && parent.Port == nil {
-				listenerIsParent = true
-				break
-			}
-
-			// Then, if SectionName is set, check combinations with Port.
-			if parent.SectionName != nil {
-				if *parent.SectionName != listener.Name {
-					// If SectionName is set but not equal, no other settings
-					// matter, so check the next parent.
-					continue
-				}
-
-				if parent.Port != nil && *parent.Port != listener.Port {
-					// If SectionName is set and equal, but Port is set and _unequal_,
-					continue
-				}
-
-				listenerIsParent = true
-				break
-			}
-
-			if parent.Port != nil {
-				if *parent.Port != listener.Port {
-					// If Port is set but not equal, no other settings
-					// matter, check the next parent.
-					continue
-				}
-
-				listenerIsParent = true
-				break
-			}
-
-		}
-
-		if !listenerIsParent {
+		if !parentRefsMatchListener(r.Spec.ParentRefs, listener) {
 			continue
 		}
 
@@ -418,7 +379,7 @@ func extractRoutes(logger *slog.Logger,
 	btlspMap helpers.BackendTLSPolicyServiceMap,
 ) []model.HTTPRoute {
 	var httpRoutes []model.HTTPRoute
-	for _, rule := range hr.Spec.Rules {
+	for ruleIndex, rule := range hr.Spec.Rules {
 		var backendHTTPFilters []*model.BackendHTTPFilter
 		bes := make([]model.Backend, 0, len(rule.BackendRefs))
 		for _, be := range rule.BackendRefs {
@@ -566,6 +527,7 @@ func extractRoutes(logger *slog.Logger,
 
 		if len(rule.Matches) == 0 {
 			httpRoutes = append(httpRoutes, model.HTTPRoute{
+				SourceRule:             sourceHTTPRouteRule(hr, ruleIndex, 0),
 				Hostnames:              hostnames,
 				Backends:               bes,
 				BackendHTTPFilters:     backendHTTPFilters,
@@ -582,8 +544,9 @@ func extractRoutes(logger *slog.Logger,
 			})
 		}
 
-		for _, match := range rule.Matches {
+		for matchIndex, match := range rule.Matches {
 			httpRoutes = append(httpRoutes, model.HTTPRoute{
+				SourceRule:             sourceHTTPRouteRule(hr, ruleIndex, matchIndex),
 				Hostnames:              hostnames,
 				PathMatch:              toPathMatch(match),
 				HeadersMatch:           toHeaderMatch(match),
@@ -604,7 +567,52 @@ func extractRoutes(logger *slog.Logger,
 			})
 		}
 	}
+	retainDuplicateRuleSources(httpRoutes)
 	return httpRoutes
+}
+
+func sourceHTTPRouteRule(hr gatewayv1.HTTPRoute, ruleIndex, matchIndex int) *model.HTTPRouteRule {
+	return &model.HTTPRouteRule{
+		Source: model.FullyQualifiedResource{
+			Name:      hr.GetName(),
+			Namespace: hr.GetNamespace(),
+			Group:     gatewayv1.GroupVersion.Group,
+			Kind:      "HTTPRoute",
+			Version:   gatewayv1.GroupVersion.Version,
+			UID:       string(hr.GetUID()),
+		},
+		RuleIndex:  ruleIndex,
+		MatchIndex: matchIndex,
+	}
+}
+
+// retainDuplicateRuleSources keeps rule identity only when one HTTPRoute has
+// identical request matches in multiple rules. Other routes keep the existing
+// match-key backend aggregation behavior.
+func retainDuplicateRuleSources(routes []model.HTTPRoute) {
+	ruleIndexesByMatch := map[string]map[int]struct{}{}
+	// First, record which rule indexes produced each request match.
+	for i := range routes {
+		if routes[i].SourceRule == nil {
+			continue
+		}
+		key := routes[i].GetMatchKey()
+		if _, ok := ruleIndexesByMatch[key]; !ok {
+			ruleIndexesByMatch[key] = map[int]struct{}{}
+		}
+		ruleIndexesByMatch[key][routes[i].SourceRule.RuleIndex] = struct{}{}
+	}
+
+	// Then, clear rule identity unless the same match came from multiple rules.
+	for i := range routes {
+		if routes[i].SourceRule == nil {
+			continue
+		}
+		key := routes[i].GetMatchKey()
+		if len(ruleIndexesByMatch[key]) < 2 {
+			routes[i].SourceRule = nil
+		}
+	}
 }
 
 func addBackendTLSDetails(log *slog.Logger, be model.Backend, svc *corev1.Service, btlspMap helpers.BackendTLSPolicyServiceMap) (model.Backend, bool) {
@@ -760,14 +768,7 @@ func toGRPCRoutes(listener gatewayv1beta1.Listener,
 ) []model.HTTPRoute {
 	var grpcRoutes []model.HTTPRoute
 	for _, r := range input {
-		isListener := false
-		for _, parent := range r.Spec.ParentRefs {
-			if parent.SectionName == nil || *parent.SectionName == listener.Name {
-				isListener = true
-				break
-			}
-		}
-		if !isListener {
+		if !parentRefsMatchListener(r.Spec.ParentRefs, listener) {
 			continue
 		}
 
@@ -911,14 +912,7 @@ func extractGRPCRoutes(hostnames []string, grpcr gatewayv1.GRPCRoute, services [
 func toTLSRoutes(listener gatewayv1beta1.Listener, gatewayNamespace string, namespaceLabels helpers.NamespaceLabelIndex, namespacesPreFiltered bool, listenerHostnamesByProtocol map[gatewayv1.ProtocolType][]string, input []gatewayv1.TLSRoute, services []corev1.Service, serviceImports []mcsapiv1beta1.ServiceImport, grants []gatewayv1.ReferenceGrant) []model.TLSPassthroughRoute {
 	var tlsRoutes []model.TLSPassthroughRoute
 	for _, r := range input {
-		isListener := false
-		for _, parent := range r.Spec.ParentRefs {
-			if parent.SectionName == nil || *parent.SectionName == listener.Name {
-				isListener = true
-				break
-			}
-		}
-		if !isListener {
+		if !parentRefsMatchListener(r.Spec.ParentRefs, listener) {
 			continue
 		}
 
@@ -971,32 +965,18 @@ func toTLSRoutes(listener gatewayv1beta1.Listener, gatewayNamespace string, name
 	return tlsRoutes
 }
 
-// l4RouteAttachesToListener reports whether a TCP/UDP route with the given
-// parentRefs attaches to the listener, mirroring the sectionName/port matching
-// rules used by HTTP/TLS routes.
-func l4RouteAttachesToListener(parentRefs []gatewayv1.ParentReference, listener gatewayv1beta1.Listener) bool {
+func parentRefsMatchListener(parentRefs []gatewayv1.ParentReference, listener gatewayv1.Listener) bool {
 	for _, parent := range parentRefs {
-		if parent.SectionName == nil && parent.Port == nil {
-			return true
+		if parent.SectionName != nil && *parent.SectionName != listener.Name {
+			continue
+		}
+		if parent.Port != nil && *parent.Port != listener.Port {
+			continue
 		}
 
-		if parent.SectionName != nil {
-			if *parent.SectionName != listener.Name {
-				continue
-			}
-			if parent.Port != nil && *parent.Port != listener.Port {
-				continue
-			}
-			return true
-		}
-
-		if parent.Port != nil {
-			if *parent.Port != listener.Port {
-				continue
-			}
-			return true
-		}
+		return true
 	}
+
 	return false
 }
 
@@ -1036,7 +1016,7 @@ func toTCPRoutes(listener gatewayv1beta1.Listener,
 		if !namespacesPreFiltered && !helpers.IsListenerNamespaceAllowed(listener, r.GetNamespace(), gatewayNamespace, namespaceLabels) {
 			continue
 		}
-		if l4RouteAttachesToListener(r.Spec.ParentRefs, listener) {
+		if parentRefsMatchListener(r.Spec.ParentRefs, listener) {
 			attached = append(attached, r)
 		}
 	}
@@ -1095,7 +1075,7 @@ func toUDPRoutes(listener gatewayv1beta1.Listener,
 		if !namespacesPreFiltered && !helpers.IsListenerNamespaceAllowed(listener, r.GetNamespace(), gatewayNamespace, namespaceLabels) {
 			continue
 		}
-		if l4RouteAttachesToListener(r.Spec.ParentRefs, listener) {
+		if parentRefsMatchListener(r.Spec.ParentRefs, listener) {
 			attached = append(attached, r)
 		}
 	}
