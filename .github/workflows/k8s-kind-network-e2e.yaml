@@ -56,7 +56,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Set initial commit status
-        uses: cilium/cilium/.github/actions/set-commit-status@main # main
+        uses: cilium/actions/set-commit-status@fe0702f5df0d8e44d48f1baa226c023b73ff6b5e # main
         with:
           sha: ${{ inputs.SHA || github.sha }}
 
@@ -80,10 +80,10 @@ jobs:
           comment_on_pr: false
 
       - name: Checkout code (trusted)
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          ref: ${{ inputs.context-ref || github.event.repository.default_branch }}
+          ref: ${{ inputs.context-ref || github.sha }}
 
       - name: Set Environment Variables
         uses: ./.github/actions/set-env-variables
@@ -97,14 +97,14 @@ jobs:
         run: |
           TMP_DIR=$(mktemp -d)
           # Test binaries
-          curl -L https://dl.k8s.io/${{ env.KIND_K8S_VERSION }}/kubernetes-test-linux-amd64.tar.gz -o ${TMP_DIR}/kubernetes-test-linux-amd64.tar.gz
+          curl -fL --retry 5 --retry-all-errors --retry-delay 3 https://dl.k8s.io/${{ env.KIND_K8S_VERSION }}/kubernetes-test-linux-amd64.tar.gz -o ${TMP_DIR}/kubernetes-test-linux-amd64.tar.gz
           tar -xvzf ${TMP_DIR}/kubernetes-test-linux-amd64.tar.gz \
             --directory ${TMP_DIR} \
             --strip-components=3 kubernetes/test/bin/ginkgo kubernetes/test/bin/e2e.test
           # kubectl
-          curl -L https://dl.k8s.io/${{ env.KIND_K8S_VERSION }}/bin/linux/amd64/kubectl -o ${TMP_DIR}/kubectl
+          curl -fL --retry 5 --retry-all-errors --retry-delay 3 https://dl.k8s.io/${{ env.KIND_K8S_VERSION }}/bin/linux/amd64/kubectl -o ${TMP_DIR}/kubectl
           # kind
-          curl -Lo ${TMP_DIR}/kind https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64
+          curl -fLo ${TMP_DIR}/kind --retry 5 --retry-all-errors --retry-delay 3 https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64
           # Install
           sudo cp ${TMP_DIR}/ginkgo /usr/local/bin/ginkgo
           sudo cp ${TMP_DIR}/e2e.test /usr/local/bin/e2e.test
@@ -185,7 +185,7 @@ jobs:
           echo sha=${{ steps.default_vars.outputs.sha }} >> $GITHUB_OUTPUT
 
       - name: Install Cilium CLI
-        uses: cilium/cilium-cli@e391e739db83a8b888ecf18786af6853c51a0c58 # v0.19.5
+        uses: cilium/cilium-cli@7ca7fc53c20275f5c10ef5f3557076691fd1d720 # v0.19.7
         with:
           skip-build: ${{ env.CILIUM_CLI_SKIP_BUILD }}
           image-repo: ${{ env.CILIUM_CLI_IMAGE_REPO }}
@@ -202,7 +202,7 @@ jobs:
             --docker-password="${{ secrets.DOCKER_READ_PASSWORD }}"
 
       - name: Login to docker registry for image wait
-        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ vars.DOCKER_READ_HOST}}
           username: ${{ vars.DOCKER_READ_USERNAME}}
@@ -219,7 +219,7 @@ jobs:
       # Warning: since this is a privileged workflow, subsequent workflow job
       # steps must take care not to execute untrusted code.
       - name: Checkout pull request branch (NOT TRUSTED)
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.vars.outputs.sha }}
           persist-credentials: false
@@ -301,7 +301,8 @@ jobs:
             --provider=local                              \
             --dump-logs-on-failure=true                   \
             --report-dir=${E2E_REPORT_DIR}                \
-            --disable-log-dump=true
+            --disable-log-dump=true                       \
+            --delete-namespace-on-failure=false
 
       # Sequentially kill kube-apiserver pods to verify cilium agent pods fail over to an active instance.
       - name: Test kube-apiserver high availability
@@ -340,7 +341,11 @@ jobs:
           job: "${{ env.job_name }}-${{ matrix.ipFamily }}"
 
       - name: Create Cilium JUnits Directory
-        if: ${{ steps.install-cilium.outcome != 'skipped' }}
+        # always() so the JUnit report produced by the sig-network run is moved
+        # into place (and uploaded by the common post steps) even when the tests
+        # fail, which is exactly when the report is needed to know which spec
+        # failed.
+        if: ${{ always() && steps.install-cilium.outcome != 'skipped' && steps.run-tests.outcome != 'skipped' }}
         run: |
           # Move the all artifacts to cilium-junits directory since that's the
           # directory used in the common post steps.
@@ -350,6 +355,38 @@ jobs:
         if: ${{ !success() && steps.install-cilium.outcome != 'skipped' }}
         run: |
           mkdir -p ./_artifacts/logs
+
+          # The sig-network run keeps failed specs' namespaces alive
+          # (--delete-namespace-on-failure=false), so capture per-pod state
+          # before the kind export tears the cluster down. This is where the
+          # sig-network Conntrack UDP NodePort failure lives: the client probe
+          # pod (pod-client) has been observed crash-looping during the
+          # backend poll window, and namespace teardown plus --disable-log-dump
+          # previously destroyed the evidence (lastState.terminated exit code
+          # /reason and the --previous container stdout that shows whether the
+          # nc loop ran to completion) needed to tell a client-pod crash apart
+          # from a real datapath regression.
+          kubectl get pods -A -o wide > ./_artifacts/logs/pods-wide.txt 2>&1
+          kubectl get pods -A -o yaml > ./_artifacts/logs/pods.yaml 2>&1
+          kubectl get events -A --sort-by=.lastTimestamp > ./_artifacts/logs/events.txt 2>&1
+
+          # For every pod left behind in a sig-network test namespace, dump the
+          # describe output, current logs and previous-container logs so a
+          # future occurrence is fully diagnosable.
+          for ns in $(kubectl get ns -o jsonpath='{.items[*].metadata.name}'); do
+            case "$ns" in
+              conntrack-*|services-*|nettest-*|network-*)
+                nsdir="./_artifacts/logs/${ns}"
+                mkdir -p "$nsdir"
+                for pod in $(kubectl -n "$ns" get pods -o jsonpath='{.items[*].metadata.name}'); do
+                  kubectl -n "$ns" describe pod "$pod" > "${nsdir}/${pod}.describe.txt" 2>&1
+                  kubectl -n "$ns" logs "$pod" --all-containers=true > "${nsdir}/${pod}.log" 2>&1
+                  kubectl -n "$ns" logs "$pod" --all-containers=true --previous > "${nsdir}/${pod}.previous.log" 2>&1
+                done
+                ;;
+            esac
+          done
+
           /usr/local/bin/kind export logs --name  ${{ env.cluster_name }} --verbosity=3 ./_artifacts/logs
         shell: bash {0} # Disable default fail-fast behaviour so that all commands run independently
 

@@ -6,11 +6,32 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"maps"
+	"math"
 	"os"
 	"slices"
 	"sort"
+)
+
+const (
+	// Verifier limits, for use when computing percentages associated with absolute values.
+	MaxInsnsProcessed = 1_000_000
+	MaxStackDepth     = 512
+	MaxMapCount       = 64
+
+	// Error and warning thresholds used for the linear (stack depth & map count) and exponential
+	// (insns processed) metrics.
+	ErrorThresholdLinearMetrics        = 90
+	WarningThresholdLinearMetrics      = 75
+	ErrorThresholdExponentialMetrics   = 70
+	WarningThresholdExponentialMetrics = 50
+
+	// Number of top values to display.
+	NumberTopValues = 15
+
+	valuesToSkip = math.MinInt
 )
 
 type verifierComplexityRecord struct {
@@ -20,75 +41,130 @@ type verifierComplexityRecord struct {
 	Load       string `json:"load"`
 	Program    string `json:"program"`
 
-	InsnsProcessed   int `json:"insns_processed"`
-	InsnsLimit       int `json:"insns_limit"`
-	MaxStatesPerInsn int `json:"max_states_per_insn"`
-	TotalStates      int `json:"total_states"`
-	PeakStates       int `json:"peak_states"`
-	MarkRead         int `json:"mark_read"`
+	InsnsProcessed     int `json:"insns_processed"`
+	OrigInsnsProcessed int `json:"orig_insns_processed"`
+	MaxStatesPerInsn   int `json:"max_states_per_insn"`
+	TotalStates        int `json:"total_states"`
+	PeakStates         int `json:"peak_states"`
+	MarkRead           int `json:"mark_read"`
 
 	VerificationTimeMicroseconds int `json:"verification_time_microseconds"`
 	StackDepth                   int `json:"stack_depth"`
+	OrigStackDepth               int `json:"orig_stack_depth"`
 
-	MapCount int `json:"map_count"`
+	MapCount     int `json:"map_count"`
+	OrigMapCount int `json:"orig_map_count"`
 }
 
 func main() {
-	if len(os.Args) != 4 {
-		panic("usage: complexity-diff <old> <new> <diff>")
+	diffFile := flag.String("diff-file", "", "File to store the complexity diff")
+	flag.Usage = func() {
+		fmt.Fprintf(flag.CommandLine.Output(), "Usage: go run ./tools/complexity-diff [flags] <old> [new]\n")
+		flag.PrintDefaults()
 	}
 
-	oldFile := os.Args[1]
-	newFile := os.Args[2]
-	diffFile := os.Args[3]
+	flag.Parse()
+	if flag.NArg() == 0 {
+		flag.Usage()
+		os.Exit(1)
+	}
+
+	oldFile := flag.Arg(0)
 
 	oldRecords, err := loadRecords(oldFile)
 	if err != nil {
 		panic(err)
 	}
-	newRecords, err := loadRecords(newFile)
-	if err != nil {
-		panic(err)
+
+	if flag.NArg() == 2 {
+		newFile := flag.Arg(1)
+		newRecords, err := loadRecords(newFile)
+		if err != nil {
+			panic(err)
+		}
+
+		printDiffRecords(oldRecords, newRecords)
+		if *diffFile != "" {
+			dumpDiffRecords(oldRecords, newRecords, *diffFile)
+		}
+
+		// If two files were given, then printCurrentState() should run on the second,
+		// with the new records.
+		oldRecords = newRecords
 	}
 
+	errors := printCurrentState(oldRecords)
+	if len(errors) > 0 {
+		fmt.Fprintf(os.Stderr, "Some programs are very close to the verifier limits:\n")
+		for _, err := range errors {
+			fmt.Fprintf(os.Stderr, "%s\n", err)
+		}
+		os.Exit(1)
+	}
+}
+
+func printDiffRecords(oldRecords, newRecords map[string]verifierComplexityRecord) {
 	diffRecords := calcDiffRecords(oldRecords, newRecords, true)
 
-	minMaxInsnsProcessed := calcMinMax(diffRecords, func(r verifierComplexityRecord) int {
-		return r.InsnsProcessed
+	minMaxInsnsProcessed := calcMinMax(diffRecords, func(r verifierComplexityRecord) (int, int) {
+		return r.InsnsProcessed, r.OrigInsnsProcessed
 	})
-	printTop15MinMax("largest differences by instructions processed", minMaxInsnsProcessed, percentInsnsProcessed, colorRelativeChange)
+	printTopMinMax("largest differences by instructions processed", minMaxInsnsProcessed, percentInsnsProcessedDiff, colorRelativeChange)
 
-	minMaxStackDepth := calcMinMax(diffRecords, func(r verifierComplexityRecord) int {
-		return r.StackDepth
+	minMaxStackDepth := calcMinMax(diffRecords, func(r verifierComplexityRecord) (int, int) {
+		if r.Kernel != "bpf-next" {
+			return math.MinInt, math.MinInt
+		}
+		return r.StackDepth, r.OrigStackDepth
 	})
-	printTop15MinMax("largest differences by stack depth", minMaxStackDepth, percentStackDepth, colorRelativeChange)
+	printTopMinMax("largest differences by stack depth", minMaxStackDepth, percentStackDepthDiff, colorRelativeChange)
 
-	minMaxMapCount := calcMinMax(diffRecords, func(r verifierComplexityRecord) int {
-		return r.MapCount
+	minMaxMapCount := calcMinMax(diffRecords, func(r verifierComplexityRecord) (int, int) {
+		return r.MapCount, r.OrigMapCount
 	})
-	printTop15MinMax("largest differences by map count", minMaxMapCount, percentMapCount, colorRelativeChange)
+	printTopMinMax("largest differences by map count", minMaxMapCount, percentMapCountDiff, colorRelativeChange)
+}
 
+func printCurrentState(newRecords map[string]verifierComplexityRecord) []error {
 	var sortedNewRecords []verifierComplexityRecord
+	errors := make([]error, 0, len(newRecords)*3)
+
 	for _, key := range slices.Sorted(maps.Keys(newRecords)) {
 		sortedNewRecords = append(sortedNewRecords, newRecords[key])
 	}
 
-	minMaxInsnsProcessed = calcMinMax(sortedNewRecords, func(r verifierComplexityRecord) int {
-		return r.InsnsProcessed
+	minMaxInsnsProcessed := calcMinMax(sortedNewRecords, func(r verifierComplexityRecord) (int, int) {
+		return r.InsnsProcessed, r.OrigInsnsProcessed
 	})
-	printTop15MinMax("largest instructions processed", minMaxInsnsProcessed, percentInsnsProcessed, colorAbsoluteValueExponential)
+	err := printTopMinMax("largest instructions processed", minMaxInsnsProcessed, percentInsnsProcessed, colorAbsoluteValueExponential)
+	if len(err) > 0 {
+		errors = append(errors, err...)
+	}
 
-	minMaxStackDepth = calcMinMax(sortedNewRecords, func(r verifierComplexityRecord) int {
-		return r.StackDepth
+	minMaxStackDepth := calcMinMax(sortedNewRecords, func(r verifierComplexityRecord) (int, int) {
+		if r.Kernel != "bpf-next" {
+			return math.MinInt, math.MinInt
+		}
+		return r.StackDepth, r.OrigStackDepth
 	})
-	printTop15MinMax("largest stack depth", minMaxStackDepth, percentStackDepth, colorAbsoluteValue)
+	err = printTopMinMax("largest stack depth", minMaxStackDepth, percentStackDepth, colorAbsoluteValue)
+	if len(err) > 0 {
+		errors = append(errors, err...)
+	}
 
-	minMaxMapCount = calcMinMax(sortedNewRecords, func(r verifierComplexityRecord) int {
-		return r.MapCount
+	minMaxMapCount := calcMinMax(sortedNewRecords, func(r verifierComplexityRecord) (int, int) {
+		return r.MapCount, r.OrigMapCount
 	})
-	printTop15MinMax("largest map count", minMaxMapCount, percentMapCount, colorAbsoluteValue)
+	err = printTopMinMax("largest map count", minMaxMapCount, percentMapCount, colorAbsoluteValue)
+	if len(err) > 0 {
+		errors = append(errors, err...)
+	}
 
-	diffRecords = calcDiffRecords(oldRecords, newRecords, false)
+	return errors
+}
+
+func dumpDiffRecords(oldRecords, newRecords map[string]verifierComplexityRecord, diffFile string) {
+	diffRecords := calcDiffRecords(oldRecords, newRecords, false)
 
 	// Sort diff records to be more logically grouped for human consumption, even though its JSON.
 	sort.Slice(diffRecords, func(i, j int) bool {
@@ -124,74 +200,92 @@ func main() {
 	}
 }
 
-func printTop15MinMax(title string, minMaxes map[string]minMax, percentFn func(i int) float64, fmtFn func(s string, i int, p float64) string) {
-	fmt.Printf("## Top 15 %s\n", title)
+func printTopMinMax(title string, minMaxes map[string]minMax, percentFn func(i, o int) float64,
+	fmtFn func(s string, i int, p float64) (string, error)) []error {
+	fmt.Printf("## Top %d %s\n", NumberTopValues, title)
 	fmt.Println("Collection/Program | Min | Max")
 	fmt.Println("-------------------|-----|----")
+	errors := make([]error, 0, len(minMaxes))
 	for i, key := range minMaxKeysSortAbs(minMaxes) {
-		if i >= 15 {
+		if i >= NumberTopValues {
 			break
 		}
 
 		mm := minMaxes[key]
-		minPercent := percentFn(mm.min)
-		min := fmtFn(mm.minKey, mm.min, minPercent)
+		minPercent := percentFn(mm.min, mm.origMin)
+		min, _ := fmtFn(mm.minKey, mm.min, minPercent)
 
-		maxPercent := percentFn(mm.max)
-		max := fmtFn(mm.maxKey, mm.max, maxPercent)
+		maxPercent := percentFn(mm.max, mm.origMax)
+		max, err := fmtFn(mm.maxKey, mm.max, maxPercent)
 
 		fmt.Printf("%s | %s | %s\n", key, min, max)
+		if err != nil {
+			errors = append(errors, fmt.Errorf("%s for program %s: %w", title, key, err))
+		}
 	}
 	fmt.Println()
+	return errors
 }
 
-func percentInsnsProcessed(i int) float64 {
-	return float64(i) / float64(1_000_000) * 100
+func percentInsnsProcessed(i, _ int) float64 {
+	return float64(i) / float64(MaxInsnsProcessed) * 100
 }
 
-func percentStackDepth(i int) float64 {
-	return float64(i) / float64(512) * 100
+func percentInsnsProcessedDiff(diff, orig int) float64 {
+	return float64(diff) / float64(orig) * 100
 }
 
-func percentMapCount(i int) float64 {
-	return float64(i) / float64(64) * 100
+func percentStackDepth(i, _ int) float64 {
+	return float64(i) / float64(MaxStackDepth) * 100
 }
 
-func colorRelativeChange(program string, i int, p float64) string {
+func percentStackDepthDiff(diff, orig int) float64 {
+	return float64(diff) / float64(orig) * 100
+}
+
+func percentMapCount(i, _ int) float64 {
+	return float64(i) / float64(MaxMapCount) * 100
+}
+
+func percentMapCountDiff(diff, orig int) float64 {
+	return float64(diff) / float64(orig) * 100
+}
+
+func colorRelativeChange(program string, i int, p float64) (string, error) {
 	s := fmt.Sprintf("%+d (%.2f\\\\%%) for %s", i, p, program)
 	if p == 0 {
-		return texNoColor(s)
+		return texNoColor(s), nil
 	}
 
 	if p < 0 {
-		return texGreen(s)
+		return texGreen(s), nil
 	}
 
-	return texRed(s)
+	return texRed(s), nil
 }
 
-func colorAbsoluteValue(program string, i int, p float64) string {
+func colorAbsoluteValue(program string, i int, p float64) (string, error) {
 	s := fmt.Sprintf("%d (%.2f\\\\%%) for %s", i, p, program)
-	if p > 90 {
-		return texRed(s)
+	if p > ErrorThresholdLinearMetrics {
+		return texRed(s), fmt.Errorf("%s: %.2f%%", program, p)
 	}
-	if p > 75 {
-		return texOrange(s)
+	if p > WarningThresholdLinearMetrics {
+		return texOrange(s), nil
 	}
 
-	return texNoColor(s)
+	return texNoColor(s), nil
 }
 
-func colorAbsoluteValueExponential(program string, i int, p float64) string {
+func colorAbsoluteValueExponential(program string, i int, p float64) (string, error) {
 	s := fmt.Sprintf("%d (%.2f\\\\%%) for %s", i, p, program)
-	if p > 70 {
-		return texRed(s)
+	if p > ErrorThresholdExponentialMetrics {
+		return texRed(s), fmt.Errorf("%s: %.2f%%", program, p)
 	}
-	if p > 50 {
-		return texOrange(s)
+	if p > WarningThresholdExponentialMetrics {
+		return texOrange(s), nil
 	}
 
-	return texNoColor(s)
+	return texNoColor(s), nil
 }
 
 func texNoColor(s string) string {
@@ -211,31 +305,41 @@ func texOrange(s string) string {
 }
 
 type minMax struct {
-	minKey string
-	min    int
-	maxKey string
-	max    int
+	minKey  string
+	origMin int
+	min     int
+	maxKey  string
+	origMax int
+	max     int
 }
 
-func calcMinMax(records []verifierComplexityRecord, metric func(r verifierComplexityRecord) int) map[string]minMax {
+func calcMinMax(records []verifierComplexityRecord, metric func(r verifierComplexityRecord) (int, int)) map[string]minMax {
 	minMaxRecords := map[string]minMax{}
 	for _, r := range records {
+		val, origVal := metric(r)
+		if val == valuesToSkip || origVal == valuesToSkip {
+			continue
+		}
 		mm, ok := minMaxRecords[collectionProgramKey(r)]
 		if !ok {
 			mm = minMax{
-				min:    metric(r),
-				minKey: kernelBuildLoadKey(r),
-				max:    metric(r),
-				maxKey: kernelBuildLoadKey(r),
+				origMin: origVal,
+				min:     val,
+				minKey:  kernelBuildLoadKey(r),
+				origMax: origVal,
+				max:     val,
+				maxKey:  kernelBuildLoadKey(r),
 			}
 		}
-		if metric(r) < mm.min {
+		if val < mm.min {
 			mm.minKey = kernelBuildLoadKey(r)
-			mm.min = metric(r)
+			mm.origMin = origVal
+			mm.min = val
 		}
-		if metric(r) > mm.max {
+		if val > mm.max {
 			mm.maxKey = kernelBuildLoadKey(r)
-			mm.max = metric(r)
+			mm.origMax = origVal
+			mm.max = val
 		}
 		minMaxRecords[collectionProgramKey(r)] = mm
 	}
@@ -292,17 +396,19 @@ func calcDiffRecords(oldRecords, newRecords map[string]verifierComplexityRecord,
 			Load:       newRecord.Load,
 			Program:    newRecord.Program,
 
-			InsnsProcessed:   newRecord.InsnsProcessed - oldRecord.InsnsProcessed,
-			InsnsLimit:       newRecord.InsnsLimit - oldRecord.InsnsLimit,
-			MaxStatesPerInsn: newRecord.MaxStatesPerInsn - oldRecord.MaxStatesPerInsn,
-			TotalStates:      newRecord.TotalStates - oldRecord.TotalStates,
-			PeakStates:       newRecord.PeakStates - oldRecord.PeakStates,
-			MarkRead:         newRecord.MarkRead - oldRecord.MarkRead,
+			InsnsProcessed:     newRecord.InsnsProcessed - oldRecord.InsnsProcessed,
+			OrigInsnsProcessed: oldRecord.InsnsProcessed,
+			MaxStatesPerInsn:   newRecord.MaxStatesPerInsn - oldRecord.MaxStatesPerInsn,
+			TotalStates:        newRecord.TotalStates - oldRecord.TotalStates,
+			PeakStates:         newRecord.PeakStates - oldRecord.PeakStates,
+			MarkRead:           newRecord.MarkRead - oldRecord.MarkRead,
 
 			VerificationTimeMicroseconds: newRecord.VerificationTimeMicroseconds - oldRecord.VerificationTimeMicroseconds,
 			StackDepth:                   newRecord.StackDepth - oldRecord.StackDepth,
+			OrigStackDepth:               oldRecord.StackDepth,
 
-			MapCount: newRecord.MapCount - oldRecord.MapCount,
+			MapCount:     newRecord.MapCount - oldRecord.MapCount,
+			OrigMapCount: oldRecord.MapCount,
 		})
 	}
 
@@ -318,7 +424,6 @@ func calcDiffRecords(oldRecords, newRecords map[string]verifierComplexityRecord,
 					Program:    oldRecord.Program,
 
 					InsnsProcessed:   -oldRecord.InsnsProcessed,
-					InsnsLimit:       -oldRecord.InsnsLimit,
 					MaxStatesPerInsn: -oldRecord.MaxStatesPerInsn,
 					TotalStates:      -oldRecord.TotalStates,
 					PeakStates:       -oldRecord.PeakStates,

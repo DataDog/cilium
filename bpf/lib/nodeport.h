@@ -430,7 +430,7 @@ static __always_inline int encap_geneve_dsr_opt6(struct __ctx_buff *ctx,
 	__u16 encap_len = sizeof(struct ipv6hdr) + sizeof(struct udphdr) +
 		sizeof(struct genevehdr) + ETH_HLEN;
 	__u16 payload_len = bpf_ntohs(ip6->payload_len) + sizeof(*ip6);
-	fraginfo_t fraginfo;
+	fraginfo_t fraginfo = 0;
 	__u16 total_len = 0;
 	__be16 src_port;
 	int l4_off, ret;
@@ -974,7 +974,7 @@ nodeport_rev_dnat_ipv6(struct __ctx_buff *ctx, enum ct_dir dir,
 	__u32 src_sec_identity __maybe_unused = SECLABEL;
 	__be16 src_port __maybe_unused = 0;
 	bool allow_neigh_map = true;
-	fraginfo_t fraginfo;
+	fraginfo_t fraginfo = 0;
 	int ifindex = 0;
 	__u32 monitor = 0;
 
@@ -1225,17 +1225,14 @@ drop_err:
 	return send_drop_notify_error_ext(ctx, src_id, ret, ext_err, METRIC_INGRESS);
 }
 
+DEFINE_AUX(struct bpf_fib_lookup_padded, nodeport_fib_params);
+
 __declare_tail(CILIUM_CALL_IPV6_NODEPORT_NAT_EGRESS)
 static __always_inline
 int tail_nodeport_nat_egress_ipv6(struct __ctx_buff *ctx)
 {
 	const bool nat_46x64 = nat46x64_cb_xlate(ctx);
-	struct bpf_fib_lookup_padded fib_params = {
-		.l = {
-			.family		= AF_INET6,
-			.ifindex	= ctx_get_ifindex(ctx),
-		},
-	};
+	struct bpf_fib_lookup_padded *fib_params = AUX(nodeport_fib_params);
 	struct ipv6_nat_target target = {
 		.min_port = NODEPORT_PORT_MIN_NAT,
 		.max_port = NODEPORT_PORT_MAX_NAT,
@@ -1248,9 +1245,9 @@ int tail_nodeport_nat_egress_ipv6(struct __ctx_buff *ctx)
 	};
 	struct ipv6_nat_entry *state = NULL;
 	int ret, l4_off, oif = 0;
+	fraginfo_t fraginfo = 0;
 	void *data, *data_end;
 	struct ipv6hdr *ip6;
-	fraginfo_t fraginfo;
 	__s8 ext_err = 0;
 #ifdef TUNNEL_MODE
 	const struct remote_endpoint_info *info;
@@ -1340,16 +1337,19 @@ fib_ipv4:
 			ret = DROP_INVALID;
 			goto drop_err;
 		}
-		fib_params.l.ipv4_src = ip4->saddr;
-		fib_params.l.ipv4_dst = ip4->daddr;
-		fib_params.l.family = AF_INET;
+		fib_params->l.ipv4_src = ip4->saddr;
+		fib_params->l.ipv4_dst = ip4->daddr;
+		fib_params->l.family = AF_INET;
 	} else {
-		ipv6_addr_copy((union v6addr *)&fib_params.l.ipv6_src,
+		ipv6_addr_copy((union v6addr *)&fib_params->l.ipv6_src,
 			       (union v6addr *)&ip6->saddr);
-		ipv6_addr_copy((union v6addr *)&fib_params.l.ipv6_dst,
+		ipv6_addr_copy((union v6addr *)&fib_params->l.ipv6_dst,
 			       (union v6addr *)&ip6->daddr);
+		fib_params->l.family = AF_INET6;
 	}
-	ret = fib_redirect(ctx, true, &fib_params, false, &ext_err, &oif);
+
+	fib_params->l.ifindex = ctx_get_ifindex(ctx);
+	ret = fib_redirect(ctx, true, fib_params, false, &ext_err, &oif);
 	if (fib_ok(ret)) {
 		return ret;
 	}
@@ -1538,11 +1538,11 @@ static __always_inline int nodeport_lb6(struct __ctx_buff *ctx,
 					__s8 *ext_err,
 					bool __maybe_unused *dsr)
 {
-	fraginfo_t fraginfo;
 	bool is_svc_proto __maybe_unused = true;
 	int ret, l3_off = ETH_HLEN, l4_off;
 	struct ipv6_ct_tuple tuple __align_stack_8 = {};
 	const struct lb6_service *svc;
+	fraginfo_t fraginfo = 0;
 	struct lb6_key key = {};
 
 	tuple.nexthdr = ip6->nexthdr;

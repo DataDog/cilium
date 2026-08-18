@@ -65,7 +65,7 @@ jobs:
   echo-inputs:
     if: ${{ github.event_name == 'workflow_dispatch' }}
     name: Echo Workflow Dispatch Inputs
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.UBUNTU_2404_AMD64_4CPU_16GB }}
     steps:
       - name: Echo Workflow Dispatch Inputs
         run: |
@@ -73,10 +73,10 @@ jobs:
 
   commit-status-start:
     name: Commit Status Start
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.UBUNTU_2404_AMD64_4CPU_16GB }}
     steps:
       - name: Set initial commit status
-        uses: cilium/cilium/.github/actions/set-commit-status@main # main
+        uses: cilium/actions/set-commit-status@fe0702f5df0d8e44d48f1baa226c023b73ff6b5e # main
         with:
           sha: ${{ inputs.SHA || github.sha }}
 
@@ -89,12 +89,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: ["${{ vars.GH_RUNNER_EXTRA_POWER_UBUNTU_LATEST || 'ubuntu-24.04' }}", ubuntu-24.04-arm64]
+        arch: ["${{ vars.UBUNTU_2404_AMD64_4CPU_16GB }}", "${{ vars.UBUNTU_2404_ARM64_4CPU_16GB }}"]
     runs-on: ${{ matrix.arch }}
     timeout-minutes: 45
     steps:
       - name: Set commit status to pending
-        uses: cilium/cilium/.github/actions/set-commit-status@main # main
+        uses: cilium/actions/set-commit-status@fe0702f5df0d8e44d48f1baa226c023b73ff6b5e # main
         with:
           sha: ${{ inputs.SHA || github.sha }}
 
@@ -103,34 +103,13 @@ jobs:
         with:
           comment_on_pr: false
 
-      - name: Setup additional repositories
-        if: ${{ startsWith(matrix.arch, 'ubuntu-latest') || startsWith(matrix.arch, 'ubuntu-24.04') }}
-        shell: bash
-        run: |
-          # This is required for libtinfo6
-          uri="http://security.ubuntu.com/ubuntu"
-          arch="amd64"
-          if [ ${{ runner.arch }} == "ARM64" ]; then
-            uri="http://ports.ubuntu.com/ubuntu-ports"
-            arch="arm64"
-          fi
-
-          sudo tee -a /etc/apt/sources.list.d/jammy-security.sources <<EOF
-          Types: deb
-          URIs: $uri
-          Suites: jammy-updates
-          Components: main universe restricted multiverse
-          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-          Architectures: $arch
-          EOF
-
       - name: Install Dependencies
         shell: bash
         run: |
           sudo apt update && sudo apt install -y --no-install-recommends build-essential make libtinfo6
 
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -154,7 +133,7 @@ jobs:
       # Warning: since this is a privileged workflow, subsequent workflow job
       # steps must take care not to execute untrusted code.
       - name: Checkout pull request branch (NOT TRUSTED)
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.vars.outputs.sha }}
           persist-credentials: false
@@ -162,7 +141,7 @@ jobs:
           allow-unsafe-pr-checkout: true
 
       - name: Install Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           cache: false
           # renovate: datasource=golang-version depName=go
@@ -251,11 +230,11 @@ jobs:
   merge-upload:
     if: ${{ always() }}
     name: Merge and Upload Artifacts
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.UBUNTU_2404_AMD64_4CPU_16GB }}
     needs: integration-test
     steps:
       - name: Checkout context ref (trusted)
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
@@ -270,10 +249,10 @@ jobs:
     if: ${{ always() }}
     name: Commit Status Final
     needs: integration-test
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.UBUNTU_2404_AMD64_4CPU_16GB }}
     steps:
       - name: Set final commit status
-        uses: cilium/cilium/.github/actions/set-commit-status@main # main
+        uses: cilium/actions/set-commit-status@fe0702f5df0d8e44d48f1baa226c023b73ff6b5e # main
         with:
           sha: ${{ inputs.SHA || github.sha }}
           status: ${{ needs.integration-test.result }}

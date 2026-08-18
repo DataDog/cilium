@@ -73,7 +73,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Set initial commit status
-        uses: cilium/cilium/.github/actions/set-commit-status@main # main
+        uses: cilium/actions/set-commit-status@fe0702f5df0d8e44d48f1baa226c023b73ff6b5e # main
         with:
           sha: ${{ inputs.SHA || github.sha }}
 
@@ -87,6 +87,11 @@ jobs:
         id: merge
         run: |
           ARGS='${{ inputs.extra-args }}'
+          # Empty on schedule events, where jq would emit nothing and thus
+          # silently drop "detect-race".
+          if [ -z "${ARGS}" ]; then
+            ARGS='{}'
+          fi
           echo "extra-args=$(echo "${ARGS}" | jq -c '. + {"detect-race": true}')" >> "$GITHUB_OUTPUT"
 
   conformance-ginkgo-race:

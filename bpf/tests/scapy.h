@@ -10,24 +10,20 @@
 #define __SCAPY_MAX_STR_LEN 128
 #define __SCAPY_MAX_ASSERTS 256
 
-/**
- * Get the reference to the buffer (byte array) with 'NAME'
- */
-#define BUF(NAME) __scapy_buf_##NAME
-
-#define __SCAPY_BUF_BYTES(NAME) __SCAPY_BUF_##NAME##_BYTES
-
-/**
- * Declare scapy buffer in stack.
+/* Resolves to the macro names in ./output/scapy_bytes.h, which subsequently
+ * resolve to a list of hex values, each of which is a byte in the packet.
  *
- * NAME: name of the buffer. Unique name in the scope. Use BUF(NAME) to refer
- *       to this buffer.
+ * For example:
+ * SCAPY_BUF_BYTES(X) -> scapy_x_bytes -> (gen_pkts.h) #define scapy_x_bytes 0x00, ...
  *
- * Variable args:
- *  #1: scapy object (layer)
+ * This macro is expected to be used in an array initializer list like so:
+ *
+ * packet defined in ./scapy/tc_l2_announce_pkt_defs.py
+ * const char l2_announce_arp_req[] = {
+ *	SCAPY_BUF_BYTES(l2_announce_arp_req)
+ * };
  */
-#define BUF_DECL(NAME, ...) \
-	const unsigned char BUF(NAME)[] = __SCAPY_BUF_BYTES(NAME)
+#define SCAPY_BUF_BYTES(NAME) scapy_##NAME##_bytes
 
 static __always_inline
 int scapy_memcmp(const void *a, const void *b, const __u16 len)
@@ -55,17 +51,43 @@ int scapy_memcmp(const void *a, const void *b, const __u16 len)
 }
 
 static __always_inline
-void scapy_memcpy(const void *dst, const void *src, const __u32 len)
+void _scapy_memcpy(const void *dst, const void *src, const __u32 len)
 {
 	__u32 i;
 
 	#pragma unroll
 	for (i = 0; i + 8 <= len; i += 8)
-		*(__u64 *)(dst + i) = *(__u64 *)(src + i);
+		/* marked volatile because LLVM wants to optimize this to a
+		 * memset
+		 */
+		*(volatile __u64 *)(dst + i) = *(__u64 *)(src + i);
 
 	#pragma unroll
 	for (; i < len; i++)
-		*(__u8 *)(dst + i) = *(__u8 *)(src + i);
+		*(volatile __u8 *)(dst + i) = *(__u8 *)(src + i);
+}
+
+static __always_inline
+void scapy_memcpy(void *dst, const void *src, const __u32 len)
+{
+	const int words = len / 1024;
+
+	if (!__builtin_constant_p(len) || !__builtin_constant_p(words))
+		__throw_build_bug();
+
+	switch (words) {
+	case 0:
+		_scapy_memcpy(dst, src, len);
+		break;
+	case 1:
+		{
+		_scapy_memcpy(dst, src, 1024);
+		_scapy_memcpy(dst + 1024, src + 1024, len - 1024);
+		}
+		break;
+	default:
+		break;
+	}
 }
 
 static __always_inline
@@ -77,7 +99,7 @@ void scapy_strncpy(char *dst, const char *src, const __u8 len)
 }
 
 static __always_inline
-void *scapy__push_data(struct pktgen *builder, void *data, int len)
+void *scapy_push_data(struct pktgen *builder, const void *data, const int len)
 {
 	void *pkt_data = pktgen__push_data_room(builder, len);
 
@@ -90,16 +112,6 @@ void *scapy__push_data(struct pktgen *builder, void *data, int len)
 
 	return pkt_data;
 }
-
-/**
- * Push (append) BUF(NAME) to the end of the ctx pkt builder.
- */
-#define BUILDER_PUSH_BUF(BUILDER, NAME)					\
-	do {								\
-		if (!scapy__push_data(&(BUILDER), (void *)&BUF(NAME),	\
-				       sizeof(BUF(NAME))))		\
-			return TEST_ERROR;				\
-	} while (0)
 
 /**
  * Assert structure to store in the map
@@ -135,11 +147,11 @@ static struct scapy_assert __scapy_null_assert = {0};
 #ifndef __ASSERT_TRACE_FAIL_LEN
 #define __ASSERT_TRACE_FAIL_LEN(BUF_NAME, _BUF_LEN, LEN)		\
 	test_log("Buffer '" BUF_NAME "' of len (%d) < LEN  (%d)",	\
-			 _BUF_LEN, LEN)
+			 _BUF_LEN, (LEN))
 #endif /* __ASSERT_TRACE_FAIL_LEN */
 
 #ifndef __ASSERT_TRACE_FAIL_BUF
-#define __ASSERT_TRACE_FAIL_BUF(BUF_NAME, _BUF_LEN, LEN)		\
+#define __ASSERT_TRACE_FAIL_BUF(BUF_NAME)				\
 	test_log("CTX and buffer '" BUF_NAME "' content mismatch ")
 #endif /* __ASSERT_TRACE_FAIL_BUF */
 
@@ -150,7 +162,7 @@ static __always_inline
 bool __assert_map_add_failure(const char *name, const __u8 name_len,
 			      const char *first_layer,
 			      const __u8 first_layer_len,
-			      const unsigned char *buf,
+			      const __u8 *buf,
 			      const __u16 len, void *data,
 			      const void *data_end)
 {
@@ -182,12 +194,11 @@ bool __assert_map_add_failure(const char *name, const __u8 name_len,
 		void *__DATA_END = (void *)(long)(CTX)->data_end;			\
 		__DATA += OFF;								\
 		bool _ok = true;							\
-		__u16 _len = LEN;							\
 											\
 		if (__DATA + (LEN) > __DATA_END) {					\
 			_ok = false;							\
 			test_log("CTX len (%d) - offset (%d) < LEN (%d)",		\
-					 _len + OFF, OFF, LEN);				\
+				 ctx_full_len(CTX), OFF, LEN);				\
 		}									\
 		if ((_BUF_LEN) < (LEN)) {						\
 			_ok = false;							\
@@ -195,7 +206,7 @@ bool __assert_map_add_failure(const char *name, const __u8 name_len,
 		}									\
 		if (_ok && scapy_memcmp(__DATA, _BUF, LEN) != 0) {			\
 			_ok = false;							\
-			__ASSERT_TRACE_FAIL_BUF(BUF_NAME, _BUF_LEN, LEN);		\
+			__ASSERT_TRACE_FAIL_BUF(BUF_NAME);				\
 		}									\
 		if (!_ok) {								\
 			if (!__assert_map_add_failure(NAME, sizeof(NAME),		\
@@ -243,8 +254,7 @@ bool __assert_map_add_failure(const char *name, const __u8 name_len,
 #define ASSERT_CTX_BUF_OFF(NAME, FIRST_LAYER, CTX, OFF, BUF_NAME, LEN)		\
 	{									\
 		ASSERT_CTX_BUF_OFF2(NAME, FIRST_LAYER, CTX, OFF,		\
-				    #BUF_NAME, BUF(BUF_NAME),			\
-				    sizeof(BUF(BUF_NAME)), LEN);		\
+				    #BUF_NAME, BUF_NAME, sizeof(BUF_NAME), LEN);\
 	} do {} while (0)
 
-#include "output/gen_pkts.h"
+#include "output/scapy_bytes.h"

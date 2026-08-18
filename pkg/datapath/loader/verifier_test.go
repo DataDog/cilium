@@ -91,7 +91,7 @@ func TestPrivilegedVerifier(t *testing.T) {
 		t.Parallel()
 		i := 1
 		for perm := range buildPermutations("bpf_lxc", kv, lxcLoadPermutations) {
-			t.Run(strconv.Itoa(i), compileAndLoad(perm, "lxc", endpointProg, endpointObj, i, &records))
+			t.Run(strconv.Itoa(i), compileAndLoad(perm, "lxc", endpointProg, endpointObj, kv, i, &records))
 			i++
 		}
 	})
@@ -100,7 +100,7 @@ func TestPrivilegedVerifier(t *testing.T) {
 		t.Parallel()
 		i := 1
 		for perm := range buildPermutations("bpf_host", kv, hostLoadPermutations) {
-			t.Run(strconv.Itoa(i), compileAndLoad(perm, "host", hostEndpointProg, hostEndpointObj, i, &records))
+			t.Run(strconv.Itoa(i), compileAndLoad(perm, "host", hostEndpointProg, hostEndpointObj, kv, i, &records))
 			i++
 		}
 	})
@@ -109,7 +109,7 @@ func TestPrivilegedVerifier(t *testing.T) {
 		t.Parallel()
 		i := 1
 		for perm := range buildPermutations("bpf_network", kv, networkLoadPermutations) {
-			t.Run(strconv.Itoa(i), compileAndLoad(perm, "network", networkProg, networkObj, i, &records))
+			t.Run(strconv.Itoa(i), compileAndLoad(perm, "network", networkProg, networkObj, kv, i, &records))
 			i++
 		}
 	})
@@ -118,7 +118,7 @@ func TestPrivilegedVerifier(t *testing.T) {
 		t.Parallel()
 		i := 1
 		for perm := range buildPermutations("bpf_overlay", kv, overlayLoadPermutations) {
-			t.Run(strconv.Itoa(i), compileAndLoad(perm, "overlay", overlayProg, overlayObj, i, &records))
+			t.Run(strconv.Itoa(i), compileAndLoad(perm, "overlay", overlayProg, overlayObj, kv, i, &records))
 			i++
 		}
 	})
@@ -127,7 +127,7 @@ func TestPrivilegedVerifier(t *testing.T) {
 		t.Parallel()
 		i := 1
 		for perm := range buildPermutations("bpf_sock", kv, sockLoadPermutations) {
-			t.Run(strconv.Itoa(i), compileAndLoad(perm, "sock", "bpf_sock.c", "bpf_sock.o", i, &records))
+			t.Run(strconv.Itoa(i), compileAndLoad(perm, "sock", "bpf_sock.c", "bpf_sock.o", kv, i, &records))
 			i++
 		}
 	})
@@ -136,7 +136,7 @@ func TestPrivilegedVerifier(t *testing.T) {
 		t.Parallel()
 		i := 1
 		for perm := range buildPermutations("bpf_wireguard", kv, wireguardLoadPermutations) {
-			t.Run(strconv.Itoa(i), compileAndLoad(perm, "wireguard", wireguardProg, wireguardObj, i, &records))
+			t.Run(strconv.Itoa(i), compileAndLoad(perm, "wireguard", wireguardProg, wireguardObj, kv, i, &records))
 			i++
 		}
 	})
@@ -145,13 +145,13 @@ func TestPrivilegedVerifier(t *testing.T) {
 		t.Parallel()
 		i := 1
 		for perm := range buildPermutations("bpf_xdp", kv, xdpLoadPermutations) {
-			t.Run(strconv.Itoa(i), compileAndLoad(perm, "xdp", xdpProg, xdpObj, i, &records))
+			t.Run(strconv.Itoa(i), compileAndLoad(perm, "xdp", xdpProg, xdpObj, kv, i, &records))
 			i++
 		}
 	})
 }
 
-func compileAndLoad[T any](perm buildPermutation[T], collection, source, output string, build int, records *verifierComplexityRecords) func(t *testing.T) {
+func compileAndLoad[T any](perm buildPermutation[T], collection, source, output string, kv kernelVersion, build int, records *verifierComplexityRecords) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Parallel()
 
@@ -193,7 +193,7 @@ func compileAndLoad[T any](perm buildPermutation[T], collection, source, output 
 				spec,
 				constants,
 				collection,
-				build, ii,
+				kv, build, ii,
 				records,
 			))
 			ii++
@@ -206,6 +206,7 @@ func loadAndRecordComplexity(
 	spec *ebpf.CollectionSpec,
 	constants any,
 	collection string,
+	kv kernelVersion,
 	build, load int,
 	records *verifierComplexityRecords,
 ) func(t *testing.T) {
@@ -299,6 +300,7 @@ func loadAndRecordComplexity(
 
 		for _, n := range slices.Sorted(maps.Keys(coll.Programs)) {
 			p := coll.Programs[n]
+			s := spec.Programs[n]
 
 			if *flagFullLog {
 				fullLogFile := path.Join(*flagResultDir, fmt.Sprintf("%s_%d_%d_%s_verifier.log", collection, build, load, n))
@@ -314,9 +316,16 @@ func loadAndRecordComplexity(
 				}
 			}
 
-			p.VerifierLog = strings.TrimRight(p.VerifierLog, "\n")
+			// The part of the log we are interested in is at the end. And looks like this:
+			//   verification time 355643 usec
+			//   stack depth 144+280+120
+			//   insns processed 12591+75421+455  <-- only on newer kernels
+			//   processed 88467 insns (limit 1000000) max_states_per_insn 44 total_states 4141 peak_states 1137 mark_read 56
 
+			// Remove trailing newline so strings.LastIndex finds the newline ahead of the last log line.
+			p.VerifierLog = strings.TrimRight(p.VerifierLog, "\n")
 			lastLineIndex := strings.LastIndex(p.VerifierLog, "\n")
+
 			// Offset points at the last newline, increment by 1 to skip it.
 			// Turn a -1 into a 0 if there are no newlines in the log.
 			lastOff := lastLineIndex + 1
@@ -328,6 +337,7 @@ func loadAndRecordComplexity(
 				Load:       strconv.Itoa(load),
 				Program:    n,
 			}
+
 			_, err := fmt.Sscanf(p.VerifierLog[lastOff:], "processed %d insns (limit %d) max_states_per_insn %d total_states %d peak_states %d mark_read %d",
 				&r.InsnsProcessed, &r.InsnsLimit, &r.MaxStatesPerInsn, &r.TotalStates, &r.PeakStates, &r.MarkRead)
 			if err != nil {
@@ -335,11 +345,21 @@ func loadAndRecordComplexity(
 			}
 
 			stackDepthIndex := strings.LastIndex(p.VerifierLog[:lastLineIndex], "\n")
-			_, err = fmt.Sscanf(p.VerifierLog[stackDepthIndex+1:lastOff], "stack depth %d", &r.StackDepth)
-			if err != nil {
-				t.Fatalf("Failed to parse stack depth for program %s: %v", n, err)
+			// On older kernels, the max field is missing in verifier logs so
+			// we can't easily retrieve the max stack size. We'll just return
+			// it for bpf-next, where it's likely already the highest value
+			// anyway.
+			if kv == kernelVersionNetNext {
+				var stackDepth int
+				stackDepth, stackDepthIndex, err = parseStackDepth(s, p.VerifierLog, lastLineIndex, lastOff)
+				if err != nil {
+					t.Fatalf("Failed to parse stack depth for program %s: %v", n, err)
+				}
+				r.StackDepth = stackDepth
 			}
 
+			// Extract the third to last line, which looks like:
+			//   verification time 355643 usec
 			verificationTimeIndex := strings.LastIndex(p.VerifierLog[:stackDepthIndex], "\n")
 			_, err = fmt.Sscanf(p.VerifierLog[verificationTimeIndex+1:stackDepthIndex], "verification time %d usec", &r.VerificationTimeMicroseconds)
 			if err != nil {
@@ -356,6 +376,38 @@ func loadAndRecordComplexity(
 			records.Add(r)
 		}
 	}
+}
+
+// Extract the second to last line, which looks like:
+//
+//	stack depth 144+280+120
+func parseStackDepth(s *ebpf.ProgramSpec, verifierLogs string, lastLineIndex, lastOff int) (int, int, error) {
+	stackDepthIndex := strings.LastIndex(verifierLogs[:lastLineIndex], "\n")
+	stackDepthLine := verifierLogs[stackDepthIndex+1 : lastOff]
+	if !strings.Contains(stackDepthLine, "stack depth ") {
+		lastOff = stackDepthIndex + 1
+		stackDepthIndex = strings.LastIndex(verifierLogs[:stackDepthIndex], "\n")
+		stackDepthLine = verifierLogs[stackDepthIndex+1 : lastOff]
+		if !strings.Contains(stackDepthLine, "stack depth ") {
+			return 0, stackDepthIndex, fmt.Errorf("Couldn't find stack depths line in verifier logs")
+		}
+	}
+	stackDepthLine = strings.TrimPrefix(strings.TrimSpace(stackDepthLine), "stack depth ")
+	// On newer kernels, the stack depth line may look as follows, so we need
+	// to remove the max info at the end.
+	//   stack depth 144+255 max 400
+	stackDepthInfo := strings.Split(stackDepthLine, " max ")
+
+	// The max field isn't reported on older kernels.
+	if len(stackDepthInfo) != 2 {
+		return 0, stackDepthIndex, fmt.Errorf("Couldn't find max stack depth value in verifier logs")
+	}
+
+	maxDepth, err := strconv.Atoi(stackDepthInfo[1])
+	if err != nil {
+		return 0, stackDepthIndex, err
+	}
+	return maxDepth, stackDepthIndex, nil
 }
 
 type verifierComplexityRecord struct {
