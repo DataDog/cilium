@@ -6,11 +6,22 @@ package metadata
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/http"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
 
 	"github.com/cilium/cilium/pkg/safeio"
+)
+
+const (
+	imdsDialTimeout           = 2 * time.Second  // default 250ms
+	imdsResponseHeaderTimeout = 2 * time.Second  // default 500ms
+	imdsOperationTimeout      = 10 * time.Second // default 5s
 )
 
 type metadataClient struct {
@@ -39,10 +50,30 @@ func newClient(ctx context.Context) (*imds.Client, error) {
 		return nil, err
 	}
 
-	return imds.NewFromConfig(cfg), nil
+	return imds.NewFromConfig(cfg, func(o *imds.Options) {
+		o.HTTPClient = imdsHTTPClient()
+	}), nil
+}
+
+// imdsHTTPClient returns an HTTP client with timeouts suitable for a busy
+// node. The client is frozen because imds.New reapplies its own 250ms dial
+// timeout and 500ms response header timeout to any *awshttp.BuildableClient
+// it is handed. Freeze blocks that.
+func imdsHTTPClient() aws.HTTPClient {
+	return awshttp.NewBuildableClient().
+		WithDialerOptions(func(d *net.Dialer) {
+			d.Timeout = imdsDialTimeout
+		}).
+		WithTransportOptions(func(tr *http.Transport) {
+			tr.ResponseHeaderTimeout = imdsResponseHeaderTimeout
+		}).
+		Freeze()
 }
 
 func getMetadata(ctx context.Context, client *imds.Client, path string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, imdsOperationTimeout)
+	defer cancel()
+
 	res, err := client.GetMetadata(ctx, &imds.GetMetadataInput{
 		Path: path,
 	})
@@ -53,7 +84,7 @@ func getMetadata(ctx context.Context, client *imds.Client, path string) (string,
 	defer res.Content.Close()
 	value, err := safeio.ReadAllLimit(res.Content, safeio.MB)
 	if err != nil {
-		return "", fmt.Errorf("unable to read response content for AWS metadata %q: %w", path, err)
+		return "", fmt.Errorf("unable to read response content for AWS metadata %q: %w", path, err)
 	}
 
 	return string(value), err
