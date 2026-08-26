@@ -120,3 +120,75 @@ func TestInitEC2APIUpdateTrigger(t *testing.T) {
 		IsBareMetal:    false,
 	}, limits)
 }
+
+func TestENAQueueLimits(t *testing.T) {
+	// The ENA queue limits of an instance type are reported per network card,
+	// and Cilium attaches ENIs to network card 0.
+	card := func(index, maxTotal, maxPerInterface, defaultPerInterface int32) ec2_types.NetworkCardInfo {
+		return ec2_types.NetworkCardInfo{
+			NetworkCardIndex:                 new(index),
+			MaximumEnaQueueCount:             new(maxTotal),
+			MaximumEnaQueueCountPerInterface: new(maxPerInterface),
+			DefaultEnaQueueCountPerInterface: new(defaultPerInterface),
+		}
+	}
+
+	tests := []struct {
+		name        string
+		networkInfo *ec2_types.NetworkInfo
+		expected    enaQueueLimit
+	}{
+		{
+			name:        "no network info",
+			networkInfo: nil,
+			expected:    enaQueueLimit{},
+		},
+		{
+			name: "instance type without flexible queue support",
+			networkInfo: &ec2_types.NetworkInfo{
+				NetworkCards: []ec2_types.NetworkCardInfo{card(0, 128, 32, 8)},
+			},
+			expected: enaQueueLimit{},
+		},
+		{
+			name: "limits are read from the network card Cilium attaches to",
+			networkInfo: &ec2_types.NetworkInfo{
+				FlexibleEnaQueuesSupport: ec2_types.FlexibleEnaQueuesSupportSupported,
+				NetworkCards: []ec2_types.NetworkCardInfo{
+					card(1, 256, 64, 16),
+					card(0, 128, 32, 8),
+				},
+			},
+			expected: enaQueueLimit{
+				supported:           true,
+				maxTotal:            128,
+				maxPerInterface:     32,
+				defaultPerInterface: 8,
+			},
+		},
+		{
+			name: "partial limits are not usable",
+			networkInfo: &ec2_types.NetworkInfo{
+				FlexibleEnaQueuesSupport: ec2_types.FlexibleEnaQueuesSupportSupported,
+				NetworkCards: []ec2_types.NetworkCardInfo{
+					{NetworkCardIndex: new(int32(0))},
+				},
+			},
+			expected: enaQueueLimit{},
+		},
+		{
+			name: "no limits reported for network card 0",
+			networkInfo: &ec2_types.NetworkInfo{
+				FlexibleEnaQueuesSupport: ec2_types.FlexibleEnaQueuesSupportSupported,
+				NetworkCards:             []ec2_types.NetworkCardInfo{card(1, 256, 64, 16)},
+			},
+			expected: enaQueueLimit{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expected, enaQueueLimits(tt.networkInfo))
+		})
+	}
+}
