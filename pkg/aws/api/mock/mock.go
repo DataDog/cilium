@@ -411,7 +411,7 @@ func (e *API) DeleteNetworkInterface(ctx context.Context, eniID string) error {
 	return fmt.Errorf("ENI ID %s not found", eniID)
 }
 
-func (e *API) AttachNetworkInterface(ctx context.Context, index int32, instanceID, eniID string) (string, error) {
+func (e *API) AttachNetworkInterface(ctx context.Context, index int32, instanceID, eniID string, enaQueueCount int32) (string, error) {
 	e.rateLimit()
 	e.delaySim.Delay(AttachNetworkInterface)
 
@@ -434,6 +434,7 @@ func (e *API) AttachNetworkInterface(ctx context.Context, index int32, instanceI
 	}
 
 	eni.Number = int(index)
+	eni.ENAQueueCount = enaQueueCount
 
 	e.enis[instanceID][eniID] = eni
 

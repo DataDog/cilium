@@ -112,6 +112,31 @@ type ENISpec struct {
 	//
 	// +kubebuilder:validation:Optional
 	DisablePrefixDelegation *bool `json:"disable-prefix-delegation,omitempty"`
+
+	// ENAQueueCount is the number of ENA queues to request for each ENI that
+	// Cilium attaches to this node. It accepts either "auto" or a positive
+	// number of queues. An empty value leaves the number of queues to AWS,
+	// which is the default behavior.
+	//
+	// "auto" requests as many queues as the interface can use, that is the
+	// smallest of the maximum number of queues per interface and the number of
+	// vCPUs of the instance. Requesting more queues than there are vCPUs is
+	// never useful as network drivers do not create more queues than there are
+	// CPUs.
+	//
+	// The requested count is always reduced to what the instance type allows.
+	// ENA queues are a budget shared by all interfaces of an instance, so
+	// requesting a high number of queues per ENI may reduce the number of ENIs,
+	// and therefore the number of pods, that fit on the node. See the ENI
+	// documentation for details.
+	//
+	// This setting only applies to ENIs created and attached by Cilium, and is
+	// ignored on instance types which do not support choosing the number of
+	// queues of an interface.
+	//
+	// +kubebuilder:validation:Pattern=`^(auto|[1-9][0-9]*)$`
+	// +kubebuilder:validation:Optional
+	ENAQueueCount string `json:"ena-queue-count,omitempty"`
 }
 
 // ENI represents an AWS Elastic Network Interface
@@ -188,6 +213,14 @@ type ENI struct {
 	//
 	// +optional
 	PublicIP iputil.Addr `json:"public-ip,omitzero"`
+
+	// ENAQueueCount is the number of ENA queues of the ENI attachment, as
+	// reported by the EC2 API. It is zero when the number of queues is not
+	// reported, which is the case on instance types that do not support
+	// choosing the number of queues of an interface.
+	//
+	// +optional
+	ENAQueueCount int32 `json:"ena-queue-count,omitempty"`
 }
 
 func (e *ENI) DeepCopyInterface() ipamTypes.Interface {

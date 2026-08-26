@@ -352,6 +352,11 @@ const (
 	// CiliumNode.Spec.ENI.DeleteOnTermination if no value is set.
 	ENIDeleteOnTermination = true
 
+	// ENIENAQueueCount is the default value for
+	// CiliumNode.Spec.ENI.ENAQueueCount if no value is set. Empty leaves the
+	// number of ENA queues of an ENI to AWS.
+	ENIENAQueueCount = ""
+
 	// ENIGarbageCollectionTagManagedName is part of the ENIGarbageCollectionTags default tag set
 	ENIGarbageCollectionTagManagedName = "io.cilium/cilium-managed"
 

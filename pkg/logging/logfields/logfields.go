@@ -1377,6 +1377,14 @@ const (
 
 	IsPrefixDelegated = "isPrefixDelegated"
 
+	ENAQueueCount = "enaQueueCount"
+
+	ENAQueueBudget = "enaQueueBudget"
+
+	ENAQueueBudgetUsed = "enaQueueBudgetUsed"
+
+	ENAQueueFundedInterfaces = "enaQueueFundedInterfaces"
+
 	AttachmentID = "attachmentID"
 
 	FirstInterfaceIndex = "firstInterfaceIndex"

@@ -159,6 +159,30 @@ spec:
                       DisablePrefixDelegation determines whether ENI prefix delegation should be
                       disabled on this node.
                     type: boolean
+                  ena-queue-count:
+                    description: |-
+                      ENAQueueCount is the number of ENA queues to request for each ENI that
+                      Cilium attaches to this node. It accepts either "auto" or a positive
+                      number of queues. An empty value leaves the number of queues to AWS,
+                      which is the default behavior.
+
+                      "auto" requests as many queues as the interface can use, that is the
+                      smallest of the maximum number of queues per interface and the number of
+                      vCPUs of the instance. Requesting more queues than there are vCPUs is
+                      never useful as network drivers do not create more queues than there are
+                      CPUs.
+
+                      The requested count is always reduced to what the instance type allows.
+                      ENA queues are a budget shared by all interfaces of an instance, so
+                      requesting a high number of queues per ENI may reduce the number of ENIs,
+                      and therefore the number of pods, that fit on the node. See the ENI
+                      documentation for details.
+
+                      This setting only applies to ENIs created and attached by Cilium, and is
+                      ignored on instance types which do not support choosing the number of
+                      queues of an interface.
+                    pattern: ^(auto|[1-9][0-9]*)$
+                    type: string
                   exclude-interface-tags:
                     additionalProperties:
                       type: string
@@ -637,6 +661,14 @@ spec:
                           description: Description is the description field of the
                             ENI
                           type: string
+                        ena-queue-count:
+                          description: |-
+                            ENAQueueCount is the number of ENA queues of the ENI attachment, as
+                            reported by the EC2 API. It is zero when the number of queues is not
+                            reported, which is the case on instance types that do not support
+                            choosing the number of queues of an interface.
+                          format: int32
+                          type: integer
                         id:
                           description: ID is the ENI ID
                           type: string

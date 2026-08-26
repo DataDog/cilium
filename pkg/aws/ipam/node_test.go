@@ -4,6 +4,7 @@
 package ipam
 
 import (
+	"fmt"
 	"net/netip"
 	"testing"
 
@@ -477,4 +478,318 @@ func TestPrepareCIDRRelease(t *testing.T) {
 		require.Len(t, actions, 1)
 		require.Equal(t, []netip.Prefix{netip.MustParsePrefix("10.0.0.2/32")}, actions[0].CIDRsToRelease)
 	})
+}
+
+func TestENAQueueCountRequested(t *testing.T) {
+	// Limits of an instance type supporting flexible ENA queues, here
+	// c8i.8xlarge: 32 vCPUs, a budget of 128 queues and at most 32 queues per
+	// interface.
+	flexible := ipamTypes.Limits{
+		Adapters:                         10,
+		VCpus:                            32,
+		SupportsFlexibleENAQueues:        true,
+		MaxENAQueueCount:                 128,
+		MaxENAQueueCountPerInterface:     32,
+		DefaultENAQueueCountPerInterface: 8,
+	}
+	// Limits of an instance type which does not let the queue count be chosen.
+	fixed := ipamTypes.Limits{Adapters: 3, VCpus: 2}
+
+	tests := []struct {
+		name      string
+		spec      string
+		limits    ipamTypes.Limits
+		expected  int32
+		isManaged bool
+	}{
+		{
+			name:      "unset leaves the queue count to AWS",
+			spec:      "",
+			limits:    flexible,
+			expected:  0,
+			isManaged: false,
+		},
+		{
+			name:      "ignored on an instance type without flexible queues",
+			spec:      "auto",
+			limits:    fixed,
+			expected:  0,
+			isManaged: false,
+		},
+		{
+			name:      "auto uses the maximum per interface when below the vCPU count",
+			spec:      "auto",
+			limits:    flexible,
+			expected:  32,
+			isManaged: true,
+		},
+		{
+			name: "auto is capped by the number of vCPUs",
+			spec: "auto",
+			limits: ipamTypes.Limits{
+				VCpus:                        8,
+				SupportsFlexibleENAQueues:    true,
+				MaxENAQueueCount:             128,
+				MaxENAQueueCountPerInterface: 32,
+			},
+			expected:  8,
+			isManaged: true,
+		},
+		{
+			name: "auto ignores an unknown vCPU count",
+			spec: "auto",
+			limits: ipamTypes.Limits{
+				SupportsFlexibleENAQueues:    true,
+				MaxENAQueueCount:             128,
+				MaxENAQueueCountPerInterface: 32,
+			},
+			expected:  32,
+			isManaged: true,
+		},
+		{
+			name:      "an explicit count is used as is",
+			spec:      "16",
+			limits:    flexible,
+			expected:  16,
+			isManaged: true,
+		},
+		{
+			name:      "an explicit count is capped by the maximum per interface",
+			spec:      "64",
+			limits:    flexible,
+			expected:  32,
+			isManaged: true,
+		},
+		{
+			name: "an explicit count above the vCPU count is kept",
+			spec: "32",
+			limits: ipamTypes.Limits{
+				VCpus:                        8,
+				SupportsFlexibleENAQueues:    true,
+				MaxENAQueueCount:             128,
+				MaxENAQueueCountPerInterface: 32,
+			},
+			expected:  32,
+			isManaged: true,
+		},
+		{
+			name:      "an unparsable count leaves the queue count to AWS",
+			spec:      "many",
+			limits:    flexible,
+			expected:  0,
+			isManaged: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			count, managed := enaQueueCountRequested(tt.spec, tt.limits)
+			require.Equal(t, tt.expected, count)
+			require.Equal(t, tt.isManaged, managed)
+		})
+	}
+}
+
+func TestENAQueueBudget(t *testing.T) {
+	limits := ipamTypes.Limits{
+		MaxENAQueueCount:                 128,
+		MaxENAQueueCountPerInterface:     32,
+		DefaultENAQueueCountPerInterface: 8,
+	}
+
+	tests := []struct {
+		name              string
+		enis              map[string]types.ENI
+		expectedUsed      int
+		expectedRemaining int
+	}{
+		{
+			name:              "no interface consumes no queue",
+			enis:              map[string]types.ENI{},
+			expectedUsed:      0,
+			expectedRemaining: 128,
+		},
+		{
+			name: "the queues of every attached interface are counted",
+			enis: map[string]types.ENI{
+				"eni-0": {ID: "eni-0", Number: 0, ENAQueueCount: 8},
+				"eni-1": {ID: "eni-1", Number: 1, ENAQueueCount: 32},
+			},
+			expectedUsed:      40,
+			expectedRemaining: 88,
+		},
+		{
+			name: "an interface with no reported count consumes the default",
+			enis: map[string]types.ENI{
+				"eni-0": {ID: "eni-0", Number: 0},
+				"eni-1": {ID: "eni-1", Number: 1, ENAQueueCount: 32},
+			},
+			expectedUsed:      40,
+			expectedRemaining: 88,
+		},
+		{
+			name: "an exhausted budget leaves no queue",
+			enis: map[string]types.ENI{
+				"eni-0": {ID: "eni-0", Number: 0, ENAQueueCount: 32},
+				"eni-1": {ID: "eni-1", Number: 1, ENAQueueCount: 32},
+				"eni-2": {ID: "eni-2", Number: 2, ENAQueueCount: 32},
+				"eni-3": {ID: "eni-3", Number: 3, ENAQueueCount: 32},
+			},
+			expectedUsed:      128,
+			expectedRemaining: 0,
+		},
+		{
+			name: "a budget consumed beyond its size does not go negative",
+			enis: map[string]types.ENI{
+				"eni-0": {ID: "eni-0", Number: 0, ENAQueueCount: 128},
+				"eni-1": {ID: "eni-1", Number: 1, ENAQueueCount: 32},
+			},
+			expectedUsed:      160,
+			expectedRemaining: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			n := &Node{enis: tt.enis}
+			used, remaining := n.enaQueueBudgetLocked(limits)
+			require.Equal(t, tt.expectedUsed, used)
+			require.Equal(t, tt.expectedRemaining, remaining)
+		})
+	}
+}
+
+// enaQueueTestNode returns a node of an instance type supporting flexible ENA
+// queues, with the given ENIs already attached.
+func enaQueueTestNode(t *testing.T, spec string, enis map[string]types.ENI) *Node {
+	api := apiMock.NewAPI(nil, nil, nil, nil)
+	metadataMock, _ := metadataMock.NewMetadataMock()
+	instances, err := NewInstancesManager(t.Context(), hivetest.Logger(t), api, metadataMock)
+	require.NoError(t, err)
+
+	n := &Node{
+		rootLogger: hivetest.Logger(t),
+		manager:    instances,
+		enis:       enis,
+		k8sObj: newCiliumNode("node",
+			withInstanceType("c8i.8xlarge"),
+			withFirstInterfaceIndex(0),
+			withENAQueueCount(spec),
+		),
+	}
+	n.logger.Store(n.rootLogger)
+
+	return n
+}
+
+// attachedENIs returns count ENIs consuming queues queues each.
+func attachedENIs(count int, queues int32) map[string]types.ENI {
+	enis := map[string]types.ENI{}
+	for i := range count {
+		id := fmt.Sprintf("eni-%d", i)
+		enis[id] = types.ENI{ID: id, Number: i, ENAQueueCount: queues}
+	}
+	return enis
+}
+
+func TestPrepareIPAllocationENAQueueBudget(t *testing.T) {
+	// c8i.8xlarge allows 10 interfaces and 128 ENA queues in total.
+	tests := []struct {
+		name               string
+		spec               string
+		enis               map[string]types.ENI
+		expectedEmptySlots int
+	}{
+		{
+			name:               "queue count unset leaves the interface slots alone",
+			spec:               "",
+			enis:               attachedENIs(4, 32),
+			expectedEmptySlots: 6,
+		},
+		{
+			name:               "interface slots are offered while the budget lasts",
+			spec:               "auto",
+			enis:               attachedENIs(1, 8),
+			expectedEmptySlots: 9,
+		},
+		{
+			name:               "no interface slot is offered once the budget is exhausted",
+			spec:               "auto",
+			enis:               attachedENIs(4, 32),
+			expectedEmptySlots: 0,
+		},
+		{
+			name:               "an explicit queue count exhausts the budget just as well",
+			spec:               "16",
+			enis:               attachedENIs(8, 16),
+			expectedEmptySlots: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			n := enaQueueTestNode(t, tt.spec, tt.enis)
+
+			a, err := n.PrepareIPAllocation(hivetest.Logger(t))
+			require.NoError(t, err)
+			require.Equal(t, tt.expectedEmptySlots, a.EmptyInterfaceSlots)
+		})
+	}
+}
+
+func TestGrantENAQueueCount(t *testing.T) {
+	tests := []struct {
+		name        string
+		spec        string
+		enis        map[string]types.ENI
+		expected    int32
+		expectedErr bool
+	}{
+		{
+			name:     "no queue count is requested when the setting is unset",
+			spec:     "",
+			enis:     attachedENIs(1, 8),
+			expected: 0,
+		},
+		{
+			name:     "the full count is granted when the budget allows it",
+			spec:     "auto",
+			enis:     attachedENIs(1, 8),
+			expected: 32,
+		},
+		{
+			name:     "the count is reduced to what is left of the budget",
+			spec:     "auto",
+			enis:     attachedENIs(3, 32),
+			expected: 32,
+		},
+		{
+			name:     "the count is reduced below what was requested",
+			spec:     "32",
+			enis:     attachedENIs(5, 24),
+			expected: 8, // 128 - 5*24 queues left
+		},
+		{
+			name:        "an exhausted budget fails before the interface is attached",
+			spec:        "auto",
+			enis:        attachedENIs(4, 32),
+			expectedErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			n := enaQueueTestNode(t, tt.spec, tt.enis)
+			limits, ok := n.getLimits()
+			require.True(t, ok)
+
+			count, err := n.grantENAQueueCount(tt.spec, limits, hivetest.Logger(t))
+			if tt.expectedErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, count)
+		})
+	}
 }
