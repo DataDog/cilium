@@ -13,6 +13,7 @@ import (
 	"maps"
 	"net/netip"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -115,8 +116,17 @@ func (n *Node) PopulateStatusFields(k8sObj *v2.CiliumNode) {
 	usePrimary := n.usePrimaryAddress()
 	n.mutex.RUnlock()
 
+	limits, limitsAvailable := n.getLimits()
+
 	n.foreachENI(usePrimary, func(e *types.ENI) error {
-		k8sObj.Status.ENI.ENIs[e.ID] = *e.DeepCopy()
+		eni := *e.DeepCopy()
+		// Report the number of queues every ENI runs with, not only the ones
+		// Cilium requested a count for, so that the consumption of the instance
+		// queue budget can be read off the node.
+		if limitsAvailable {
+			eni.ENAQueueCount = effectiveENAQueueCount(e, limits)
+		}
+		k8sObj.Status.ENI.ENIs[e.ID] = eni
 		return nil
 	})
 }
@@ -563,6 +573,27 @@ func (n *Node) PrepareIPAllocation(scopedLog *slog.Logger) (a *nodemanager.Alloc
 	}
 	a.EmptyInterfaceSlots = limits.Adapters - len(n.enis)
 
+	// ENA queues are a budget shared by all interfaces of the instance. When
+	// Cilium manages the queue count and the budget is exhausted, AWS rejects
+	// the attachment of any further interface. Report the node as being out of
+	// interface slots instead of letting the attachment fail, so that the
+	// shortage surfaces as ordinary interface exhaustion and does not turn into
+	// attachment attempts retried against the EC2 API.
+	if _, managed := enaQueueCountRequested(n.k8sObj.Spec.ENI.ENAQueueCount, limits); managed && a.EmptyInterfaceSlots > 0 {
+		if used, remaining := n.enaQueueBudgetLocked(limits); remaining <= 0 {
+			scopedLog.Warn(
+				"ENA queue budget of the instance is exhausted, no further ENI can be attached to this node. "+
+					"Lower eni-ena-queue-count to fit more interfaces, and therefore more pods, on this node",
+				logfields.ENAQueueBudget, limits.MaxENAQueueCount,
+				logfields.ENAQueueBudgetUsed, used,
+				logfields.ENAQueueBudgetRemaining, remaining,
+				logfields.NumInterfaces, len(n.enis),
+				logfields.AdaptersLimit, limits.Adapters,
+			)
+			a.EmptyInterfaceSlots = 0
+		}
+	}
+
 	return
 }
 
@@ -689,6 +720,16 @@ func (n *Node) errorInstanceNotRunning(err error) (notRunning bool) {
 	return
 }
 
+// isENAQueueCountRejected parses an error from the AWS SDK to understand if an
+// attachment was rejected because of the number of ENA queues it asked for.
+func isENAQueueCountRejected(err error) bool {
+	if apiErr, ok := errors.AsType[smithy.APIError](err); ok {
+		return apiErr.ErrorCode() == api.InvalidParameterValueStr &&
+			strings.Contains(apiErr.ErrorMessage(), "ENA queue count")
+	}
+	return false
+}
+
 func isAttachmentIndexConflict(err error) bool {
 	if apiErr, ok := errors.AsType[smithy.APIError](err); ok {
 		return apiErr.ErrorCode() == api.InvalidParameterValueStr &&
@@ -736,6 +777,206 @@ const (
 	unableToMarkENIForDeletion   = "unableToMarkENIForDeletion"
 	unableToFindSubnet           = "unableToFindSubnet"
 )
+
+const (
+	// enaQueueCountAuto is the value of ENISpec.ENAQueueCount requesting as
+	// many ENA queues per ENI as the interface is able to use.
+	enaQueueCountAuto = "auto"
+
+	// enaQueueCountDefault is the value of ENISpec.ENAQueueCount leaving the
+	// number of ENA queues to AWS. It is the value the agent writes when
+	// nothing is configured, and is equivalent to an empty value.
+	enaQueueCountDefault = "default"
+)
+
+// enaQueueCountConfigured reports whether a queue count was asked for at all.
+func enaQueueCountConfigured(spec string) bool {
+	return spec != "" && spec != enaQueueCountDefault
+}
+
+// floorPowerOfTwo returns the largest power of two which is not greater than n,
+// and zero for a non positive n.
+//
+// AWS only accepts a power of two as the ENA queue count of an attachment, and
+// rejects the attachment otherwise. Every queue count the EC2 API reports is a
+// power of two, but the number of vCPUs of an instance is not necessarily one:
+// instance sizes of 12, 24, 48, 72, 96, 192 and 384 vCPUs exist.
+func floorPowerOfTwo(n int) int {
+	if n <= 0 {
+		return 0
+	}
+
+	p := 1
+	for p<<1 <= n {
+		p <<= 1
+	}
+
+	return p
+}
+
+// ceilPowerOfTwo returns the smallest power of two which is not smaller than n,
+// and zero for a non positive n. See floorPowerOfTwo for why the distinction
+// between the two matters.
+func ceilPowerOfTwo(n int) int {
+	if n <= 0 {
+		return 0
+	}
+
+	p := 1
+	for p < n {
+		p <<= 1
+	}
+
+	return p
+}
+
+// enaQueueCountRequested returns the number of ENA queues to request for a new
+// ENI, and whether Cilium manages the queue count of the ENIs it attaches to
+// this node at all. It does not log, as it is called on every allocation cycle.
+//
+// The requested count is capped by the maximum number of queues the instance
+// type allows per interface, above which AWS rejects the attachment. "auto" is
+// additionally capped by the number of vCPUs, as network drivers do not create
+// more queues than there are CPUs and queues beyond that would consume the
+// instance queue budget without ever being used. An explicit count is not
+// capped by the number of vCPUs, so that a node whose interfaces are driven by
+// something other than the kernel ENA driver, or which runs with a reduced vCPU
+// count, can still ask for what it needs.
+func enaQueueCountRequested(spec string, limits ipamTypes.Limits) (int32, bool) {
+	if !enaQueueCountConfigured(spec) || !limits.SupportsFlexibleENAQueues {
+		return 0, false
+	}
+
+	if spec == enaQueueCountAuto {
+		desired := limits.MaxENAQueueCountPerInterface
+		if limits.VCpus > 0 {
+			// The vCPU count is not necessarily a power of two while the queue
+			// count has to be, so it is rounded up rather than down: a driver
+			// does not create more queues than there are CPUs, so asking for
+			// the next power of two still yields one queue per CPU, while
+			// rounding down would leave CPUs without one. The result is capped
+			// by the maximum the instance type allows per interface, so it
+			// never exceeds what AWS accepts.
+			desired = min(desired, ceilPowerOfTwo(limits.VCpus))
+		}
+		return int32(desired), true
+	}
+
+	requested, err := strconv.Atoi(spec)
+	if err != nil || requested <= 0 {
+		// The field is validated by the apiserver, so this is only reachable
+		// when the CRD schema and this code disagree, or when the value comes
+		// from a source which is not validated against it, such as a
+		// CiliumNodeConfig. Leave the queue count to AWS rather than guessing
+		// what was meant.
+		return 0, false
+	}
+
+	// Both bounds are powers of two, so the result is one as well.
+	return int32(floorPowerOfTwo(min(requested, limits.MaxENAQueueCountPerInterface))), true
+}
+
+// effectiveENAQueueCount returns the number of ENA queues an ENI runs with.
+//
+// The EC2 API only reports a queue count for attachments which requested one,
+// so an attachment without a reported count runs with the default of the
+// instance type. Deriving the count in one place keeps what is reported in the
+// CiliumNode status and what the queue budget is computed from in agreement.
+func effectiveENAQueueCount(eni *types.ENI, limits ipamTypes.Limits) int32 {
+	if eni.ENAQueueCount > 0 {
+		return eni.ENAQueueCount
+	}
+
+	return int32(limits.DefaultENAQueueCountPerInterface)
+}
+
+// enaQueueBudgetLocked returns the number of ENA queues consumed by the
+// interfaces currently attached to the instance, and the number of queues left.
+//
+// ENA queues are a budget shared by every interface of the instance, including
+// the primary interface and any interface which Cilium does not manage, so the
+// consumption of all attached interfaces is counted. n.mutex must be held.
+func (n *Node) enaQueueBudgetLocked(limits ipamTypes.Limits) (used, remaining int) {
+	for _, e := range n.enis {
+		used += int(effectiveENAQueueCount(&e, limits))
+	}
+
+	return used, max(limits.MaxENAQueueCount-used, 0)
+}
+
+// grantENAQueueCount returns the number of ENA queues to request for an ENI
+// about to be attached to this node, reduced to what is left of the instance
+// queue budget. It returns zero when Cilium does not manage the queue count, in
+// which case AWS assigns the default number of queues to the attachment.
+//
+// Unlike enaQueueCountRequested it logs, and is therefore only called when an
+// ENI is actually created.
+func (n *Node) grantENAQueueCount(spec string, limits ipamTypes.Limits, scopedLog *slog.Logger) (int32, error) {
+	desired, managed := enaQueueCountRequested(spec, limits)
+	if !managed {
+		if enaQueueCountConfigured(spec) {
+			scopedLog.Info(
+				"Instance type does not support choosing the number of ENA queues of an interface, ena-queue-count is ignored",
+				logfields.InstanceType, n.k8sObj.Spec.ENI.InstanceType,
+			)
+		}
+		return 0, nil
+	}
+
+	n.mutex.RLock()
+	used, remaining := n.enaQueueBudgetLocked(limits)
+	n.mutex.RUnlock()
+
+	// The remaining budget is not necessarily a power of two, so reducing the
+	// requested count to it has to round down: an attachment asking for a count
+	// which is not a power of two is rejected by AWS.
+	granted := floorPowerOfTwo(min(int(desired), remaining))
+	if granted <= 0 {
+		// PrepareIPAllocation stops offering interface slots once the budget is
+		// exhausted, so this is only reached if the budget was consumed since.
+		// Attaching would be rejected by AWS, so fail before calling the API.
+		return 0, fmt.Errorf("%s: ENA queue budget of the instance is exhausted (%d of %d queues used by %d interfaces)",
+			errUnableToAttachENI, used, limits.MaxENAQueueCount, len(n.enis))
+	}
+
+	// State both sides of the change this attachment makes: what the queue
+	// budget looked like before it, what it looks like after it, and how many
+	// further ENIs what is left funds at the same queue count. The trade-off
+	// between queues per ENI and number of ENIs is then legible at the moment
+	// it is made, rather than once pods cannot be scheduled. The budget and the
+	// interface limit of the instance type do not change, so they carry no
+	// Before or After.
+	usedAfter := used + granted
+	remainingAfter := max(limits.MaxENAQueueCount-usedAfter, 0)
+	logAttrs := []any{
+		// The configured value alongside what it resolved to, so that a count
+		// which was rounded or reduced is legible without reading the spec.
+		logfields.ENAQueueCountConfigured, spec,
+		logfields.ENAQueueCountRequested, desired,
+		logfields.ENAQueueCountGranted, granted,
+		logfields.ENAQueueBudget, limits.MaxENAQueueCount,
+		logfields.ENAQueueBudgetUsedBefore, used,
+		logfields.ENAQueueBudgetUsedAfter, usedAfter,
+		logfields.ENAQueueBudgetRemainingBefore, remaining,
+		logfields.ENAQueueBudgetRemainingAfter, remainingAfter,
+		logfields.ENAQueueFundableInterfacesAfter, remainingAfter / granted,
+		logfields.NumInterfacesBefore, len(n.enis),
+		logfields.NumInterfacesAfter, len(n.enis) + 1,
+		logfields.AdaptersLimit, limits.Adapters,
+	}
+
+	if granted < int(desired) {
+		scopedLog.Warn(
+			"Attaching the new ENI with fewer ENA queues than requested, as the queue budget of the instance does not fit the requested count. "+
+				"Attaching further ENIs may not be possible, which limits the number of pods that fit on this node",
+			logAttrs...,
+		)
+	} else {
+		scopedLog.Info("Attaching the new ENI with the requested number of ENA queues", logAttrs...)
+	}
+
+	return int32(granted), nil
+}
 
 // CreateInterface creates an additional interface with the instance and
 // attaches it to the instance as specified by the CiliumNode. neededAddresses
@@ -795,6 +1036,14 @@ func (n *Node) CreateInterface(ctx context.Context, allocation *nodemanager.Allo
 		return 0, "", nil
 	}
 
+	// Resolve the number of ENA queues before creating the ENI: an exhausted
+	// queue budget means the ENI cannot be attached, and there is no point in
+	// creating one just to delete it again.
+	enaQueueCount, err := n.grantENAQueueCount(resource.Spec.ENI.ENAQueueCount, limits, scopedLog)
+	if err != nil {
+		return 0, unableToAttachENI, err
+	}
+
 	index := n.findNextIndex(int32(*resource.Spec.ENI.FirstInterfaceIndex))
 
 	scopedLog = scopedLog.With(
@@ -831,16 +1080,30 @@ func (n *Node) CreateInterface(ctx context.Context, allocation *nodemanager.Allo
 
 	var attachmentID string
 	for range maxAttachRetries {
-		attachmentID, err = n.manager.ec2api.AttachNetworkInterface(ctx, index, n.node.InstanceID(), eniID)
+		attachmentID, err = n.manager.ec2api.AttachNetworkInterface(ctx, index, n.node.InstanceID(), eniID, enaQueueCount)
 
 		// The index is already in use, this can happen if the local
 		// list of ENIs is oudated.  Retry the attachment to avoid
 		// having to delete the ENI
-		if !isAttachmentIndexConflict(err) {
-			break
+		if isAttachmentIndexConflict(err) {
+			index = n.findNextIndex(index + 1)
+			continue
 		}
 
-		index = n.findNextIndex(index + 1)
+		// AWS rejected the number of queues asked for. Attach with the number
+		// of queues AWS picks instead: a queue count is a tuning knob, and IP
+		// allocation on the node must not stop because of one.
+		if enaQueueCount > 0 && isENAQueueCountRejected(err) {
+			scopedLog.Warn(
+				"AWS rejected the number of ENA queues requested for the new ENI, attaching it with the number of queues AWS assigns by default",
+				logfields.ENAQueueCountRequested, enaQueueCount,
+				logfields.Error, err,
+			)
+			enaQueueCount = 0
+			continue
+		}
+
+		break
 	}
 
 	if err != nil {
