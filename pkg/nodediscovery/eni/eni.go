@@ -55,6 +55,7 @@ func mutate(ctx context.Context, in nodediscovery.ENIMutateInputs, nodeResource 
 	nodeResource.Spec.ENI.UsePrimaryAddress = aws.Bool(in.UsePrimaryAddress)
 	nodeResource.Spec.ENI.DisablePrefixDelegation = aws.Bool(in.DisablePrefixDelegation)
 	nodeResource.Spec.ENI.DeleteOnTermination = aws.Bool(in.DeleteOnTermination)
+	nodeResource.Spec.ENI.ENAQueueCount = in.ENAQueueCount
 
 	nodeResource.Spec.ENI.SubnetIDs = in.SubnetIDs
 	nodeResource.Spec.ENI.SubnetTags = in.SubnetTags
@@ -101,6 +102,9 @@ func mutate(ctx context.Context, in nodediscovery.ENIMutateInputs, nodeResource 
 			nodeResource.Spec.ENI.DisablePrefixDelegation = c.ENI.DisablePrefixDelegation
 		}
 		nodeResource.Spec.ENI.DeleteOnTermination = c.ENI.DeleteOnTermination
+		if c.ENI.ENAQueueCount != "" {
+			nodeResource.Spec.ENI.ENAQueueCount = c.ENI.ENAQueueCount
+		}
 	}
 
 	nodeResource.Spec.InstanceID = info.InstanceID
