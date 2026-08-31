@@ -246,7 +246,10 @@ func newMultiPoolNode(t *testing.T, allocated []ipamTypes.IPAMPoolAllocation, en
 	}
 	cn.Spec.IPAM.Pools.Allocated = allocated
 	n := &Node{
-		rootLogger:                     hivetest.Logger(t),
+		rootLogger: hivetest.Logger(t),
+		manager: &NodeManager{
+			releaseExcessIPs: true,
+		},
 		resource:                       cn,
 		ops:                            &nodeOperationsMock{attachedCIDRs: enisToCIDRs(enis)},
 		multiPoolCIDRsMarkedForRelease: make(map[netip.Prefix]time.Time),
@@ -280,12 +283,32 @@ func enisToCIDRs(enis map[string]awsTypes.ENI) []netip.Prefix {
 func TestTrackMultiPoolAllocatedLocked(t *testing.T) {
 	t.Run("no-op for non-multi-pool node", func(t *testing.T) {
 		n := &Node{
+			manager: &NodeManager{
+				releaseExcessIPs: true,
+			},
 			resource:                       &v2.CiliumNode{},
 			multiPoolCIDRsMarkedForRelease: make(map[netip.Prefix]time.Time),
 		}
 		// No Pools.Requested -> not multi-pool.
 		n.trackMultiPoolAllocatedLocked()
 		require.Nil(t, n.previousAllocatedCIDRs)
+	})
+
+	t.Run("no-op when excess release is disabled", func(t *testing.T) {
+		n := newMultiPoolNode(t, nil, map[string]awsTypes.ENI{
+			"eni-1": {
+				Addresses: []iputil.Addr{
+					iputil.AddrFrom(netip.MustParseAddr("10.0.0.1")),
+				},
+			},
+		})
+		n.manager.releaseExcessIPs = false
+		n.multiPoolCIDRsMarkedForRelease[netip.MustParsePrefix("10.0.0.2/32")] = time.Now().Add(-time.Hour)
+
+		n.trackMultiPoolAllocatedLocked()
+
+		require.Nil(t, n.previousAllocatedCIDRs)
+		require.False(t, n.releaseNeeded())
 	})
 
 	t.Run("seed with no ENI orphans does not mark release", func(t *testing.T) {

@@ -442,10 +442,10 @@ func poolRequestedIPs(resource *v2.CiliumNode) (int, int, bool) {
 }
 
 // isMultiPoolNodeLocked returns true if this node's agent uses the multi-pool
-// allocator (1.20+) rather than the CRD allocator (1.19). The detection
-// heuristic checks that the agent has written Spec.IPAM.Pools.Requested
-// (multi-pool demand) and has cleared Status.IPAM.Used (CRD allocator field).
-// Caller must hold n.mutex (at least RLock).
+// allocator rather than the CRD allocator. The detection heuristic checks that
+// the agent has written Spec.IPAM.Pools.Requested (multi-pool demand) and has
+// cleared Status.IPAM.Used (CRD allocator field). Caller must hold n.mutex (at
+// least RLock).
 func (n *Node) isMultiPoolNodeLocked() bool {
 	if n.resource == nil {
 		return false
@@ -459,7 +459,7 @@ func (n *Node) isMultiPoolNodeLocked() bool {
 // are added to multiPoolCIDRsMarkedForRelease with the current timestamp.
 // Caller must hold n.mutex.
 func (n *Node) trackMultiPoolAllocatedLocked() {
-	if !n.isMultiPoolNodeLocked() {
+	if !n.manager.releaseExcessIPs || !n.isMultiPoolNodeLocked() {
 		return
 	}
 
@@ -701,16 +701,11 @@ func (n *Node) recalculate(ctx context.Context) {
 	n.stats.IPv4.Capacity = stats.NodeCapacity
 	n.stats.IPv6.AvailablePrefixes = stats.NodeIPv6Prefixes
 
-	// Starting with 1.20, agents use the multi-pool allocator in ENI IPAM mode
-	// and write their demand to Spec.IPAM.Pools.Requested (and stop writing
-	// Status.IPAM.Used).
-	//
-	// 1.19 agents still use the CRD allocator and communicate their IP usage via
-	// Status.IPAM.Used.
-	//
-	// Both those logic branches exist in order to offer a smooth upgrade/downgrade path
-	// between 1.19 and 1.20: an operator upgraded to 1.20 will still honor the API
-	// contract expected by 1.19 agents.
+	// Agents using the cloud multi-pool allocator write their demand to
+	// Spec.IPAM.Pools.Requested and stop writing Status.IPAM.Used. Older agents
+	// still use the CRD allocator and communicate their IP usage through
+	// Status.IPAM.Used. Both branches are retained for rolling upgrades and
+	// downgrades.
 	if requestedIPv4, requestedIPv6, ok := poolRequestedIPs(n.resource); ok && len(n.resource.Status.IPAM.Used) == 0 {
 		// The agent's demand is computed as inUse + preAllocate (linear
 		// pre-allocation). Subtracting preAllocate recovers exact usage.
@@ -771,7 +766,7 @@ func (n *Node) releaseNeeded() (needed bool) {
 		releaseInProgress := len(n.resource.Status.IPAM.ReleaseIPs) > 0
 		needed = needed || releaseInProgress
 	}
-	if !needed && len(n.multiPoolCIDRsMarkedForRelease) > 0 {
+	if !needed && n.manager.releaseExcessIPs && len(n.multiPoolCIDRsMarkedForRelease) > 0 {
 		now := time.Now()
 		for _, ts := range n.multiPoolCIDRsMarkedForRelease {
 			if now.Sub(ts) >= n.excessIPReleaseDelay {
