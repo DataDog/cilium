@@ -48,6 +48,7 @@ func TestAllocationResult(t *testing.T) {
 			},
 			Addresses: []azureTypes.AzureAddress{
 				{IP: iputil.AddrFrom(netip.MustParseAddr("10.20.1.5")), State: azureTypes.StateSucceeded},
+				{IP: iputil.AddrFrom(netip.MustParseAddr("10.20.1.6")), State: "updating"},
 			},
 		},
 	}
@@ -84,6 +85,15 @@ func TestAllocationResult(t *testing.T) {
 	require.Contains(t, result.CIDRs, netip.MustParsePrefix("10.0.0.0/8"))
 	require.Contains(t, result.CIDRs, netip.MustParsePrefix("172.16.0.0/12"))
 	require.NotContains(t, result.CIDRs, netip.MustParsePrefix("2001:db8:ffff::/48"))
+
+	_, err = allocationResult(
+		netip.MustParseAddr("10.20.1.6"),
+		pool,
+		interfaces,
+		conf,
+		ipMasqAgent,
+	)
+	require.ErrorContains(t, err, "unable to find Azure interface for IP 10.20.1.6")
 
 	_, err = allocationResult(
 		netip.MustParseAddr("10.30.1.5"),

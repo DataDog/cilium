@@ -42,6 +42,27 @@ func TestPoolAccessorFromResource(t *testing.T) {
 		require.True(t, existing.DeepEqual(&result))
 	})
 
+	t.Run("withdraws addresses when published status has none available", func(t *testing.T) {
+		node := &ciliumv2.CiliumNode{}
+		node.Spec.IPAM.Pools = existing
+		node.Status.Azure.Interfaces = []azureTypes.AzureInterface{
+			{
+				Addresses: []azureTypes.AzureAddress{
+					{IP: iputil.AddrFrom(netip.MustParseAddr("10.0.0.2")), State: "updating"},
+					{State: azureTypes.StateSucceeded},
+				},
+			},
+		}
+
+		result := poolAccessor.FromResource(node)
+		require.Equal(t, existing.Requested, result.Requested)
+		require.Len(t, result.Allocated, 1)
+		require.Equal(t, defaults.IPAMDefaultIPPool, result.Allocated[0].Pool)
+		require.True(t, result.Allocated[0].AllowFirstIP)
+		require.True(t, result.Allocated[0].AllowLastIP)
+		require.Empty(t, result.Allocated[0].CIDRs)
+	})
+
 	t.Run("publishes successful addresses as host prefixes", func(t *testing.T) {
 		node := &ciliumv2.CiliumNode{}
 		node.Spec.IPAM.Pools = existing

@@ -25,7 +25,7 @@ func allocationResult(
 ) (*ipam.AllocationResult, error) {
 	for _, iface := range interfaces {
 		if !slices.ContainsFunc(iface.Addresses, func(address azureTypes.AzureAddress) bool {
-			return address.IP.Addr == allocatedAddr
+			return address.State == azureTypes.StateSucceeded && address.IP.Addr == allocatedAddr
 		}) {
 			continue
 		}

@@ -29,8 +29,8 @@ func startNativeRoutingCIDRSync(
 	nodeResource agentK8s.LocalCiliumNodeResource,
 	localNodeStore *node.LocalNodeStore,
 	conf *option.DaemonConfig,
-) <-chan struct{} {
-	ready := make(chan struct{})
+) <-chan error {
+	ready := make(chan error, 1)
 	var once sync.Once
 	jg.Add(
 		job.Observer(
@@ -42,12 +42,6 @@ func startNativeRoutingCIDRSync(
 					return nil
 				}
 
-				select {
-				case <-ready:
-					return nil
-				default:
-				}
-
 				subnetCIDR := deriveSubnetCIDR(ev.Object)
 				if !subnetCIDR.IsValid() {
 					return nil
@@ -56,7 +50,7 @@ func startNativeRoutingCIDRSync(
 				var err error
 				once.Do(func() {
 					err = autoDetectNativeRoutingCIDR(logger, subnetCIDR, localNodeStore, conf)
-					close(ready)
+					ready <- err
 				})
 				return err
 			},

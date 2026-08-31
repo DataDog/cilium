@@ -47,7 +47,7 @@ type providerParams struct {
 type provider struct {
 	params providerParams
 
-	nativeRoutingCIDRReady <-chan struct{}
+	nativeRoutingCIDRReady <-chan error
 }
 
 func (p *provider) Mode() string {
@@ -81,8 +81,8 @@ func (p *provider) WaitReady(ctx context.Context) error {
 	deadline := time.After(waitForNativeRoutingCIDRTimeout)
 	for {
 		select {
-		case <-p.nativeRoutingCIDRReady:
-			return nil
+		case err := <-p.nativeRoutingCIDRReady:
+			return err
 		case <-deadline:
 			return fmt.Errorf("timed out after %s waiting for the operator to report the Azure subnet CIDR in Status.Azure.Interfaces[].Subnet.CIDR. %s",
 				waitForNativeRoutingCIDRTimeout, operatorHelpMessage)

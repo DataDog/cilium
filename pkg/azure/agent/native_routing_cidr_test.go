@@ -4,6 +4,7 @@
 package agent
 
 import (
+	"errors"
 	"net/netip"
 	"testing"
 
@@ -46,6 +47,30 @@ func TestDeriveSubnetCIDR(t *testing.T) {
 		{CIDR: iputil.PrefixFrom(netip.MustParsePrefix("10.30.1.4/24"))}, //nolint:staticcheck // older operator status
 	}
 	require.Equal(t, netip.MustParsePrefix("10.30.1.0/24"), deriveSubnetCIDR(node))
+}
+
+func TestProviderWaitReady(t *testing.T) {
+	wantErr := errors.New("native routing CIDR validation failed")
+	for _, tt := range []struct {
+		name string
+		err  error
+	}{
+		{name: "ready"},
+		{name: "validation error", err: wantErr},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ready := make(chan error, 1)
+			ready <- tt.err
+			p := provider{nativeRoutingCIDRReady: ready}
+
+			err := p.WaitReady(t.Context())
+			if tt.err != nil {
+				require.ErrorIs(t, err, tt.err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 func TestAutoDetectNativeRoutingCIDR(t *testing.T) {

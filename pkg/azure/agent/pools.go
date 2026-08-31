@@ -22,6 +22,10 @@ var poolAccessor = ipam.PoolSpecAccessors{
 			Allocated: node.Spec.IPAM.Pools.Allocated,
 		}
 
+		if len(node.Status.Azure.Interfaces) == 0 {
+			return pools
+		}
+
 		var cidrs []iputil.Prefix
 		for _, iface := range node.Status.Azure.Interfaces {
 			for _, address := range iface.Addresses {
@@ -33,21 +37,19 @@ var poolAccessor = ipam.PoolSpecAccessors{
 			}
 		}
 
-		if len(cidrs) > 0 {
-			slices.SortFunc(cidrs, func(a, b iputil.Prefix) int {
-				if c := a.Addr().Compare(b.Addr()); c != 0 {
-					return c
-				}
-				return a.Bits() - b.Bits()
-			})
-			pools.Allocated = []ipamTypes.IPAMPoolAllocation{
-				{
-					Pool:         defaults.IPAMDefaultIPPool,
-					AllowFirstIP: true,
-					AllowLastIP:  true,
-					CIDRs:        cidrs,
-				},
+		slices.SortFunc(cidrs, func(a, b iputil.Prefix) int {
+			if c := a.Addr().Compare(b.Addr()); c != 0 {
+				return c
 			}
+			return a.Bits() - b.Bits()
+		})
+		pools.Allocated = []ipamTypes.IPAMPoolAllocation{
+			{
+				Pool:         defaults.IPAMDefaultIPPool,
+				AllowFirstIP: true,
+				AllowLastIP:  true,
+				CIDRs:        cidrs,
+			},
 		}
 
 		return pools
