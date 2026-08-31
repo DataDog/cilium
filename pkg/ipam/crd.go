@@ -24,7 +24,6 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	alibabaCloudTypes "github.com/cilium/cilium/pkg/alibabacloud/types"
-	azureTypes "github.com/cilium/cilium/pkg/azure/types"
 	"github.com/cilium/cilium/pkg/cidr"
 	"github.com/cilium/cilium/pkg/datapath/linux/sysctl"
 	"github.com/cilium/cilium/pkg/ip"
@@ -251,12 +250,7 @@ func deriveVpcCIDRs(node *ciliumv2.CiliumNode) (primaryCIDR *cidr.CIDR, secondar
 			return
 		}
 	}
-	for _, azif := range node.Status.Azure.Interfaces {
-		if p := azureInterfaceCIDR(azif); p.IsValid() {
-			primaryCIDR = cidr.NewCIDR(netipx.PrefixIPNet(p.Masked()))
-			return
-		}
-	}
+
 	// return AlibabaCloud vpc CIDR
 	if len(node.Status.AlibabaCloud.ENIs) > 0 {
 		if p := node.Spec.AlibabaCloud.CIDRBlock; p.IsValid() {
@@ -348,10 +342,8 @@ func (n *nodeStore) hasMinimumIPsInPool(localNodeStore *node.LocalNodeStore) (mi
 			minimumReached = true
 		}
 
-		if n.conf.IPAMMode() == ipamOption.IPAMAzure || n.conf.IPAMMode() == ipamOption.IPAMAlibabaCloud {
-			if !n.autoDetectIPv4NativeRoutingCIDR(localNodeStore) {
-				minimumReached = false
-			}
+		if n.conf.IPAMMode() == ipamOption.IPAMAlibabaCloud && !n.autoDetectIPv4NativeRoutingCIDR(localNodeStore) {
+			minimumReached = false
 		}
 	}
 
@@ -713,54 +705,6 @@ func (a *crdAllocator) buildAllocationResult(addr netip.Addr, ipInfo *ipamTypes.
 
 	switch a.conf.IPAMMode() {
 
-	// In Azure mode, the Resource points to the azure interface so we can
-	// derive the master interface
-	case ipamOption.IPAMAzure:
-		for _, iface := range a.store.ownNode.Status.Azure.Interfaces {
-			if iface.ID == ipInfo.Resource {
-				result.PrimaryMAC = iface.MAC
-				if iface.Gateway.IsValid() {
-					result.GatewayIP = iface.Gateway.Addr
-				}
-				if p := azureInterfaceCIDR(iface); p.IsValid() {
-					result.CIDRs = append(result.CIDRs, p)
-				}
-				// Add manually configured Native Routing CIDR
-				if a.conf.IPv4NativeRoutingCIDR != nil {
-					if p, ok := netipx.FromStdIPNet(a.conf.IPv4NativeRoutingCIDR.IPNet); ok {
-						result.CIDRs = append(result.CIDRs, p)
-					}
-				}
-				// If the ip-masq-agent is enabled, get the CIDRs that are not masqueraded.
-				// Note that the resulting ip rules will not be dynamically regenerated if the
-				// ip-masq-agent configuration changes.
-				if a.conf.EnableIPMasqAgent {
-					nonMasqCidrs := a.ipMasqAgent.NonMasqCIDRsFromConfig()
-					for _, prefix := range nonMasqCidrs {
-						if addr.Is4() && prefix.Addr().Is4() {
-							result.CIDRs = append(result.CIDRs, prefix)
-						} else if !addr.Is4() && prefix.Addr().Is6() {
-							result.CIDRs = append(result.CIDRs, prefix)
-						}
-					}
-				}
-
-				// For now, we can hardcode the interface number to a valid
-				// integer because it will not be used in the allocation result
-				// anyway. Azure IPAM does not use the per-interface egress rule
-				// priority meaning that the CNI will not use the interface
-				// number when creating the pod rules and routes. We are hardcoding
-				// simply to bypass the parsing errors when InterfaceNumber
-				// is empty. See https://github.com/cilium/cilium/issues/15496.
-				//
-				// TODO: Once https://github.com/cilium/cilium/issues/14705 is
-				// resolved, then we don't need to hardcode this anymore.
-				result.InterfaceNumber = "0"
-				return
-			}
-		}
-		return nil, fmt.Errorf("unable to find ENI %s", ipInfo.Resource)
-
 	// In AlibabaCloud mode, the Resource points to the ENI so we can derive the
 	// master interface and all CIDRs of the VPC
 	case ipamOption.IPAMAlibabaCloud:
@@ -968,17 +912,4 @@ func (e *ErrIPNotAvailableInPool) Is(target error) bool {
 		return false
 	}
 	return t.addr == e.addr
-}
-
-// azureInterfaceCIDR returns Subnet.CIDR, falling back to the deprecated
-// AzureInterface.CIDR for CiliumNodes written by operators predating the
-// Subnet.CIDR migration.
-//
-// TODO(https://github.com/cilium/cilium/issues/46074): remove once
-// AzureInterface.CIDR is deleted.
-func azureInterfaceCIDR(iface azureTypes.AzureInterface) netip.Prefix {
-	if iface.Subnet.CIDR.IsValid() {
-		return iface.Subnet.CIDR.Prefix
-	}
-	return iface.CIDR.Prefix //nolint:staticcheck // fallback for operators predating the Subnet.CIDR migration
 }
