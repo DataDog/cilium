@@ -46,21 +46,24 @@ Architecture
 .. image:: azure_arch.png
     :align: center
 
-The Azure IPAM allocator builds on top of the CRD-backed allocator. Each node
-creates a ``ciliumnodes.cilium.io`` custom resource matching the node name when
-Cilium starts up for the first time on that node. The Cilium agent running on
-each node will retrieve the Kubernetes ``v1.Node`` resource and extract the
-``.Spec.ProviderID`` field in order to derive the `Azure instance ID <https://learn.microsoft.com/en-us/azure/virtual-machine-scale-sets/virtual-machine-scale-sets-instance-ids>`__.
-Azure allocation parameters are provided as agent configuration option and are
-passed into the custom resource as well.
+Azure IPAM coordinates the operator and the agent through a
+``ciliumnodes.cilium.io`` custom resource matching the node name. When Cilium
+starts, the agent retrieves the Kubernetes ``v1.Node`` resource and uses its
+``.spec.providerID`` field to derive the `Azure instance ID <https://learn.microsoft.com/en-us/azure/virtual-machine-scale-sets/virtual-machine-scale-sets-instance-ids>`__.
+Azure allocation parameters are provided as agent configuration and copied to
+the custom resource.
 
-The Cilium operator listens for new ``ciliumnodes.cilium.io`` custom resources
-and starts managing the IPAM aspect automatically. It scans the Azure instances
-for existing interfaces with associated IPs and makes them available via the
-``spec.ipam.available`` field. It will then constantly monitor the used IP
-addresses in the ``status.ipam.used`` field and allocate more IPs as needed to
-meet the IP pre-allocation watermark. This ensures that there are always IPs
-available
+The Cilium operator listens for new ``CiliumNode`` resources, scans the Azure
+instance's interfaces, and publishes their allocation and routing metadata in
+``status.azure.interfaces``. The agent exposes each successful address as a
+host prefix in the default multi-pool IPAM pool. It reports the size it needs in
+``spec.ipam.pools.requested`` and acknowledges the prefixes it has accepted in
+``spec.ipam.pools.allocated``. The operator allocates additional Azure private
+IP addresses as needed to maintain the pre-allocation watermark.
+
+During a rolling upgrade, the operator also continues to publish addresses in
+``spec.ipam.pool`` for older agents that use the CRD allocator and report usage
+in ``status.ipam.used``.
 
 *************
 Configuration
@@ -239,11 +242,12 @@ The following parameters are available to control the IP allocation:
 Operational Details
 *******************
 
-Cache of Interfaces, Subnets, and VirtualNetworks
-=================================================
+Cache of Interfaces and Subnets
+===============================
 
-The operator maintains a list of all Azure ScaleSets, Instances, Interfaces,
-VirtualNetworks, and Subnets associated with the Azure subscription in a cache.
+The operator caches the instances and interfaces it discovers in the configured
+Azure resource group. It retrieves details only for the subnets referenced by
+those interfaces.
 
 The cache is updated once per minute or after an IP allocation has been
 performed. When triggered based on an allocation, the operation is performed at
@@ -252,16 +256,17 @@ most once per second.
 Publication of available IPs
 ============================
 
-Following the update of the cache, all CiliumNode custom resources representing
-nodes are updated to publish eventual new IPs that have become available.
+Following a cache update, the operator updates the ``CiliumNode`` resources for
+affected nodes. It publishes each Azure interface, its addresses and their
+provisioning states, and its routing metadata in ``status.azure.interfaces``.
+New agents derive the default multi-pool allocation from successful addresses
+in this status. The operator also updates the
+legacy ``spec.ipam.pool`` map so that older agents continue to work during a
+rolling upgrade.
 
-In this process, all interfaces are scanned for all available IPs.  All IPs
-found are added to ``spec.ipam.available``. Each interface is also added to
-``status.azure.interfaces``.
-
-If this update caused the custom resource to change, the custom resource is
-updated using the Kubernetes API methods ``Update()`` and/or ``UpdateStatus()``
-if available.
+The agent writes its current demand to the default entry in
+``spec.ipam.pools.requested`` and records the accepted host prefixes in
+``spec.ipam.pools.allocated``.
 
 Determination of IP deficits or excess
 ======================================
@@ -272,27 +277,17 @@ addresses. The check to recognize a deficit is performed on two occasions:
  * When a ``CiliumNode`` custom resource is updated
  * All nodes are scanned in a regular interval (once per minute)
 
-When determining whether a node has a deficit in IP addresses, the following
-calculation is performed:
+New agents report their target number of addresses in the default entry of
+``spec.ipam.pools.requested``. This target includes addresses in use plus the
+``spec.ipam.pre-allocate`` buffer. The operator derives current usage from that
+demand and compares it with the successful addresses on the Azure interfaces.
+For compatibility during rolling upgrades, it uses ``status.ipam.used`` for an
+older agent that has not adopted the multi-pool protocol.
 
-.. code-block:: go
-
-     spec.ipam.pre-allocate - (len(spec.ipam.available) - len(status.ipam.used))
-
-For excess IP calculation:
-
-.. code-block:: go
-
-     (len(spec.ipam.available) - len(status.ipam.used)) - (spec.ipam.pre-allocate + spec.ipam.max-above-watermark)
-
-Upon detection of a deficit, the node is added to the list of nodes which
-require IP address allocation. When a deficit is detected using the interval
-based scan, the allocation order of nodes is determined based on the severity
-of the deficit, i.e. the node with the biggest deficit will be at the front of
-the allocation queue. Nodes that need to release IPs are behind nodes that need
-allocation.
-
-The allocation queue is handled on demand but at most once per second.
+Upon detection of a deficit, the node is added to the list of nodes that require
+IP address allocation. During interval-based scans, nodes with the largest
+deficit are handled first. The allocation queue is processed on demand but at
+most once per second.
 
 IP Allocation
 =============
@@ -350,19 +345,16 @@ Nodes can be assigned static public IPs from tagged Azure Public IP Prefixes.
         }
       }
 
-The Operator will assign a public IP from the first matching Prefix with available capacity.
-The Prefix ID will be stored in CiliumNode's ``status.ipam.assigned-static-ip``.
+The operator assigns a public IP from the first matching prefix with available
+capacity. The assigned public IP address is stored in the ``CiliumNode``
+resource's ``status.ipam.assigned-static-ip`` field.
 
 IP Release
 ==========
 
-When performing IP release for a node with IP excess, the operator scans the
-interface attached to the node. The following formula is used to determine how
-many IPs are available for release on the interface:
-
-.. code-block:: go
-
-      min(FreeOnInterface, (TotalFreeIPs - spec.ipam.pre-allocate - spec.ipam.max-above-watermark))
+Azure IPAM does not release excess private IP addresses from interfaces.
+Addresses that the agent removes from ``spec.ipam.pools.allocated`` remain
+attached and can be admitted to the default pool again if demand grows.
 
 Node Termination
 ================
@@ -471,11 +463,17 @@ Troubleshooting
    that owns the VNet. Add a role assignment scoped to the VNet resource
    group (which may differ from the node resource group).
 
-``spec.ipam.available`` stays empty and no allocations happen
-   ``--azure-resource-group`` is pointing at the wrong resource group.
-   Verify that the value matches the resource group containing the actual
-   VMs or VMSS, not the operator's own resource group, and not the AKS
-   cluster resource group.
+No successful addresses appear in ``status.azure.interfaces``
+   ``--azure-resource-group`` may point at the wrong resource group. Verify
+   that the value matches the resource group containing the actual VMs or
+   VMSS, not the operator's own resource group, and not the AKS cluster
+   resource group.
+
+``spec.ipam.pools.requested`` stays empty on a new agent
+   Verify that the agent uses ``--ipam=azure`` and inspect its startup logs.
+   A new agent writes demand to ``spec.ipam.pools.requested`` and accepted
+   prefixes to ``spec.ipam.pools.allocated``. An older agent instead reads
+   ``spec.ipam.pool`` and reports usage through ``status.ipam.used``.
 
 ``ManagedIdentityCredential authentication failed``
    ``--azure-user-assigned-identity-id`` was set to the full resource ID
