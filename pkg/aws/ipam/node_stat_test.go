@@ -89,20 +89,39 @@ func TestENIIPAMCapacityAccounting(t *testing.T) {
 	// Finally, lets disable prefix delegation and simulate the case of
 	// leftover delegated IPs.
 	ipamNode.prefixDelegation = false
-	n.enis["eni-a"] = types.ENI{
-		ID:       "eni-a",
-		Prefixes: []iputil.Prefix{iputil.PrefixFrom(netip.MustParsePrefix("10.0.0.1/28"))},
+	// The EC2 inventory always expands a prefix into its individual addresses
+	// alongside the prefix itself, so the fixture has to do the same for the
+	// slot accounting to see one used slot rather than sixteen.
+	eniA := types.ENI{
+		ID:        "eni-a",
+		Addresses: expandPrefix(t, "10.0.0.1/28"),
+		Prefixes:  []iputil.Prefix{iputil.PrefixFrom(netip.MustParsePrefix("10.0.0.1/28"))},
 	}
-	n.manager.instances.Update("i-000", &types.ENI{
-		ID:       "eni-a",
-		Prefixes: []iputil.Prefix{iputil.PrefixFrom(netip.MustParsePrefix("10.0.0.1/28"))},
-	})
+	n.enis["eni-a"] = eniA
+	n.manager.instances.Update("i-000", eniA.DeepCopy())
 
 	// Finally, we have the case where an eni has a leftover prefix available.
 	// Thus, we add an additional 16 IPs to the capacity.
 	_, stats, err = n.ResyncInterfacesAndIPs(t.Context(), hivetest.Logger(t))
 	assert.NoError(err)
 	assert.Equal(27+16-1, stats.NodeCapacity)
+}
+
+// expandPrefix returns every address contained in prefixCidr, the way the EC2
+// inventory records the addresses of a delegated prefix.
+func expandPrefix(t *testing.T, prefixCidr string) []iputil.Addr {
+	t.Helper()
+
+	ips, err := iputil.PrefixToIps(prefixCidr, 0)
+	require.NoError(t, err)
+
+	addrs := make([]iputil.Addr, 0, len(ips))
+	for _, ip := range ips {
+		addr, err := netip.ParseAddr(ip)
+		require.NoError(t, err)
+		addrs = append(addrs, iputil.AddrFrom(addr))
+	}
+	return addrs
 }
 
 // mocks ipamNodeActions interface
