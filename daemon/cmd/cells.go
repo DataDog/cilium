@@ -23,6 +23,7 @@ import (
 	"github.com/cilium/cilium/daemon/restapi"
 	"github.com/cilium/cilium/pkg/api"
 	"github.com/cilium/cilium/pkg/auth"
+	azureAgent "github.com/cilium/cilium/pkg/azure/agent"
 	"github.com/cilium/cilium/pkg/bgp"
 	cgroup "github.com/cilium/cilium/pkg/cgroups/manager"
 	"github.com/cilium/cilium/pkg/ciliumenvoyconfig"
@@ -296,6 +297,9 @@ var (
 
 		// IPAM provides IP address management.
 		ipamcell.Cell,
+
+		// Provides the Azure customization of the multi-pool IPAM allocator.
+		azureAgent.Cell,
 
 		// Egress Gateway allows originating traffic from specific IPv4 addresses.
 		egressgateway.Cell,
