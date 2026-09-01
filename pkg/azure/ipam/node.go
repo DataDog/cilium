@@ -264,20 +264,41 @@ func (n *Node) IsPrefixDelegated() bool {
 	return false
 }
 
-// GetAttachedCIDRs is a no-op since Azure does not use multi-pool but uses
-// the CRD allocator.
+// GetAttachedCIDRs returns the addresses currently attached to the node's
+// Azure interfaces as host prefixes.
 func (n *Node) GetAttachedCIDRs() []netip.Prefix {
-	return nil
+	n.manager.mutex.RLock()
+	defer n.manager.mutex.RUnlock()
+
+	var attached []netip.Prefix
+	_ = n.manager.instances.ForeachInterface(n.node.InstanceID(), func(_, _ string, interfaceObj ipamTypes.Interface) error {
+		iface, ok := interfaceObj.(*types.AzureInterface)
+		if !ok {
+			return nil
+		}
+		for _, address := range iface.Addresses {
+			if address.State != types.StateSucceeded || !address.IP.IsValid() {
+				continue
+			}
+			attached = append(attached, netip.PrefixFrom(address.IP.Addr, address.IP.BitLen()))
+		}
+		return nil
+	})
+	slices.SortFunc(attached, func(a, b netip.Prefix) int {
+		if c := a.Addr().Compare(b.Addr()); c != 0 {
+			return c
+		}
+		return a.Bits() - b.Bits()
+	})
+	return attached
 }
 
-// PrepareCIDRRelease is a no-op since Azure does not use multi-pool but uses
-// the CRD allocator, that's backed by PrepareIPRelease
+// PrepareCIDRRelease is a no-op because Azure excess IP release is disabled.
 func (n *Node) PrepareCIDRRelease(_ []netip.Prefix) []*nodemanager.ReleaseAction {
 	return nil
 }
 
-// ReleaseCIDRs is a no-op since Azure does not use multi-pool but uses the
-// CRD allocator, that's backed by ReleaseIPs/ReleaseIPPrefixes
+// ReleaseCIDRs is a no-op because Azure excess IP release is disabled.
 func (n *Node) ReleaseCIDRs(_ context.Context, _ *nodemanager.ReleaseAction) ([]netip.Prefix, error) {
 	return nil, nil
 }

@@ -22,6 +22,30 @@ func TestGetMaximumAllocatableIPv4(t *testing.T) {
 	require.Equal(t, types.InterfaceAddressLimit, n.GetMaximumAllocatableIPv4())
 }
 
+func TestGetAttachedCIDRs(t *testing.T) {
+	node := newCapacityTestNode(t, []*types.AzureInterface{
+		{
+			ID: "interface-2",
+			Addresses: []types.AzureAddress{
+				{IP: iputil.AddrFrom(netip.MustParseAddr("2001:db8::2")), State: types.StateSucceeded},
+				{IP: iputil.AddrFrom(netip.MustParseAddr("10.0.0.3")), State: "updating"},
+			},
+		},
+		{
+			ID: "interface-1",
+			Addresses: []types.AzureAddress{
+				{IP: iputil.AddrFrom(netip.MustParseAddr("10.0.0.2")), State: types.StateSucceeded},
+				{State: types.StateSucceeded},
+			},
+		},
+	}, false)
+
+	require.Equal(t, []netip.Prefix{
+		netip.MustParsePrefix("10.0.0.2/32"),
+		netip.MustParsePrefix("2001:db8::2/128"),
+	}, node.GetAttachedCIDRs())
+}
+
 const statusTestIDFormat = "/subscriptions/xxx/resourceGroups/g1/providers/Microsoft.Compute/virtualMachineScaleSets/vmss1/virtualMachines/0/networkInterfaces/%s"
 
 // SecurityGroup collates inversely to ID, so sorting by the wrong field shows up.
