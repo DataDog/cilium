@@ -137,6 +137,15 @@ func initAndValidateDaemonConfig(params daemonConfigParams) error {
 	return nil
 }
 
+func needsCiliumNodeBeforeIPAM(mode string) bool {
+	switch mode {
+	case ipamOption.IPAMClusterPool, ipamOption.IPAMMultiPool, ipamOption.IPAMENI, ipamOption.IPAMAzure:
+		return true
+	default:
+		return false
+	}
+}
+
 func configureDaemon(ctx context.Context, params daemonParams) error {
 	if params.Clientset.IsEnabled() {
 		// Errors are handled inside WaitForCRDsToRegister. It will fatal on a
@@ -149,9 +158,7 @@ func configureDaemon(ctx context.Context, params daemonParams) error {
 			}
 		}
 
-		if params.DaemonConfig.IPAM == ipamOption.IPAMClusterPool ||
-			params.DaemonConfig.IPAM == ipamOption.IPAMMultiPool ||
-			params.DaemonConfig.IPAM == ipamOption.IPAMENI {
+		if needsCiliumNodeBeforeIPAM(params.DaemonConfig.IPAM) {
 			// Create the CiliumNode custom resource. This call will block until
 			// the custom resource has been created
 			params.NodeDiscovery.UpdateCiliumNodeResource()
