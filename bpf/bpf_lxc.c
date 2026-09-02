@@ -2714,8 +2714,15 @@ out:
 __declare_tail(CILIUM_CALL_IPV4_POLICY_DENIED)
 int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
 {
+	/* Must stay signed: __DROP_REASON() relies on the sign of its argument
+	 * to fold a negative Cilium error into a positive drop reason.
+	 */
+	int verdict = (int)ctx_load_meta(ctx, CB_VERDICT);
+	/* Capture the length of the denied packet before generate_icmp4_reply()
+	 * rewrites it into the ICMP error message.
+	 */
+	__u64 denied_len = ctx_full_len(ctx);
 	int ret;
-	__u32 verdict = ctx_load_meta(ctx, CB_VERDICT);
 
 	ret = generate_icmp4_reply(ctx, ICMP_DEST_UNREACH, ICMP_PKT_FILTERED);
 	if (!ret) {
@@ -2723,7 +2730,7 @@ int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
 		ret = redirect_self(ctx);
 
 		if (!IS_ERR(ret)) {
-			update_metrics(ctx_full_len(ctx), METRIC_EGRESS, __DROP_REASON(verdict));
+			update_metrics(denied_len, METRIC_EGRESS, __DROP_REASON(verdict));
 			return ret;
 		}
 	}
@@ -2745,7 +2752,14 @@ int tail_policy_denied_ipv6(struct __ctx_buff *ctx)
 		.tokens_per_topup = 100,
 		.topup_interval_ns = NSEC_PER_SEC,
 	};
-	__u32 verdict = ctx_load_meta(ctx, CB_VERDICT);
+	/* Must stay signed: __DROP_REASON() relies on the sign of its argument
+	 * to fold a negative Cilium error into a positive drop reason.
+	 */
+	int verdict = (int)ctx_load_meta(ctx, CB_VERDICT);
+	/* Capture the length of the denied packet before generate_icmp6_reply()
+	 * rewrites it into the ICMP error message.
+	 */
+	__u64 denied_len = ctx_full_len(ctx);
 	int ret;
 
 	rkey.key.icmpv6.netdev_idx = ctx_get_ifindex(ctx);
@@ -2758,7 +2772,7 @@ int tail_policy_denied_ipv6(struct __ctx_buff *ctx)
 		ret = redirect_self(ctx);
 
 		if (!IS_ERR(ret)) {
-			update_metrics(ctx_full_len(ctx), METRIC_EGRESS, __DROP_REASON(verdict));
+			update_metrics(denied_len, METRIC_EGRESS, __DROP_REASON(verdict));
 			return ret;
 		}
 	}

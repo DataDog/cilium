@@ -14,6 +14,14 @@ struct validate_icmpv6_reply_args {
 	__u16 checksum;
 	__u32 dst_idx;
 	__u32 retval;
+	/* When metrics_reason is non-zero, also assert that the metrics map
+	 * holds metrics_count packets / metrics_bytes bytes for that reason and
+	 * metrics_dir.
+	 */
+	__u8 metrics_reason;
+	enum metric_dir metrics_dir;
+	__u64 metrics_count;
+	__u64 metrics_bytes;
 };
 
 static __always_inline int
@@ -81,6 +89,16 @@ validate_icmpv6_reply(const struct validate_icmpv6_reply_args *args)
 		test_fatal("ratelimit map lookup failed");
 
 	assert(value->tokens > 0);
+
+	if (args->metrics_reason) {
+		struct metrics_key mkey = {
+			.reason = args->metrics_reason,
+			.dir = args->metrics_dir,
+		};
+
+		assert_metrics_count(mkey, args->metrics_count);
+		assert_metrics_bytes(mkey, args->metrics_bytes);
+	}
 
 	test_finish();
 }
