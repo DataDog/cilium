@@ -29,6 +29,7 @@ import (
 	"github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/k8s/watchers"
 	"github.com/cilium/cilium/pkg/kvstore"
+	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/node"
@@ -68,6 +69,53 @@ type NodeDiscovery struct {
 	kvstoreClient    kvstore.Client
 	ctrlmgr          *controller.Manager
 	config           config
+}
+
+type metadataClient interface {
+	GetInstanceMetadata(ctx context.Context) (metadata.MetaDataInfo, error)
+}
+
+// instanceFacts fetches the EC2 instance metadata once and remembers it.
+type instanceFacts struct {
+	mu     lock.Mutex
+	newFn  func(ctx context.Context) (metadataClient, error)
+	client metadataClient
+	info   *metadata.MetaDataInfo
+}
+
+var facts = &instanceFacts{
+	newFn: func(ctx context.Context) (metadataClient, error) {
+		return metadata.NewClient(ctx)
+	},
+}
+
+// get returns the metadata of the EC2 instance the agent runs on.
+func (f *instanceFacts) get(ctx context.Context) (metadata.MetaDataInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.info != nil {
+		return *f.info, nil
+	}
+
+	if f.client == nil {
+		client, err := f.newFn(ctx)
+		if err != nil {
+			return metadata.MetaDataInfo{}, fmt.Errorf("unable to create EC2 metadata client: %w", err)
+		}
+		f.client = client
+	}
+
+	info, err := f.client.GetInstanceMetadata(ctx)
+	if err != nil {
+		return metadata.MetaDataInfo{}, fmt.Errorf("unable to retrieve InstanceID of own EC2 instance: %w", err)
+	}
+	if info.InstanceID == "" {
+		return metadata.MetaDataInfo{}, errors.New("InstanceID of own EC2 instance is empty")
+	}
+
+	f.info = &info
+	return info, nil
 }
 
 // NewNodeDiscovery returns a pointer to new node discovery object
@@ -394,13 +442,9 @@ func (n *NodeDiscovery) mutateNodeResource(ctx context.Context, nodeResource *ci
 	case ipamOption.IPAMENI:
 		// set ENI field in the node only when the ENI ipam is specified
 		nodeResource.Spec.ENI = eniTypes.ENISpec{}
-		imds, err := metadata.NewClient(ctx)
+		info, err := facts.get(ctx)
 		if err != nil {
-			logging.Fatal(n.logger, "Unable to create metadata client", logfields.Error, err)
-		}
-		info, err := imds.GetInstanceMetadata(ctx)
-		if err != nil {
-			logging.Fatal(n.logger, "Unable to retrieve InstanceID of own EC2 instance", logfields.Error, err)
+			return err
 		}
 
 		if info.InstanceID == "" {
