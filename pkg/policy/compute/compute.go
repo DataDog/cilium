@@ -5,6 +5,7 @@ package compute
 
 import (
 	"context"
+	"runtime"
 	"sync"
 
 	"github.com/cilium/statedb"
@@ -39,6 +40,26 @@ type computeRequest struct {
 	identity *identity.Identity
 	toRev    uint64
 	done     chan struct{}
+	// attempt counts how many times computing this identity's policy has
+	// already failed. It drives the retry backoff in processRequests.
+	attempt int
+}
+
+const (
+	// retryBackoffBase is the delay before the first recomputation retry after
+	// a failure. It doubles per attempt up to retryBackoffMax.
+	retryBackoffBase = 100 * time.Millisecond
+	// retryBackoffMax caps the retry delay. Failures here are usually
+	// transient (e.g. a cert fetch), so the cap stays well inside the window
+	// an endpoint regeneration is willing to wait.
+	retryBackoffMax = 5 * time.Second
+)
+
+// retryBackoff returns the delay before retrying a computation that has already
+// failed attempt times.
+func retryBackoff(attempt int) time.Duration {
+	d := retryBackoffBase << min(attempt, 16)
+	return min(d, retryBackoffMax)
 }
 
 func (r *IdentityPolicyComputer) UpdatePolicy(idsToRegen set.Set[identity.NumericIdentity], _, toRev uint64) {
@@ -66,19 +87,27 @@ func (r *IdentityPolicyComputer) UpdatePolicy(idsToRegen set.Set[identity.Numeri
 // Must be called with r.reqsMu held. The caller must notifyTrigger after
 // unlocking.
 func (r *IdentityPolicyComputer) enqueueLocked(identity *identity.Identity, toRev uint64) <-chan struct{} {
-	for i, existing := range r.reqs {
-		if existing.identity.ID != identity.ID {
-			continue
-		}
-		if toRev > existing.toRev {
-			r.reqs[i].toRev = toRev
-		}
-		return r.reqs[i].done
-	}
-	req := computeRequest{
+	return r.appendLocked(computeRequest{
 		identity: identity,
 		toRev:    toRev,
 		done:     make(chan struct{}),
+	})
+}
+
+// appendLocked appends req, preserving its attempt count if an entry for the
+// same identity is already queued. Must be called with r.reqsMu held.
+func (r *IdentityPolicyComputer) appendLocked(req computeRequest) <-chan struct{} {
+	for i, existing := range r.reqs {
+		if existing.identity.ID != req.identity.ID {
+			continue
+		}
+		if req.toRev > existing.toRev {
+			r.reqs[i].toRev = req.toRev
+		}
+		// Keep the higher attempt count so a coalescing fresh request cannot
+		// reset the backoff of an identity that keeps failing.
+		r.reqs[i].attempt = max(r.reqs[i].attempt, req.attempt)
+		return r.reqs[i].done
 	}
 	r.reqs = append(r.reqs, req)
 	return req.done
@@ -88,6 +117,45 @@ func (r *IdentityPolicyComputer) notifyTrigger() {
 	select {
 	case r.trigger <- struct{}{}:
 	default:
+	}
+}
+
+// scheduleRetries re-enqueues failed computations after a per-identity backoff.
+//
+// Requeueing immediately turns a persistently failing identity into a busy loop
+// that starves every other computation of the CPU it needs, which is precisely
+// when endpoints are most likely to time out waiting. Retries are grouped by
+// delay so a batch of failures costs one timer per distinct delay, not one per
+// identity.
+func (r *IdentityPolicyComputer) scheduleRetries(ctx context.Context, retry []computeRequest) {
+	if len(retry) == 0 {
+		return
+	}
+	byDelay := make(map[time.Duration][]computeRequest, 4)
+	for _, req := range retry {
+		d := retryBackoff(req.attempt)
+		byDelay[d] = append(byDelay[d], req)
+	}
+	for delay, reqs := range byDelay {
+		r.logger.Debug("Scheduling policy computation retry",
+			logfields.Count, len(reqs),
+			logfields.Duration, delay)
+		time.AfterFunc(delay, func() {
+			if ctx.Err() != nil {
+				// processRequests has already drained and closed the queue on
+				// shutdown; close these too so nothing is left waiting.
+				for _, req := range reqs {
+					close(req.done)
+				}
+				return
+			}
+			r.reqsMu.Lock()
+			for _, req := range reqs {
+				r.appendLocked(req)
+			}
+			r.reqsMu.Unlock()
+			r.notifyTrigger()
+		})
 	}
 }
 
@@ -139,6 +207,7 @@ func (r *IdentityPolicyComputer) processRequests(ctx context.Context) error {
 	type pending struct {
 		computeRequest
 		rev       statedb.Revision      // statedb revision for CompareAndSwap
+		found     bool                  // whether a row for this identity is already committed
 		oldPolicy policy.SelectorPolicy // the committed policy, superseded after the new one commits
 	}
 
@@ -173,13 +242,17 @@ func (r *IdentityPolicyComputer) processRequests(ctx context.Context) error {
 		var work []pending
 		for _, req := range batch {
 			obj, rev, found := r.tbl.Get(rtxn, PolicyComputationByIdentity(req.identity.ID))
-			if found && obj.Revision >= req.toRev {
+			// An error row carries no policy and has Revision 0, so it must
+			// never satisfy a request -- otherwise a toRev of 0 (what
+			// LocalEndpointIdentityAdded and the retries themselves use) would
+			// match it and the identity would stay failed forever.
+			if found && obj.Err == nil && obj.Revision >= req.toRev {
 				close(req.done)
 				continue
 			}
 			// The currently committed policy becomes the old one once this
 			// recomputation commits its replacement.
-			work = append(work, pending{computeRequest: req, rev: rev, oldPolicy: obj.NewPolicy})
+			work = append(work, pending{computeRequest: req, rev: rev, found: found, oldPolicy: obj.NewPolicy})
 		}
 		if len(work) == 0 {
 			continue
@@ -190,9 +263,21 @@ func (r *IdentityPolicyComputer) processRequests(ctx context.Context) error {
 			res Result
 		}
 		results := make([]result, len(work))
+		// Bound the fan-out. Each ComputeSelectorPolicy is CPU-bound and holds
+		// repo.mutex for reading, so spawning one goroutine per identity does
+		// not increase throughput once every core is busy: it just multiplies
+		// scheduler pressure and read-lock holders competing with the policy
+		// importer's writer. Under a CPU quota (the agent normally runs with
+		// one) an unbounded batch is markedly slower in wall-clock than a
+		// bounded one, which is what pushes endpoint waiters over their
+		// deadline during a restart.
+		sem := make(chan struct{}, max(1, runtime.GOMAXPROCS(0)))
 		var wg sync.WaitGroup
 		for i, w := range work {
 			wg.Go(func() {
+				sem <- struct{}{}
+				defer func() { <-sem }()
+
 				start := time.Now()
 				results[i].pending = w
 				results[i].res.Identity = w.identity.ID
@@ -213,26 +298,42 @@ func (r *IdentityPolicyComputer) processRequests(ctx context.Context) error {
 		wtxn := r.db.WriteTxn(r.tbl)
 		var retry []computeRequest
 		for i := range results {
-			if results[i].res.Err != nil {
+			if err := results[i].res.Err; err != nil {
 				// This error will result in the relevant endpoints failing
 				// to regenerate.
 				r.logger.Error("Policy computation failed for identity",
 					logfields.Identity, results[i].res.Identity,
-					logfields.Error, results[i].res.Err,
+					logfields.Attempt, results[i].attempt+1,
+					logfields.Error, err,
 				)
 				// Re-enqueue so a transient failure (e.g. cert fetch)
-				// doesn't leave statedb without an entry forever.
-				//
-				// Retry is unbounded with no backoff. This matches the
-				// pre-cell behavior where endpoint regeneration retried
-				// the policy computation inline. Dropping a computation
-				// would leave endpoints on a stale policy, so we always
-				// retry.
+				// doesn't leave statedb without an entry forever. Dropping a
+				// computation would leave endpoints on a stale policy, so we
+				// always retry, but with a backoff: a permanently failing
+				// identity used to spin here, burning the CPU that every
+				// other identity's computation is waiting on.
 				retry = append(retry, computeRequest{
 					identity: results[i].identity,
 					toRev:    results[i].toRev,
 					done:     make(chan struct{}),
+					attempt:  results[i].attempt + 1,
 				})
+				// With no committed policy for this identity there is nothing
+				// for a waiting endpoint to fall back on, and an absent row is
+				// indistinguishable from "not computed yet" -- so the endpoint
+				// would block until its own deadline and then report a
+				// misleading "not found in statedb". Record the failure so it
+				// surfaces the actual cause instead. Where a policy is already
+				// committed we leave it alone: the last good policy is a better
+				// answer than an error, and the retry will replace it.
+				if !results[i].found {
+					errRes := Result{Identity: results[i].identity.ID, Err: err}
+					if _, _, cerr := r.tbl.CompareAndSwap(wtxn, results[i].rev, errRes); cerr != nil {
+						r.logger.Debug("Failed to record policy computation error",
+							logfields.Identity, results[i].identity.ID,
+							logfields.Error, cerr)
+					}
+				}
 				results[i].res = Result{}
 				continue
 			}
@@ -249,15 +350,7 @@ func (r *IdentityPolicyComputer) processRequests(ctx context.Context) error {
 		}
 		wtxn.Commit()
 
-		if len(retry) > 0 {
-			r.reqsMu.Lock()
-			r.reqs = append(r.reqs, retry...)
-			r.reqsMu.Unlock()
-			select {
-			case r.trigger <- struct{}{}:
-			default:
-			}
-		}
+		r.scheduleRetries(ctx, retry)
 
 		for _, cr := range results {
 			close(cr.done)

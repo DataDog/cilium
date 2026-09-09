@@ -48,6 +48,26 @@ var (
 	errPolicyComputationNotFound      = errors.New("policy computation result not found in statedb")
 )
 
+// PolicyComputationTimeout bounds how long a single endpoint regeneration waits
+// for the policy computation cell to publish a result for the endpoint's
+// identity at the requested revision.
+//
+// The wait is not a busy loop: it blocks on the statedb watch channel for the
+// identity's row, so a generous bound costs nothing when the computation is
+// prompt. It needs to be generous because the computation cell processes
+// requests in batches on a single goroutine, and events that recompute policy
+// for *every* local identity (a named-port change, an Envoy listener change, an
+// incremental identity update that mutates a selector) queue every endpoint
+// behind one such batch. During an agent restart those events coincide with
+// restoring and regenerating every endpoint on the node, so a batch routinely
+// takes far longer than the wall-clock budget a single regeneration would
+// suggest.
+//
+// This is deliberately well under EndpointGenerationTimeout: exceeding it fails
+// the regeneration, which the endpoint-regeneration-recovery controller retries,
+// so the cost of being wrong is a delay rather than a stuck endpoint.
+var PolicyComputationTimeout = 60 * time.Second
+
 // PreviousMapState returns an empty policy.MapState with preallocated map sizes from the current one.
 func (e *Endpoint) PreviousMapState() *policy.MapState {
 	return e.desiredPolicy.GetMapState()
@@ -284,11 +304,27 @@ func (e *Endpoint) waitForPolicyComputationResult(
 ) (*compute.Result, error) {
 	wantedRevision := datapathRegenCtxt.policyRevisionToWaitFor
 
-	timeout := time.NewTimer(time.Second)
-	defer timeout.Stop()
+	// Bound the wait by both the regeneration's own context and
+	// PolicyComputationTimeout, so that a cancelled regeneration or a deleted
+	// endpoint unblocks immediately instead of burning the whole timeout.
+	parent := datapathRegenCtxt.parentContext
+	if parent == nil {
+		parent = context.Background()
+	}
+	waitCtx, cancel := context.WithTimeout(parent, PolicyComputationTimeout)
+	defer cancel()
+	start := time.Now()
 
 	for {
 		computeResult, _, watch, found := e.policyFetcher.GetIdentityPolicyByIdentity(securityIdentity)
+		// A recorded computation error carries no policy, so it must be
+		// returned before anything dereferences NewPolicy. The compute cell
+		// only records one when it has no previously committed policy to fall
+		// back on, so there is nothing better to wait for.
+		if found && computeResult.Err != nil {
+			return nil, fmt.Errorf("policy computation failed for identity %d: %w",
+				securityIdentity.ID, computeResult.Err)
+		}
 		if found && computeResult.Revision >= wantedRevision {
 			if computeResult.NewPolicy.AddHold() {
 				e.getLogger().Debug(
@@ -323,14 +359,25 @@ func (e *Endpoint) waitForPolicyComputationResult(
 		select {
 		case <-watch:
 			continue
-		case <-timeout.C:
+		case <-waitCtx.Done():
+			// Report the elapsed time rather than the timeout: waitCtx also
+			// ends when the regeneration itself is cancelled, which is not a
+			// timeout and is usually much sooner.
 			if found {
-				return nil, fmt.Errorf("%w: got rev=%d, want rev=%d",
+				return nil, fmt.Errorf("%w after %s: identity=%d got rev=%d, want rev=%d: %w",
 					errPolicyComputationStaleRevision,
+					time.Since(start).Round(time.Millisecond),
+					securityIdentity.ID,
 					computeResult.Revision,
-					wantedRevision)
+					wantedRevision,
+					waitCtx.Err())
 			}
-			return nil, errPolicyComputationNotFound
+			return nil, fmt.Errorf("%w after %s: identity=%d, want rev=%d: %w",
+				errPolicyComputationNotFound,
+				time.Since(start).Round(time.Millisecond),
+				securityIdentity.ID,
+				wantedRevision,
+				waitCtx.Err())
 		}
 	}
 }

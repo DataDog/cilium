@@ -5,6 +5,7 @@ package endpoint
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"sync"
@@ -280,6 +281,69 @@ func (f *supersedeFetcher) GetIdentityPolicyByIdentity(*identity.Identity) (comp
 		f.watch = make(chan struct{})
 	}
 	return res, 0, watch, true
+}
+
+// staticFetcher always serves the same result and never wakes the wait loop.
+type staticFetcher struct {
+	compute.PolicyRecomputer
+	res   compute.Result
+	found bool
+}
+
+func (f *staticFetcher) GetIdentityPolicyByIdentity(*identity.Identity) (compute.Result, statedb.Revision, <-chan struct{}, bool) {
+	return f.res, 0, make(chan struct{}), f.found
+}
+
+// A recorded computation error must be surfaced immediately. Waiting for the
+// full timeout would be pointless (the compute cell only records an error when
+// it has no policy to fall back on) and would report a misleading "not found".
+func TestWaitReturnsRecordedComputationError(t *testing.T) {
+	f := newPolicyTestFixture(t)
+	computeErr := errors.New("cert fetch failed")
+
+	fetcher := &staticFetcher{
+		PolicyRecomputer: f.polComputer,
+		res:              compute.Result{Identity: f.podID.ID, Err: computeErr},
+		found:            true,
+	}
+
+	ep := Endpoint{policyFetcher: fetcher, SecurityIdentity: f.podID}
+	ep.UpdateLogger(nil)
+
+	start := time.Now()
+	res, err := ep.waitForPolicyComputationResult(
+		&datapathRegenerationContext{policyRevisionToWaitFor: 1}, f.podID)
+	require.ErrorIs(t, err, computeErr)
+	require.Nil(t, res)
+	// Must not have blocked on the timeout, and must not have panicked
+	// dereferencing the absent policy.
+	require.Less(t, time.Since(start), PolicyComputationTimeout/2)
+}
+
+// The wait must end as soon as the regeneration's own context is cancelled,
+// rather than holding on for the full PolicyComputationTimeout.
+func TestWaitHonoursParentContextCancellation(t *testing.T) {
+	f := newPolicyTestFixture(t)
+
+	fetcher := &staticFetcher{PolicyRecomputer: f.polComputer}
+
+	ep := Endpoint{policyFetcher: fetcher, SecurityIdentity: f.podID}
+	ep.UpdateLogger(nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	_, err := ep.waitForPolicyComputationResult(&datapathRegenerationContext{
+		policyRevisionToWaitFor: 1,
+		parentContext:           ctx,
+	}, f.podID)
+	require.ErrorIs(t, err, errPolicyComputationNotFound)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Less(t, time.Since(start), PolicyComputationTimeout/2)
 }
 
 // waitForPolicyComputationResult must skip a superseded policy and wait for the

@@ -5,6 +5,7 @@ package compute
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -213,6 +214,48 @@ func TestBulkRecompute(t *testing.T) {
 	ws, err := computer.RecomputeIdentityPolicyForAllIdentities(3)
 	require.NoError(t, err)
 	require.NotNil(t, ws)
+}
+
+func TestRetryBackoff(t *testing.T) {
+	assert.Equal(t, retryBackoffBase, retryBackoff(0))
+	assert.Equal(t, 2*retryBackoffBase, retryBackoff(1))
+	assert.Equal(t, 4*retryBackoffBase, retryBackoff(2))
+	// Must saturate rather than overflow, however many attempts have failed.
+	assert.Equal(t, retryBackoffMax, retryBackoff(20))
+	assert.Equal(t, retryBackoffMax, retryBackoff(1000))
+	for attempt := range 1000 {
+		d := retryBackoff(attempt)
+		assert.Positive(t, d, "attempt %d", attempt)
+		assert.LessOrEqual(t, d, retryBackoffMax, "attempt %d", attempt)
+	}
+}
+
+// A recorded computation error must not satisfy a later request. The error row
+// has Revision 0, so a request with toRev 0 -- what LocalEndpointIdentityAdded
+// and the retries themselves use -- would otherwise be skipped by the
+// already-computed pre-check and the identity would stay failed forever.
+func TestErrorRowDoesNotSatisfyRequest(t *testing.T) {
+	testutils.GoleakVerifyNone(t, testutils.GoleakIgnoreCurrent())
+
+	db, table, computer, idmgr := fixture(t)
+
+	targetID := identity.NumericIdentity(42)
+	id := identity.NewIdentity(targetID, labels.Labels{})
+	idmgr.Add(id)
+
+	wtxn := db.WriteTxn(table)
+	_, _, err := table.Insert(wtxn, Result{Identity: targetID, Err: errors.New("boom")})
+	require.NoError(t, err)
+	wtxn.Commit()
+
+	done, err := computer.RecomputeIdentityPolicy(id, 0)
+	require.NoError(t, err)
+	<-done
+
+	obj, _, _, found := computer.GetIdentityPolicyByNumericIdentity(targetID)
+	require.True(t, found)
+	assert.NoError(t, obj.Err, "error row must be replaced by a real computation")
+	assert.NotNil(t, obj.NewPolicy)
 }
 
 func fixture(t *testing.T) (*statedb.DB, statedb.RWTable[Result], PolicyRecomputer, identitymanager.IDManager) {
