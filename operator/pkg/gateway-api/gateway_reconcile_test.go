@@ -30,11 +30,12 @@ import (
 
 	"github.com/cilium/cilium/operator/pkg/gateway-api/helpers"
 	"github.com/cilium/cilium/operator/pkg/gateway-api/indexers"
-	"github.com/cilium/cilium/operator/pkg/model/ingestion"
+	"github.com/cilium/cilium/operator/pkg/gateway-api/loading"
 	"github.com/cilium/cilium/operator/pkg/model/translation"
 	gatewayApiTranslation "github.com/cilium/cilium/operator/pkg/model/translation/gateway-api"
 	ciliumv2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 	"github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2alpha1"
+	slim_meta_v1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/apis/meta/v1"
 	"github.com/cilium/cilium/pkg/shortener"
 )
 
@@ -109,6 +110,7 @@ func Test_Conformance(t *testing.T) {
 		skipCEC              bool
 		wantErr              bool
 		hostNetwork          bool
+		nodeLabelSelector    metav1.LabelSelector
 	}{
 		{
 			name: "gateway-http-listener-isolation",
@@ -124,7 +126,7 @@ func Test_Conformance(t *testing.T) {
 		{
 			name: "gateway-invalid-parameters-ref",
 			gateway: []gwDetails{
-				{FullName: types.NamespacedName{Name: "gateway-invalid-parameters-ref", Namespace: "gateway-conformance-infra"}, wantErr: true},
+				{FullName: types.NamespacedName{Name: "gateway-invalid-parameters-ref", Namespace: "gateway-conformance-infra"}, skipCEC: true},
 			},
 		},
 		{
@@ -190,7 +192,7 @@ func Test_Conformance(t *testing.T) {
 		{
 			name: "gateway-static-addresses",
 			gateway: []gwDetails{
-				{FullName: types.NamespacedName{Name: "gateway-static-addresses-invalid", Namespace: "gateway-conformance-infra"}, wantErr: true},
+				{FullName: types.NamespacedName{Name: "gateway-static-addresses-invalid", Namespace: "gateway-conformance-infra"}, skipCEC: true},
 			},
 		},
 		{
@@ -334,12 +336,18 @@ func Test_Conformance(t *testing.T) {
 		{name: "gateway-cross-protocol-same-port-same-hostname", gateway: []gwDetails{{FullName: types.NamespacedName{Name: "cross-protocol-same-port-same-hostname", Namespace: "gateway-conformance-infra"}, wantErr: true}}},
 		{name: "gateway-ns-restricted-same-hostname", gateway: []gwDetails{{FullName: types.NamespacedName{Name: "ns-restricted-same-hostname", Namespace: "gateway-conformance-infra"}}}},
 		{name: "gatewayclassconfig-nodeport", gateway: []gwDetails{{FullName: types.NamespacedName{Name: "nodeport-gateway", Namespace: "gateway-conformance-infra"}}}},
+		// hostNetwork mode tests
 		{name: "hostNetwork-enabled-valid", gateway: []gwDetails{{FullName: types.NamespacedName{Name: "hostnetwork-enabled", Namespace: "gateway-conformance-infra"}}}, hostNetwork: true},
 		{name: "hostNetwork-enabled-exceed-max-address", gateway: []gwDetails{{FullName: types.NamespacedName{Name: "hostnetwork-enabled", Namespace: "gateway-conformance-infra"}}}, hostNetwork: true},
 		{name: "hostNetwork-enabled-no-l4-listeners", gateway: []gwDetails{{FullName: types.NamespacedName{Name: "host-networking", Namespace: "gateway-conformance-infra"}}}, hostNetwork: true},
 		{name: "hostNetwork-enabled-mixed-routes", gateway: []gwDetails{{FullName: types.NamespacedName{Name: "host-networking", Namespace: "gateway-conformance-infra"}}}, hostNetwork: true},
 		{name: "hostNetwork-enabled-tcp-route", gateway: []gwDetails{{FullName: types.NamespacedName{Name: "host-networking", Namespace: "gateway-conformance-infra"}, wantErr: true, skipCEC: true}}, hostNetwork: true},
 		{name: "hostNetwork-enabled-udp-route", gateway: []gwDetails{{FullName: types.NamespacedName{Name: "host-networking", Namespace: "gateway-conformance-infra"}, wantErr: true, skipCEC: true}}, hostNetwork: true},
+		{name: "hostNetwork-enabled-nodelabel", gateway: []gwDetails{{FullName: types.NamespacedName{Name: "hostnetwork-enabled-nodeselector", Namespace: "gateway-conformance-infra"}, wantErr: false, skipCEC: true}}, hostNetwork: true,
+			nodeLabelSelector: metav1.LabelSelector{MatchLabels: map[string]string{
+				"role": "gateway",
+			}}},
+
 		// ListenerSet tests
 		{name: "listenerset-default-not-allowed", gateway: []gwDetails{
 			{FullName: types.NamespacedName{Name: "default-not-allowed", Namespace: "gateway-conformance-infra"}},
@@ -439,6 +447,7 @@ func Test_Conformance(t *testing.T) {
 			clientBuilder.WithIndex(&gatewayv1.TLSRoute{}, indexers.TLSRouteListenerSetIndex, indexers.IndexTLSRouteByListenerSet)
 
 			c := clientBuilder.Build()
+			nodeLabel := &slim_meta_v1.LabelSelector{MatchLabels: tt.nodeLabelSelector.MatchLabels}
 			gatewayAPITranslator := gatewayApiTranslation.NewTranslator(cecTranslator, translation.Config{
 				ServiceConfig: translation.ServiceConfig{
 					ExternalTrafficPolicy: string(corev1.ServiceExternalTrafficPolicyCluster),
@@ -447,16 +456,39 @@ func Test_Conformance(t *testing.T) {
 					UseRemoteAddress: true,
 				},
 				HostNetworkConfig: translation.HostNetworkConfig{
-					Enabled: tt.hostNetwork,
+					Enabled:           tt.hostNetwork,
+					NodeLabelSelector: nodeLabel,
 				},
 			})
 
 			r := &gatewayReconciler{
-				Client:             c,
-				translator:         gatewayAPITranslator,
-				logger:             logger,
-				controllerName:     defaultControllerName,
-				hostNetworkEnabled: tt.hostNetwork,
+				client:     c,
+				scheme:     c.Scheme(),
+				translator: gatewayAPITranslator,
+				inputLoader: loading.NewTranslationInputLoader(c, logger, defaultControllerName, loading.TranslationInputLoaderConfig{
+					IncludeTCPRoutes:      !tt.disableTCPRoute,
+					IncludeUDPRoutes:      !tt.disableUDPRoute,
+					IncludeServiceImports: helpers.HasServiceImportSupport(c.Scheme()),
+					IncludeListenerSets:   helpers.HasListenerSetSupport(c.Scheme()),
+				}),
+				gatewayAddressStatusManager: NewGatewayAddressStatusManager(c, logger, tt.nodeLabelSelector),
+				listenerStatusManager: NewListenerStatusManager(c, logger, ListenerStatusManagerConfig{
+					TCPUDPRouteSupport:      !tt.hostNetwork,
+					TCPUDPUnsupportedReason: hostNetworkTCPUDPRouteUnsupportedReason,
+				}),
+				routeStatusManager: NewRouteStatusManager(c, logger, defaultControllerName, RouteStatusManagerConfig{
+					IncludeTCPRoutes:        !tt.disableTCPRoute,
+					IncludeUDPRoutes:        !tt.disableUDPRoute,
+					TCPUDPRouteSupport:      !tt.hostNetwork,
+					TCPUDPUnsupportedReason: hostNetworkTCPUDPRouteUnsupportedReason,
+				}),
+				backendTLSPolicyStatusManager: NewBackendTLSPolicyStatusManager(c, defaultControllerName),
+				logger:                        logger,
+				controllerName:                defaultControllerName,
+				tcpUDPRouteSupport:            !tt.hostNetwork,
+				tcpUDPUnsupportedReason:       hostNetworkTCPUDPRouteUnsupportedReason,
+				hostNetworkEnabled:            tt.hostNetwork,
+				hostNetworkLabel:              tt.nodeLabelSelector,
 			}
 
 			// Reconcile all related HTTPRoute objects
@@ -807,7 +839,19 @@ func Test_gatewayReconciler_Reconcile_cleansUpResourcesOnHandoff(t *testing.T) {
 				Build()
 
 			r := &gatewayReconciler{
-				Client:         c,
+				client: c,
+				scheme: c.Scheme(),
+				inputLoader: loading.NewTranslationInputLoader(c, hivetest.Logger(t, hivetest.LogLevel(slog.LevelDebug)), defaultControllerName, loading.TranslationInputLoaderConfig{
+					IncludeTCPRoutes:      helpers.HasTCPRouteSupport(c.Scheme()),
+					IncludeUDPRoutes:      helpers.HasUDPRouteSupport(c.Scheme()),
+					IncludeServiceImports: helpers.HasServiceImportSupport(c.Scheme()),
+					IncludeListenerSets:   helpers.HasListenerSetSupport(c.Scheme()),
+				}),
+				gatewayAddressStatusManager: NewGatewayAddressStatusManager(c, hivetest.Logger(t, hivetest.LogLevel(slog.LevelDebug))),
+				listenerStatusManager: NewListenerStatusManager(c, hivetest.Logger(t, hivetest.LogLevel(slog.LevelDebug)), ListenerStatusManagerConfig{
+					TCPUDPRouteSupport:      true,
+					TCPUDPUnsupportedReason: hostNetworkTCPUDPRouteUnsupportedReason,
+				}),
 				logger:         hivetest.Logger(t, hivetest.LogLevel(slog.LevelDebug)),
 				controllerName: defaultControllerName,
 			}
@@ -872,7 +916,7 @@ func Test_gatewayReconciler_ensureEnvoyConfig_deletesStaleCEC(t *testing.T) {
 			WithObjects(gw, ownedCEC()).
 			Build()
 		r := &gatewayReconciler{
-			Client: c,
+			client: c,
 			logger: hivetest.Logger(t, hivetest.LogLevel(slog.LevelDebug)),
 		}
 
@@ -891,7 +935,7 @@ func Test_gatewayReconciler_ensureEnvoyConfig_deletesStaleCEC(t *testing.T) {
 			WithObjects(gw, foreign).
 			Build()
 		r := &gatewayReconciler{
-			Client: c,
+			client: c,
 			logger: hivetest.Logger(t, hivetest.LogLevel(slog.LevelDebug)),
 		}
 
@@ -906,7 +950,7 @@ func Test_gatewayReconciler_ensureEnvoyConfig_deletesStaleCEC(t *testing.T) {
 			WithObjects(gw).
 			Build()
 		r := &gatewayReconciler{
-			Client: c,
+			client: c,
 			logger: hivetest.Logger(t, hivetest.LogLevel(slog.LevelDebug)),
 		}
 
@@ -1046,26 +1090,26 @@ func Test_gatewayReconciler_setListenerStatus(t *testing.T) {
 			}
 
 			r := &gatewayReconciler{
-				Client: fake.NewClientBuilder().
-					WithScheme(helpers.TestScheme(helpers.AllOptionalKinds)).
-					Build(),
+				client: func() client.WithWatch {
+					return fake.NewClientBuilder().
+						WithScheme(helpers.TestScheme(helpers.AllOptionalKinds)).
+						Build()
+				}(),
 			}
-			listenerContexts := make([]ingestion.ListenerWithContext, 0, len(gw.Spec.Listeners))
-			for _, listener := range gw.Spec.Listeners {
-				listenerContexts = append(listenerContexts, ingestion.ListenerWithContext{
-					Listener: listener,
-					Source:   gatewayFQR(gw),
-				})
-			}
-			gotStatus, err := r.setListenerStatus(
+			r.listenerStatusManager = NewListenerStatusManager(r.client, hivetest.Logger(t, hivetest.LogLevel(slog.LevelDebug)), ListenerStatusManagerConfig{
+				TCPUDPRouteSupport:      true,
+				TCPUDPUnsupportedReason: hostNetworkTCPUDPRouteUnsupportedReason,
+			})
+			gotStatus, err := r.listenerStatusManager.setGatewayListenerStatus(
 				t.Context(),
 				gw,
-				conflictsAcrossSources(listenerContexts),
-				&gatewayv1.HTTPRouteList{},
-				&gatewayv1.TLSRouteList{},
-				&gatewayv1.GRPCRouteList{},
-				&gatewayv1.TCPRouteList{},
-				&gatewayv1.UDPRouteList{},
+				nil,
+				nil,
+				nil,
+				nil,
+				nil,
+				nil,
+				nil,
 				helpers.NewNamespaceLabelIndex(nil),
 			)
 			require.NoError(t, err)
@@ -1078,6 +1122,66 @@ func Test_gatewayReconciler_setListenerStatus(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_gatewayReconciler_setAddressStatus_updatesAcceptedListenerProgrammedCondition(t *testing.T) {
+	gw := &gatewayv1.Gateway{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "gateway",
+			Namespace:  "gateway-conformance-infra",
+			Generation: 7,
+		},
+		Status: gatewayv1.GatewayStatus{
+			Listeners: []gatewayv1.ListenerStatus{
+				{
+					Name: "http",
+					Conditions: []metav1.Condition{
+						{
+							Type:               string(gatewayv1.ListenerConditionAccepted),
+							Status:             metav1.ConditionTrue,
+							Reason:             string(gatewayv1.ListenerReasonAccepted),
+							ObservedGeneration: 7,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "gateway-service",
+			Namespace: gw.Namespace,
+			Labels: map[string]string{
+				owningGatewayLabel: shortener.ShortenK8sResourceName(gw.Name),
+			},
+		},
+		Spec: corev1.ServiceSpec{
+			Type: corev1.ServiceTypeLoadBalancer,
+		},
+		Status: corev1.ServiceStatus{
+			LoadBalancer: corev1.LoadBalancerStatus{
+				Ingress: []corev1.LoadBalancerIngress{
+					{IP: "192.0.2.10"},
+				},
+			},
+		},
+	}
+
+	c := fake.NewClientBuilder().
+		WithScheme(helpers.TestScheme(helpers.AllOptionalKinds)).
+		WithObjects(svc).
+		Build()
+
+	require.NoError(t, NewGatewayAddressStatusManager(c, hivetest.Logger(t, hivetest.LogLevel(slog.LevelDebug))).SetAddressStatus(t.Context(), gw))
+
+	require.Len(t, gw.Status.Addresses, 1)
+	require.Equal(t, "192.0.2.10", gw.Status.Addresses[0].Value)
+
+	programmed := listenerStatusCondition(t, gw.Status.Listeners, "http", string(gatewayv1.ListenerConditionProgrammed))
+	require.Equal(t, metav1.ConditionTrue, programmed.Status)
+	require.Equal(t, string(gatewayv1.ListenerReasonProgrammed), programmed.Reason)
+	require.Equal(t, int64(7), programmed.ObservedGeneration)
 }
 
 func listenerStatusCondition(t *testing.T, listeners []gatewayv1.ListenerStatus, name gatewayv1.SectionName, conditionType string) metav1.Condition {
@@ -1129,165 +1233,6 @@ func filterGRPCRoute(hrList *gatewayv1.GRPCRouteList, gatewayName string, namesp
 		}
 	}
 	return filterList
-}
-
-func Test_sectionNameMatched(t *testing.T) {
-	httpListener := &gatewayv1.Listener{
-		Name:     "http",
-		Port:     80,
-		Hostname: ptr.To[gatewayv1.Hostname]("*.cilium.io"),
-		Protocol: "HTTP",
-	}
-	httpNoMatchListener := &gatewayv1.Listener{
-		Name:     "http-no-match",
-		Port:     8080,
-		Hostname: ptr.To[gatewayv1.Hostname]("*.cilium.io"),
-		Protocol: "HTTP",
-	}
-	gw := &gatewayv1.Gateway{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Gateway",
-			APIVersion: gatewayv1.GroupName,
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "valid-gateway",
-			Namespace: "default",
-		},
-		Spec: gatewayv1.GatewaySpec{
-			GatewayClassName: "cilium",
-			Listeners: []gatewayv1.Listener{
-				*httpListener,
-				*httpNoMatchListener,
-			},
-		},
-	}
-	type args struct {
-		routeNamespace string
-		listener       *gatewayv1.Listener
-		refs           []gatewayv1.ParentReference
-	}
-	tests := []struct {
-		name string
-		args args
-		want bool
-	}{
-		{
-			name: "Matching Section name",
-			args: args{
-				listener: httpListener,
-				refs: []gatewayv1.ParentReference{
-					{
-						Kind:        (*gatewayv1.Kind)(ptr.To("Gateway")),
-						Name:        "valid-gateway",
-						SectionName: (*gatewayv1.SectionName)(ptr.To("http")),
-					},
-				},
-			},
-			want: true,
-		},
-		{
-			name: "Not matching Section name",
-			args: args{
-				listener: httpNoMatchListener,
-				refs: []gatewayv1.ParentReference{
-					{
-						Kind:        (*gatewayv1.Kind)(ptr.To("Gateway")),
-						Name:        "valid-gateway",
-						SectionName: (*gatewayv1.SectionName)(ptr.To("http")),
-					},
-				},
-			},
-			want: false,
-		},
-		{
-			name: "Matching Port number",
-			args: args{
-				listener: httpListener,
-				refs: []gatewayv1.ParentReference{
-					{
-						Kind: (*gatewayv1.Kind)(ptr.To("Gateway")),
-						Name: "valid-gateway",
-						Port: (*gatewayv1.PortNumber)(ptr.To[int32](80)),
-					},
-				},
-			},
-			want: true,
-		},
-		{
-			name: "No matching Port number",
-			args: args{
-				listener: httpNoMatchListener,
-				refs: []gatewayv1.ParentReference{
-					{
-						Kind: (*gatewayv1.Kind)(ptr.To("Gateway")),
-						Name: "valid-gateway",
-						Port: (*gatewayv1.PortNumber)(ptr.To[int32](80)),
-					},
-				},
-			},
-			want: false,
-		},
-		{
-			name: "Matching both Section name and Port number",
-			args: args{
-				listener: httpListener,
-				refs: []gatewayv1.ParentReference{
-					{
-						Kind:        (*gatewayv1.Kind)(ptr.To("Gateway")),
-						Name:        "valid-gateway",
-						SectionName: (*gatewayv1.SectionName)(ptr.To("http")),
-						Port:        (*gatewayv1.PortNumber)(ptr.To[int32](80)),
-					},
-				},
-			},
-			want: true,
-		},
-		{
-			name: "Matching any listener (httpListener)",
-			args: args{
-				listener: httpListener,
-				refs: []gatewayv1.ParentReference{
-					{
-						Kind: (*gatewayv1.Kind)(ptr.To("Gateway")),
-						Name: "valid-gateway",
-					},
-				},
-			},
-			want: true,
-		},
-		{
-			name: "Matching any listener (httpNoMatchListener)",
-			args: args{
-				listener: httpNoMatchListener,
-				refs: []gatewayv1.ParentReference{
-					{
-						Kind: (*gatewayv1.Kind)(ptr.To("Gateway")),
-						Name: "valid-gateway",
-					},
-				},
-			},
-			want: true,
-		},
-		{
-			name: "GAMMA Service with same name as Gateway should not match",
-			args: args{
-				listener: httpListener,
-				refs: []gatewayv1.ParentReference{
-					{
-						Kind:  (*gatewayv1.Kind)(ptr.To("Service")),
-						Group: (*gatewayv1.Group)(ptr.To("")),
-						Name:  "valid-gateway",
-					},
-				},
-			},
-			want: false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equalf(t, tt.want, parentRefMatched(gw, tt.args.listener, nil, "default", tt.args.refs), "parentRefMatched(%v, %v, %v, %v)", gw, tt.args.listener, tt.args.routeNamespace, tt.args.refs)
-		})
-	}
 }
 
 // fakeIndexHTTPRouteByBackendService is a client.IndexerFunc that takes a single HTTPRoute and
@@ -1349,9 +1294,23 @@ func testReconciler(t *testing.T, obj ...client.Object) (*gatewayReconciler, cli
 		Build()
 
 	reconciler := &gatewayReconciler{
-		Client:         fakeClient,
-		logger:         logger,
-		controllerName: defaultControllerName,
+		client:                      fakeClient,
+		logger:                      logger,
+		controllerName:              defaultControllerName,
+		tcpUDPRouteSupport:          true,
+		tcpUDPUnsupportedReason:     hostNetworkTCPUDPRouteUnsupportedReason,
+		gatewayAddressStatusManager: NewGatewayAddressStatusManager(fakeClient, logger),
+		listenerStatusManager: NewListenerStatusManager(fakeClient, logger, ListenerStatusManagerConfig{
+			TCPUDPRouteSupport:      true,
+			TCPUDPUnsupportedReason: hostNetworkTCPUDPRouteUnsupportedReason,
+		}),
+		routeStatusManager: NewRouteStatusManager(fakeClient, logger, defaultControllerName, RouteStatusManagerConfig{
+			IncludeTCPRoutes:        true,
+			IncludeUDPRoutes:        true,
+			TCPUDPRouteSupport:      true,
+			TCPUDPUnsupportedReason: hostNetworkTCPUDPRouteUnsupportedReason,
+		}),
+		backendTLSPolicyStatusManager: NewBackendTLSPolicyStatusManager(fakeClient, defaultControllerName),
 	}
 
 	return reconciler, fakeClient
@@ -1441,7 +1400,7 @@ func TestGatewayReconciler_statuses(t *testing.T) {
 
 		hrList := &gatewayv1.HTTPRouteList{}
 		require.NoError(t, c.List(ctx, hrList))
-		require.NoError(t, r.setHTTPRouteStatuses(r.logger, ctx, hrList, &gatewayv1.ReferenceGrantList{}))
+		require.NoError(t, r.routeStatusManager.setHTTPRouteStatuses(ctx, r.logger, hrList.Items, nil))
 
 		var updatedValidRoute, updatedInvalidRoute gatewayv1.HTTPRoute
 		require.NoError(t, c.Get(ctx, types.NamespacedName{Name: validRoute.Name, Namespace: validRoute.Namespace}, &updatedValidRoute))
@@ -1509,7 +1468,7 @@ func TestGatewayReconciler_statuses(t *testing.T) {
 
 		hrList := &gatewayv1.GRPCRouteList{}
 		require.NoError(t, c.List(ctx, hrList))
-		require.NoError(t, r.setGRPCRouteStatuses(r.logger, ctx, hrList, &gatewayv1.ReferenceGrantList{}))
+		require.NoError(t, r.routeStatusManager.setGRPCRouteStatuses(ctx, r.logger, hrList.Items, nil))
 
 		var updatedValidRoute, updatedInvalidRoute gatewayv1.GRPCRoute
 		require.NoError(t, c.Get(ctx, types.NamespacedName{Name: validRoute.Name, Namespace: validRoute.Namespace}, &updatedValidRoute))
@@ -1529,4 +1488,119 @@ func TestGatewayReconciler_statuses(t *testing.T) {
 		assert.NotNil(t, invalidAcceptedCond)
 		assert.Equal(t, metav1.ConditionFalse, invalidAcceptedCond.Status)
 	})
+}
+
+func Test_gatewayAddressStatusManager_SetStaticAddressStatus(t *testing.T) {
+	t.Parallel()
+
+	gateway := func(addr string) *gatewayv1.Gateway {
+		return &gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "static-address-gateway",
+				Namespace: "default",
+			},
+			Spec: gatewayv1.GatewaySpec{
+				Addresses: []gatewayv1.GatewaySpecAddress{
+					{
+						Type:  ptr.To(gatewayv1.IPAddressType),
+						Value: addr,
+					},
+				},
+			},
+		}
+	}
+
+	service := func(ingress ...corev1.LoadBalancerIngress) *corev1.Service {
+		return &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "cilium-gateway-static-address-gateway",
+				Namespace: "default",
+				Labels: map[string]string{
+					owningGatewayLabel: shortener.ShortenK8sResourceName("static-address-gateway"),
+				},
+			},
+			Status: corev1.ServiceStatus{
+				LoadBalancer: corev1.LoadBalancerStatus{
+					Ingress: ingress,
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		name                string
+		specAddr            string
+		ingress             []corev1.LoadBalancerIngress
+		wantProgrammedFalse bool
+	}{
+		{
+			name:     "IPv6 spelled with :: matches the canonical status address",
+			specAddr: "2001:db8:1:2:3:4::6",
+			ingress:  []corev1.LoadBalancerIngress{{IP: "2001:db8:1:2:3:4:0:6"}},
+		},
+		{
+			name:     "IPv6 with leading zeroes matches the canonical status address",
+			specAddr: "2001:0db8::0001",
+			ingress:  []corev1.LoadBalancerIngress{{IP: "2001:db8::1"}},
+		},
+		{
+			name:     "identical IPv4 addresses match",
+			specAddr: "10.0.0.1",
+			ingress:  []corev1.LoadBalancerIngress{{IP: "10.0.0.1"}},
+		},
+		{
+			name:     "hostname entry is ignored when a matching IP is present",
+			specAddr: "2001:db8::1",
+			ingress: []corev1.LoadBalancerIngress{
+				{Hostname: "gateway.example.com"},
+				{IP: "2001:db8::1"},
+			},
+		},
+		{
+			name:                "a different address is reflected in status",
+			specAddr:            "2001:db8::1",
+			ingress:             []corev1.LoadBalancerIngress{{IP: "2001:db8::2"}},
+			wantProgrammedFalse: true,
+		},
+		{
+			name:                "hostname-only ingress is reflected in status",
+			specAddr:            "2001:db8::1",
+			ingress:             []corev1.LoadBalancerIngress{{Hostname: "gateway.example.com"}},
+			wantProgrammedFalse: true,
+		},
+		{
+			name:                "invalid ingress IP is reflected in status",
+			specAddr:            "2001:db8::1",
+			ingress:             []corev1.LoadBalancerIngress{{IP: "not-an-ip"}},
+			wantProgrammedFalse: true,
+		},
+		{
+			name:                "invalid Gateway spec address is reflected in status",
+			specAddr:            "not-an-ip",
+			ingress:             []corev1.LoadBalancerIngress{{IP: "2001:db8::1"}},
+			wantProgrammedFalse: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gw := gateway(tc.specAddr)
+			setGatewayProgrammed(gw, metav1.ConditionTrue, "Gateway Programmed", gatewayv1.GatewayReasonProgrammed)
+			c := fake.NewClientBuilder().
+				WithScheme(helpers.TestScheme(helpers.AllOptionalKinds)).
+				WithObjects(gw, service(tc.ingress...)).
+				Build()
+			err := NewGatewayAddressStatusManager(c, hivetest.Logger(t, hivetest.LogLevel(slog.LevelDebug))).SetStaticAddressStatus(t.Context(), gw)
+			require.NoError(t, err)
+			programmed := meta.FindStatusCondition(gw.Status.Conditions, string(gatewayv1.GatewayConditionProgrammed))
+			require.NotNil(t, programmed)
+			if tc.wantProgrammedFalse {
+				require.Equal(t, metav1.ConditionFalse, programmed.Status)
+				require.Equal(t, string(gatewayv1.GatewayReasonAddressNotUsable), programmed.Reason)
+				require.Contains(t, programmed.Message, "can't be used")
+				return
+			}
+			require.Equal(t, metav1.ConditionTrue, programmed.Status)
+		})
+	}
 }

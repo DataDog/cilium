@@ -39,7 +39,7 @@ bool timeout_in(const struct ct_entry *entry, int seconds)
 	return entry->lifetime == __now + seconds;
 }
 
-CHECK("tc", "conntrack")
+CHECK(PROG_TYPE, "conntrack")
 int bpf_test(__maybe_unused struct __sk_buff *sctx)
 {
 	test_init();
@@ -207,10 +207,38 @@ int bpf_test(__maybe_unused struct __sk_buff *sctx)
 		assert(monitor == TRACE_PAYLOAD_LEN);
 	});
 
+	TEST("ct_has_nodeport_egress_entry", {
+		struct ct_entry entry = {};
+		__u16 rev_nat_index = 0;
+
+		entry.node_port = 1;
+		entry.rev_nat_index = 42;
+
+		/* An alive NodePort entry drives reverse-NAT. */
+		assert(__ct_has_nodeport_egress_entry(&entry, &rev_nat_index, false));
+		assert(rev_nat_index == 42);
+
+		/* Once both directions have seen a closing packet, the connection
+		 * is fully closed. Its egress tuple can now be reused by an
+		 * unrelated flow, so it must no longer be treated as a NodePort
+		 * egress entry.
+		 */
+		rev_nat_index = 0;
+		entry.rx_closing = 1;
+		entry.tx_closing = 1;
+		assert(!__ct_has_nodeport_egress_entry(&entry, &rev_nat_index, false));
+		assert(rev_nat_index == 0);
+
+		/* Closing in only one direction doesn't terminate the connection. */
+		entry.tx_closing = 0;
+		assert(__ct_has_nodeport_egress_entry(&entry, &rev_nat_index, false));
+		assert(rev_nat_index == 42);
+	});
+
 	test_finish();
 }
 
-CHECK("tc", "conntrack_svc")
+CHECK(PROG_TYPE, "conntrack_svc")
 int svc_test(__maybe_unused struct __sk_buff *sctx)
 {
 	test_init();

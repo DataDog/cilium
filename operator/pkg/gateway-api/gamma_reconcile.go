@@ -45,12 +45,11 @@ func (r *gammaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	// Step 1: Retrieve the Service
 	originalSvc := &corev1.Service{}
 
-	if err := r.Client.Get(ctx, req.NamespacedName, originalSvc, &client.GetOptions{}); err != nil {
+	if err := r.client.Get(ctx, req.NamespacedName, originalSvc, &client.GetOptions{}); err != nil {
 		if k8serrors.IsNotFound(err) {
 			return controllerruntime.Success()
 		}
-		scopedLog.ErrorContext(ctx, "Unable to get Service for GAMMA checks", logfields.Error, err)
-		return controllerruntime.Fail(err)
+		return controllerruntime.Fail(fmt.Errorf("failed to get Service for GAMMA checks: %w", err))
 	}
 
 	// Ignore deleting Service, this can happen when foregroundDeletion is enabled
@@ -67,11 +66,10 @@ func (r *gammaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	// Step 2: Gather all required information for the ingestion model
 
 	httpRouteList := &gatewayv1.HTTPRouteList{}
-	if err := r.Client.List(ctx, httpRouteList, &client.ListOptions{
+	if err := r.client.List(ctx, httpRouteList, &client.ListOptions{
 		FieldSelector: fields.OneTermEqualSelector(indexers.GammaHTTPRouteParentRefsIndex, client.ObjectKeyFromObject(svc).String()),
 	}); err != nil {
-		scopedLog.ErrorContext(ctx, "Unable to list HTTPRoutes", logfields.Error, err)
-		return controllerruntime.Fail(err)
+		return controllerruntime.Fail(fmt.Errorf("failed to list HTTPRoutes: %w", err))
 	}
 
 	if len(httpRouteList.Items) != 0 {
@@ -80,11 +78,10 @@ func (r *gammaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 
 	grpcRouteList := &gatewayv1.GRPCRouteList{}
-	if err := r.Client.List(ctx, grpcRouteList, &client.ListOptions{
+	if err := r.client.List(ctx, grpcRouteList, &client.ListOptions{
 		FieldSelector: fields.OneTermEqualSelector(indexers.GammaGRPCRouteParentRefsIndex, client.ObjectKeyFromObject(svc).String()),
 	}); err != nil {
-		scopedLog.ErrorContext(ctx, "Unable to list GRPCRoutes", logfields.Error, err)
-		return controllerruntime.Fail(err)
+		return controllerruntime.Fail(fmt.Errorf("failed to list GRPCRoutes: %w", err))
 	}
 
 	if len(grpcRouteList.Items) != 0 {
@@ -100,31 +97,27 @@ func (r *gammaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	// TODO(tam): Only list the services / ServiceImports used by accepted Routes
 	servicesList := &corev1.ServiceList{}
-	if err := r.Client.List(ctx, servicesList); err != nil {
-		scopedLog.ErrorContext(ctx, "Unable to list Services", logfields.Error, err)
-		return controllerruntime.Fail(err)
+	if err := r.client.List(ctx, servicesList); err != nil {
+		return controllerruntime.Fail(fmt.Errorf("failed to list Services: %w", err))
 	}
 
 	grants := &gatewayv1.ReferenceGrantList{}
-	if err := r.Client.List(ctx, grants); err != nil {
-		scopedLog.ErrorContext(ctx, "Unable to list ReferenceGrants", logfields.Error, err)
-		return controllerruntime.Fail(err)
+	if err := r.client.List(ctx, grants); err != nil {
+		return controllerruntime.Fail(fmt.Errorf("failed to list ReferenceGrants: %w", err))
 	}
 
 	// Run the HTTPRoute route checks here and update the status accordingly.
 	if err := r.setHTTPRouteStatuses(scopedLog, ctx, originalSvc, httpRouteList, grants); err != nil {
-		scopedLog.ErrorContext(ctx, "Unable to update HTTPRoute Status", logfields.Error, err)
-		return controllerruntime.Fail(err)
+		return controllerruntime.Fail(fmt.Errorf("failed to update HTTPRoute status: %w", err))
 	}
 
 	// Run the GRPCRoute route checks here and update the status accordingly.
 	if err := r.setGRPCRouteStatuses(scopedLog, ctx, originalSvc, grpcRouteList, grants); err != nil {
-		scopedLog.ErrorContext(ctx, "Unable to update GRPCRoute Status", logfields.Error, err)
-		return controllerruntime.Fail(err)
+		return controllerruntime.Fail(fmt.Errorf("failed to update GRPCRoute status: %w", err))
 	}
 
-	httpRoutes := r.filterHTTPRoutesByService(ctx, originalSvc, httpRouteList.Items)
-	grpcRoutes := r.filterGRPCRoutesByService(ctx, originalSvc, grpcRouteList.Items)
+	httpRoutes := r.filterHTTPRoutesByService(originalSvc, httpRouteList.Items)
+	grpcRoutes := r.filterGRPCRoutesByService(originalSvc, grpcRouteList.Items)
 
 	// TODO(youngnick): GammaHTTPRoutes needs to be updated now that we have a source Service.
 	httpListeners := ingestion.GammaHTTPRoutes(r.logger, ingestion.GammaInput{
@@ -139,21 +132,18 @@ func (r *gammaReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	cec, _, ceps, err := r.translator.Translate(&model.Model{HTTP: httpListeners})
 	if err != nil {
-		scopedLog.ErrorContext(ctx, "Unable to translate resources", logfields.Error, err)
-		return r.handleReconcileErrorWithStatus(ctx, err, originalSvc, svc)
+		return r.handleReconcileErrorWithStatus(ctx, fmt.Errorf("failed to translate resources: %w", err), originalSvc, svc)
 	}
 
 	if err = r.ensureEnvoyConfig(ctx, cec); err != nil {
-		scopedLog.ErrorContext(ctx, "Unable to ensure CiliumEnvoyConfig", logfields.Error, err)
-		return r.handleReconcileErrorWithStatus(ctx, err, originalSvc, svc)
+		return r.handleReconcileErrorWithStatus(ctx, fmt.Errorf("failed to ensure CiliumEnvoyConfig: %w", err), originalSvc, svc)
 	}
 
 	// GAMMA only ever produces a single dummy EndpointSlice; unwrap from the
 	// shared Translator interface that returns a list to support gateway-api L4.
 	if len(ceps) > 0 {
 		if err = r.ensureEndpointSlice(ctx, ceps[0]); err != nil {
-			scopedLog.ErrorContext(ctx, "Unable to ensure Endpoints", logfields.Error, err)
-			return r.handleReconcileErrorWithStatus(ctx, err, originalSvc, svc)
+			return r.handleReconcileErrorWithStatus(ctx, fmt.Errorf("failed to ensure Endpoints: %w", err), originalSvc, svc)
 		}
 	}
 
@@ -181,8 +171,8 @@ func (r *gammaReconciler) setHTTPRouteStatuses(gammaLogger *slog.Logger, ctx con
 		i := &routechecks.HTTPRouteInput{
 			Ctx:            ctx,
 			Logger:         gammaLogger.With(httpRoute, hrName),
-			Client:         r.Client,
-			Grants:         grants,
+			Client:         r.client,
+			Grants:         grants.Items,
 			HTTPRoute:      hr,
 			ControllerName: r.controllerName,
 		}
@@ -256,20 +246,20 @@ func (r *gammaReconciler) setHTTPRouteStatuses(gammaLogger *slog.Logger, ctx con
 	return nil
 }
 
-func (r *gammaReconciler) filterHTTPRoutesByService(ctx context.Context, gammaService *corev1.Service, routes []gatewayv1.HTTPRoute) []gatewayv1.HTTPRoute {
+func (r *gammaReconciler) filterHTTPRoutesByService(gammaService *corev1.Service, routes []gatewayv1.HTTPRoute) []gatewayv1.HTTPRoute {
 	var filtered []gatewayv1.HTTPRoute
 	for _, route := range routes {
-		if helpers.IsParentAttachable(ctx, gammaService, &route, route.Status.Parents, nil) {
+		if helpers.IsParentAttachable(gammaService, &route, route.Status.Parents, nil) {
 			filtered = append(filtered, route)
 		}
 	}
 	return filtered
 }
 
-func (r *gammaReconciler) filterGRPCRoutesByService(ctx context.Context, gammaService *corev1.Service, routes []gatewayv1.GRPCRoute) []gatewayv1.GRPCRoute {
+func (r *gammaReconciler) filterGRPCRoutesByService(gammaService *corev1.Service, routes []gatewayv1.GRPCRoute) []gatewayv1.GRPCRoute {
 	var filtered []gatewayv1.GRPCRoute
 	for _, route := range routes {
-		if helpers.IsParentAttachable(ctx, gammaService, &route, route.Status.Parents, nil) {
+		if helpers.IsParentAttachable(gammaService, &route, route.Status.Parents, nil) {
 			filtered = append(filtered, route)
 		}
 	}
@@ -291,8 +281,8 @@ func (r *gammaReconciler) setGRPCRouteStatuses(gammaLogger *slog.Logger, ctx con
 		i := &routechecks.GRPCRouteInput{
 			Ctx:            ctx,
 			Logger:         gammaLogger.With(grpcRoute, grpcName),
-			Client:         r.Client,
-			Grants:         grants,
+			Client:         r.client,
+			Grants:         grants.Items,
 			GRPCRoute:      grpc,
 			ControllerName: r.controllerName,
 		}
@@ -369,7 +359,7 @@ func (r *gammaReconciler) setGRPCRouteStatuses(gammaLogger *slog.Logger, ctx con
 
 func (r *gammaReconciler) ensureEndpointSlice(ctx context.Context, desired *discoveryv1.EndpointSlice) error {
 	ep := desired.DeepCopy()
-	_, err := controllerutil.CreateOrPatch(ctx, r.Client, ep, func() error {
+	_, err := controllerutil.CreateOrPatch(ctx, r.client, ep, func() error {
 		ep.Endpoints = desired.Endpoints
 		ep.Ports = desired.Ports
 		ep.OwnerReferences = desired.OwnerReferences
@@ -381,7 +371,7 @@ func (r *gammaReconciler) ensureEndpointSlice(ctx context.Context, desired *disc
 
 func (r *gammaReconciler) ensureEnvoyConfig(ctx context.Context, desired *ciliumv2.CiliumEnvoyConfig) error {
 	cec := desired.DeepCopy()
-	_, err := controllerutil.CreateOrPatch(ctx, r.Client, cec, func() error {
+	_, err := controllerutil.CreateOrPatch(ctx, r.client, cec, func() error {
 		cec.Spec = desired.Spec
 		cec.OwnerReferences = desired.OwnerReferences
 		setMergedLabelsAndAnnotations(cec, desired)
@@ -397,7 +387,7 @@ func (r *gammaReconciler) updateStatus(ctx context.Context, original *corev1.Ser
 	if cmp.Equal(oldStatus, newStatus, cmpopts.IgnoreFields(metav1.Condition{}, lastTransitionTime)) {
 		return nil
 	}
-	return r.Client.Status().Update(ctx, new)
+	return r.client.Status().Update(ctx, new)
 }
 
 func (r *gammaReconciler) handleReconcileErrorWithStatus(ctx context.Context, reconcileErr error, original *corev1.Service, modified *corev1.Service) (ctrl.Result, error) {
@@ -416,7 +406,7 @@ func (r *gammaReconciler) updateHTTPRouteStatus(ctx context.Context, original *g
 		return nil
 	}
 	r.logger.DebugContext(ctx, "Updating HTTPRoute status", httpRoute, types.NamespacedName{Name: original.Name, Namespace: original.Namespace})
-	return r.Client.Status().Update(ctx, new)
+	return r.client.Status().Update(ctx, new)
 }
 
 func (r *gammaReconciler) handleHTTPRouteReconcileErrorWithStatus(ctx context.Context, reconcileErr error, original *gatewayv1.HTTPRoute, modified *gatewayv1.HTTPRoute) error {
@@ -434,7 +424,7 @@ func (r *gammaReconciler) updateGRPCRouteStatus(ctx context.Context, original *g
 		return nil
 	}
 	r.logger.DebugContext(ctx, "Updating GRPCRoute status", grpcRoute, types.NamespacedName{Name: original.Name, Namespace: original.Namespace})
-	return r.Client.Status().Update(ctx, new)
+	return r.client.Status().Update(ctx, new)
 }
 
 func (r *gammaReconciler) handleGRPCRouteReconcileErrorWithStatus(ctx context.Context, reconcileErr error, original *gatewayv1.GRPCRoute, modified *gatewayv1.GRPCRoute) error {

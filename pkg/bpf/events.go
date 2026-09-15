@@ -11,6 +11,7 @@ import (
 
 	"github.com/cilium/cilium/pkg/container"
 	"github.com/cilium/cilium/pkg/controller"
+	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/time"
 
@@ -94,24 +95,17 @@ func newEventsBuffer(logger *slog.Logger, name string, bufSize int, ttl time.Dur
 	}
 	b.observe, b.next, b.done = stream.Multicast[Event]()
 	b.observe.Observe(context.Background(), func(e Event) {
+		b.mutex.Lock()
 		b.buffer.Add(e)
+		b.mutex.Unlock()
 	}, func(err error) {})
 	if b.eventTTL > 0 {
 		logger.Debug("starting bpf map event buffer GC controller")
 		mapControllers.UpdateController(
 			fmt.Sprintf("bpf-event-buffer-gc-%s", name),
 			controller.ControllerParams{
-				Group: bpfEventBufferGCControllerGroup,
-				DoFunc: func(_ context.Context) error {
-					logger.Debug(
-						"clearing bpf map events older than TTL",
-						logfields.TTL, b.eventTTL,
-					)
-					b.buffer.Compact(func(event Event) bool {
-						return time.Since(event.Timestamp) < b.eventTTL
-					})
-					return nil
-				},
+				Group:       bpfEventBufferGCControllerGroup,
+				DoFunc:      b.garbageCollect,
 				RunInterval: b.eventTTL,
 			},
 		)
@@ -126,13 +120,29 @@ func (m *Map) initEventsBuffer(maxSize int, eventsTTL time.Duration) {
 // eventsBuffer stores a buffer of events for auditing and debugging
 // purposes.
 type eventsBuffer struct {
-	logger   *slog.Logger
+	logger *slog.Logger
+
+	mutex    lock.Mutex
 	buffer   *container.RingBuffer[Event]
 	eventTTL time.Duration
 
 	observe stream.Observable[Event]
 	next    func(Event)
 	done    func(error)
+}
+
+func (eb *eventsBuffer) garbageCollect(_ context.Context) error {
+	eb.mutex.Lock()
+	defer eb.mutex.Unlock()
+
+	eb.logger.Debug(
+		"clearing bpf map events older than TTL",
+		logfields.TTL, eb.eventTTL,
+	)
+	eb.buffer.Compact(func(event Event) bool {
+		return time.Since(event.Timestamp) < eb.eventTTL
+	})
+	return nil
 }
 
 func (eb *eventsBuffer) dumpAndSubscribe(ctx context.Context, callback EventCallbackFunc, follow bool) {
@@ -174,6 +184,8 @@ func (eb *eventsBuffer) eventIsValid(e Event) bool {
 type EventCallbackFunc func(Event)
 
 func (eb *eventsBuffer) dumpWithCallback(callback EventCallbackFunc) {
+	eb.mutex.Lock()
+	defer eb.mutex.Unlock()
 	eb.buffer.IterateValid(eb.eventIsValid, func(event Event) {
 		callback(event)
 	})

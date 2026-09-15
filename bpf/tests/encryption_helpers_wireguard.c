@@ -23,7 +23,7 @@
 ASSIGN_CONFIG(__u32, wg_ifindex, 42)
 ASSIGN_CONFIG(__u16, wg_port, 51871)
 
-PKTGEN("tc", "ctx_is_wireguard_success")
+PKTGEN(PROG_TYPE, "ctx_is_wireguard_success")
 static __always_inline int
 pktgen_wireguard_mock_check1(struct __ctx_buff *ctx) {
 	struct pktgen builder;
@@ -46,7 +46,7 @@ pktgen_wireguard_mock_check1(struct __ctx_buff *ctx) {
 	return 0;
 }
 
-CHECK("tc", "ctx_is_wireguard_success")
+CHECK(PROG_TYPE, "ctx_is_wireguard_success")
 int check1(struct __ctx_buff *ctx)
 {
 	test_init();
@@ -54,6 +54,7 @@ int check1(struct __ctx_buff *ctx)
 	void *data, *data_end = NULL;
 	struct iphdr *ipv4 = NULL;
 	struct udphdr *udp = NULL;
+	fraginfo_t fraginfo;
 	int l4_off = 0;
 	__u8 protocol = 0;
 
@@ -65,28 +66,29 @@ int check1(struct __ctx_buff *ctx)
 
 	l4_off = sizeof(struct ethhdr) + ipv4_hdrlen(ipv4);
 	protocol = ipv4->protocol;
+	fraginfo = ipfrag_encode_ipv4(ipv4);
 
 	/* Valid Wireguard packet. */
-	assert(ctx_is_wireguard(ctx, l4_off, protocol, REMOTE_NODE_ID));
+	assert(ctx_is_wireguard(ctx, l4_off, protocol, fraginfo, REMOTE_NODE_ID));
 
 	/* Invalid identity within CIDR. */
-	assert(!ctx_is_wireguard(ctx, l4_off, protocol, CIDR_IDENTITY_RANGE_START));
+	assert(!ctx_is_wireguard(ctx, l4_off, protocol, fraginfo, CIDR_IDENTITY_RANGE_START));
 
 	/* Invalid protocol TCP. */
-	assert(!ctx_is_wireguard(ctx, l4_off, IPPROTO_TCP, REMOTE_NODE_ID));
+	assert(!ctx_is_wireguard(ctx, l4_off, IPPROTO_TCP, fraginfo, REMOTE_NODE_ID));
 
 	/* Invalid L4 offset. */
-	assert(!ctx_is_wireguard(ctx, l4_off + 2, protocol, REMOTE_NODE_ID));
+	assert(!ctx_is_wireguard(ctx, l4_off + 2, protocol, fraginfo, REMOTE_NODE_ID));
 
 	udp->source += 1;
 
 	/* Invalid L4 ports mismatching. */
-	assert(!ctx_is_wireguard(ctx, l4_off, protocol, REMOTE_NODE_ID));
+	assert(!ctx_is_wireguard(ctx, l4_off, protocol, fraginfo, REMOTE_NODE_ID));
 
 	test_finish();
 }
 
-CHECK("tc", "ctx_is_encrypt_success")
+CHECK(PROG_TYPE, "ctx_is_encrypt_success")
 int check2(struct __ctx_buff *ctx)
 {
 	test_init();
@@ -100,7 +102,7 @@ int check2(struct __ctx_buff *ctx)
 	test_finish();
 }
 
-CHECK("tc", "ctx_is_decrypt_success")
+CHECK(PROG_TYPE, "ctx_is_decrypt_success")
 int check3(struct __ctx_buff *ctx)
 {
 	test_init();
@@ -114,7 +116,7 @@ int check3(struct __ctx_buff *ctx)
 	test_finish();
 }
 
-PKTGEN("tc", "wireguard_icmpv6_na_skip")
+PKTGEN(PROG_TYPE, "wireguard_icmpv6_na_skip")
 int wireguard_icmpv6_na_skip_pktgen(struct __ctx_buff *ctx)
 {
 	struct pktgen builder;
@@ -136,7 +138,7 @@ int wireguard_icmpv6_na_skip_pktgen(struct __ctx_buff *ctx)
 	return 0;
 }
 
-CHECK("tc", "wireguard_icmpv6_na_skip")
+CHECK(PROG_TYPE, "wireguard_icmpv6_na_skip")
 int wireguard_icmpv6_na_skip_check(struct __ctx_buff *ctx)
 {
 	int ret_val;

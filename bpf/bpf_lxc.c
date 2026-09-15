@@ -205,7 +205,6 @@ static __always_inline int __per_packet_lb_svc_xlate_4(void *ctx, struct iphdr *
 #endif /* ENABLE_NODEPORT */
 
 	if (svc) {
-		bool new_backend __maybe_unused = false;
 		const struct lb4_backend *backend;
 
 #if defined(ENABLE_L7_LB)
@@ -232,7 +231,7 @@ static __always_inline int __per_packet_lb_svc_xlate_4(void *ctx, struct iphdr *
 
 		ret = lb4_local(get_ct_map4(&tuple), ctx, fraginfo,
 				l4_off, &key, &tuple, svc, &ct_state_new,
-				&backend, &new_backend, ext_err, NULL);
+				&backend, NULL, ext_err, NULL);
 
 		if (IS_ERR(ret)) {
 			if (ret == DROP_NO_SERVICE) {
@@ -384,7 +383,6 @@ static __always_inline int __per_packet_lb_svc_xlate_6(void *ctx, struct ipv6hdr
 #endif /* ENABLE_NODEPORT */
 
 	if (svc) {
-		bool new_backend __maybe_unused = false;
 		const struct lb6_backend *backend;
 
 #if defined(ENABLE_L7_LB)
@@ -403,7 +401,7 @@ static __always_inline int __per_packet_lb_svc_xlate_6(void *ctx, struct ipv6hdr
 
 		ret = lb6_local(get_ct_map6(&tuple), ctx, fraginfo,
 				l4_off, &key, &tuple, svc, &ct_state_new,
-				&backend, &new_backend, ext_err, NULL);
+				&backend, NULL, ext_err, NULL);
 
 		if (IS_ERR(ret)) {
 			if (ret == DROP_NO_SERVICE) {
@@ -1858,7 +1856,7 @@ ipv6_policy(struct __ctx_buff *ctx, struct ipv6hdr *ip6, __u32 src_label,
 	int ret, verdict, l4_off, zero = 0;
 	struct ct_buffer6 *ct_buffer;
 	struct trace_ctx trace;
-	union v6addr orig_sip;
+	union v6addr orig_sip __align_stack_8;
 	__u8 policy_match_type = POLICY_MATCH_NONE;
 	__u8 audited = 0;
 	__u8 auth_type = 0;
@@ -2714,16 +2712,20 @@ out:
 __declare_tail(CILIUM_CALL_IPV4_POLICY_DENIED)
 int tail_policy_denied_ipv4(struct __ctx_buff *ctx)
 {
+	int verdict = (int)ctx_load_meta(ctx, CB_VERDICT);
+	/* Capture the length of the denied packet before generate_icmp4_reply()
+	 * rewrites it into the ICMP error message.
+	 */
+	__u64 denied_len = ctx_full_len(ctx);
 	int ret;
-	__u32 verdict = ctx_load_meta(ctx, CB_VERDICT);
 
-	ret = generate_icmp4_reply(ctx, ICMP_DEST_UNREACH, ICMP_PKT_FILTERED);
+	ret = generate_icmp4_reply(ctx, ICMP_DEST_UNREACH, ICMP_PKT_FILTERED, 0);
 	if (!ret) {
 		cilium_dbg(ctx, DBG_LOCAL_DELIVERY, LXC_ID, SECLABEL_IPV4);
 		ret = redirect_self(ctx);
 
 		if (!IS_ERR(ret)) {
-			update_metrics(ctx_full_len(ctx), METRIC_EGRESS, __DROP_REASON(verdict));
+			update_metrics(denied_len, METRIC_EGRESS, __DROP_REASON(verdict));
 			return ret;
 		}
 	}
@@ -2745,20 +2747,24 @@ int tail_policy_denied_ipv6(struct __ctx_buff *ctx)
 		.tokens_per_topup = 100,
 		.topup_interval_ns = NSEC_PER_SEC,
 	};
-	__u32 verdict = ctx_load_meta(ctx, CB_VERDICT);
+	int verdict = (int)ctx_load_meta(ctx, CB_VERDICT);
+	/* Capture the length of the denied packet before generate_icmp6_reply()
+	 * rewrites it into the ICMP error message.
+	 */
+	__u64 denied_len = ctx_full_len(ctx);
 	int ret;
 
 	rkey.key.icmpv6.netdev_idx = ctx_get_ifindex(ctx);
 	if (!ratelimit_check_and_take(&rkey, &settings))
 		goto drop_err;
 
-	ret = generate_icmp6_reply(ctx, ICMPV6_DEST_UNREACH, ICMPV6_ADM_PROHIBITED);
+	ret = generate_icmp6_reply(ctx, ICMPV6_DEST_UNREACH, ICMPV6_ADM_PROHIBITED, 0);
 	if (!ret) {
 		cilium_dbg(ctx, DBG_LOCAL_DELIVERY, LXC_ID, SECLABEL_IPV6);
 		ret = redirect_self(ctx);
 
 		if (!IS_ERR(ret)) {
-			update_metrics(ctx_full_len(ctx), METRIC_EGRESS, __DROP_REASON(verdict));
+			update_metrics(denied_len, METRIC_EGRESS, __DROP_REASON(verdict));
 			return ret;
 		}
 	}

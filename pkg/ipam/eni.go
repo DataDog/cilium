@@ -84,10 +84,12 @@ func startENIDeviceConfigurator(
 // If the native routing CIDR is already configured (via Helm or CLI), this
 // validates that the configured value contains the VPC CIDR.
 //
-// The returned channel is closed once the native routing CIDR has been set
-// in the local node store. Callers must wait on it before programming the
-// datapath, otherwise masquerade exclusion may be configured against an
-// empty CIDR.
+// The returned channel is closed once the native routing CIDR has been
+// determined. Callers must wait on it before programming the datapath,
+// otherwise masquerade exclusion may be configured against an empty CIDR.
+//
+// An unusable configuration is reported by the observer, registered with
+// job.WithObserverShutdown so that it shuts the hive down cleanly.
 func startENINativeRoutingCIDRSync(
 	logger *slog.Logger,
 	jg job.Group,
@@ -121,27 +123,29 @@ func startENINativeRoutingCIDRSync(
 				// Status.ENI.ENIs[].VPC.PrimaryCIDR with a valid value.
 				// An invalid PrimaryCIDR (operator hasn't written yet) is
 				// treated as a transient absence.
-				primaryCIDR := deriveENIVpcCIDR(ev.Object)
+				primaryCIDR, secondaryCIDRs := deriveENIVpcCIDRs(ev.Object)
 				if !primaryCIDR.IsValid() {
 					return nil
 				}
 
+				var err error
 				once.Do(func() {
-					autoDetectENINativeRoutingCIDR(logger, primaryCIDR, localNodeStore, conf)
+					err = autoDetectENINativeRoutingCIDR(logger, primaryCIDR, secondaryCIDRs, localNodeStore, conf)
 					close(ready)
 				})
-				return nil
+				return err
 			},
 			nodeResource,
+			job.WithObserverShutdown[resource.Event[*ciliumv2.CiliumNode]](),
 		),
 	)
 	return ready
 }
 
 // waitForENINativeRoutingCIDR blocks until the eni-native-routing-cidr-sync
-// observer has populated Local.IPv4NativeRoutingCIDR in the local node store.
-// Aborts the agent with a fatal log if the operator has not reported the VPC
-// CIDR within waitForENINativeRoutingCIDRTimeout.
+// observer has determined the native routing CIDR. Aborts the agent with a
+// fatal log if the operator has not reported the VPC CIDR within
+// waitForENINativeRoutingCIDRTimeout.
 func waitForENINativeRoutingCIDR(logger *slog.Logger, ready <-chan struct{}) {
 	deadline := time.After(waitForENINativeRoutingCIDRTimeout)
 	for {
@@ -162,33 +166,37 @@ func waitForENINativeRoutingCIDR(logger *slog.Logger, ready <-chan struct{}) {
 const waitForENINativeRoutingCIDRTimeout = 5 * time.Minute
 
 // autoDetectENINativeRoutingCIDR either validates an existing native routing
-// CIDR configuration against the given VPC primary CIDR, or uses the VPC CIDR
+// CIDR configuration against the given VPC CIDRs, or uses the VPC primary CIDR
 // as the autodetected native routing CIDR.
+//
+// Returns an error if the configured native routing CIDR overlaps no VPC CIDR:
+// see the masquerading note on startENINativeRoutingCIDRSync.
 func autoDetectENINativeRoutingCIDR(
 	logger *slog.Logger,
 	primaryCIDR netip.Prefix,
+	secondaryCIDRs []netip.Prefix,
 	localNodeStore *node.LocalNodeStore,
 	conf *option.DaemonConfig,
-) {
+) error {
 	if nativeCIDR := conf.IPv4NativeRoutingCIDR; nativeCIDR != nil {
 		native, ok := netipx.FromStdIPNet(nativeCIDR.IPNet)
+
 		// Accept the configured native routing CIDR as long as it overlaps the
-		// VPC primary CIDR, i.e. it is the VPC CIDR, a subnet of it (e.g. a
-		// single availability-zone subnet, used to masquerade cross-subnet
-		// traffic), or a supernet of it.
-		if ok && iputil.LaminarCIDRsOverlap(native, primaryCIDR) {
-			logger.Info(
-				"Native routing CIDR overlaps VPC CIDR, ignoring autodetected VPC CIDR.",
-				logfields.VPCCIDR, primaryCIDR,
-				option.IPv4NativeRoutingCIDR, nativeCIDR,
-			)
-		} else {
-			logging.Fatal(logger, "Configured native routing CIDR does not overlap VPC CIDR",
-				logfields.VPCCIDR, primaryCIDR,
-				option.IPv4NativeRoutingCIDR, nativeCIDR,
-			)
+		// VPC primary CIDR or one of the secondary CIDR associations, i.e. it is
+		// a VPC CIDR, a subnet of one (e.g. a single availability-zone subnet,
+		// used to masquerade cross-subnet traffic), or a supernet of one.
+		overlaps := func(c netip.Prefix) bool { return iputil.LaminarCIDRsOverlap(native, c) }
+		if !ok || (!overlaps(primaryCIDR) && !slices.ContainsFunc(secondaryCIDRs, overlaps)) {
+			return fmt.Errorf("configured --%s %s overlaps neither the VPC primary CIDR %s nor any secondary CIDR association %v",
+				option.IPv4NativeRoutingCIDR, nativeCIDR, primaryCIDR, secondaryCIDRs)
 		}
-		return
+
+		logger.Info(
+			"Native routing CIDR overlaps VPC CIDR, ignoring autodetected VPC CIDR.",
+			logfields.VPCCIDR, primaryCIDR,
+			option.IPv4NativeRoutingCIDR, nativeCIDR,
+		)
+		return nil
 	}
 
 	logger.Info(
@@ -198,22 +206,29 @@ func autoDetectENINativeRoutingCIDR(
 	localNodeStore.Update(func(n *node.LocalNode) {
 		n.Local.IPv4NativeRoutingCIDR = cidr.NewCIDR(netipx.PrefixIPNet(primaryCIDR))
 	})
+	return nil
 }
 
-// deriveENIVpcCIDR extracts the VPC primary CIDR from the first ENI in the
-// CiliumNode status. All ENIs on a node belong to the same VPC, so any ENI
-// can be used.
+// deriveENIVpcCIDRs extracts the VPC primary CIDR and the secondary CIDR
+// associations from the first ENI in the CiliumNode status. All ENIs on a node
+// belong to the same VPC, so any ENI can be used.
 //
 // Returns the zero netip.Prefix when no ENI has populated PrimaryCIDR yet
 // (transient startup state).
-func deriveENIVpcCIDR(node *ciliumv2.CiliumNode) netip.Prefix {
+func deriveENIVpcCIDRs(node *ciliumv2.CiliumNode) (primaryCIDR netip.Prefix, secondaryCIDRs []netip.Prefix) {
 	for _, eni := range node.Status.ENI.ENIs {
 		if !eni.VPC.PrimaryCIDR.IsValid() {
 			continue
 		}
-		return eni.VPC.PrimaryCIDR.Masked()
+		primaryCIDR = eni.VPC.PrimaryCIDR.Masked()
+		for _, c := range eni.VPC.CIDRs {
+			if c.IsValid() {
+				secondaryCIDRs = append(secondaryCIDRs, c.Masked())
+			}
+		}
+		return primaryCIDR, secondaryCIDRs
 	}
-	return netip.Prefix{}
+	return netip.Prefix{}, nil
 }
 
 // validateENIConfig validates the ENI configuration in the CiliumNode resource

@@ -76,7 +76,7 @@ jobs:
     runs-on: ${{ vars.UBUNTU_2404_AMD64_4CPU_16GB }}
     steps:
       - name: Set initial commit status
-        uses: cilium/actions/set-commit-status@fe0702f5df0d8e44d48f1baa226c023b73ff6b5e # main
+        uses: cilium/actions/set-commit-status@687b48a0547e534dd7270d5069a5ab7967c0e907 # main
         with:
           sha: ${{ inputs.SHA || github.sha }}
 
@@ -94,7 +94,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Set commit status to pending
-        uses: cilium/actions/set-commit-status@fe0702f5df0d8e44d48f1baa226c023b73ff6b5e # main
+        uses: cilium/actions/set-commit-status@687b48a0547e534dd7270d5069a5ab7967c0e907 # main
         with:
           sha: ${{ inputs.SHA || github.sha }}
 
@@ -130,6 +130,11 @@ jobs:
           fi
           echo sha=${SHA} >> $GITHUB_OUTPUT
 
+      - name: Install LLVM and Clang
+        uses: ./.github/actions/install-llvm
+        with:
+          version: "19.1.7"
+
       # Warning: since this is a privileged workflow, subsequent workflow job
       # steps must take care not to execute untrusted code.
       - name: Checkout pull request branch (NOT TRUSTED)
@@ -145,7 +150,7 @@ jobs:
         with:
           cache: false
           # renovate: datasource=golang-version depName=go
-          go-version: 1.26.5
+          go-version: 1.26.8
 
       # Load Golang cache build from GitHub
       - name: Load Golang cache build from GitHub
@@ -156,16 +161,6 @@ jobs:
           key: ${{ runner.os }}-go-integration-test-cache-${{ runner.arch }}-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-integration-test-cache-${{ runner.arch }}-
-
-      - name: Set clang directory
-        id: set_clang_dir
-        run: echo "clang_dir=$HOME/.clang" >> $GITHUB_OUTPUT
-
-      - name: Install LLVM and Clang
-        uses: KyleMayes/install-llvm-action@ebc0426251bc40c7cd31162802432c68818ab8f0 # v2.0.9
-        with:
-          version: "19.1.7"
-          directory: ${{ steps.set_clang_dir.outputs.clang_dir }}
 
       - name: Create cache directories if they don't exist
         if: ${{ steps.go-cache.outputs.cache-hit != 'true' }}
@@ -244,6 +239,7 @@ jobs:
           name: cilium-junits
           pattern: cilium-junits-*
           token: ${{ secrets.GITHUB_TOKEN }}
+          separate-directories: true
 
   commit-status-final:
     if: ${{ always() }}
@@ -252,7 +248,7 @@ jobs:
     runs-on: ${{ vars.UBUNTU_2404_AMD64_4CPU_16GB }}
     steps:
       - name: Set final commit status
-        uses: cilium/actions/set-commit-status@fe0702f5df0d8e44d48f1baa226c023b73ff6b5e # main
+        uses: cilium/actions/set-commit-status@687b48a0547e534dd7270d5069a5ab7967c0e907 # main
         with:
           sha: ${{ inputs.SHA || github.sha }}
           status: ${{ needs.integration-test.result }}

@@ -581,7 +581,7 @@ func (n *Node) AllocateIPs(ctx context.Context, a *nodemanager.AllocationAction)
 			}
 			n.mutex.RLock()
 			e, ok := n.enis[a.InterfaceID]
-			usePrimary := !(n.k8sObj.Spec.ENI.UsePrimaryAddress != nil && *n.k8sObj.Spec.ENI.UsePrimaryAddress)
+			usePrimary := n.k8sObj.Spec.ENI.UsePrimaryAddress != nil && *n.k8sObj.Spec.ENI.UsePrimaryAddress
 			n.mutex.RUnlock()
 			if !ok {
 				return fmt.Errorf("%s: %s", errENINotFound, a.InterfaceID)
