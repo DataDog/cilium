@@ -326,6 +326,12 @@ func unloadDNSPolicies(params daemonParams) {
 
 			PolicyRevisionToWaitFor: params.Policy.BumpRevision(),
 		}
+		// All endpoints are about to be regenerated and they wait for the
+		// bumped revision to appear in the policy computation table, so the
+		// recomputation has to be requested explicitly. Otherwise the wait
+		// times out and the regeneration fails, leaving the L7 DNS rules
+		// loaded in the datapath.
+		params.PolicyComputer.RecomputeIdentityPolicyForAllIdentities(regenerationMetadata.PolicyRevisionToWaitFor)
 		wg := params.EndpointManager.RegenerateAllEndpoints(regenerationMetadata)
 		wg.Wait()
 		params.Logger.Info("All endpoints regenerated after unloading DNS rules on graceful shutdown")
