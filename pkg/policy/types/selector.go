@@ -524,9 +524,15 @@ func hasCIDRLabel(lbls labels.Labels, is4 bool) bool {
 }
 
 func (p *CIDRSelector) Matches(ls labels.LabelArray) bool {
-	lbls := ls.Labels()
-	isWorld := lbls.HasWorldLabel()
-	isNode := lbls.HasHostLabel() || lbls.HasRemoteNodeLabel()
+	var isWorld, isNode bool
+	for i := range ls {
+		switch ls[i].Key {
+		case labels.IDNameWorld, labels.IDNameWorldIPv4, labels.IDNameWorldIPv6:
+			isWorld = true
+		case labels.IDNameHost, labels.IDNameRemoteNode:
+			isNode = true
+		}
+	}
 	allowed := isWorld ||
 		(isNode && option.Config.PolicyCIDRMatchesNodes()) ||
 		(!isWorld && !isNode && option.Config.PolicyCIDRMatchesPods())
@@ -539,6 +545,7 @@ func (p *CIDRSelector) Matches(ls labels.LabelArray) bool {
 		return matchesEncodedRequirements(p.requirements, ls)
 	}
 
+	lbls := ls.Labels()
 	for i := range p.requirements {
 		req := &p.requirements[i]
 		if matchesCIDRWildcard(req, lbls) {
