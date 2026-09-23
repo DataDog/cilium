@@ -318,7 +318,7 @@ func TestWaitSkipsSupersededPolicy(t *testing.T) {
 		watch: make(chan struct{}),
 	}
 
-	ep := Endpoint{policyFetcher: fetcher, SecurityIdentity: f.podID}
+	ep := Endpoint{policyFetcher: fetcher, SecurityIdentity: f.podID, aliveCtx: context.Background()}
 	ep.UpdateLogger(nil)
 
 	res, err := ep.waitForPolicyComputationResult(

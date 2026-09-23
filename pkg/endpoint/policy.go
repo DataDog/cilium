@@ -299,9 +299,10 @@ func (e *Endpoint) waitForPolicyComputationResult(
 ) (*compute.Result, error) {
 	wantedRevision := datapathRegenCtxt.policyRevisionToWaitFor
 
-	timeout := time.NewTimer(time.Second)
-	defer timeout.Stop()
-
+	var (
+		computed     <-chan struct{}
+		computedDone bool
+	)
 	for {
 		computeResult, _, watch, found := e.policyFetcher.GetIdentityPolicyByIdentity(securityIdentity)
 		// CurrentAtRevision, not Revision: a policy computed at an older
@@ -339,11 +340,7 @@ func (e *Endpoint) waitForPolicyComputationResult(
 			)
 		}
 
-		// Watch fires on insert/update of this identity's statedb entry.
-		select {
-		case <-watch:
-			continue
-		case <-timeout.C:
+		if computedDone {
 			if found {
 				return nil, fmt.Errorf("%w: identity=%d got rev=%d currentAt=%d, want rev=%d",
 					errPolicyComputationStaleRevision,
@@ -357,7 +354,34 @@ func (e *Endpoint) waitForPolicyComputationResult(
 				securityIdentity.ID,
 				wantedRevision)
 		}
+
+		if computed == nil {
+			computed = e.requestPolicyComputation(securityIdentity, wantedRevision)
+		}
+
+		// Watch fires on insert/update of this identity's statedb entry.
+		select {
+		case <-watch:
+		case <-computed:
+			computedDone = true
+		case <-e.aliveCtx.Done():
+			return nil, e.aliveCtx.Err()
+		}
 	}
+}
+
+func (e *Endpoint) requestPolicyComputation(securityIdentity *identityPkg.Identity, revision uint64) <-chan struct{} {
+	if err := e.rlockAlive(); err == nil {
+		defer e.runlock()
+		if e.identitySet && e.SecurityIdentity != nil && e.SecurityIdentity.ID == securityIdentity.ID {
+			if done, err := e.policyFetcher.RecomputeIdentityPolicy(securityIdentity, revision); err == nil {
+				return done
+			}
+		}
+	}
+	done := make(chan struct{})
+	close(done)
+	return done
 }
 
 // setDesiredPolicy updates the endpoint with the results of a policy calculation.
