@@ -66,6 +66,7 @@ type testFixture struct {
 	importer   policycell.PolicyImporter
 	ipcache    *ipcache.IPCache
 	templateEP *endpoint.Endpoint
+	epParams   endpoint.EndpointParams
 }
 
 func newTestFixture(t testing.TB, log *slog.Logger, certMgr certificatemanager.CertificateManager) *testFixture {
@@ -106,25 +107,27 @@ func newTestFixture(t testing.TB, log *slog.Logger, certMgr certificatemanager.C
 
 				f.repo.GetSelectorCache().SetLocalIdentityNotifier(testidentity.NewDummyIdentityNotifier())
 
+				f.epParams = endpoint.EndpointParams{
+					Logger:              log,
+					EPBuildQueue:        endpoint.NewEndpointBuildQueue(),
+					Loader:              &fakeloader.Loader{},
+					Orchestrator:        &fakeendpoint.FakeOrchestrator{},
+					CompilationLock:     loader.NewCompilationLock(),
+					IdentityManager:     f.idmgr,
+					MonitorAgent:        &testmonitor.TestMonitorAgent{},
+					PolicyMapFactory:    &fakePolicyMapFactory{},
+					PolicyRepo:          f.repo,
+					PolicyFetcher:       f.computer,
+					Allocator:           f.allocator,
+					CTMapGC:             ctmap.NewFakeGCRunner(),
+					KVStoreSynchronizer: ipcache.NewIPIdentitySynchronizer(log, kvstore.SetupDummy(t, kvstore.DisabledBackendName)),
+					LocalNodeStore:      node.NewTestLocalNodeStore(node.LocalNode{}),
+					LxcMap:              &fakeLXCMap{},
+				}
+
 				var err error
 				f.templateEP, err = endpoint.NewEndpointFromChangeModel(
-					endpoint.EndpointParams{
-						Logger:              log,
-						EPBuildQueue:        endpoint.NewEndpointBuildQueue(),
-						Loader:              &fakeloader.Loader{},
-						Orchestrator:        &fakeendpoint.FakeOrchestrator{},
-						CompilationLock:     loader.NewCompilationLock(),
-						IdentityManager:     f.idmgr,
-						MonitorAgent:        &testmonitor.TestMonitorAgent{},
-						PolicyMapFactory:    &fakePolicyMapFactory{},
-						PolicyRepo:          f.repo,
-						PolicyFetcher:       f.computer,
-						Allocator:           f.allocator,
-						CTMapGC:             ctmap.NewFakeGCRunner(),
-						KVStoreSynchronizer: ipcache.NewIPIdentitySynchronizer(log, kvstore.SetupDummy(t, kvstore.DisabledBackendName)),
-						LocalNodeStore:      node.NewTestLocalNodeStore(node.LocalNode{}),
-						LxcMap:              &fakeLXCMap{},
-					},
+					f.epParams,
 					&fakeDNSAPI{},
 					&endpoint.FakeEndpointProxy{},
 					&apiv1.EndpointChangeRequest{
