@@ -118,6 +118,10 @@ const (
 	// NOTE: This should only be used for existing metrics, new metrics should use LabelValueOutcomeFail.
 	LabelValueOutcomeFailure = "failure"
 
+	LabelValueOutcomeTimeout = "timeout"
+
+	LabelValueOutcomeCanceled = "canceled"
+
 	// LabelDropReason is used to describe reason for dropping a packets/bytes
 	LabelDropReason = "reason"
 
@@ -309,6 +313,8 @@ var (
 	// EndpointRegenerationTimeStats is the total time taken to regenerate
 	// endpoints, labeled by span name and status ("success" or "failure")
 	EndpointRegenerationTimeStats = NoOpObserverVec
+
+	EndpointPolicyComputationWait = NoOpObserverVec
 
 	// EndpointPropagationDelay is the delay between creation of local CiliumEndpoint
 	// and update for that CiliumEndpoint received through CiliumEndpointSlice.
@@ -646,6 +652,7 @@ type LegacyMetrics struct {
 	EndpointRegenerationTotal               metric.Vec[metric.Counter]
 	EndpointStateCount                      metric.Vec[metric.Gauge]
 	EndpointRegenerationTimeStats           metric.Vec[metric.Observer]
+	EndpointPolicyComputationWait           metric.Vec[metric.Observer]
 	EndpointPropagationDelay                metric.Vec[metric.Observer]
 	Policy                                  metric.Gauge
 	PolicyRevision                          metric.Gauge
@@ -772,6 +779,15 @@ func NewLegacyMetrics() *LegacyMetrics {
 			Buckets:   prometheus.ExponentialBuckets(10e-6, 10, 8),
 			Help:      "Endpoint regeneration time stats labeled by the scope",
 		}, []string{LabelScope, LabelStatus}),
+
+		EndpointPolicyComputationWait: metric.NewHistogramVec(metric.HistogramOpts{
+			ConfigName: Namespace + "_endpoint_policy_computation_wait_seconds",
+
+			Namespace: Namespace,
+			Name:      "endpoint_policy_computation_wait_seconds",
+			Buckets:   []float64{.001, .005, .01, .025, .05, .1, .25, .5, 1, 1.5, 2, 3, 4, 5, 6, 8, 10, 12.5, 15, 20, 25, 30, 45, 60},
+			Help:      "Time an endpoint regeneration waited for its identity's policy computation result, labeled by outcome",
+		}, []string{LabelOutcome}),
 
 		Policy: metric.NewGauge(metric.GaugeOpts{
 			ConfigName: Namespace + "_policy",
@@ -1321,6 +1337,9 @@ func NewLegacyMetrics() *LegacyMetrics {
 	v := version.GetCiliumVersion()
 	lm.VersionMetric.WithLabelValues(v.Version, v.Revision, v.Arch)
 	lm.BPFMapCapacity.WithLabelValues("default").Set(DefaultMapCapacity)
+	for _, outcome := range []string{LabelValueOutcomeSuccess, LabelValueOutcomeTimeout, LabelValueOutcomeCanceled} {
+		lm.EndpointPolicyComputationWait.WithLabelValues(outcome)
+	}
 
 	APIInteractions = lm.APIInteractions
 	NodeHealthConnectivityStatus = lm.NodeHealthConnectivityStatus
@@ -1331,6 +1350,7 @@ func NewLegacyMetrics() *LegacyMetrics {
 	EndpointRegenerationTotal = lm.EndpointRegenerationTotal
 	EndpointStateCount = lm.EndpointStateCount
 	EndpointRegenerationTimeStats = lm.EndpointRegenerationTimeStats
+	EndpointPolicyComputationWait = lm.EndpointPolicyComputationWait
 	EndpointPropagationDelay = lm.EndpointPropagationDelay
 	Policy = lm.Policy
 	PolicyRevision = lm.PolicyRevision

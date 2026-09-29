@@ -28,6 +28,7 @@ import (
 	"github.com/cilium/cilium/pkg/ipcache"
 	"github.com/cilium/cilium/pkg/labels"
 	"github.com/cilium/cilium/pkg/logging/logfields"
+	"github.com/cilium/cilium/pkg/metrics"
 	monitorAPI "github.com/cilium/cilium/pkg/monitor/api"
 	"github.com/cilium/cilium/pkg/node"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
@@ -312,6 +313,7 @@ func (e *Endpoint) waitForPolicyComputationResult(
 		// this identity.
 		if found && computeResult.CurrentAtRevision >= wantedRevision {
 			if computeResult.NewPolicy.AddHold() {
+				metrics.EndpointPolicyComputationWait.WithLabelValues(metrics.LabelValueOutcomeSuccess).Observe(time.Since(start).Seconds())
 				e.getLogger().Debug(
 					"Retrieved identity policy from statedb",
 					logfields.PolicyRevision, computeResult.Revision,
@@ -347,6 +349,11 @@ func (e *Endpoint) waitForPolicyComputationResult(
 		case <-watch:
 			continue
 		case <-waitCtx.Done():
+			outcome := metrics.LabelValueOutcomeTimeout
+			if errors.Is(waitCtx.Err(), context.Canceled) {
+				outcome = metrics.LabelValueOutcomeCanceled
+			}
+			metrics.EndpointPolicyComputationWait.WithLabelValues(outcome).Observe(time.Since(start).Seconds())
 			if found {
 				return nil, fmt.Errorf("%w after %s: identity=%d got rev=%d, currentAt=%d, want rev=%d: %w",
 					errPolicyComputationStaleRevision,
