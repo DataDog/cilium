@@ -375,9 +375,26 @@ public IP address is stored in the ``CiliumNode`` resource's
 IP Release
 ==========
 
-Azure IPAM does not release excess private IP addresses from interfaces.
-Addresses that the agent removes from ``spec.ipam.pools.allocated`` remain
-attached and can be admitted to the default pool again if demand grows.
+Releasing excess private IP addresses is opt-in with the Helm value
+``ipam.operator.releaseExcessIPs=true`` (operator option
+``--ipam-release-excess-ips``). When the agent removes a host prefix from
+``spec.ipam.pools.allocated``, the operator waits for the delay configured by
+``ipam.operator.excessIPReleaseDelay`` (operator option
+``--excess-ip-release-delay``, default 180 seconds). If the agent adds the
+prefix back during that time, the release is cancelled. Otherwise, the operator
+removes the corresponding IP configuration from the network interface. For
+standalone VMs the network interface is updated. For VMSS instances the
+instance VM model is updated.
+
+Only IPv4 addresses are released. The primary IP configuration of a network
+interface is never released, including with ``--azure-use-primary-address``.
+
+If ``spec.ipam.min-allocate`` or ``spec.ipam.pre-allocate`` are larger than the
+number of addresses the agent keeps, released addresses are allocated again.
+
+When release is disabled, addresses that the agent removes from
+``spec.ipam.pools.allocated`` remain attached and can be admitted to the
+default pool again if demand grows.
 
 Node Termination
 ================

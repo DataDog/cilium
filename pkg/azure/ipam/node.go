@@ -18,6 +18,7 @@ import (
 	ipamTypes "github.com/cilium/cilium/pkg/ipam/types"
 	v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 	"github.com/cilium/cilium/pkg/logging/logfields"
+	cslices "github.com/cilium/cilium/pkg/slices"
 )
 
 // Node represents a node representing an Azure instance
@@ -259,22 +260,102 @@ func (n *Node) IsPrefixDelegated() bool {
 	return false
 }
 
-// GetAttachedCIDRs is a no-op since Azure does not use multi-pool but uses
-// the CRD allocator.
+func secondaryIPv4CIDR(iface *types.AzureInterface, address types.AzureAddress) (netip.Prefix, bool) {
+	if !address.IP.IsValid() || !address.IP.Addr.Is4() || address.IP.Addr == iface.IP.Addr {
+		return netip.Prefix{}, false
+	}
+	return netip.PrefixFrom(address.IP.Addr, address.IP.Addr.BitLen()), true
+}
+
 func (n *Node) GetAttachedCIDRs() []netip.Prefix {
-	return nil
+	if n.instanceID == "" {
+		return nil
+	}
+
+	n.manager.mutex.RLock()
+	defer n.manager.mutex.RUnlock()
+
+	var attached []netip.Prefix
+	n.manager.instances.ForeachInterface(n.instanceID, func(_, _ string, interfaceObj ipamTypes.Interface) error {
+		iface, ok := interfaceObj.(*types.AzureInterface)
+		if !ok {
+			return nil
+		}
+		for _, address := range iface.Addresses {
+			if address.State != types.StateSucceeded && address.State != types.StateUpdating {
+				continue
+			}
+			if prefix, ok := secondaryIPv4CIDR(iface, address); ok {
+				attached = append(attached, prefix)
+			}
+		}
+		return nil
+	})
+	return attached
 }
 
-// PrepareCIDRRelease is a no-op since Azure does not use multi-pool but uses
-// the CRD allocator, that's backed by PrepareIPRelease
-func (n *Node) PrepareCIDRRelease(_ []netip.Prefix) []*nodemanager.ReleaseAction {
-	return nil
+func (n *Node) PrepareCIDRRelease(released []netip.Prefix) []*nodemanager.ReleaseAction {
+	if n.instanceID == "" {
+		return nil
+	}
+
+	n.manager.mutex.RLock()
+	defer n.manager.mutex.RUnlock()
+
+	var actions []*nodemanager.ReleaseAction
+	n.manager.instances.ForeachInterface(n.instanceID, func(_, interfaceID string, interfaceObj ipamTypes.Interface) error {
+		iface, ok := interfaceObj.(*types.AzureInterface)
+		if !ok {
+			return nil
+		}
+		var cidrs []netip.Prefix
+		for _, address := range iface.Addresses {
+			if address.State != types.StateSucceeded {
+				continue
+			}
+			if prefix, ok := secondaryIPv4CIDR(iface, address); ok && slices.Contains(released, prefix) {
+				cidrs = append(cidrs, prefix)
+			}
+		}
+		if len(cidrs) > 0 {
+			actions = append(actions, &nodemanager.ReleaseAction{
+				InterfaceID:    interfaceID,
+				PoolID:         ipamTypes.PoolID(iface.Subnet.ID),
+				CIDRsToRelease: cidrs,
+			})
+		}
+		return nil
+	})
+	return actions
 }
 
-// ReleaseCIDRs is a no-op since Azure does not use multi-pool but uses the
-// CRD allocator, that's backed by ReleaseIPs/ReleaseIPPrefixes
-func (n *Node) ReleaseCIDRs(_ context.Context, _ *nodemanager.ReleaseAction) ([]netip.Prefix, error) {
-	return nil, nil
+func (n *Node) ReleaseCIDRs(ctx context.Context, r *nodemanager.ReleaseAction) ([]netip.Prefix, error) {
+	n.manager.mutex.RLock()
+	interfaceObj, ok := n.manager.instances.GetInterface(n.instanceID, r.InterfaceID)
+	n.manager.mutex.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("interface %s not found on instance %s", r.InterfaceID, n.instanceID)
+	}
+	iface, ok := interfaceObj.(*types.AzureInterface)
+	if !ok {
+		return nil, fmt.Errorf("invalid interface object")
+	}
+
+	addrs := cslices.Map(r.CIDRsToRelease, netip.Prefix.Addr)
+
+	var err error
+	vmss := iface.GetVMScaleSetName()
+	if vmss == "" {
+		err = n.manager.api.UnassignPrivateIpAddressesVM(ctx, iface.Name, addrs)
+	} else {
+		err = n.manager.api.UnassignPrivateIpAddressesVMSS(ctx, iface.GetVMID(), vmss, iface.Name, addrs)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	n.manager.removeIPsFromInterface(n.instanceID, r.InterfaceID, addrs)
+	return r.CIDRsToRelease, nil
 }
 
 // isAvailableInterface returns whether interface is available and the number of available IPs to allocate in interface
