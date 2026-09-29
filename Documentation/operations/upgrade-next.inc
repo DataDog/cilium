@@ -64,6 +64,15 @@ The following options have been introduced in this version of Cilium:
   ``cidrs`` and may set ``reservedRanges`` to exclude IP ranges from allocation.
   These fields are only available in ``cilium.io/v2``. See
   :ref:`update_existing_ciliumpodippools_with_reservedranges`.
+* The operator option ``--ipam-release-excess-ips`` and Helm value
+  ``ipam.operator.releaseExcessIPs`` enable releasing excess IP addresses for
+  AWS ENI, Azure and Alibaba Cloud IPAM. The Helm value
+  ``ipam.operator.excessIPReleaseDelay`` sets ``--excess-ip-release-delay``,
+  which now also applies to Azure, and to Alibaba Cloud when release is enabled
+  with ``--ipam-release-excess-ips``. Alibaba Cloud clusters that keep using
+  ``--alibaba-cloud-release-excess-ips`` keep releasing without a delay;
+  switching to the new option adds the 180 second default delay unless
+  ``--excess-ip-release-delay=0`` is set.
 
 Changed Options
 ###############
@@ -91,6 +100,14 @@ you may need to take action to migrate to an alternative.
 
 * The agent option ``--fixed-identity-mapping`` is deprecated and will be removed
   in a future release.
+
+* ``--aws-release-excess-ips``, ``--alibaba-cloud-release-excess-ips`` and the
+  Helm value ``eni.awsReleaseExcessIPs`` are deprecated in favor of
+  ``--ipam-release-excess-ips`` and ``ipam.operator.releaseExcessIPs``, and will
+  be removed in v1.22. Release is enabled when either the deprecated or the new
+  option is set. ``eni.awsReleaseExcessIPs`` still works and now renders
+  ``ipam-release-excess-ips``, so upgrade the chart and the operator image
+  together.
 
 Removed Options
 ###############
