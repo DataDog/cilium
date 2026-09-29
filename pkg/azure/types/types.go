@@ -22,6 +22,8 @@ const (
 
 	// StateSucceeded is the address state for a successfully provisioned address
 	StateSucceeded = "succeeded"
+
+	StateUpdating = "updating"
 )
 
 // AzureSpec is the Azure specification of a node running via the Azure IPAM
