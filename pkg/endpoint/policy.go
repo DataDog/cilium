@@ -28,6 +28,7 @@ import (
 	"github.com/cilium/cilium/pkg/ipcache"
 	"github.com/cilium/cilium/pkg/labels"
 	"github.com/cilium/cilium/pkg/logging/logfields"
+	"github.com/cilium/cilium/pkg/metrics"
 	monitorAPI "github.com/cilium/cilium/pkg/monitor/api"
 	"github.com/cilium/cilium/pkg/node"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
@@ -305,7 +306,15 @@ func (e *Endpoint) waitForPolicyComputation(datapathRegenCtxt *datapathRegenerat
 		return
 	}
 
+	start := time.Now()
 	pcr, err := e.waitForPolicyComputationResult(datapathRegenCtxt, securityIdentity)
+	outcome := metrics.LabelValueOutcomeSuccess
+	if errors.Is(err, context.Canceled) {
+		outcome = metrics.LabelValueOutcomeCanceled
+	} else if err != nil {
+		outcome = metrics.LabelValueOutcomeTimeout
+	}
+	metrics.EndpointPolicyComputationWait.WithLabelValues(outcome).Observe(time.Since(start).Seconds())
 	if err == nil {
 		pcr.NewPolicy.ReleaseHold()
 	}

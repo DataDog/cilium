@@ -480,6 +480,7 @@ Name                                         Labels                             
 ``endpoint_restoration_duration_seconds``    ``phase``                                          Enabled    Duration of restoration phases in seconds
 ``endpoint_regenerations_total``             ``reason``, ``outcome``, ``error``                 Enabled    Count of all endpoint regenerations that have completed, tagged by reason, outcome and error
 ``endpoint_regeneration_time_stats_seconds`` ``scope``, ``status``                              Enabled    Endpoint regeneration time stats
+``endpoint_policy_computation_wait_seconds`` ``outcome``                                        Enabled    Time an endpoint regeneration waited for its identity's policy computation result, labeled by outcome
 ``endpoint_state``                           ``endpoint_state``                                 Enabled    Count of all endpoints
 ============================================ ================================================== ========== ========================================================
 
