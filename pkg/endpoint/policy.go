@@ -295,6 +295,18 @@ func (e *Endpoint) regeneratePolicy(stats *regenerationStatistics, datapathRegen
 	return nil
 }
 
+func (e *Endpoint) waitForPolicyComputation(datapathRegenCtxt *datapathRegenerationContext) {
+	securityIdentity, err := e.GetSecurityIdentity()
+	if err != nil || securityIdentity == nil {
+		return
+	}
+
+	pcr, err := e.waitForPolicyComputationResult(datapathRegenCtxt, securityIdentity)
+	if err == nil {
+		pcr.NewPolicy.ReleaseHold()
+	}
+}
+
 func (e *Endpoint) waitForPolicyComputationResult(
 	datapathRegenCtxt *datapathRegenerationContext,
 	securityIdentity *identityPkg.Identity,
