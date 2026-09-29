@@ -28,6 +28,12 @@ func (ev *EndpointRegenerationEvent) Handle(res chan any) {
 	regenContext := ev.regenContext
 	regenContext.Stats = regenerationStatistics{}
 
+	datapathRegenCtxt := regenContext.datapathRegenerationContext
+	var cancel context.CancelFunc
+	datapathRegenCtxt.parentContext, cancel = context.WithTimeout(datapathRegenCtxt.parentContext, PolicyComputationTimeout)
+	defer cancel()
+	e.waitForPolicyComputation(datapathRegenCtxt)
+
 	// Compute policy on the first regeneration before acquiring the build permit in
 	// QueueEndpointBuild below
 	select {
