@@ -310,6 +310,8 @@ var (
 	// endpoints, labeled by span name and status ("success" or "failure")
 	EndpointRegenerationTimeStats = NoOpObserverVec
 
+	EndpointPolicyComputationWait = NoOpObserverVec
+
 	// EndpointPropagationDelay is the delay between creation of local CiliumEndpoint
 	// and update for that CiliumEndpoint received through CiliumEndpointSlice.
 	// Measure of local CEP roundtrip time with CiliumEndpointSlice feature enabled.
@@ -646,6 +648,7 @@ type LegacyMetrics struct {
 	EndpointRegenerationTotal               metric.Vec[metric.Counter]
 	EndpointStateCount                      metric.Vec[metric.Gauge]
 	EndpointRegenerationTimeStats           metric.Vec[metric.Observer]
+	EndpointPolicyComputationWait           metric.Vec[metric.Observer]
 	EndpointPropagationDelay                metric.Vec[metric.Observer]
 	Policy                                  metric.Gauge
 	PolicyRevision                          metric.Gauge
@@ -772,6 +775,15 @@ func NewLegacyMetrics() *LegacyMetrics {
 			Buckets:   prometheus.ExponentialBuckets(10e-6, 10, 8),
 			Help:      "Endpoint regeneration time stats labeled by the scope",
 		}, []string{LabelScope, LabelStatus}),
+
+		EndpointPolicyComputationWait: metric.NewHistogramVec(metric.HistogramOpts{
+			ConfigName: Namespace + "_endpoint_policy_computation_wait_seconds",
+
+			Namespace: Namespace,
+			Name:      "endpoint_policy_computation_wait_seconds",
+			Buckets:   []float64{.001, .005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 20, 30, 45, 60},
+			Help:      "Time an endpoint regeneration waited for its identity's policy computation result, labeled by outcome",
+		}, []string{LabelOutcome}),
 
 		Policy: metric.NewGauge(metric.GaugeOpts{
 			ConfigName: Namespace + "_policy",
@@ -1331,6 +1343,7 @@ func NewLegacyMetrics() *LegacyMetrics {
 	EndpointRegenerationTotal = lm.EndpointRegenerationTotal
 	EndpointStateCount = lm.EndpointStateCount
 	EndpointRegenerationTimeStats = lm.EndpointRegenerationTimeStats
+	EndpointPolicyComputationWait = lm.EndpointPolicyComputationWait
 	EndpointPropagationDelay = lm.EndpointPropagationDelay
 	Policy = lm.Policy
 	PolicyRevision = lm.PolicyRevision

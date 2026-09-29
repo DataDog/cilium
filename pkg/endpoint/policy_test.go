@@ -150,6 +150,7 @@ func TestIncrementalUpdatesDuringPolicyGeneration(t *testing.T) {
 	stats := new(regenerationStatistics)
 	datapathRegenCtxt := new(datapathRegenerationContext)
 	datapathRegenCtxt.policyRevisionToWaitFor = rev
+	datapathRegenCtxt.parentContext = context.Background()
 	// Continuously compute policy for the pod and ensure we never missed an incremental update.
 	for {
 		t.Log("Calculating policy...")
@@ -322,7 +323,7 @@ func TestWaitSkipsSupersededPolicy(t *testing.T) {
 	ep.UpdateLogger(nil)
 
 	res, err := ep.waitForPolicyComputationResult(
-		&datapathRegenerationContext{policyRevisionToWaitFor: rev}, f.podID)
+		&datapathRegenerationContext{policyRevisionToWaitFor: rev, parentContext: context.Background()}, f.podID)
 	require.NoError(t, err)
 	require.Same(t, live, res.NewPolicy)
 
