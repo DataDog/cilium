@@ -444,7 +444,7 @@ func (n *Node) isMultiPoolNodeLocked() bool {
 // are added to multiPoolCIDRsMarkedForRelease with the current timestamp.
 // Caller must hold n.mutex.
 func (n *Node) trackMultiPoolAllocatedLocked() {
-	if !n.isMultiPoolNodeLocked() {
+	if !n.isMultiPoolNodeLocked() || !n.manager.releaseExcessIPs {
 		return
 	}
 
