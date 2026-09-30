@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/netip"
+	"slices"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v9"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -37,6 +38,8 @@ type AzureAPI interface {
 	ParseInterfacesIntoInstanceMap(networkInterfaces []*armnetwork.Interface, subnets ipamTypes.SubnetMap) *ipamTypes.InstanceMap
 	ListVMNetworkInterfaces(ctx context.Context, instanceID string) ([]*armnetwork.Interface, error)
 	ParseInterfacesIntoInstance(networkInterfaces []*armnetwork.Interface, subnets ipamTypes.SubnetMap) *ipamTypes.Instance
+	UnassignPrivateIpAddressesVM(ctx context.Context, interfaceName string, addresses []netip.Addr) error
+	UnassignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, interfaceName string, addresses []netip.Addr) error
 }
 
 // InstancesManager maintains the list of instances. It must be kept up to date
@@ -55,6 +58,7 @@ type InstancesManager struct {
 	instances *ipamTypes.InstanceMap
 	subnets   ipamTypes.SubnetMap
 	api       AzureAPI
+	released  map[string]time.Time
 }
 
 // NewInstancesManager returns a new instances manager
@@ -68,8 +72,8 @@ func NewInstancesManager(logger *slog.Logger, api AzureAPI, usePrimary bool) *In
 }
 
 // CreateNode is called on discovery of a new node
-func (m *InstancesManager) CreateNode(obj *v2.CiliumNode, n *nodemanager.Node) nodemanager.NodeOperations {
-	return &Node{manager: m, node: n}
+func (m *InstancesManager) CreateNode(obj *v2.CiliumNode, _ *nodemanager.Node) nodemanager.NodeOperations {
+	return &Node{manager: m, instanceID: obj.InstanceID()}
 }
 
 // HasInstance returns whether the instance is in instances
@@ -144,7 +148,9 @@ func (m *InstancesManager) resyncInstance(ctx context.Context, instanceID string
 
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	m.instances.UpdateInstance(instanceID, instance)
+	if at, ok := m.released[instanceID]; !ok || at.Before(resyncStart) {
+		m.instances.UpdateInstance(instanceID, instance)
+	}
 	if m.subnets == nil {
 		m.subnets = ipamTypes.SubnetMap{}
 	}
@@ -208,6 +214,17 @@ func (m *InstancesManager) resyncInstances(ctx context.Context) (time.Time, erro
 
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
+	for id, at := range m.released {
+		if at.Before(resyncStart) {
+			delete(m.released, id)
+			continue
+		}
+		instances.Delete(id)
+		m.instances.ForeachInterface(id, func(instanceID, _ string, iface ipamTypes.Interface) error {
+			instances.Update(instanceID, iface.DeepCopyInterface())
+			return nil
+		})
+	}
 	m.instances = instances
 	m.subnets = subnets
 
@@ -220,6 +237,30 @@ func (m *InstancesManager) InstanceSync(ctx context.Context, instanceID string) 
 	m.resyncLock.RLock()
 	defer m.resyncLock.RUnlock()
 	return m.resyncInstance(ctx, instanceID)
+}
+
+func (m *InstancesManager) removeIPsFromInterface(instanceID, interfaceID string, addresses []netip.Addr) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	if m.released == nil {
+		m.released = map[string]time.Time{}
+	}
+	m.released[instanceID] = time.Now()
+
+	iface, ok := m.instances.GetInterface(instanceID, interfaceID)
+	if !ok {
+		return
+	}
+	azureIface, ok := iface.(*types.AzureInterface)
+	if !ok {
+		return
+	}
+	updated := azureIface.DeepCopy()
+	updated.Addresses = slices.DeleteFunc(updated.Addresses, func(addr types.AzureAddress) bool {
+		return slices.Contains(addresses, addr.IP.Addr)
+	})
+	m.instances.Update(instanceID, updated)
 }
 
 // DeleteInstance delete instance from m.instances
