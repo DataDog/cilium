@@ -85,6 +85,7 @@ func setupRedirectSuite(tb testing.TB) *RedirectSuite {
 
 	s.stats = new(regenerationStatistics)
 	s.datapathRegenCtxt = new(datapathRegenerationContext)
+	s.datapathRegenCtxt.parentContext = context.Background()
 
 	tb.Cleanup(func() {
 		s.do.idmgr.RemoveAll()
