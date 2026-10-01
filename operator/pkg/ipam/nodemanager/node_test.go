@@ -505,6 +505,7 @@ func TestHandleMultiPoolCIDRRelease(t *testing.T) {
 			ops:                            mock,
 			excessIPReleaseDelay:           5 * time.Second,
 			multiPoolCIDRsMarkedForRelease: marked,
+			stats:                          Statistics{IPv4: IPStatistics{ExcessIPs: 1 << 16}},
 		}
 		n.logger.Store(n.rootLogger)
 		cn := &v2.CiliumNode{}
