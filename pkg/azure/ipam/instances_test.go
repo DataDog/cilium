@@ -5,16 +5,20 @@ package ipam
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"net/netip"
 	"slices"
 	"strconv"
 	"testing"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v12"
 	"github.com/cilium/hive/hivetest"
 	"github.com/stretchr/testify/require"
 
+	"github.com/cilium/cilium/operator/pkg/ipam/nodemanager"
 	apimock "github.com/cilium/cilium/pkg/azure/api/mock"
 	"github.com/cilium/cilium/pkg/azure/types"
 	iputil "github.com/cilium/cilium/pkg/ip"
@@ -496,4 +500,36 @@ func TestResyncKeepsReleasedInstance(t *testing.T) {
 		require.Equal(t, map[string][]string{"nic-a": {"1.1.1.2", "1.1.1.9"}}, cached(mngr))
 		require.True(t, hasMarker(mngr))
 	})
+}
+
+func TestInstanceSyncNotFoundDropsInstance(t *testing.T) {
+	api := apimock.NewAPI(subnets)
+	instances := ipamTypes.NewInstanceMap()
+	iface := &types.AzureInterface{
+		Subnet: types.AzureSubnet{ID: "subnet-1"},
+		Addresses: []types.AzureAddress{
+			{IP: iputil.AddrFrom(netip.MustParseAddr("1.1.1.2")), State: types.StateSucceeded},
+		},
+		State: types.StateSucceeded,
+	}
+	iface.ID = "intf-vm-1"
+	instances.Update("vm-1", iface)
+	api.UpdateInstances(instances)
+
+	mngr := NewInstancesManager(hivetest.Logger(t), api, false)
+	_, err := mngr.Resync(t.Context())
+	require.NoError(t, err)
+	require.True(t, mngr.HasInstance("vm-1"))
+
+	api.SetMockError(apimock.ListVMNetworkInterfaces, &azcore.ResponseError{StatusCode: http.StatusNotFound, ErrorCode: "ParentResourceNotFound"})
+	_, err = mngr.InstanceSync(t.Context(), "vm-1")
+	require.ErrorIs(t, err, nodemanager.ErrInstanceNotFound)
+	require.False(t, mngr.HasInstance("vm-1"))
+
+	api.SetMockError(apimock.ListVMNetworkInterfaces, errors.New("throttled"))
+	mngr.instances.Update("vm-1", iface)
+	_, err = mngr.InstanceSync(t.Context(), "vm-1")
+	require.Error(t, err)
+	require.NotErrorIs(t, err, nodemanager.ErrInstanceNotFound)
+	require.True(t, mngr.HasInstance("vm-1"))
 }

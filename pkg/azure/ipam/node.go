@@ -200,11 +200,13 @@ func (n *Node) ResyncInterfacesAndIPs(ctx context.Context, scopedLog *slog.Logge
 	// and decrement per NIC below for any primary slot we can't allocate.
 	nodeCapacity := types.InterfaceAddressLimit
 	requiredIfaceName := n.k8sObj.Spec.Azure.InterfaceName
+	interfaces := 0
 	err = n.manager.instances.ForeachInterface(n.instanceID, func(instanceID, interfaceID string, interfaceObj ipamTypes.Interface) error {
 		iface, ok := interfaceObj.(*types.AzureInterface)
 		if !ok {
 			return fmt.Errorf("invalid interface object")
 		}
+		interfaces++
 
 		for _, address := range iface.Addresses {
 			if address.State == types.StateSucceeded {
@@ -236,6 +238,9 @@ func (n *Node) ResyncInterfacesAndIPs(ctx context.Context, scopedLog *slog.Logge
 	})
 	if err != nil {
 		return nil, stats, err
+	}
+	if interfaces == 0 {
+		return nil, stats, fmt.Errorf("unable to retrieve interfaces")
 	}
 	stats.NodeCapacity = max(nodeCapacity, 0)
 

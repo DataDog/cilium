@@ -122,3 +122,10 @@ func TestENIIPAMCapacityAccountingMultiNICUsePrimary(t *testing.T) {
 	assert.NoError(err)
 	assert.Equal(256, stats.NodeCapacity)
 }
+
+func TestResyncInterfacesAndIPsNoInterfaces(t *testing.T) {
+	n := newCapacityTestNode(t, nil, false)
+	n.manager.instances.UpdateInstance("vm1", &ipamTypes.Instance{Interfaces: map[string]ipamTypes.Interface{}})
+	_, _, err := n.ResyncInterfacesAndIPs(t.Context(), hivetest.Logger(t))
+	assert.Error(t, err)
+}

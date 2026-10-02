@@ -333,7 +333,9 @@ func (n *NodeManager) Upsert(resource *v2.CiliumNode) {
 		if !n.instancesAPI.HasInstance(resource.InstanceID()) && n.stableInstancesAPI {
 			if _, err := n.instancesAPI.InstanceSync(ctx, resource.InstanceID()); err != nil {
 				node.logger.Load().Warn("Failed to resync the instance from the API after new node was found", logfields.Error, err)
-				n.stableInstancesAPI = false
+				if !errors.Is(err, ErrInstanceNotFound) {
+					n.stableInstancesAPI = false
+				}
 			} else {
 				n.stableInstancesAPI = true
 			}

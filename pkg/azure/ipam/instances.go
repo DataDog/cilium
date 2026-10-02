@@ -121,6 +121,10 @@ func (m *InstancesManager) resyncInstance(ctx context.Context, instanceID string
 		// apart from a transient synchronization failure.
 		var respErr *azcore.ResponseError
 		if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
+			m.mutex.Lock()
+			m.instances.Delete(instanceID)
+			delete(m.released, instanceID)
+			m.mutex.Unlock()
 			return time.Time{}, fmt.Errorf("%w: synchronize Azure instance %s interface list: %w", nodemanager.ErrInstanceNotFound, instanceID, err)
 		}
 		return time.Time{}, fmt.Errorf("synchronize Azure instance %s interface list: %w", instanceID, err)

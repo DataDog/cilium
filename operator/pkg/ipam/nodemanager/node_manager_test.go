@@ -511,6 +511,32 @@ func TestNodeManagerInstanceNotFoundRecovery(t *testing.T) {
 	})
 }
 
+func TestUpsertInstanceSyncFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		err        error
+		wantStable bool
+	}{
+		{name: "instance not found", err: fmt.Errorf("provider response: %w", ErrInstanceNotFound), wantStable: true},
+		{name: "transient", err: errors.New("throttled"), wantStable: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			am := newAllocationImplementationMock()
+			mngr, err := NewNodeManager(hivetest.Logger(t), am, k8sapi, metricsmock.NewMockMetrics(), 10, false, 0, false)
+			require.NoError(t, err)
+			t.Cleanup(mngr.Stop)
+			mngr.SetInstancesAPIReadiness(true)
+
+			am.setHasInstance(false)
+			am.setInstanceSyncError(tc.err)
+			mngr.Upsert(newCiliumNode("node-sync-failure", 0, 0, 0))
+
+			require.Equal(t, 1, am.instanceSyncCallCount())
+			require.Equal(t, tc.wantStable, mngr.InstancesAPIIsReady())
+		})
+	}
+}
+
 func TestNodeManagerGet(t *testing.T) {
 	am := newAllocationImplementationMock()
 	require.NotNil(t, am)
