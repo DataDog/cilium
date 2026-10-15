@@ -102,13 +102,17 @@ jobs:
 
   installation-and-connectivity:
     name: Installation and Connectivity Test
-    runs-on: ${{ vars.GH_RUNNER_EXTRA_POWER_UBUNTU_LATEST || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.UBUNTU_2404_4CPU_16GB || 'ubuntu-24.04' }}
     needs: wait-for-images
     timeout-minutes: 60
     env:
       job_name: "Installation and Connectivity Test"
     steps:
       - name: Set commit status to pending
+        # commit-status-start does not re-run, so this is only needed on a re-run. It's ok
+        # to continue on error since the check is reported at the end of the test.
+        if: ${{ github.run_attempt != '1' }}
+        continue-on-error: true
         uses: cilium/actions/set-commit-status@687b48a0547e534dd7270d5069a5ab7967c0e907 # main
         with:
           sha: ${{ inputs.SHA || github.sha }}
@@ -176,6 +180,13 @@ jobs:
           kube_node
           EOF
 
+      - name: Remove the runner's CNI configuration
+        run: |
+          # Cilium is the only CNI here, so nothing else may sandbox a pod.
+          sudo ls -l /etc/cni/net.d || true
+          sudo mkdir -p /etc/cni/net.d
+          sudo find /etc/cni/net.d -mindepth 1 -delete
+
       - name: Deploy Kubernetes cluster
         id: deploy-cluster
         run: |
@@ -236,7 +247,7 @@ jobs:
           echo sha=${{ steps.default_vars.outputs.sha }} >> $GITHUB_OUTPUT
 
       - name: Install Cilium CLI
-        uses: cilium/cilium-cli@c5e42236c7d90bd50e7975ac587f77782666a0aa # v0.20.0
+        uses: cilium/cilium-cli@d9302835ae0d3cb6148178d4590240622289e193 # v0.20.1
         with:
           skip-build: ${{ env.CILIUM_CLI_SKIP_BUILD }}
           image-repo: ${{ env.CILIUM_CLI_IMAGE_REPO }}
@@ -264,11 +275,31 @@ jobs:
 
       - name: Wait for Cilium to be ready
         run: |
+          trap 'kubectl get pods --all-namespaces -o wide' EXIT
           cilium status --wait --interactive=false --wait-duration=2m
-          # Cilium provides the pod network now, so CoreDNS has to converge.
           kubectl wait --for=condition=Ready node --all --timeout=5m
-          kubectl wait --for=condition=Ready pods --all -n kube-system --timeout=5m
-          kubectl get pods --all-namespaces -o wide
+
+          # Cilium provides the pod network now, so kube-system has to converge.
+          deadline=$(( SECONDS + 5 * 60 ))
+
+          # kubeadm runs the control plane as static pods, which have no rollout.
+          kubectl wait --for=condition=Ready pod -n kube-system \
+            -l tier=control-plane --timeout="$(( deadline - SECONDS ))s"
+
+          # Wait on the workload objects, so no pod name is held across a restart.
+          workloads="$(kubectl get -n kube-system deployment,daemonset,statefulset -o name)"
+          if [ -z "${workloads}" ]; then
+            echo "::error::Found no kube-system workload to wait for"
+            exit 1
+          fi
+          for workload in ${workloads}; do
+            if (( SECONDS >= deadline )); then
+              echo "::error::Ran out of time waiting for kube-system to converge"
+              exit 1
+            fi
+            kubectl rollout status -n kube-system "${workload}" \
+              --timeout="$(( deadline - SECONDS ))s"
+          done
 
       - name: Make JUnit report directory
         run: |

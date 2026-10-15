@@ -87,7 +87,7 @@ jobs:
 
   build-commits-cilium:
     name: Check if cilium builds for every commit
-    runs-on: ${{ vars.GH_RUNNER_EXTRA_POWER_UBUNTU_LATEST || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.UBUNTU_2404_4CPU_16GB || 'ubuntu-24.04' }}
     needs: [compute-vars]
     timeout-minutes: 180
     steps:
@@ -116,7 +116,7 @@ jobs:
         with:
           cache: false
           # renovate: datasource=golang-version depName=go
-          go-version: 1.26.8
+          go-version: 1.26.9
 
       - name: Load Golang cache build from GitHub
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -173,7 +173,7 @@ jobs:
 
   build-commits-hubble-cli:
     name: Check if hubble-cli builds for every commit
-    runs-on: ${{ vars.GH_RUNNER_EXTRA_POWER_UBUNTU_LATEST || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.UBUNTU_2404_4CPU_16GB || 'ubuntu-24.04' }}
     needs: [compute-vars]
     timeout-minutes: 180
     steps:
@@ -202,7 +202,7 @@ jobs:
         with:
           cache: false
           # renovate: datasource=golang-version depName=go
-          go-version: 1.26.8
+          go-version: 1.26.9
 
       - name: Load hubble-cli Golang cache build from GitHub
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -265,7 +265,7 @@ jobs:
 
   build-commits-bpf:
     name: Check if bpf builds for every commit
-    runs-on: ${{ vars.GH_RUNNER_EXTRA_POWER_UBUNTU_LATEST || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.UBUNTU_2404_4CPU_16GB || 'ubuntu-24.04' }}
     needs: [compute-vars]
     # Runs only if code under bpf/ is changed.
     if: needs.compute-vars.outputs.build-bpf == 'true'
@@ -296,7 +296,7 @@ jobs:
         with:
           cache: false
           # renovate: datasource=golang-version depName=go
-          go-version: 1.26.8
+          go-version: 1.26.9
 
       - name: Load Golang cache build from GitHub
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -358,7 +358,7 @@ jobs:
 
   build-commits-test:
     name: Check if test builds for every commit
-    runs-on: ${{ vars.GH_RUNNER_EXTRA_POWER_UBUNTU_LATEST || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.UBUNTU_2404_4CPU_16GB || 'ubuntu-24.04' }}
     needs: [compute-vars]
     # Runs only if code under test/ is changed.
     if: needs.compute-vars.outputs.build-test == 'true'
@@ -389,7 +389,7 @@ jobs:
         with:
           cache: false
           # renovate: datasource=golang-version depName=go
-          go-version: 1.26.8
+          go-version: 1.26.9
 
       - name: Install LLVM and Clang prerequisites
         timeout-minutes: 5

@@ -9,6 +9,8 @@ IP4OTHERTARGET="$4"
 IP6TARGET="$5"
 IP6OTHERTARGET="$6"
 
+NGINX_IMAGE="${KIND_FAKE_EXTERNAL_TARGET_IMAGE:-nginx}"
+
 lvh_wrapper() {
 	if [ "$LVH" = "true" ]; then
 		ssh -p 2222 -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@localhost "cd /host; ${@@Q}"
@@ -46,11 +48,6 @@ openssl req -new -x509 -nodes -days 365 \
     -key ca-key.pem \
     -subj "/O=Cilium/CN=Cilium CA" \
     -out ca-cert.pem
-
-# Create a secret with the CA certificate, will be used by L7 tests as trused CA for
-# connections between Envoy and our external services
-kubectl create ns external-target-secrets
-kubectl -n external-target-secrets create secret generic custom-ca --from-file=ca.crt=ca-cert.pem
 
 # Create a cerificate signing request and private key for external services
 # Note only the primary external target is in the common name.
@@ -135,7 +132,7 @@ retry lvh_wrapper docker run -d --name webserver --network $KINDNETWORK \
     -v ./nginx.conf:/etc/nginx/nginx.conf:ro \
     -v ./external-service.cilium.crt:/etc/ssl/external-service.cilium.crt:ro \
     -v ./external-service.cilium.key:/etc/ssl/external-service.cilium.key:ro \
-    nginx
+    "$NGINX_IMAGE"
 
 # Start the second external target
 retry lvh_wrapper docker run -d --name other-webserver --network $KINDNETWORK \
@@ -143,7 +140,7 @@ retry lvh_wrapper docker run -d --name other-webserver --network $KINDNETWORK \
     -v ./nginx.conf:/etc/nginx/nginx.conf:ro \
     -v ./external-service.cilium.crt:/etc/ssl/external-service.cilium.crt:ro \
     -v ./external-service.cilium.key:/etc/ssl/external-service.cilium.key:ro \
-    nginx
+    "$NGINX_IMAGE"
 
 # Fail fast if either target did not actually come up.
 for container in webserver other-webserver; do
@@ -154,12 +151,20 @@ for container in webserver other-webserver; do
 	fi
 done
 
-# Get the current CoreDNS config file
-kubectl -n kube-system get configmap/coredns -o json | jq ".data.Corefile" -r  > Corefile
+# Iterate over every requested context, defaulting to the current context.
+read -r -a contexts <<< "${KUBE_CONTEXTS:-$(kubectl config current-context)}"
+for context in "${contexts[@]}"; do
+    # Create a secret with the CA certificate, will be used by L7 tests as trusted CA for
+    # connections between Envoy and our external services
+    kubectl --context "$context" create ns external-target-secrets
+    kubectl --context "$context" -n external-target-secrets create secret generic custom-ca --from-file=ca.crt=ca-cert.pem
 
-# We use the fake `cilium` TLD. CoreDNS allows us to specify DNS config per TLD.
-# Simply resolve our fake domains with a embedded hosts file.
-cat >> Corefile << EOF
+    # Get the current CoreDNS config file
+    kubectl --context "$context" -n kube-system get configmap/coredns -o json | jq ".data.Corefile" -r > Corefile
+
+    # We use the fake `cilium` TLD. CoreDNS allows us to specify DNS config per TLD.
+    # Simply resolve our fake domains with a embedded hosts file.
+    cat >> Corefile << EOF
 cilium:53 {
     hosts {
         $IP4TARGET $TARGETNAME
@@ -170,10 +175,10 @@ cilium:53 {
 }
 EOF
 
-# Turn the Corefile back into a JSON string
-cat Corefile | jq -asR '.' > Corefile.json
-# Create a patch for the CoreDNS configmap
-echo "{}" | jq ".data.Corefile = $(cat Corefile.json)" - > patch.json
-# Patch the CoreDNS configmap
-kubectl -n kube-system patch configmap/coredns --patch-file patch.json
-
+    # Turn the Corefile back into a JSON string
+    cat Corefile | jq -asR '.' > Corefile.json
+    # Create a patch for the CoreDNS configmap
+    echo "{}" | jq ".data.Corefile = $(cat Corefile.json)" - > patch.json
+    # Patch the CoreDNS configmap
+    kubectl --context "$context" -n kube-system patch configmap/coredns --patch-file patch.json
+done

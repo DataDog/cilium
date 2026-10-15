@@ -39,7 +39,7 @@ jobs:
   build-and-push-prs:
     timeout-minutes: 45
     name: Build and Push Images
-    runs-on: ${{ vars.GH_RUNNER_EXTRA_POWER_UBUNTU_LATEST || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.UBUNTU_2404_4CPU_16GB || 'ubuntu-24.04' }}
     # Also decides the subject of the OIDC token, see the login step below.
     environment:
       name: publish-ci-images
@@ -133,7 +133,7 @@ jobs:
           sudo systemctl start docker
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         # Disable GC entirely to avoid buildkit from GC caches.
         with:
           buildkitd-config-inline: |
@@ -152,7 +152,7 @@ jobs:
       - name: Get a quay.io robot token via OIDC
         id: registry-token
         env:
-          ROBOT: ${{ secrets.QUAY_USERNAME_CI }}
+          ROBOT: ${{ vars.QUAY_ROBOT_CI }}
         run: |
           oidc_token="$(curl -sSf --retry 3 --retry-all-errors \
             -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
@@ -174,7 +174,7 @@ jobs:
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY_DEV }}
-          username: ${{ secrets.QUAY_USERNAME_CI }}
+          username: ${{ vars.QUAY_ROBOT_CI }}
           password: ${{ steps.registry-token.outputs.token }}
 
       - name: Getting image tag
@@ -273,7 +273,7 @@ jobs:
 
       # Import GitHub's cache build to docker cache
       - name: Copy ${{ matrix.name }} Golang cache to docker cache
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           provenance: false
           context: /tmp/.cache/go
@@ -296,6 +296,40 @@ jobs:
             echo build="true" >> $GITHUB_OUTPUT
           fi
 
+      # If the images were already built on the merge_group, then we don't need to build them again.
+      - name: Check if the ${{ matrix.name }} image was already built
+        id: check-published
+        if: ${{ steps.check.outputs.build != '' && github.event_name == 'push' }}
+        shell: bash
+        env:
+          IMAGE: ${{ env.REGISTRY_DEV }}/${{ env.ORGANIZATION_DEV }}/${{ matrix.name }}-ci:${{ steps.tag.outputs.tag }}
+        run: |
+          exists="false"
+          digest=""
+          err="${RUNNER_TEMP}/imagetools-inspect.err"
+          # Only a "not found" is conclusive; any other failure falls back to building the image.
+          for attempt in 1 2 3; do
+            if out="$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "${IMAGE}" 2>"${err}")"; then
+              if [[ "${out}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                echo "${IMAGE} was already built as ${out}"
+                exists="true"
+                digest="${out}"
+              else
+                echo "::warning::${IMAGE} reported an unexpected digest, building it again"
+              fi
+              break
+            fi
+            cat "${err}"
+            if grep --quiet ': not found' "${err}"; then
+              echo "${IMAGE} has not been built yet"
+              break
+            fi
+            echo "::warning::attempt ${attempt}: cannot tell whether ${IMAGE} exists"
+            sleep 5
+          done
+          echo exists="${exists}" >> $GITHUB_OUTPUT
+          echo digest="${digest}" >> $GITHUB_OUTPUT
+
       - name: Tag local module version
         id: create-local-tag
         env:
@@ -309,9 +343,9 @@ jobs:
           git log -1 "$LOCAL_TAG"
 
       - name: CI Build ${{ matrix.name }}
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         id: docker_build_ci
-        if: ${{ steps.check.outputs.build != '' }}
+        if: ${{ steps.check.outputs.build != '' && steps.check-published.outputs.exists != 'true' }}
         with:
           provenance: false
           context: .
@@ -324,8 +358,35 @@ jobs:
             CILIUM_RUNTIME_IMAGE=${{ env.CILIUM_RUNTIME_IMAGE }}
             OPERATOR_VARIANT=${{ matrix.name }}
 
+      - name: Add the floating tag to the ${{ matrix.name }} image
+        id: float-tag
+        if: ${{ steps.check-published.outputs.exists == 'true' && steps.tag.outputs.floating_tag != '' }}
+        shell: bash
+        env:
+          IMAGE: ${{ env.REGISTRY_DEV }}/${{ env.ORGANIZATION_DEV }}/${{ matrix.name }}-ci
+          DIGEST: ${{ steps.check-published.outputs.digest }}
+          FLOATING_TAG: ${{ steps.tag.outputs.floating_tag }}
+        run: |
+          # --prefer-index=false makes this a carbon copy, so the digest is preserved.
+          for attempt in 1 2 3; do
+            if docker buildx imagetools create --prefer-index=false \
+                 --tag "${IMAGE}:${FLOATING_TAG}" "${IMAGE}@${DIGEST}"; then
+              break
+            fi
+            if [[ "${attempt}" == "3" ]]; then
+              echo "::error::cannot tag ${IMAGE}@${DIGEST} as ${IMAGE}:${FLOATING_TAG}"
+              exit 1
+            fi
+            sleep 5
+          done
+          created="$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "${IMAGE}:${FLOATING_TAG}" || true)"
+          if [[ "${created}" != "${DIGEST}" ]]; then
+            echo "::warning::${IMAGE}:${FLOATING_TAG} is ${created} and not ${DIGEST}"
+          fi
+          echo digest="${created}" >> $GITHUB_OUTPUT
+
       - name: CI race detection Build ${{ matrix.name }}
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         id: docker_build_ci_detect_race_condition
         if: ${{ steps.check.outputs.build != '' && steps.tag.outputs.race_tag != ''}}
         with:
@@ -343,7 +404,7 @@ jobs:
             OPERATOR_VARIANT=${{ matrix.name }}
 
       - name: CI Unstripped Binaries Build ${{ matrix.name }}
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         id: docker_build_ci_unstripped
         if: ${{ steps.check.outputs.build != '' && steps.tag.outputs.unstripped_tag != ''}}
         with:
@@ -360,15 +421,20 @@ jobs:
             OPERATOR_VARIANT=${{ matrix.name }}
 
       - name: Generate SBOM, Sign, and Attest Main CI Image
+        id: cosign_ci
         if: ${{ matrix.name != 'cilium-cli' && steps.check.outputs.build != '' }}
+        # Don't redden a pull request over a syft, quay or sigstore flake.
+        continue-on-error: ${{ startsWith(github.event_name, 'pull_request') }}
         uses: ./../cilium-base-branch/.github/actions/cosign
         with:
-          image: "${{ env.REGISTRY_DEV }}/${{ env.ORGANIZATION_DEV }}/${{ matrix.name }}-ci@${{ steps.docker_build_ci.outputs.digest }}"
+          image: "${{ env.REGISTRY_DEV }}/${{ env.ORGANIZATION_DEV }}/${{ matrix.name }}-ci@${{ steps.docker_build_ci.outputs.digest || steps.check-published.outputs.digest }}"
           image_tag: "${{ env.REGISTRY_DEV }}/${{ env.ORGANIZATION_DEV }}/${{ matrix.name }}-ci:${{ steps.tag.outputs.tag }}"
           sbom_name: "ci_${{ matrix.name }}_${{ steps.tag.outputs.tag }}"
 
       - name: Generate SBOM, Sign, and Attest Race Detection Image
-        if: ${{ matrix.name != 'cilium-cli' && steps.docker_build_ci_detect_race_condition.outcome != 'skipped' }}
+        id: cosign_race
+        if: ${{ matrix.name != 'cilium-cli' && steps.cosign_ci.outcome != 'failure' && steps.docker_build_ci_detect_race_condition.outcome != 'skipped' }}
+        continue-on-error: ${{ startsWith(github.event_name, 'pull_request') }}
         uses: ./../cilium-base-branch/.github/actions/cosign
         with:
           image: "${{ env.REGISTRY_DEV }}/${{ env.ORGANIZATION_DEV }}/${{ matrix.name }}-ci@${{ steps.docker_build_ci_detect_race_condition.outputs.digest }}"
@@ -377,7 +443,9 @@ jobs:
           install_cosign: 'false'
 
       - name: Generate SBOM, Sign, and Attest Unstripped Image
-        if: ${{ matrix.name != 'cilium-cli' && steps.docker_build_ci_unstripped.outcome != 'skipped' }}
+        id: cosign_unstripped
+        if: ${{ matrix.name != 'cilium-cli' && steps.cosign_ci.outcome != 'failure' && steps.docker_build_ci_unstripped.outcome != 'skipped' }}
+        continue-on-error: ${{ startsWith(github.event_name, 'pull_request') }}
         uses: ./../cilium-base-branch/.github/actions/cosign
         with:
           image: "${{ env.REGISTRY_DEV }}/${{ env.ORGANIZATION_DEV }}/${{ matrix.name }}-ci@${{ steps.docker_build_ci_unstripped.outputs.digest }}"
@@ -385,16 +453,22 @@ jobs:
           sbom_name: "ci_unstripped_${{ matrix.name }}_${{ steps.tag.outputs.tag }}"
           install_cosign: 'false'
 
+      # A tolerated failure reports success in the jobs API, so say it out loud here.
+      - name: Warn about unsigned CI images
+        if: ${{ steps.cosign_ci.outcome == 'failure' || steps.cosign_race.outcome == 'failure' || steps.cosign_unstripped.outcome == 'failure' }}
+        shell: bash
+        run: |
+          echo "::warning title=Unsigned CI image::${{ matrix.name }} was pushed without a cosign signature or an SBOM attestation."
+
       - name: CI Image Releases digests
         shell: bash
         if: ${{ steps.check.outputs.build != '' }}
         run: |
           mkdir -p image-digest/
-          # shellcheck disable=SC2078
-          if [ ${{ github.event_name == 'push' && !startsWith(github.ref_name, 'ft/') }} ]; then
-            echo "${{ env.REGISTRY_DEV }}/${{ env.ORGANIZATION_DEV }}/${{ matrix.name }}-ci:${{ steps.tag.outputs.floating_tag }}@${{ steps.docker_build_ci.outputs.digest }}" > image-digest/${{ matrix.name }}.txt
+          if [ -n "${{ steps.tag.outputs.floating_tag }}" ]; then
+            echo "${{ env.REGISTRY_DEV }}/${{ env.ORGANIZATION_DEV }}/${{ matrix.name }}-ci:${{ steps.tag.outputs.floating_tag }}@${{ steps.docker_build_ci.outputs.digest || steps.float-tag.outputs.digest || steps.check-published.outputs.digest }}" > image-digest/${{ matrix.name }}.txt
           fi
-          echo "${{ env.REGISTRY_DEV }}/${{ env.ORGANIZATION_DEV }}/${{ matrix.name }}-ci:${{ steps.tag.outputs.tag }}@${{ steps.docker_build_ci.outputs.digest }}" >> image-digest/${{ matrix.name }}.txt
+          echo "${{ env.REGISTRY_DEV }}/${{ env.ORGANIZATION_DEV }}/${{ matrix.name }}-ci:${{ steps.tag.outputs.tag }}@${{ steps.docker_build_ci.outputs.digest || steps.check-published.outputs.digest }}" >> image-digest/${{ matrix.name }}.txt
           if [[ "${{ steps.docker_build_ci_detect_race_condition.outcome }}" != 'skipped' ]]; then
             echo "${{ env.REGISTRY_DEV }}/${{ env.ORGANIZATION_DEV }}/${{ matrix.name }}-ci:${{ steps.tag.outputs.tag }}-race@${{ steps.docker_build_ci_detect_race_condition.outputs.digest }}" >> image-digest/${{ matrix.name }}.txt
           fi
@@ -404,6 +478,8 @@ jobs:
 
       # Upload artifact digests
       - name: Upload artifact digests
+        # Nothing reads this artifact; the digests job only cats it into the log.
+        continue-on-error: ${{ startsWith(github.event_name, 'pull_request') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ steps.check.outputs.build != '' }}
         with:
@@ -447,11 +523,12 @@ jobs:
       contents: read
       pull-requests: read
       statuses: write
+      # Required by the Quay OIDC token exchange in the called workflow.
+      id-token: write
     uses: ./.github/workflows/push-chart-ci.yaml
     with:
       checkout_ref: ${{ needs.build-and-push-prs.outputs.sha }}
       image_tag: ${{ needs.build-and-push-prs.outputs.sha }}
-    secrets: inherit
 
   pre-comment:
     # Avoid running the "Trigger CI from renovate PRs" environment if we don't need to.

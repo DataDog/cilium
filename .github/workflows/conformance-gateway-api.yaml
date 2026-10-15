@@ -163,6 +163,10 @@ jobs:
       matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
     steps:
       - name: Set commit status to pending
+        # commit-status-start does not re-run, so this is only needed on a re-run. It's ok
+        # to continue on error since the check is reported at the end of the test.
+        if: ${{ github.run_attempt != '1' }}
+        continue-on-error: true
         uses: cilium/actions/set-commit-status@687b48a0547e534dd7270d5069a5ab7967c0e907 # main
         with:
           sha: ${{ inputs.SHA || github.sha }}
@@ -201,7 +205,7 @@ jobs:
 
           SKIPPED_TESTS="TCPRouteWeightedRouting,UDPRouteWeightedRouting"
           if [ "${{ matrix.conformance-profile }}" == "true" ]; then
-            SKIPPED_TESTS=",MeshConsumerRoute,HTTPRouteListenerPortMatching"
+            SKIPPED_TESTS="UDPRouteWeightedRouting,MeshConsumerRoute,HTTPRouteListenerPortMatching"
           fi
 
           # The conformance-profile jobs consume SKIPPED_TESTS through the
@@ -249,7 +253,7 @@ jobs:
             examples
 
       - name: Create kind cluster
-        uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
         with:
           version: ${{ env.KIND_VERSION }}
           node_image: ${{ env.KIND_K8S_IMAGE }}
@@ -267,7 +271,7 @@ jobs:
             --docker-password="${{ secrets.DOCKER_READ_PASSWORD }}"
 
       - name: Install Cilium CLI
-        uses: cilium/cilium-cli@c5e42236c7d90bd50e7975ac587f77782666a0aa # v0.20.0
+        uses: cilium/cilium-cli@d9302835ae0d3cb6148178d4590240622289e193 # v0.20.1
         with:
           skip-build: ${{ env.CILIUM_CLI_SKIP_BUILD }}
           image-repo: ${{ env.CILIUM_CLI_IMAGE_REPO }}
@@ -279,7 +283,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           # renovate: datasource=golang-version depName=go
-          go-version: 1.26.8
+          go-version: 1.26.9
 
       - name: Install tparse
         timeout-minutes: 15

@@ -5,10 +5,12 @@ package envoy
 
 import (
 	"context"
+	"encoding/json"
 	"iter"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -16,6 +18,7 @@ import (
 	"github.com/cilium/hive/hivetest"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 	corev1 "k8s.io/api/core/v1"
 
 	cilium "github.com/cilium/proxy/go/cilium/api"
@@ -26,9 +29,9 @@ import (
 	envoy_config_route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	envoy_config_http "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	envoy_config_tls "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/cilium/cilium/pkg/completion"
-	"github.com/cilium/cilium/pkg/envoy/config"
 	util "github.com/cilium/cilium/pkg/envoy/util"
 	"github.com/cilium/cilium/pkg/envoy/xds"
 	"github.com/cilium/cilium/pkg/flowdebug"
@@ -450,6 +453,31 @@ func TestEnvoyAdsResourcesHandling(t *testing.T) {
 	err = s.waitForProxyCompletion()
 	require.NoError(t, err)
 
+	t.Log("updating an ADS listener additional address with SO_REUSEPORT disabled")
+	oldListener := proto.Clone(ADS_RESOURCES.Listeners["listener1"]).(*envoy_config_listener.Listener)
+	oldListener.Name = "listener-address-update"
+	oldAddresses := testListenerWithPorts(18080, 18443)
+	oldListener.Address = oldAddresses.Address
+	oldListener.AdditionalAddresses = oldAddresses.AdditionalAddresses
+	oldListener.EnableReusePort = wrapperspb.Bool(false)
+	oldListenerResources := xds.NewResources()
+	oldListenerResources.Listeners[oldListener.Name] = oldListener
+	s.waitGroup = completion.NewWaitGroup(ctx)
+	require.NoError(t, xdsServer.UpsertEnvoyResources(ctx, oldListenerResources, s.waitGroup))
+	require.NoError(t, s.waitForProxyCompletion())
+
+	newListener := proto.Clone(oldListener).(*envoy_config_listener.Listener)
+	newAddresses := testListenerWithPorts(18080, 18444)
+	newListener.Address = newAddresses.Address
+	newListener.AdditionalAddresses = newAddresses.AdditionalAddresses
+	newListenerResources := xds.NewResources()
+	newListenerResources.Listeners[newListener.Name] = newListener
+	require.NoError(t, xdsServer.UpdateEnvoyResources(ctx, oldListenerResources, newListenerResources, nil))
+	s.waitGroup = completion.NewWaitGroup(ctx)
+	require.NoError(t, xdsServer.DeleteEnvoyResources(ctx, newListenerResources, s.waitGroup))
+	require.NoError(t, s.waitForProxyCompletion())
+	t.Log("completed updating an ADS listener additional address")
+
 	t.Log("Updating Envoy resources")
 	s.waitGroup = completion.NewWaitGroup(ctx)
 	updatedResources := ADS_RESOURCES.DeepCopy()
@@ -602,6 +630,123 @@ func TestEnvoyAdsNetworkPoliciesHandling(t *testing.T) {
 	stopEnvoy()
 }
 
+// Regression test for https://github.com/cilium/cilium/issues/47624.
+func TestEnvoyAdsNetworkPolicyUnsubscribeAfterLastListener(t *testing.T) {
+	s := setupEnvoySuite(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+
+	s.waitGroup = completion.NewWaitGroup(ctx)
+
+	if os.Getenv("CILIUM_ENABLE_ENVOY_UNIT_TEST") == "" {
+		t.Skip("skipping envoy unit test; CILIUM_ENABLE_ENVOY_UNIT_TEST not set")
+	}
+
+	logging.SetLogLevel(slog.LevelDebug)
+	flowdebug.Enable()
+
+	testRunDir, err := os.MkdirTemp("", "envoy_go_test")
+	require.NoError(t, err)
+
+	envoyLogPath := filepath.Join(testRunDir, "cilium-envoy.log")
+	t.Logf("run directory: %s", testRunDir)
+
+	localEndpointStore := newLocalEndpointStore()
+	logger := hivetest.Logger(t, hivetest.LogLevel(slog.LevelWarn))
+
+	xdsServer := newADSServer(logger, testipcache.NewMockIPCache(), localEndpointStore,
+		xdsServerConfig{
+			envoySocketDir:    util.GetSocketDir(testRunDir),
+			proxyGID:          1337,
+			httpNormalizePath: true,
+			metrics:           xds.NewXDSMetric(),
+		},
+		nil, nil)
+	require.NotNil(t, xdsServer)
+
+	go func() {
+		runErr := xdsServer.run(ctx)
+		require.NoError(t, runErr)
+	}()
+	accessLogServer := newAccessLogServer(logger, &proxyAccessLoggerMock{}, testRunDir, 1337, localEndpointStore, 4096)
+	require.NotNil(t, accessLogServer)
+	go func() {
+		runErr := accessLogServer.run(ctx)
+		require.NoError(t, runErr)
+	}()
+
+	starter := &onDemandXdsStarter{logger: logger}
+	envoyProxy, err := starter.startStandaloneEnvoyInternal(standaloneEnvoyConfig{
+		runDir:                         testRunDir,
+		logPath:                        envoyLogPath,
+		baseID:                         15,
+		connectTimeout:                 1,
+		drainTimeSeconds:               1,
+		maxActiveDownstreamConnections: 100,
+		defaultLogLevel:                "debug",
+		maxConnections:                 10,
+		maxRequests:                    100,
+		maxConcurrentRetries:           10,
+		maxPendingRequests:             1024,
+		adsMode:                        true,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, envoyProxy)
+	stopEnvoy := cleanupStandaloneEnvoy(t, envoyProxy)
+
+	resources := ADS_RESOURCES.DeepCopy()
+	delete(resources.NetworkPolicies, "30")
+
+	t.Log("upserting a listener and its network policy")
+	err = xdsServer.UpsertEnvoyResources(ctx, *resources, s.waitGroup)
+	require.NoError(t, err)
+	require.NoError(t, s.waitForProxyCompletion())
+	requireEnvoyConfigDumpContains(t, envoyProxy.GetAdminClient(), "NetworkPoliciesConfigDump", "10.0.0.1")
+
+	// Keep the NetworkPolicy resource in the server snapshot while removing the
+	// final listener. In ADS mode, the NPDS watch must remain active for the
+	// lifetime of the stream.
+	s.waitGroup = completion.NewWaitGroup(ctx)
+	t.Log("removing the final network-policy listener")
+	err = xdsServer.UpdateEnvoyResources(ctx,
+		xds.Resources{Listeners: resources.Listeners},
+		xds.Resources{},
+		s.waitGroup,
+	)
+	require.NoError(t, err)
+	require.NoError(t, s.waitForProxyCompletion())
+
+	// Wait past listener drain to ensure the policy map is not destroyed with
+	// the final listener.
+	time.Sleep(2 * time.Second)
+	requireEnvoyConfigDumpContains(t, envoyProxy.GetAdminClient(), "NetworkPoliciesConfigDump", "10.0.0.1")
+
+	unwatchedNetworkPolicy := "Ignoring unwatched type URL " + NetworkPolicyTypeURL
+	baselineWarnings := countEnvoyLogOccurrences(t, envoyLogPath, unwatchedNetworkPolicy)
+
+	t.Log("updating the retained network policy after final listener removal")
+	err = xdsServer.UpdateEnvoyResources(ctx,
+		xds.Resources{NetworkPolicies: map[string]*cilium.NetworkPolicy{
+			"40": resources.NetworkPolicies["40"],
+		}},
+		xds.Resources{NetworkPolicies: map[string]*cilium.NetworkPolicy{
+			"40": {
+				EndpointId:  40,
+				EndpointIps: []string{"10.0.0.9"},
+			},
+		}},
+		nil,
+	)
+	require.NoError(t, err)
+	policies, err := xdsServer.GetNetworkPolicies([]string{"40"})
+	require.NoError(t, err)
+	require.Contains(t, policies, "10.0.0.9")
+	requireEnvoyConfigDumpContains(t, envoyProxy.GetAdminClient(), "NetworkPoliciesConfigDump", "10.0.0.9")
+	requireNoRepeatedEnvoyLog(t, envoyLogPath, unwatchedNetworkPolicy, baselineWarnings, 2*time.Second)
+
+	stopEnvoy()
+}
+
 // standaloneTestEndpointInfoSource is a mock for endpoint.EndpointInfoSource used in standalone envoy tests.
 type standaloneTestEndpointInfoSource struct {
 	id          uint64
@@ -731,6 +876,27 @@ func TestEnvoy(t *testing.T) {
 	require.NoError(t, err)
 	t.Log("completed adding listener1, listener2, listener3")
 	s.waitGroup = completion.NewWaitGroup(ctx)
+
+	t.Log("updating a listener additional address with SO_REUSEPORT disabled")
+	oldListener := xdsServer.getListenerConf("listener-address-update", policy.ParserTypeHTTP, 18080, true, false)
+	oldAddresses := testListenerWithPorts(18080, 18443)
+	oldListener.Address = oldAddresses.Address
+	oldListener.AdditionalAddresses = oldAddresses.AdditionalAddresses
+	oldListener.EnableReusePort = wrapperspb.Bool(false)
+	oldResources := xds.NewResources()
+	oldResources.Listeners[oldListener.Name] = oldListener
+	require.NoError(t, xdsServer.UpsertEnvoyResources(ctx, oldResources, nil))
+
+	newListener := xdsServer.getListenerConf("listener-address-update", policy.ParserTypeHTTP, 18080, true, false)
+	newAddresses := testListenerWithPorts(18080, 18444)
+	newListener.Address = newAddresses.Address
+	newListener.AdditionalAddresses = newAddresses.AdditionalAddresses
+	newListener.EnableReusePort = wrapperspb.Bool(false)
+	newResources := xds.NewResources()
+	newResources.Listeners[newListener.Name] = newListener
+	require.NoError(t, xdsServer.UpdateEnvoyResources(ctx, oldResources, newResources, nil))
+	require.NoError(t, xdsServer.DeleteEnvoyResources(ctx, newResources, nil))
+	t.Log("completed updating a listener additional address")
 
 	// Remove listener3
 	t.Log("removing listener 3")
@@ -1081,6 +1247,104 @@ func TestEnvoyAdsMultipleVersionsSentBeforeAckReceived(t *testing.T) {
 	stopEnvoy()
 }
 
+// Repro for https://github.com/cilium/cilium/issues/43519:
+// ADS may coalesce a tracked snapshot into a newer untracked snapshot, leaving
+// the earlier completion stuck even after Envoy ACKs the newer snapshot.
+func TestEnvoyAdsUntrackedSnapshotCompletesEarlierTrackedUpdate(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+
+	if os.Getenv("CILIUM_ENABLE_ENVOY_UNIT_TEST") == "" {
+		t.Skip("skipping envoy unit test; CILIUM_ENABLE_ENVOY_UNIT_TEST not set")
+	}
+
+	logging.SetLogLevel(slog.LevelDebug)
+	flowdebug.Enable()
+
+	testRunDir, err := os.MkdirTemp("", "envoy_go_test")
+	require.NoError(t, err)
+	t.Logf("run directory: %s", testRunDir)
+
+	localEndpointStore := newLocalEndpointStore()
+	logger := hivetest.Logger(t)
+
+	xdsServer := newADSServer(logger, testipcache.NewMockIPCache(), localEndpointStore,
+		xdsServerConfig{
+			envoySocketDir:    util.GetSocketDir(testRunDir),
+			proxyGID:          1337,
+			httpNormalizePath: true,
+			metrics:           xds.NewXDSMetric(),
+		},
+		nil, nil)
+	require.NotNil(t, xdsServer)
+
+	go func() {
+		err = xdsServer.run(t.Context())
+		require.NoError(t, err)
+	}()
+	accessLogServer := newAccessLogServer(logger, &proxyAccessLoggerMock{}, testRunDir, 1337, localEndpointStore, 4096)
+	require.NotNil(t, accessLogServer)
+	go func() {
+		err = accessLogServer.run(t.Context())
+		require.NoError(t, err)
+	}()
+
+	// Publish tracked snapshot A before Envoy connects. Its completion can only
+	// be resolved by a response/ACK for this version or a newer version.
+	waitCtx, waitCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer waitCancel()
+	trackedWaitGroup := completion.NewWaitGroup(waitCtx)
+	err = xdsServer.AddListener(ctx, "tracked-listener", policy.ParserTypeHTTP, 18081, true, false, trackedWaitGroup, nil)
+	require.NoError(t, err)
+	require.Equal(t, 1, xdsServer.cache.GetCompletionCallbacks().PendingCompletionCount())
+
+	trackedSnapshot, err := xdsServer.cache.GetSnapshot(localNodeID)
+	require.NoError(t, err)
+	trackedVersion := trackedSnapshot.GetVersion(ListenerTypeURL)
+	require.NotEmpty(t, trackedVersion)
+
+	// Publish newer snapshot B without a wait group, mirroring the untracked
+	// NPDS snapshot produced by the synthetic ingress endpoint. Since Envoy has
+	// not connected yet, it can receive only B and A is guaranteed to be
+	// coalesced.
+	err = xdsServer.AddListener(ctx, "untracked-listener", policy.ParserTypeHTTP, 18082, true, false, nil, nil)
+	require.NoError(t, err)
+	untrackedSnapshot, err := xdsServer.cache.GetSnapshot(localNodeID)
+	require.NoError(t, err)
+	untrackedVersion := untrackedSnapshot.GetVersion(ListenerTypeURL)
+	require.NotEmpty(t, untrackedVersion)
+	require.NotEqual(t, trackedVersion, untrackedVersion)
+	require.Equal(t, 1, xdsServer.cache.GetCompletionCallbacks().PendingCompletionCount())
+
+	starter := &onDemandXdsStarter{logger: logger}
+	envoyProxy, err := starter.startStandaloneEnvoyInternal(standaloneEnvoyConfig{
+		runDir:                         testRunDir,
+		logPath:                        filepath.Join(testRunDir, "cilium-envoy.log"),
+		baseID:                         43,
+		connectTimeout:                 1,
+		maxActiveDownstreamConnections: 100,
+		defaultLogLevel:                "debug",
+		maxConnections:                 10,
+		maxRequests:                    100,
+		maxConcurrentRetries:           10,
+		maxPendingRequests:             1024,
+		adsMode:                        true,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, envoyProxy)
+	t.Log("started Envoy after both snapshots were published")
+	stopEnvoy := cleanupStandaloneEnvoy(t, envoyProxy)
+
+	// Confirm Envoy applied B. Its ACK must also release the completion
+	// associated with the older coalesced snapshot A.
+	requireEnvoyConfigDumpContains(t, envoyProxy.GetAdminClient(), "ListenersConfigDump", "untracked-listener")
+	err = trackedWaitGroup.Wait()
+	require.NoError(t, err, "ACK of the newer snapshot should complete the older coalesced update")
+	require.Zero(t, xdsServer.cache.GetCompletionCallbacks().PendingCompletionCount())
+
+	stopEnvoy()
+}
+
 func TestEnvoyAdsMultipleVersionsSentBeforeNackReceived(t *testing.T) {
 	s := setupEnvoySuite(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
@@ -1192,7 +1456,7 @@ func TestEnvoyAdsLocalityClusterEndpointsACK(t *testing.T) {
 		t.Skip("skipping envoy unit test; CILIUM_ENABLE_ENVOY_UNIT_TEST not set")
 	}
 
-	SetXDSMode(config.EnvoyXDSModeADS)
+	SetXDSMode("ads")
 	t.Cleanup(func() { SetXDSMode("") })
 
 	logging.SetLogLevel(slog.LevelDebug)
@@ -1296,6 +1560,75 @@ func TestEnvoyAdsLocalityClusterEndpointsACK(t *testing.T) {
 
 	t.Log("stopping Envoy")
 	stopEnvoy()
+}
+
+func requireEnvoyConfigDumpContains(t *testing.T, admin *EnvoyAdminClient, configType string, needle string) {
+	t.Helper()
+
+	var lastErr error
+	var lastDump string
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		lastDump, lastErr = admin.Get("config_dump")
+		if lastErr == nil && configDumpContains(lastDump, configType, needle) {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	require.Failf(t, "missing Envoy config dump entry", "Envoy config dump %q did not contain %q; last error: %v; last dump: %s", configType, needle, lastErr, truncateForTest(lastDump, 4096))
+}
+
+func countEnvoyLogOccurrences(t *testing.T, path, needle string) int {
+	t.Helper()
+
+	contents, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return strings.Count(string(contents), needle)
+}
+
+func requireNoRepeatedEnvoyLog(t *testing.T, path, needle string, baseline int, duration time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(duration)
+	for time.Now().Before(deadline) {
+		count := countEnvoyLogOccurrences(t, path, needle)
+		require.LessOrEqualf(t, count-baseline, 1,
+			"repeated Envoy xDS response after local watch removal: found %d new occurrences of %q in %s",
+			count-baseline, needle, path)
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func configDumpContains(body, configType, needle string) bool {
+	var dump struct {
+		Configs []map[string]any `json:"configs"`
+	}
+	if err := json.Unmarshal([]byte(body), &dump); err != nil {
+		return false
+	}
+
+	for _, config := range dump.Configs {
+		typeURL, _ := config["@type"].(string)
+		if !strings.Contains(typeURL, configType) {
+			continue
+		}
+		section, err := json.Marshal(config)
+		if err != nil {
+			return false
+		}
+		if strings.Contains(string(section), needle) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func truncateForTest(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	return s[:limit] + "...<truncated>"
 }
 
 type proxyAccessLoggerMock struct{}

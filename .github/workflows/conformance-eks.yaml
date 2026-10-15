@@ -116,9 +116,9 @@ env:
   test_concurrency: ${{ inputs.test-concurrency || 3 }}
   clusterNamePrefix: ${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ github.run_id }}-${{ inputs.UID }}-${{ github.run_attempt }}
   # renovate: datasource=github-releases depName=eksctl-io/eksctl
-  eksctl_version: v0.230.0
+  eksctl_version: v0.231.0
   # renovate: datasource=github-releases depName=kubernetes/kubernetes
-  kubectl_version: v1.37.0
+  kubectl_version: v1.37.1
 
 jobs:
   echo-inputs:
@@ -201,7 +201,7 @@ jobs:
           cat /tmp/matrix.json
 
       - name: Set up AWS CLI credentials
-        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ secrets.AWS_PR_ASSUME_ROLE }}
           aws-region: us-west-1
@@ -286,6 +286,10 @@ jobs:
 
     steps:
       - name: Set commit status to pending
+        # commit-status-start does not re-run, so this is only needed on a re-run. It's ok
+        # to continue on error since the check is reported at the end of the test.
+        if: ${{ github.run_attempt != '1' }}
+        continue-on-error: true
         uses: cilium/actions/set-commit-status@687b48a0547e534dd7270d5069a5ab7967c0e907 # main
         with:
           sha: ${{ inputs.SHA || github.sha }}
@@ -428,7 +432,7 @@ jobs:
           rm "eksctl_$(uname -s)_amd64.tar.gz"
 
       - name: Set up AWS CLI credentials
-        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ secrets.AWS_PR_ASSUME_ROLE }}
           aws-region: ${{ matrix.region }}
@@ -461,7 +465,7 @@ jobs:
             --docker-password="${{ secrets.DOCKER_READ_PASSWORD }}"
 
       - name: Install Cilium CLI
-        uses: cilium/cilium-cli@c5e42236c7d90bd50e7975ac587f77782666a0aa # v0.20.0
+        uses: cilium/cilium-cli@d9302835ae0d3cb6148178d4590240622289e193 # v0.20.1
         with:
           skip-build: ${{ env.CILIUM_CLI_SKIP_BUILD }}
           image-repo: ${{ env.CILIUM_CLI_IMAGE_REPO }}
@@ -582,7 +586,7 @@ jobs:
           # legs a node attaches several secondary ENIs and pod IPs spread over
           # them, which these tests do not cope with:
           #
-          #   north-south-loadbalancing-with-l7-policy: the outside-to-nodeport
+          #   north-south-loadbalancing-with-l7-ingress-policy: the outside-to-nodeport
           #     reply egresses a secondary ENI while carrying the primary ENI's
           #     source IP, so the VPC source/destination check drops it and the
           #     client times out (curl 28). Issue 47391.
@@ -596,7 +600,7 @@ jobs:
           # IPs on the primary ENI, so they run and gate on them as usual. To
           # quarantine another test add it to this list; to re-arm one, drop it.
           QUARANTINED_TESTS=(
-            north-south-loadbalancing-with-l7-policy
+            north-south-loadbalancing-with-l7-ingress-policy
             egress-gateway-excluded-cidrs
           )
 

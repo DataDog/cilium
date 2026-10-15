@@ -491,7 +491,7 @@ var quarantineTestCases = []testCase{
 			"SVC: ID=0 ADDR=<auto>/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=1 QCOUNT=1 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
 			"SVC: ID=1 ADDR=<auto>/TCP SLOT=1 BEID=2 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
-			"SVC: ID=1 ADDR=<auto>/TCP SLOT=2 BEID=1 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable",
+			"SVC: ID=1 ADDR=<auto>/TCP SLOT=2 BEID=1 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+Local+InternalLocal+non-routable+quarantined",
 		},
 		nil,
 		false,
@@ -897,6 +897,37 @@ var loadBalancerTestCases = []testCase{
 	),
 }
 
+var sourceRangesTestCases = []testCase{
+	newTestCase(
+		"SourceRanges",
+		func(svc *loadbalancer.Service, fe *loadbalancer.Frontend) (delete bool, bes []loadbalancer.Backend) {
+			fe.Type = LoadBalancer
+			fe.Address = extraFrontend
+			fe.ServicePort = 80
+			fe.SourceRanges = []netip.Prefix{
+				netip.MustParsePrefix("198.51.100.0/24"),
+			}
+			return false, nil
+		},
+		[]maps.MapDump{
+			"REV: ID=1 ADDR=10.0.0.2:80",
+			"SRCRANGE: ID=1 CIDR=198.51.100.0/24",
+			"SVC: ID=0 ADDR=10.0.0.2:0/ANY SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=LoadBalancer+non-routable",
+			"SVC: ID=1 ADDR=10.0.0.2:80/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=LoadBalancer+Local+InternalLocal+check source-range",
+		},
+		nil,
+		false,
+	),
+
+	newTestCase(
+		"SourceRanges_cleanup",
+		deleteFrontend(extraFrontend, LoadBalancer),
+		[]maps.MapDump{},
+		nil,
+		false,
+	),
+}
+
 var externalIPTestCases = []testCase{
 	newTestCase(
 		"ExternalIPs",
@@ -1006,10 +1037,10 @@ var sessionAffinityTestCases = []testCase{
 			"REV: ID=2 ADDR=<nodePort>",
 			"SVC: ID=1 ADDR=<zero>/TCP SLOT=0 LBALG=undef AFFTimeout=1 COUNT=1 QCOUNT=1 FLAGS=NodePort+Local+InternalLocal+sessionAffinity+non-routable",
 			"SVC: ID=1 ADDR=<zero>/TCP SLOT=1 BEID=2 COUNT=0 QCOUNT=0 FLAGS=NodePort+Local+InternalLocal+sessionAffinity+non-routable",
-			"SVC: ID=1 ADDR=<zero>/TCP SLOT=2 BEID=1 COUNT=0 QCOUNT=0 FLAGS=NodePort+Local+InternalLocal+sessionAffinity+non-routable",
+			"SVC: ID=1 ADDR=<zero>/TCP SLOT=2 BEID=1 COUNT=0 QCOUNT=0 FLAGS=NodePort+Local+InternalLocal+sessionAffinity+non-routable+quarantined",
 			"SVC: ID=2 ADDR=<nodePort>/TCP SLOT=0 LBALG=undef AFFTimeout=1 COUNT=1 QCOUNT=1 FLAGS=NodePort+Local+InternalLocal+sessionAffinity",
 			"SVC: ID=2 ADDR=<nodePort>/TCP SLOT=1 BEID=2 COUNT=0 QCOUNT=0 FLAGS=NodePort+Local+InternalLocal+sessionAffinity",
-			"SVC: ID=2 ADDR=<nodePort>/TCP SLOT=2 BEID=1 COUNT=0 QCOUNT=0 FLAGS=NodePort+Local+InternalLocal+sessionAffinity",
+			"SVC: ID=2 ADDR=<nodePort>/TCP SLOT=2 BEID=1 COUNT=0 QCOUNT=0 FLAGS=NodePort+Local+InternalLocal+sessionAffinity+quarantined",
 		},
 		[]maps.MapDump{
 			"MAGLEV: ID=2 INNER=[2(1021)]",
@@ -1176,6 +1207,7 @@ var testCases = [][]testCase{
 	proxyTestCases,
 	miscFlagsTestCases,
 	loadBalancerTestCases,
+	sourceRangesTestCases,
 	externalIPTestCases,
 	localRedirectTestCases,
 	sessionAffinityTestCases,

@@ -1943,4 +1943,6 @@ const (
 	Segment = "segment"
 
 	Policy = "policy"
+
+	PendingInitializers = "pendingInitializers"
 )

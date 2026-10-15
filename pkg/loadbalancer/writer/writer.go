@@ -4,12 +4,15 @@
 package writer
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"iter"
 	"log/slog"
+	"net/netip"
 	"slices"
 	"strings"
+	"sync"
 	"text/tabwriter"
 
 	"github.com/cilium/hive/cell"
@@ -45,11 +48,14 @@ type Writer struct {
 
 	selectBackendsFunc         SelectBackendsFunc
 	isServiceHealthCheckedFunc IsServiceHealthCheckedFunc
+	frontendSourceRangesFunc   FrontendSourceRangesFunc
 }
 
 type SelectBackendsFunc = func(statedb.ReadTxn, iter.Seq2[*loadbalancer.Backend, statedb.Revision], *loadbalancer.Service, *loadbalancer.Frontend) iter.Seq2[*loadbalancer.Backend, statedb.Revision]
 
 type IsServiceHealthCheckedFunc = func(*loadbalancer.Service) bool
+
+type FrontendSourceRangesFunc = func(*loadbalancer.Service, *loadbalancer.Frontend) (loadbalancer.SVCSourceRangesPolicy, []netip.Prefix, bool)
 
 // Backends for the local cluster are associated with ID 0, regardless of the real cluster id.
 const LocalClusterID = 0
@@ -92,6 +98,10 @@ func (w *Writer) SetSelectBackendsFunc(fn SelectBackendsFunc) {
 
 func (w *Writer) SetIsServiceHealthCheckedFunc(fn IsServiceHealthCheckedFunc) {
 	w.isServiceHealthCheckedFunc = fn
+}
+
+func (w *Writer) SetFrontendSourceRangesFunc(fn FrontendSourceRangesFunc) {
+	w.frontendSourceRangesFunc = fn
 }
 
 // SelectBackends filters backends associated with [svc]. If [optionalFrontend] is non-nil, then backends are further filtered
@@ -165,6 +175,26 @@ func (w *Writer) RegisterInitializer(name string) (complete func(WriteTxn)) {
 		compBE(wtxn.WriteTxn)
 		compSVC(wtxn.WriteTxn)
 	}
+}
+
+// WaitForInitializers blocks until either the context is cancelled or all load
+// balancing tables(Services, Backends, Frontends) are initialized.
+func (w *Writer) WaitForInitializers(ctx context.Context) (err error) {
+	tbls := []statedb.TableMeta{w.Frontends(), w.Backends(), w.Services()}
+	wg := sync.WaitGroup{}
+
+	for _, tbl := range tbls {
+		wg.Go(func() {
+			_, initDone := tbl.Initialized(w.ReadTxn())
+			select {
+			case <-ctx.Done():
+			case <-initDone:
+			}
+		})
+	}
+
+	wg.Wait()
+	return ctx.Err()
 }
 
 // Services returns the service table for reading.
@@ -287,6 +317,7 @@ func (w *Writer) upsertFrontendParams(txn WriteTxn, params loadbalancer.Frontend
 		fe.RedirectTo = old.RedirectTo
 	}
 
+	w.refreshFrontendSourceRanges(fe)
 	w.refreshFrontend(txn, fe)
 	_, _, err = w.fes.Insert(txn, fe)
 	return old, err
@@ -384,6 +415,7 @@ func (w *Writer) updateServiceReferences(txn WriteTxn, svc *loadbalancer.Service
 		fe = fe.Clone()
 		fe.Status = reconciler.StatusPending()
 		fe.Service = svc
+		w.refreshFrontendSourceRanges(fe)
 		if _, _, err := w.fes.Insert(txn, fe); err != nil {
 			return err
 		}
@@ -404,6 +436,21 @@ func (w *Writer) refreshFrontend(txn statedb.ReadTxn, fe *loadbalancer.Frontend)
 	bes, _ := w.BackendsForService(txn, svc.Name)
 	fe.Backends = loadbalancer.BackendsSeq2(w.SelectBackends(txn, bes, svc, fe))
 	fe.HealthCheckBackends = loadbalancer.BackendsSeq2(w.SelectBackendsForHealthChecking(txn, bes, svc, fe))
+}
+
+func (w *Writer) refreshFrontendSourceRanges(fe *loadbalancer.Frontend) {
+	if w.frontendSourceRangesFunc != nil {
+		// frontendSourceRangesFunc can override sourceRanges enforcement per frontend
+		policy, sourceRanges, ok := w.frontendSourceRangesFunc(fe.Service, fe)
+		if ok {
+			fe.SourceRangesPolicy = policy
+			fe.SourceRanges = slices.Clone(sourceRanges)
+			return
+		}
+	}
+
+	fe.SourceRangesPolicy = fe.Service.GetSourceRangesPolicy()
+	fe.SourceRanges = slices.Clone(fe.Service.SourceRanges)
 }
 
 func (w *Writer) RefreshFrontends(txn WriteTxn, name loadbalancer.ServiceName) error {
