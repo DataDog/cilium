@@ -309,35 +309,35 @@ func (r *endpointRestorer) validateDatapathModeCompatibility(endpoints map[uint1
 // responsible for its workload, etc.
 //
 // Returns true to indicate that the endpoint is valid to restore, and an
-// optional error.
-func (r *endpointRestorer) validateEndpoint(ep *endpoint.Endpoint) (valid bool, err error) {
+// optional error. In case the endpoint is invalid for restore, `cleanup`
+// indicates if the endpoint state should be purged by the caller.
+func (r *endpointRestorer) validateEndpoint(ep *endpoint.Endpoint) (valid, cleanup bool, err error) {
 	if ep.IsProperty(endpoint.PropertyFakeEndpoint) {
-		return true, nil
+		return true, false, nil
 	}
 
-	// On each restart, the health endpoint is supposed to be recreated.
-	// Hence we need to clean health endpoint state unconditionally.
-	if ep.HasLabels(labels.LabelHealth) {
-		// Ignore health endpoint and don't report
-		// it as not restored. But we need to clean up the old
-		// state files, so do this now.
-		healthStateDir := ep.StateDirectoryPath()
-		r.logger.Debug("Removing old health endpoint state directory",
+	// On each restart, the health and ingress endpoints are supposed to be recreated.
+	// Hence we need to clean endpoint state unconditionally and skip restore.
+	if ep.HasLabels(labels.LabelHealth) || ep.HasLabels(labels.LabelIngress) {
+		epStateDir := ep.StateDirectoryPath()
+		r.logger.Debug("Removing old endpoint state directory",
 			logfields.EndpointID, ep.ID,
-			logfields.Path, healthStateDir,
+			logfields.Labels, ep.GetLabels(),
+			logfields.Path, epStateDir,
 		)
-		if err := os.RemoveAll(healthStateDir); err != nil {
-			r.logger.Warn("Cannot clean up old health state directory",
+		if err := os.RemoveAll(epStateDir); err != nil {
+			r.logger.Warn("Cannot clean up old endpoint state directory",
 				logfields.EndpointID, ep.ID,
-				logfields.Path, healthStateDir,
+				logfields.Path, epStateDir,
 			)
 		}
-		return false, nil
+		// Skip restore and cleanup for reserved endpoints.
+		return false, false, nil
 	}
 
 	if ep.K8sPodName != "" && ep.K8sNamespace != "" && r.clientset.IsEnabled() {
 		if err := r.getPodForEndpoint(ep); err != nil {
-			return false, err
+			return false, true, err
 		}
 
 		// Initialize the endpoint's event queue because the following call to
@@ -350,16 +350,16 @@ func (r *endpointRestorer) validateEndpoint(ep *endpoint.Endpoint) (valid bool, 
 	}
 
 	if err := ep.ValidateConnectorPlumbing(r.checkLink); err != nil {
-		return false, err
+		return false, true, err
 	}
 
 	if !ep.DatapathConfiguration.ExternalIpam {
 		if err := r.allocateIPsLocked(ep); err != nil {
-			return false, fmt.Errorf("Failed to re-allocate IP of endpoint: %w", err)
+			return false, true, fmt.Errorf("Failed to re-allocate IP of endpoint: %w", err)
 		}
 	}
 
-	return true, nil
+	return true, false, nil
 }
 
 func (r *endpointRestorer) getPodForEndpoint(ep *endpoint.Endpoint) error {
@@ -480,12 +480,14 @@ func (r *endpointRestorer) RestoreOldEndpoints() error {
 			scopedLog = scopedLog.With(logfields.CEPName, ep.GetK8sNamespaceAndCEPName())
 		}
 
-		restore, err := r.validateEndpoint(ep)
+		restore, cleanup, err := r.validateEndpoint(ep)
 		if err != nil {
 			// Disconnected EPs are not failures, clean them silently below
 			if !ep.IsDisconnecting() {
 				r.endpointManager.DeleteK8sCiliumEndpointSync(ep)
-				scopedLog.Warn("Unable to restore endpoint, ignoring", logfields.Error, err)
+				scopedLog.Warn("Unable to restore endpoint, ignoring",
+					logfields.Labels, ep.GetLabels(),
+					logfields.Error, err)
 				failed++
 			} else {
 				skipped++
@@ -495,7 +497,9 @@ func (r *endpointRestorer) RestoreOldEndpoints() error {
 			if err == nil {
 				skipped++
 			}
-			r.restoreState.toClean = append(r.restoreState.toClean, ep)
+			if cleanup {
+				r.restoreState.toClean = append(r.restoreState.toClean, ep)
+			}
 			continue
 		}
 

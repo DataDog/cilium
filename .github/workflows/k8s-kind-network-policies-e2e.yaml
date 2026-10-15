@@ -135,6 +135,10 @@ jobs:
           - role: control-plane
           - role: worker
           - role: worker
+          containerdConfigPatches:
+            - |
+              [plugins."io.containerd.grpc.v1.cri"]
+                image_pull_progress_timeout = "60s"
           EOF
 
       - name: Workaround CoreDNS for IPv6 airgapped
@@ -189,7 +193,7 @@ jobs:
           echo sha=${{ steps.default_vars.outputs.sha }} >> $GITHUB_OUTPUT
 
       - name: Install Cilium CLI
-        uses: cilium/cilium-cli@c5e42236c7d90bd50e7975ac587f77782666a0aa # v0.20.0
+        uses: cilium/cilium-cli@d9302835ae0d3cb6148178d4590240622289e193 # v0.20.1
         with:
           skip-build: ${{ env.CILIUM_CLI_SKIP_BUILD }}
           image-repo: ${{ env.CILIUM_CLI_IMAGE_REPO }}
@@ -313,7 +317,7 @@ jobs:
 
       - name: Upload cluster logs
         if: ${{ !success() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: kind-logs
           path: ./_artifacts/logs

@@ -138,10 +138,14 @@ jobs:
     name: Install and Connectivity Test
     env:
       job_name: "Install and Connectivity Test"
-    runs-on: ${{ vars.GH_RUNNER_EXTRA_POWER_UBUNTU_LATEST || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.UBUNTU_2404_4CPU_16GB || 'ubuntu-24.04' }}
     timeout-minutes: 120
     steps:
       - name: Set commit status to pending
+        # commit-status-start does not re-run, so this is only needed on a re-run. It's ok
+        # to continue on error since the check is reported at the end of the test.
+        if: ${{ github.run_attempt != '1' }}
+        continue-on-error: true
         uses: cilium/actions/set-commit-status@687b48a0547e534dd7270d5069a5ab7967c0e907 # main
         with:
           sha: ${{ inputs.SHA || github.sha }}
@@ -169,14 +173,6 @@ jobs:
           registry_organization: ${{ vars.DOCKER_READ_ORG }}
           chart-dir: ./untrusted/install/kubernetes/cilium
           image-pull-secret: "cilium-registry"
-
-      - name: Get connectivity test flags
-        id: e2e_config
-        uses: ./.github/actions/cli-test-config
-        with:
-          hubble: false
-          include-unsafe-tests: true
-          test-concurrency: 5
 
       - name: Set up job variables
         id: vars
@@ -243,18 +239,7 @@ jobs:
           CILIUM_INSTALL_IPFAMILY="--helm-set=ipv4.enabled=true --helm-set=ipv6.enabled=true"
           KIND_SVC_CIDR="10.243.0.0/16,fd00:10:243::/112"
 
-          CONNECTIVITY_TEST_DEFAULTS=" ${{ steps.e2e_config.outputs.test_flags }} \
-            --sysdump-output-filename \"cilium-sysdump-${{ matrix.name }}-<ts>\" \
-            --junit-file \"cilium-junits/${{ env.job_name }} ${{ matrix.name }}.xml\" \
-            --junit-property github_job_step=\"Run tests ${{ matrix.name }}\" \
-            --namespace-annotations=ipam.cilium.io/ip-pool=cilium-test-pool \
-            --deployment-pod-annotations='{ \
-                \"client\":{\"ipam.cilium.io/ip-pool\":\"client-pool\"}, \
-                \"echo-other-node\":{\"ipam.cilium.io/ip-pool\":\"echo-other-node-pool\"} \
-            }'"
-
           echo cilium_install_defaults="${CILIUM_INSTALL_DEFAULTS} ${CILIUM_INSTALL_IPFAMILY} ${CILIUM_INSTALL_ROUTES} ${CILIUM_INSTALL_TUNNEL} ${CILIUM_INSTALL_ENCRYPTION} ${CILIUM_INSTALL_MULTIPOOL_IPAM}" >> $GITHUB_OUTPUT
-          echo connectivity_test_defaults=${CONNECTIVITY_TEST_DEFAULTS} >> $GITHUB_OUTPUT
 
           echo kind_svc_cidr=${KIND_SVC_CIDR} >> $GITHUB_OUTPUT
 
@@ -264,6 +249,10 @@ jobs:
             IPFAMILY=dual \
             KUBEPROXYMODE=none \
             envsubst < ./.github/kind-config.yaml.tmpl > ./.github/kind-config-multi-pool.yaml
+
+      - name: Add external docker network
+        uses: ./.github/actions/kind-external-network
+        id: external_network
 
       # Warning: since this is a privileged workflow, subsequent workflow job
       # steps must take care not to execute untrusted code.
@@ -279,7 +268,7 @@ jobs:
             install/kubernetes/cilium
 
       - name: Create kind cluster
-        uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
         with:
           version: ${{ env.KIND_VERSION }}
           node_image: ${{ env.KIND_K8S_IMAGE }}
@@ -305,7 +294,7 @@ jobs:
           echo config="--set=etcd.enabled=true --set=identityAllocationMode=kvstore --set=etcd.endpoints[0]=http://${IP}:2378" >> $GITHUB_OUTPUT
 
       - name: Install Cilium CLI
-        uses: cilium/cilium-cli@c5e42236c7d90bd50e7975ac587f77782666a0aa # v0.20.0
+        uses: cilium/cilium-cli@d9302835ae0d3cb6148178d4590240622289e193 # v0.20.1
         with:
           skip-build: ${{ env.CILIUM_CLI_SKIP_BUILD }}
           image-repo: ${{ env.CILIUM_CLI_IMAGE_REPO }}
@@ -335,6 +324,51 @@ jobs:
 
           kubectl patch deployment -n kube-system coredns --patch="$COREDNS_PATCH"
 
+      # This must run after the step above, which replaces the whole CoreDNS
+      # ConfigMap and would drop the server block appended here.
+      - name: Add external targets to kind cluster
+        uses: ./.github/actions/kind-external-targets
+        id: external_targets
+        with:
+          kind_network: ${{ steps.external_network.outputs.kind_network }}
+          ipv4_external_target: ${{ steps.external_network.outputs.ipv4_external_target }}
+          ipv4_other_external_target: ${{ steps.external_network.outputs.ipv4_other_external_target }}
+          ipv6_external_target: ${{ steps.external_network.outputs.ipv6_external_target }}
+          ipv6_other_external_target: ${{ steps.external_network.outputs.ipv6_other_external_target }}
+
+      - name: Get connectivity test flags
+        id: e2e_config
+        uses: ./.github/actions/cli-test-config
+        with:
+          hubble: false
+          include-unsafe-tests: true
+          test-concurrency: 5
+          external-cidr: ${{ steps.external_network.outputs.ipv4_external_cidr }}
+          external-cidrv6: ${{ steps.external_network.outputs.ipv6_external_cidr }}
+          external-ip: ${{ steps.external_network.outputs.ipv4_external_target }}
+          external-ipv6: ${{ steps.external_network.outputs.ipv6_external_target }}
+          external-other-ip: ${{ steps.external_network.outputs.ipv4_other_external_target }}
+          external-other-ipv6: ${{ steps.external_network.outputs.ipv6_other_external_target }}
+          external-target: ${{ steps.external_targets.outputs.external_target_name }}
+          external-other-target: ${{ steps.external_targets.outputs.other_external_target_name }}
+          external-target-ca-namespace: external-target-secrets
+          external-target-ca-name: custom-ca
+
+      - name: Set up connectivity test variables
+        id: conn_vars
+        run: |
+          CONNECTIVITY_TEST_DEFAULTS=" ${{ steps.e2e_config.outputs.test_flags }} \
+            --sysdump-output-filename \"cilium-sysdump-${{ matrix.name }}-<ts>\" \
+            --junit-file \"cilium-junits/${{ env.job_name }} ${{ matrix.name }}.xml\" \
+            --junit-property github_job_step=\"Run tests ${{ matrix.name }}\" \
+            --namespace-annotations=ipam.cilium.io/ip-pool=cilium-test-pool \
+            --deployment-pod-annotations='{ \
+                \"client\":{\"ipam.cilium.io/ip-pool\":\"client-pool\"}, \
+                \"echo-other-node\":{\"ipam.cilium.io/ip-pool\":\"echo-other-node-pool\"} \
+            }'"
+
+          echo connectivity_test_defaults=${CONNECTIVITY_TEST_DEFAULTS} >> $GITHUB_OUTPUT
+
       - name: Create the IPSec secret
         if: matrix.encryption == 'ipsec'
         run: |
@@ -358,7 +392,7 @@ jobs:
       - name: Run connectivity test
         id: run-tests
         run: |
-          cilium connectivity test ${{ steps.vars.outputs.connectivity_test_defaults }}
+          cilium connectivity test ${{ steps.conn_vars.outputs.connectivity_test_defaults }}
 
       - name: Collect Pod and Pool IPs
         id: ips

@@ -6,15 +6,6 @@ on:
   # run from a different environment than 'release-base-images'. See
   # build-images-base-renovate.yaml
   workflow_call:
-    secrets:
-      QUAY_BASE_RELEASE_USERNAME_202411:
-        required: true
-      QUAY_BASE_RELEASE_PASSWORD_202411:
-        required: true
-      AUTO_COMMITTER_PEM_202411:
-        required: true
-      AUTO_COMMITTER_APP_ID_202411:
-        required: true
     inputs:
       environment:
         required: true
@@ -23,8 +14,6 @@ on:
 permissions:
   # To be able to access the repository with `actions/checkout`
   contents: read
-  # Required to generate OIDC tokens for `sigstore/cosign-installer` authentication
-  id-token: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -36,6 +25,10 @@ jobs:
     if: ${{ vars.QUAY_BASE_RELEASE_ENABLED == 'true' && ! (github.event_name == 'pull_request_target' && startsWith(github.head_ref, 'renovate/')) }}
     name: Build and Push Images
     timeout-minutes: 60
+    permissions:
+      contents: read
+      # Required to generate OIDC tokens for `sigstore/cosign-installer` authentication
+      id-token: write
     environment:
       name: ${{ inputs.environment || 'release-base-images' }}
       deployment: false
@@ -69,13 +62,6 @@ jobs:
       - name: Set Environment Variables
         uses: ./.github/actions/set-env-variables
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
-
-      - name: Set up QEMU
-        id: qemu
-        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
-
       # Warning: since this is a privileged workflow, subsequent workflow job
       # steps must take care not to execute untrusted code.
       - name: Checkout pull request branch (NOT TRUSTED)
@@ -106,17 +92,62 @@ jobs:
             echo exists="false" >> $GITHUB_OUTPUT
           fi
 
+      # Set up the multi-arch build tooling only when the runtime image actually
+      # needs to be built. If it already exists, this is deferred until we know
+      # whether the builder image needs building (see the matching block below),
+      # so that when both images already exist we skip this setup entirely.
+      - name: Set up Docker Buildx
+        if: ${{ steps.cilium-runtime-tag-in-repositories.outputs.exists == 'false' }}
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Set up QEMU
+        if: ${{ steps.cilium-runtime-tag-in-repositories.outputs.exists == 'false' }}
+        id: qemu
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      # Quay's registry endpoint only accepts credentials or a JWT signed by
+      # Quay itself, so the GitHub OIDC token cannot be used as the registry
+      # password directly. Trade it for a short lived robot token first.
+      #
+      # Because the job references an environment, the subject of the token is
+      # repo:cilium@21054566/cilium@48109239:environment:release-base-images
+      # (or :release-base-images-renovate when the renovate workflow calls this
+      # one), the immutable form that carries the owner and repository ids. That
+      # is the identity federated with the robot account on the Quay side, so
+      # renaming the environment breaks the login.
+      - name: Get a quay.io robot token via OIDC for cilium-runtime
+        id: registry-token-runtime
+        if: ${{ steps.cilium-runtime-tag-in-repositories.outputs.exists == 'false' }}
+        env:
+          ROBOT: ${{ vars.QUAY_ROBOT_BASE }}
+        run: |
+          oidc_token="$(curl -sSf --retry 3 --retry-all-errors \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=quay.io" \
+            | jq -er '.value')"
+          echo "::add-mask::${oidc_token}"
+
+          # Pass the credentials on stdin so that the OIDC token is not visible
+          # in the process list of the runner.
+          robot_token="$(printf 'user = "%s:%s"\n' "${ROBOT}" "${oidc_token}" \
+            | curl -sSf --retry 3 --retry-all-errors -K - \
+              "https://quay.io/oauth2/federation/robot/token" \
+            | jq -er '.token')"
+          echo "::add-mask::${robot_token}"
+
+          echo "token=${robot_token}" >> "$GITHUB_OUTPUT"
+
       - name: Login to ${{ env.REGISTRY_DEV }}
         if: ${{ steps.cilium-runtime-tag-in-repositories.outputs.exists == 'false' }}
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY_DEV }}
-          username: ${{ secrets.QUAY_BASE_RELEASE_USERNAME_202411 }}
-          password: ${{ secrets.QUAY_BASE_RELEASE_PASSWORD_202411 }}
+          username: ${{ vars.QUAY_ROBOT_BASE }}
+          password: ${{ steps.registry-token-runtime.outputs.token }}
 
       - name: Release build cilium-runtime
         if: ${{ steps.cilium-runtime-tag-in-repositories.outputs.exists == 'false' }}
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         id: docker_build_release_runtime
         with:
           provenance: false
@@ -147,7 +178,7 @@ jobs:
 
       - name: Upload artifact digests runtime
         if: ${{ steps.cilium-runtime-tag-in-repositories.outputs.exists == 'false' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: image-digest cilium-runtime
           path: image-digest
@@ -184,17 +215,51 @@ jobs:
             echo exists="false" >> $GITHUB_OUTPUT
           fi
 
+      # If the runtime image already existed we skipped the multi-arch build
+      # setup above; set it up now that we know the builder image must be built.
+      - name: Set up Docker Buildx
+        if: ${{ steps.cilium-builder-tag-in-repositories.outputs.exists == 'false' && steps.cilium-runtime-tag-in-repositories.outputs.exists != 'false' }}
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Set up QEMU
+        if: ${{ steps.cilium-builder-tag-in-repositories.outputs.exists == 'false' && steps.cilium-runtime-tag-in-repositories.outputs.exists != 'false' }}
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      # The runtime token is only minted when the runtime image is rebuilt, so mint
+      # a separate one for the builder push.
+      - name: Get a quay.io robot token via OIDC for cilium-builder
+        id: registry-token-builder
+        if: ${{ steps.cilium-builder-tag-in-repositories.outputs.exists == 'false' && steps.cilium-runtime-tag-in-repositories.outputs.exists != 'false' }}
+        env:
+          ROBOT: ${{ vars.QUAY_ROBOT_BASE }}
+        run: |
+          oidc_token="$(curl -sSf --retry 3 --retry-all-errors \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=quay.io" \
+            | jq -er '.value')"
+          echo "::add-mask::${oidc_token}"
+
+          # Pass the credentials on stdin so that the OIDC token is not visible
+          # in the process list of the runner.
+          robot_token="$(printf 'user = "%s:%s"\n' "${ROBOT}" "${oidc_token}" \
+            | curl -sSf --retry 3 --retry-all-errors -K - \
+              "https://quay.io/oauth2/federation/robot/token" \
+            | jq -er '.token')"
+          echo "::add-mask::${robot_token}"
+
+          echo "token=${robot_token}" >> "$GITHUB_OUTPUT"
+
       - name: Login to ${{ env.REGISTRY_DEV }}
         if: ${{ steps.cilium-builder-tag-in-repositories.outputs.exists == 'false' && steps.cilium-runtime-tag-in-repositories.outputs.exists != 'false' }}
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY_DEV }}
-          username: ${{ secrets.QUAY_BASE_RELEASE_USERNAME_202411 }}
-          password: ${{ secrets.QUAY_BASE_RELEASE_PASSWORD_202411 }}
+          username: ${{ vars.QUAY_ROBOT_BASE }}
+          password: ${{ steps.registry-token-builder.outputs.token }}
 
       - name: Release build cilium-builder
         if: ${{ steps.cilium-builder-tag-in-repositories.outputs.exists == 'false' }}
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         id: docker_build_release_builder
         with:
           provenance: false
@@ -225,7 +290,7 @@ jobs:
 
       - name: Upload artifact digests builder
         if: ${{ steps.cilium-builder-tag-in-repositories.outputs.exists == 'false' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: image-digest cilium-builder
           path: image-digest
@@ -255,13 +320,18 @@ jobs:
           if [[ "${{ steps.cilium-builder-tag-in-repositories.outputs.exists == 'false' }}" == "true" ]]; then
             ../cilium-base-branch/images/builder/update-cilium-builder-image.sh "${{ env.REGISTRY_DEV }}/${{ env.ORGANIZATION_DEV }}/cilium-builder:${{ steps.builder-tag.outputs.tag }}@${{ steps.docker_build_release_builder.outputs.digest }}"
             export CONTAINER_IMAGE=${{ env.REGISTRY_DEV }}/${{ env.ORGANIZATION_DEV }}/cilium-builder:${{ steps.builder-tag.outputs.tag }}@${{ steps.docker_build_release_builder.outputs.digest }}
+            # The builder image changed, so its bundled codegen tooling may
+            # produce different protobuf output: regenerate it.
+            export VOLUME=$PWD/api/v1
+            make -C ../cilium-base-branch/api/v1
           else
             digest=$(../cilium-base-branch/images/scripts/get-image-digest.sh "${{ env.REGISTRY_DEV }}/${{ env.ORGANIZATION_DEV }}/cilium-builder:${{ steps.builder-tag.outputs.tag }}")
             ../cilium-base-branch/images/builder/update-cilium-builder-image.sh "${{ env.REGISTRY_DEV }}/${{ env.ORGANIZATION_DEV }}/cilium-builder:${{ steps.builder-tag.outputs.tag }}@${digest}"
-            export CONTAINER_IMAGE="${{ env.REGISTRY_DEV }}/${{ env.ORGANIZATION_DEV }}/cilium-builder:${{ steps.builder-tag.outputs.tag }}@${digest}"
+            # The builder image is unchanged, so regenerating protobuf would be a
+            # no-op (output is a function of the builder image and proto sources,
+            # and this workflow only triggers on image changes). Skip the
+            # expensive builder-image pull + protoc run.
           fi
-          export VOLUME=$PWD/api/v1
-          make -C ../cilium-base-branch/api/v1
           if ! git diff --quiet; then
             if [[ "${{ steps.update-runtime-image.outputs.committed }}" == "true" ]]; then
               git commit --amend -sam "images: update cilium-{runtime,builder}"
@@ -319,7 +389,7 @@ jobs:
           mkdir -p image-digest/
 
       - name: Download digests of all images built
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: image-digest/
           pattern: "*image-digest *"

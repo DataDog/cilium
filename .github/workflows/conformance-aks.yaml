@@ -95,6 +95,7 @@ concurrency:
 env:
   name: ${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ github.run_id }}-${{ github.run_attempt }}
   cost_reduction: --node-vm-size Standard_B2s --node-osdisk-size 64
+  create_timeout_minutes: 54
   test_concurrency: 5
 
 jobs:
@@ -155,7 +156,7 @@ jobs:
           cat /tmp/matrix.json
 
       - name: Login to Azure
-        uses: azure/login@7ddb5af1ef8758cf1353cf3b42f940aee27ba21c # v3.0.2
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
         with:
           creds: ${{ secrets.AZURE_PR_SP_CREDS }}
 
@@ -215,6 +216,10 @@ jobs:
 
     steps:
       - name: Set commit status to pending
+        # commit-status-start does not re-run, so this is only needed on a re-run. It's ok
+        # to continue on error since the check is reported at the end of the test.
+        if: ${{ github.run_attempt != '1' }}
+        continue-on-error: true
         uses: cilium/actions/set-commit-status@687b48a0547e534dd7270d5069a5ab7967c0e907 # main
         with:
           sha: ${{ inputs.SHA || github.sha }}
@@ -296,15 +301,17 @@ jobs:
           echo ipsec=${IPSEC} >> $GITHUB_OUTPUT
 
       - name: Login to Azure
-        uses: azure/login@7ddb5af1ef8758cf1353cf3b42f940aee27ba21c # v3.0.2
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
         with:
           creds: ${{ secrets.AZURE_PR_SP_CREDS }}
 
       - name: Create AKS cluster
-        timeout-minutes: 20
+        id: create-cluster
+        timeout-minutes: ${{ fromJSON(env.create_timeout_minutes) }}
         uses: ./.github/actions/setup-aks-cluster
         with:
           cluster_name: ${{ env.name }}
+          timeout_minutes: ${{ env.create_timeout_minutes }}
           location: ${{ matrix.location }}
           version: ${{ matrix.version }}
           tags: "usage=${{ github.repository_owner }}-${{ github.event.repository.name }} owner=${{ steps.vars.outputs.owner }}"
@@ -314,7 +321,7 @@ jobs:
         run: |
           az aks get-credentials \
             --resource-group ${{ env.name }} \
-            --name ${{ env.name }}
+            --name ${{ steps.create-cluster.outputs.cluster_name }}
 
       - name: Generate cilium-cli kubeconfig
         id: gen-kubeconfig
@@ -331,7 +338,7 @@ jobs:
             --docker-password="${{ secrets.DOCKER_READ_PASSWORD }}"
 
       - name: Install Cilium CLI
-        uses: cilium/cilium-cli@c5e42236c7d90bd50e7975ac587f77782666a0aa # v0.20.0
+        uses: cilium/cilium-cli@d9302835ae0d3cb6148178d4590240622289e193 # v0.20.1
         with:
           skip-build: ${{ env.CILIUM_CLI_SKIP_BUILD }}
           image-repo: ${{ env.CILIUM_CLI_IMAGE_REPO }}

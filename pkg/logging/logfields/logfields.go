@@ -1892,4 +1892,6 @@ const (
 
 	// TestField is a generic field key used by tests.
 	TestField = "testField"
+
+	PendingInitializers = "pendingInitializers"
 )
