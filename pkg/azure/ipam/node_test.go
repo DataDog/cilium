@@ -5,12 +5,15 @@ package ipam
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/netip"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/cilium/cilium/operator/pkg/ipam/nodemanager"
+	apimock "github.com/cilium/cilium/pkg/azure/api/mock"
 	"github.com/cilium/cilium/pkg/azure/types"
 	iputil "github.com/cilium/cilium/pkg/ip"
 	ipamTypes "github.com/cilium/cilium/pkg/ipam/types"
@@ -96,4 +99,217 @@ func TestPopulateStatusFieldsDeterministicOrder(t *testing.T) {
 			"cached interface %s mutated by PopulateStatusFields", id)
 		return nil
 	})
+}
+
+const (
+	releaseTestVMSSNIC       = "/subscriptions/xxx/resourceGroups/g1/providers/Microsoft.Compute/virtualMachineScaleSets/vmss1/virtualMachines/vm1/networkInterfaces/nic-vmss"
+	releaseTestStandaloneNIC = "/subscriptions/xxx/resourceGroups/g1/providers/Microsoft.Network/networkInterfaces/nic-vm"
+)
+
+func newReleaseTestInterface(id, name, subnetID, primaryIP string, addresses ...types.AzureAddress) *types.AzureInterface {
+	return &types.AzureInterface{
+		ID:        id,
+		Name:      name,
+		IP:        iputil.AddrFrom(netip.MustParseAddr(primaryIP)),
+		Subnet:    types.AzureSubnet{ID: subnetID},
+		Addresses: addresses,
+		State:     types.StateSucceeded,
+	}
+}
+
+func releaseTestAddress(ip, state string) types.AzureAddress {
+	return types.AzureAddress{IP: iputil.AddrFrom(netip.MustParseAddr(ip)), State: state}
+}
+
+func releaseTestPrefixes(cidrs ...string) []netip.Prefix {
+	var prefixes []netip.Prefix
+	for _, c := range cidrs {
+		prefixes = append(prefixes, netip.MustParsePrefix(c))
+	}
+	return prefixes
+}
+
+func TestPrepareCIDRRelease(t *testing.T) {
+	tests := []struct {
+		name         string
+		ifaces       []*types.AzureInterface
+		usePrimary   bool
+		noInstanceID bool
+		released     []string
+		wantAttached []string
+		wantActions  map[string]nodemanager.ReleaseAction
+	}{
+		{
+			name: "primary excluded without usePrimary",
+			ifaces: []*types.AzureInterface{
+				newReleaseTestInterface(releaseTestVMSSNIC, "nic-vmss", "subnet-1", "10.0.0.4",
+					releaseTestAddress("10.0.0.5", types.StateSucceeded)),
+			},
+			released:     []string{"10.0.0.4/32", "10.0.0.5/32"},
+			wantAttached: []string{"10.0.0.5/32"},
+			wantActions: map[string]nodemanager.ReleaseAction{
+				releaseTestVMSSNIC: {InterfaceID: releaseTestVMSSNIC, PoolID: "subnet-1", CIDRsToRelease: releaseTestPrefixes("10.0.0.5/32")},
+			},
+		},
+		{
+			name: "primary excluded with usePrimary",
+			ifaces: []*types.AzureInterface{
+				newReleaseTestInterface(releaseTestVMSSNIC, "nic-vmss", "subnet-1", "10.0.0.4",
+					releaseTestAddress("10.0.0.4", types.StateSucceeded),
+					releaseTestAddress("10.0.0.5", types.StateSucceeded)),
+			},
+			usePrimary:   true,
+			released:     []string{"10.0.0.4/32", "10.0.0.5/32"},
+			wantAttached: []string{"10.0.0.5/32"},
+			wantActions: map[string]nodemanager.ReleaseAction{
+				releaseTestVMSSNIC: {InterfaceID: releaseTestVMSSNIC, PoolID: "subnet-1", CIDRsToRelease: releaseTestPrefixes("10.0.0.5/32")},
+			},
+		},
+		{
+			name: "non-succeeded and IPv6 skipped, unreleased ignored",
+			ifaces: []*types.AzureInterface{
+				newReleaseTestInterface(releaseTestVMSSNIC, "nic-vmss", "subnet-1", "10.0.0.4",
+					releaseTestAddress("10.0.0.5", types.StateSucceeded),
+					releaseTestAddress("10.0.0.6", "deleting"),
+					releaseTestAddress("fd00::5", types.StateSucceeded),
+					releaseTestAddress("10.0.0.7", types.StateSucceeded)),
+			},
+			released:     []string{"10.0.0.6/32", "fd00::5/128", "10.0.0.7/32"},
+			wantAttached: []string{"10.0.0.5/32", "10.0.0.7/32"},
+			wantActions: map[string]nodemanager.ReleaseAction{
+				releaseTestVMSSNIC: {InterfaceID: releaseTestVMSSNIC, PoolID: "subnet-1", CIDRsToRelease: releaseTestPrefixes("10.0.0.7/32")},
+			},
+		},
+		{
+			name: "updating attached but not released",
+			ifaces: []*types.AzureInterface{
+				newReleaseTestInterface(releaseTestVMSSNIC, "nic-vmss", "subnet-1", "10.0.0.4",
+					releaseTestAddress("10.0.0.5", types.StateUpdating),
+					releaseTestAddress("10.0.0.6", types.StateSucceeded)),
+			},
+			released:     []string{"10.0.0.5/32", "10.0.0.6/32"},
+			wantAttached: []string{"10.0.0.5/32", "10.0.0.6/32"},
+			wantActions: map[string]nodemanager.ReleaseAction{
+				releaseTestVMSSNIC: {InterfaceID: releaseTestVMSSNIC, PoolID: "subnet-1", CIDRsToRelease: releaseTestPrefixes("10.0.0.6/32")},
+			},
+		},
+		{
+			name: "two interfaces give two actions",
+			ifaces: []*types.AzureInterface{
+				newReleaseTestInterface(releaseTestVMSSNIC, "nic-vmss", "subnet-1", "10.0.0.4",
+					releaseTestAddress("10.0.0.5", types.StateSucceeded),
+					releaseTestAddress("10.0.0.6", types.StateSucceeded)),
+				newReleaseTestInterface(releaseTestStandaloneNIC, "nic-vm", "subnet-2", "10.1.0.4",
+					releaseTestAddress("10.1.0.5", types.StateSucceeded)),
+			},
+			released:     []string{"10.0.0.5/32", "10.0.0.6/32", "10.1.0.5/32"},
+			wantAttached: []string{"10.0.0.5/32", "10.0.0.6/32", "10.1.0.5/32"},
+			wantActions: map[string]nodemanager.ReleaseAction{
+				releaseTestVMSSNIC:       {InterfaceID: releaseTestVMSSNIC, PoolID: "subnet-1", CIDRsToRelease: releaseTestPrefixes("10.0.0.5/32", "10.0.0.6/32")},
+				releaseTestStandaloneNIC: {InterfaceID: releaseTestStandaloneNIC, PoolID: "subnet-2", CIDRsToRelease: releaseTestPrefixes("10.1.0.5/32")},
+			},
+		},
+		{
+			name: "nothing releasable",
+			ifaces: []*types.AzureInterface{
+				newReleaseTestInterface(releaseTestVMSSNIC, "nic-vmss", "subnet-1", "10.0.0.4",
+					releaseTestAddress("10.0.0.6", "failed")),
+			},
+			released:    []string{"10.0.0.4/32", "10.0.0.6/32"},
+			wantActions: map[string]nodemanager.ReleaseAction{},
+		},
+		{
+			name: "no instance ID",
+			ifaces: []*types.AzureInterface{
+				newReleaseTestInterface(releaseTestVMSSNIC, "nic-vmss", "subnet-1", "10.0.0.4",
+					releaseTestAddress("10.0.0.5", types.StateSucceeded)),
+			},
+			noInstanceID: true,
+			released:     []string{"10.0.0.5/32"},
+			wantActions:  map[string]nodemanager.ReleaseAction{},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			node := newCapacityTestNode(t, test.ifaces, test.usePrimary)
+			if test.noInstanceID {
+				node.instanceID = ""
+			}
+
+			require.ElementsMatch(t, releaseTestPrefixes(test.wantAttached...), node.GetAttachedCIDRs())
+
+			actions := map[string]nodemanager.ReleaseAction{}
+			for _, action := range node.PrepareCIDRRelease(releaseTestPrefixes(test.released...)) {
+				actions[action.InterfaceID] = *action
+			}
+			require.Equal(t, test.wantActions, actions)
+		})
+	}
+}
+
+func TestReleaseCIDRs(t *testing.T) {
+	tests := []struct {
+		name        string
+		interfaceID string
+		mockError   apimock.Operation
+		wantErr     bool
+	}{
+		{name: "VMSS interface", interfaceID: releaseTestVMSSNIC},
+		{name: "standalone interface", interfaceID: releaseTestStandaloneNIC},
+		{name: "VMSS API error", interfaceID: releaseTestVMSSNIC, mockError: apimock.UnassignPrivateIpAddressesVMSS, wantErr: true},
+		{name: "standalone API error", interfaceID: releaseTestStandaloneNIC, mockError: apimock.UnassignPrivateIpAddressesVM, wantErr: true},
+		{name: "unknown interface", interfaceID: "unknown", wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ifaces := []*types.AzureInterface{
+				newReleaseTestInterface(releaseTestVMSSNIC, "nic-vmss", "subnet-1", "10.0.0.4",
+					releaseTestAddress("10.0.0.5", types.StateSucceeded),
+					releaseTestAddress("10.0.0.6", types.StateSucceeded),
+					releaseTestAddress("10.0.0.7", types.StateSucceeded)),
+				newReleaseTestInterface(releaseTestStandaloneNIC, "nic-vm", "subnet-1", "10.0.0.8",
+					releaseTestAddress("10.0.0.5", types.StateSucceeded),
+					releaseTestAddress("10.0.0.6", types.StateSucceeded),
+					releaseTestAddress("10.0.0.7", types.StateSucceeded)),
+			}
+			node := newCapacityTestNode(t, ifaces, false)
+			api := apimock.NewAPI(nil)
+			api.UpdateInstances(node.manager.instances.DeepCopy())
+			if test.mockError != 0 {
+				api.SetMockError(test.mockError, errors.New("mock error"))
+			}
+			node.manager.api = api
+
+			cidrs := releaseTestPrefixes("10.0.0.5/32", "10.0.0.6/32")
+			released, err := node.ReleaseCIDRs(t.Context(), &nodemanager.ReleaseAction{
+				InterfaceID:    test.interfaceID,
+				PoolID:         "subnet-1",
+				CIDRsToRelease: cidrs,
+			})
+
+			want := map[string][]string{
+				releaseTestVMSSNIC:       {"10.0.0.5", "10.0.0.6", "10.0.0.7"},
+				releaseTestStandaloneNIC: {"10.0.0.5", "10.0.0.6", "10.0.0.7"},
+			}
+			if test.wantErr {
+				require.Error(t, err)
+				require.Nil(t, released)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, cidrs, released)
+				want[test.interfaceID] = []string{"10.0.0.7"}
+			}
+
+			got := map[string][]string{}
+			node.manager.instances.ForeachInterface("vm1", func(_, id string, obj ipamTypes.Interface) error {
+				for _, addr := range obj.(*types.AzureInterface).Addresses {
+					got[id] = append(got[id], addr.IP.String())
+				}
+				return nil
+			})
+			require.Equal(t, want, got)
+		})
+	}
 }
