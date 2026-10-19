@@ -1430,24 +1430,26 @@ func (ct *ConnectivityTest) deploy(ctx context.Context) error {
 			}
 		}
 
-		for _, client := range ct.clients.clients() {
-			_, err = client.GetDaemonSet(ctx, ct.params.TestNamespace, hostNetNSDeploymentName, metav1.GetOptions{})
-			if err != nil {
-				ct.Logf("✨ [%s] Deploying %s daemonset...", hostNetNSDeploymentName, client.ClusterName())
-				ds := newDaemonSet(daemonSetParameters{
-					Name:        hostNetNSDeploymentName,
-					Kind:        kindHostNetNS,
-					Image:       ct.params.CurlImage,
-					Labels:      map[string]string{"other": "host-netns"},
-					Command:     []string{"/usr/bin/pause"},
-					HostNetwork: true,
-				})
-				_, err = client.CreateDaemonSet(ctx, ct.params.TestNamespace, ds, metav1.CreateOptions{})
-				if err != nil {
-					return fmt.Errorf("unable to create daemonset %s: %w", hostNetNSDeploymentName, err)
-				}
-			}
-		}
+		// Disabling daemonset creation
+
+		// for _, client := range ct.clients.clients() {
+		// 	_, err = client.GetDaemonSet(ctx, ct.params.TestNamespace, hostNetNSDeploymentName, metav1.GetOptions{})
+		// 	if err != nil {
+		// 		ct.Logf("✨ [%s] Deploying %s daemonset...", hostNetNSDeploymentName, client.ClusterName())
+		// 		ds := newDaemonSet(daemonSetParameters{
+		// 			Name:        hostNetNSDeploymentName,
+		// 			Kind:        kindHostNetNS,
+		// 			Image:       ct.params.CurlImage,
+		// 			Labels:      map[string]string{"other": "host-netns"},
+		// 			Command:     []string{"/usr/bin/pause"},
+		// 			HostNetwork: true,
+		// 		})
+		// 		_, err = client.CreateDaemonSet(ctx, ct.params.TestNamespace, ds, metav1.CreateOptions{})
+		// 		if err != nil {
+		// 			return fmt.Errorf("unable to create daemonset %s: %w", hostNetNSDeploymentName, err)
+		// 		}
+		// 	}
+		// }
 	}
 
 	if ct.Features[features.NodeWithoutCilium].Enabled {
