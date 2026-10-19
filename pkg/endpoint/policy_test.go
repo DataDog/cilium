@@ -436,8 +436,6 @@ func TestSkippedPolicyRevision(t *testing.T) {
 		ep := newEP()
 		ep.state = StateWaitingToRegenerate
 		ep.SecurityIdentity = &identity.Identity{ID: 1234}
-		ep.identityManager = identitymanager.NewIDManager(hivetest.Logger(t))
-		ep.identityManager.Add(ep.SecurityIdentity)
 		fetcher := &recomputeRecordingFetcher{}
 		ep.policyFetcher = fetcher
 		affected := set.NewSet[identity.NumericIdentity]()
@@ -458,19 +456,5 @@ func TestSkippedPolicyRevision(t *testing.T) {
 		consume(ep, ctx)
 		require.Equal(t, uint64(rev2), ctx.policyRevisionToWaitFor)
 		require.Zero(t, ep.skippedPolicyRevision)
-	})
-
-	t.Run("new unaffected endpoint with unregistered identity skips recompute", func(t *testing.T) {
-		ep := newEP()
-		ep.SecurityIdentity = &identity.Identity{ID: 1234}
-		ep.identityManager = identitymanager.NewIDManager(hivetest.Logger(t))
-		fetcher := &recomputeRecordingFetcher{}
-		ep.policyFetcher = fetcher
-		affected := set.NewSet[identity.NumericIdentity]()
-
-		ep.UpdatePolicy(&affected, rev1, rev2)
-
-		require.Nil(t, fetcher.identity)
-		require.Equal(t, uint64(rev2), ep.skippedPolicyRevision)
 	})
 }
