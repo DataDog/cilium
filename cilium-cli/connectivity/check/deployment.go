@@ -1593,24 +1593,26 @@ func (ct *ConnectivityTest) deploy(ctx context.Context) error {
 			}
 		}
 
-		for _, client := range ct.clients.clients() {
-			_, err = client.GetDaemonSet(ctx, ct.params.TestNamespace, hostNetNSDeploymentName, metav1.GetOptions{})
-			if err != nil {
-				ct.Logf("✨ [%s] Deploying %s daemonset...", hostNetNSDeploymentName, client.ClusterName())
-				ds := newDaemonSet(daemonSetParameters{
-					Name:        hostNetNSDeploymentName,
-					Kind:        kindHostNetNS,
-					Image:       ct.params.CurlImage,
-					Labels:      map[string]string{"other": "host-netns"},
-					Command:     []string{"/usr/bin/pause"},
-					HostNetwork: true,
-				})
-				_, err = client.CreateDaemonSet(ctx, ct.params.TestNamespace, ds, metav1.CreateOptions{})
-				if err != nil {
-					return fmt.Errorf("unable to create daemonset %s: %w", hostNetNSDeploymentName, err)
-				}
-			}
-		}
+		// Disabling daemonset creation
+
+		// for _, client := range ct.clients.clients() {
+		// 	_, err = client.GetDaemonSet(ctx, ct.params.TestNamespace, hostNetNSDeploymentName, metav1.GetOptions{})
+		// 	if err != nil {
+		// 		ct.Logf("✨ [%s] Deploying %s daemonset...", hostNetNSDeploymentName, client.ClusterName())
+		// 		ds := newDaemonSet(daemonSetParameters{
+		// 			Name:        hostNetNSDeploymentName,
+		// 			Kind:        kindHostNetNS,
+		// 			Image:       ct.params.CurlImage,
+		// 			Labels:      map[string]string{"other": "host-netns"},
+		// 			Command:     []string{"/usr/bin/pause"},
+		// 			HostNetwork: true,
+		// 		})
+		// 		_, err = client.CreateDaemonSet(ctx, ct.params.TestNamespace, ds, metav1.CreateOptions{})
+		// 		if err != nil {
+		// 			return fmt.Errorf("unable to create daemonset %s: %w", hostNetNSDeploymentName, err)
+		// 		}
+		// 	}
+		// }
 	}
 
 	if ct.Features[features.NodeWithoutCilium].Enabled {
@@ -3223,46 +3225,46 @@ func (ct *ConnectivityTest) validateDeployment(ctx context.Context) error {
 		}
 	}
 
-	for _, client := range ct.clients.clients() {
-		if !ct.params.SingleNode || ct.params.MultiCluster != "" {
-			if err := WaitForDaemonSet(ctx, ct, client, ct.Params().TestNamespace, hostNetNSDeploymentName); err != nil {
-				return err
-			}
-		}
-		hostNetNSPods, err := listLivePods(ctx, client, ct.params.TestNamespace, metav1.ListOptions{LabelSelector: "kind=" + kindHostNetNS})
-		if err != nil {
-			return fmt.Errorf("unable to list host netns pods: %w", err)
-		}
+	// for _, client := range ct.clients.clients() {
+	// 	if !ct.params.SingleNode || ct.params.MultiCluster != "" {
+	// 		if err := WaitForDaemonSet(ctx, ct, client, ct.Params().TestNamespace, hostNetNSDeploymentName); err != nil {
+	// 			return err
+	// 		}
+	// 	}
+	// 	hostNetNSPods, err := listLivePods(ctx, client, ct.params.TestNamespace, metav1.ListOptions{LabelSelector: "kind=" + kindHostNetNS})
+	// 	if err != nil {
+	// 		return fmt.Errorf("unable to list host netns pods: %w", err)
+	// 	}
 
-		for _, pod := range hostNetNSPods {
-			_, ok := ct.nodesWithoutCilium[pod.Spec.NodeName]
-			p := Pod{
-				K8sClient: client,
-				Pod:       pod.DeepCopy(),
-				Outside:   ok,
-			}
-			ct.hostNetNSPodsByNode[pod.Spec.NodeName] = p
+	// 	for _, pod := range hostNetNSPods {
+	// 		_, ok := ct.nodesWithoutCilium[pod.Spec.NodeName]
+	// 		p := Pod{
+	// 			K8sClient: client,
+	// 			Pod:       pod.DeepCopy(),
+	// 			Outside:   ok,
+	// 		}
+	// 		ct.hostNetNSPodsByNode[pod.Spec.NodeName] = p
 
-			if iface := ct.params.SecondaryNetworkIface; iface != "" {
-				if ct.Features[features.IPv4].Enabled {
-					cmd := []string{"/bin/sh", "-c", fmt.Sprintf("ip -family inet -oneline address show dev %s scope global | awk '{print $4}' | cut -d/ -f1", iface)}
-					addr, err := ct.execInPodWithTransportRetry(ctx, client, pod.Namespace, pod.Name, pod.Spec.Containers[0].Name, cmd)
-					if err != nil {
-						return fmt.Errorf("failed to fetch secondary network ip addr: %w", err)
-					}
-					ct.secondaryNetworkNodeIPv4[pod.Spec.NodeName] = strings.TrimSuffix(addr.String(), "\n")
-				}
-				if ct.Features[features.IPv6].Enabled {
-					cmd := []string{"/bin/sh", "-c", fmt.Sprintf("ip -family inet6 -oneline address show dev %s scope global | awk '{print $4}' | cut -d/ -f1", iface)}
-					addr, err := ct.execInPodWithTransportRetry(ctx, client, pod.Namespace, pod.Name, pod.Spec.Containers[0].Name, cmd)
-					if err != nil {
-						return fmt.Errorf("failed to fetch secondary network ip addr: %w", err)
-					}
-					ct.secondaryNetworkNodeIPv6[pod.Spec.NodeName] = strings.TrimSuffix(addr.String(), "\n")
-				}
-			}
-		}
-	}
+	// 		if iface := ct.params.SecondaryNetworkIface; iface != "" {
+	// 			if ct.Features[features.IPv4].Enabled {
+	// 				cmd := []string{"/bin/sh", "-c", fmt.Sprintf("ip -family inet -oneline address show dev %s scope global | awk '{print $4}' | cut -d/ -f1", iface)}
+	// 				addr, err := ct.execInPodWithTransportRetry(ctx, client, pod.Namespace, pod.Name, pod.Spec.Containers[0].Name, cmd)
+	// 				if err != nil {
+	// 					return fmt.Errorf("failed to fetch secondary network ip addr: %w", err)
+	// 				}
+	// 				ct.secondaryNetworkNodeIPv4[pod.Spec.NodeName] = strings.TrimSuffix(addr.String(), "\n")
+	// 			}
+	// 			if ct.Features[features.IPv6].Enabled {
+	// 				cmd := []string{"/bin/sh", "-c", fmt.Sprintf("ip -family inet6 -oneline address show dev %s scope global | awk '{print $4}' | cut -d/ -f1", iface)}
+	// 				addr, err := ct.execInPodWithTransportRetry(ctx, client, pod.Namespace, pod.Name, pod.Spec.Containers[0].Name, cmd)
+	// 				if err != nil {
+	// 					return fmt.Errorf("failed to fetch secondary network ip addr: %w", err)
+	// 				}
+	// 				ct.secondaryNetworkNodeIPv6[pod.Spec.NodeName] = strings.TrimSuffix(addr.String(), "\n")
+	// 			}
+	// 		}
+	// 	}
+	// }
 
 	l7LBPods, err := listLivePods(ctx, ct.client, ct.params.TestNamespace, metav1.ListOptions{LabelSelector: "kind=" + kindL7LBName})
 	if err != nil {
