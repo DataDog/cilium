@@ -186,11 +186,14 @@ func (r *gatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	httpRoutes := r.filterHTTPRoutesByGateway(ctx, gw, httpRouteList.Items, namespaceLabels)
 	tlsRoutes := r.filterTLSRoutesByGateway(ctx, gw, tlsRouteList.Items, namespaceLabels)
 	grpcRoutes := r.filterGRPCRoutesByGateway(ctx, gw, grpcRouteList.Items, namespaceLabels)
+	conflictedListeners := conflictsWithinGateway(gw.Spec.Listeners)
+	translationGateway := gatewayWithoutConflictedListeners(gw, conflictedListeners)
+	r.filterOutInvalidListeners(ctx, translationGateway, grants.Items)
 
 	m := ingestion.GatewayAPI(ingestion.Input{
 		GatewayClass:       *gwc,
 		GatewayClassConfig: r.getGatewayClassConfig(ctx, gwc),
-		Gateway:            *gw,
+		Gateway:            *translationGateway,
 		HTTPRoutes:         httpRoutes,
 		TLSRoutes:          tlsRoutes,
 		GRPCRoutes:         grpcRoutes,
@@ -200,7 +203,7 @@ func (r *gatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		ReferenceGrants:    grants.Items,
 	})
 
-	validListener, err := r.setListenerStatus(ctx, gw, httpRouteList, tlsRouteList, grpcRouteList, namespaceLabels)
+	validListener, err := r.setListenerStatus(ctx, gw, conflictedListeners, httpRouteList, tlsRouteList, grpcRouteList, namespaceLabels)
 	if err != nil {
 		scopedLog.ErrorContext(ctx, "Unable to set listener status", logfields.Error, err)
 		setGatewayAccepted(gw, false, "Unable to set listener status", gatewayv1.GatewayReasonNoResources)
@@ -594,13 +597,19 @@ func (r *gatewayReconciler) setStaticAddressStatus(ctx context.Context, gw *gate
 	return nil
 }
 
-func (r *gatewayReconciler) setListenerStatus(ctx context.Context, gw *gatewayv1.Gateway, httpRoutes *gatewayv1.HTTPRouteList, tlsRoutes *gatewayv1alpha2.TLSRouteList, grpcRoutes *gatewayv1.GRPCRouteList, namespaceLabels helpers.NamespaceLabelIndex) (bool, error) {
+func (r *gatewayReconciler) setListenerStatus(
+	ctx context.Context,
+	gw *gatewayv1.Gateway,
+	conflictedListeners map[gatewayv1.SectionName]listenerConflict,
+	httpRoutes *gatewayv1.HTTPRouteList,
+	tlsRoutes *gatewayv1alpha2.TLSRouteList,
+	grpcRoutes *gatewayv1.GRPCRouteList,
+	namespaceLabels helpers.NamespaceLabelIndex,
+) (bool, error) {
 	grants := &gatewayv1beta1.ReferenceGrantList{}
 	if err := r.Client.List(ctx, grants); err != nil {
 		return false, fmt.Errorf("failed to retrieve reference grants: %w", err)
 	}
-
-	conflictedListeners := samePortCrossProtocolConflictedListeners(gw)
 
 	// Keep track of if there is at least one Valid Listener; if not, the Gateway cannot be Accepted.
 	oneValidListener := false
@@ -610,90 +619,17 @@ func (r *gatewayReconciler) setListenerStatus(ctx context.Context, gw *gatewayv1
 
 		var conds []metav1.Condition
 
-		if conflictMessage, ok := conflictedListeners[l.Name]; ok {
-			conds = merge(conds, gatewayListenerConflictedCondition(gw, gatewayv1.ListenerReasonProtocolConflict, conflictMessage))
-			invalidMessages = append(invalidMessages, conflictMessage)
+		if conflict, ok := conflictedListeners[l.Name]; ok {
+			conds = merge(conds, gatewayListenerConflictedCondition(gw, conflict.reason, conflict.message))
+			invalidMessages = append(invalidMessages, conflict.message)
 			isValid = false
 		}
 
-		allSupported := getSupportedRouteKinds(l.Protocol)
-		if allSupported == nil {
-			invalidMessages = append(invalidMessages, "Unsupported Listener Protocol.")
-			isValid = false
-		}
-		supportedKinds := []gatewayv1.RouteGroupKind{}
-
-		if l.AllowedRoutes != nil && len(l.AllowedRoutes.Kinds) > 0 {
-			for _, supported := range allSupported {
-				for _, allowed := range l.AllowedRoutes.Kinds {
-					if supported.Kind == allowed.Kind &&
-						groupDerefOr(allowed.Group, gatewayv1.GroupName) == string(*supported.Group) {
-						supportedKinds = append(supportedKinds, supported)
-						break
-					}
-				}
-			}
-
-			// Add ResolvedRefs if not all explicitly allowed kinds are actually supported
-			if len(supportedKinds) != len(l.AllowedRoutes.Kinds) {
-				conds = merge(conds, gatewayListenerInvalidRouteKinds(gw, "Unsupported Route Kinds in allowedRoutes.kinds"))
-			}
-
-			if len(supportedKinds) == 0 {
-				invalidMessages = append(invalidMessages, "None of the Allowed Route Kinds are supported.")
-				isValid = false
-			}
-		} else {
-			// If there are no Kinds specified in AllowedRoutes, then supportedKinds should contain
-			// all the supported Kinds for that Protocol.
-			supportedKinds = allSupported
-		}
-
-		if l.TLS != nil {
-			for _, cert := range l.TLS.CertificateRefs {
-				if !helpers.IsSecret(cert) {
-					conds = merge(conds, metav1.Condition{
-						Type:               string(gatewayv1.ListenerConditionResolvedRefs),
-						Status:             metav1.ConditionFalse,
-						Reason:             string(gatewayv1.ListenerReasonInvalidCertificateRef),
-						Message:            "Invalid CertificateRef",
-						LastTransitionTime: metav1.Now(),
-					})
-					invalidMessages = append(invalidMessages, "Invalid CertificateRef, must be a Secret.")
-					isValid = false
-					break
-				}
-
-				if !helpers.IsSecretReferenceAllowed(gw.Namespace, cert, gatewayv1.SchemeGroupVersion.WithKind("Gateway"), grants.Items) {
-					conds = merge(conds, metav1.Condition{
-						Type:               string(gatewayv1.ListenerConditionResolvedRefs),
-						Status:             metav1.ConditionFalse,
-						Reason:             string(gatewayv1.ListenerReasonRefNotPermitted),
-						Message:            "CertificateRef is not permitted",
-						LastTransitionTime: metav1.Now(),
-					})
-					invalidMessages = append(invalidMessages, "Invalid CertificateRef, not permitted.")
-					isValid = false
-					break
-				}
-
-				if err := validateTLSSecret(ctx, r.Client, helpers.NamespaceDerefOr(cert.Namespace, gw.GetNamespace()), string(cert.Name)); err != nil {
-					r.logger.InfoContext(ctx, "Found an invalid TLS Secret",
-						logfields.Error, err.Error(),
-						logfields.Resource, client.ObjectKeyFromObject(gw).String())
-					conds = merge(conds, metav1.Condition{
-						Type:               string(gatewayv1.ListenerConditionResolvedRefs),
-						Status:             metav1.ConditionFalse,
-						Reason:             string(gatewayv1.ListenerReasonInvalidCertificateRef),
-						Message:            "Invalid CertificateRef",
-						LastTransitionTime: metav1.Now(),
-					})
-					invalidMessages = append(invalidMessages, "Invalid CertificateRef, "+err.Error())
-					isValid = false
-					break
-				}
-			}
-		}
+		validation := r.validateListener(ctx, gw, l, grants.Items)
+		isValid = isValid && validation.isValid
+		invalidMessages = append(invalidMessages, validation.invalidMessages...)
+		conds = merge(conds, validation.conditions...)
+		supportedKinds := validation.supportedKinds
 
 		if !isValid {
 			conds = merge(conds,
@@ -756,41 +692,212 @@ func (r *gatewayReconciler) setListenerStatus(ctx context.Context, gw *gatewayv1
 	return oneValidListener, nil
 }
 
-func samePortCrossProtocolConflictedListeners(gw *gatewayv1.Gateway) map[gatewayv1.SectionName]string {
-	conflicted := map[gatewayv1.SectionName]string{}
+type listenerConflict struct {
+	reason  gatewayv1.ListenerConditionReason
+	message string
+}
 
-	for i := range gw.Spec.Listeners {
-		for j := i + 1; j < len(gw.Spec.Listeners); j++ {
-			first := &gw.Spec.Listeners[i]
-			second := &gw.Spec.Listeners[j]
-			if !listenersHaveSamePortCrossProtocolHostnameConflict(first, second) {
-				continue
+func gatewayWithoutConflictedListeners(gw *gatewayv1.Gateway, conflicts map[gatewayv1.SectionName]listenerConflict) *gatewayv1.Gateway {
+	translationGateway := gw.DeepCopy()
+	translationGateway.Spec.Listeners = translationGateway.Spec.Listeners[:0]
+	for _, listener := range gw.Spec.Listeners {
+		if _, conflicted := conflicts[listener.Name]; !conflicted {
+			translationGateway.Spec.Listeners = append(translationGateway.Spec.Listeners, listener)
+		}
+	}
+	return translationGateway
+}
+
+func (r *gatewayReconciler) filterOutInvalidListeners(
+	ctx context.Context,
+	gw *gatewayv1.Gateway,
+	grants []gatewayv1beta1.ReferenceGrant,
+) {
+	listeners := make([]gatewayv1.Listener, 0, len(gw.Spec.Listeners))
+	for _, listener := range gw.Spec.Listeners {
+		if validation := r.validateListener(ctx, gw, listener, grants); validation.isValid {
+			listeners = append(listeners, listener)
+		}
+	}
+	gw.Spec.Listeners = listeners
+}
+
+type listenerValidationResult struct {
+	isValid         bool
+	supportedKinds  []gatewayv1.RouteGroupKind
+	invalidMessages []string
+	conditions      []metav1.Condition
+}
+
+func (r *gatewayReconciler) validateListener(
+	ctx context.Context,
+	gw *gatewayv1.Gateway,
+	listener gatewayv1.Listener,
+	grants []gatewayv1beta1.ReferenceGrant,
+) listenerValidationResult {
+	isValid := true
+	var invalidMessages []string
+	var conds []metav1.Condition
+
+	allSupported := getSupportedRouteKinds(listener.Protocol)
+	if allSupported == nil {
+		invalidMessages = append(invalidMessages, "Unsupported Listener Protocol.")
+		isValid = false
+	}
+	supportedKinds := []gatewayv1.RouteGroupKind{}
+
+	if listener.AllowedRoutes != nil && len(listener.AllowedRoutes.Kinds) > 0 {
+		for _, supported := range allSupported {
+			for _, allowed := range listener.AllowedRoutes.Kinds {
+				if supported.Kind == allowed.Kind &&
+					groupDerefOr(allowed.Group, gatewayv1.GroupName) == string(*supported.Group) {
+					supportedKinds = append(supportedKinds, supported)
+					break
+				}
+			}
+		}
+
+		if len(supportedKinds) != len(listener.AllowedRoutes.Kinds) {
+			conds = merge(conds, gatewayListenerInvalidRouteKinds(gw, "Unsupported Route Kinds in allowedRoutes.kinds"))
+		}
+
+		if len(supportedKinds) == 0 {
+			invalidMessages = append(invalidMessages, "None of the Allowed Route Kinds are supported.")
+			isValid = false
+		}
+	} else {
+		supportedKinds = allSupported
+	}
+
+	if listener.TLS != nil {
+		for _, cert := range listener.TLS.CertificateRefs {
+			if !helpers.IsSecret(cert) {
+				conds = merge(conds, metav1.Condition{
+					Type:               string(gatewayv1.ListenerConditionResolvedRefs),
+					Status:             metav1.ConditionFalse,
+					Reason:             string(gatewayv1.ListenerReasonInvalidCertificateRef),
+					Message:            "Invalid CertificateRef",
+					LastTransitionTime: metav1.Now(),
+				})
+				invalidMessages = append(invalidMessages, "Invalid CertificateRef, must be a Secret.")
+				isValid = false
+				break
 			}
 
-			conflicted[first.Name] = samePortCrossProtocolConflictMessage(second.Name, first.Port)
-			conflicted[second.Name] = samePortCrossProtocolConflictMessage(first.Name, second.Port)
+			if !helpers.IsSecretReferenceAllowed(
+				gw.Namespace, cert, gatewayv1.SchemeGroupVersion.WithKind("Gateway"), grants,
+			) {
+				conds = merge(conds, metav1.Condition{
+					Type:               string(gatewayv1.ListenerConditionResolvedRefs),
+					Status:             metav1.ConditionFalse,
+					Reason:             string(gatewayv1.ListenerReasonRefNotPermitted),
+					Message:            "CertificateRef is not permitted",
+					LastTransitionTime: metav1.Now(),
+				})
+				invalidMessages = append(invalidMessages, "Invalid CertificateRef, not permitted.")
+				isValid = false
+				break
+			}
+
+			certificateNamespace := helpers.NamespaceDerefOr(cert.Namespace, gw.GetNamespace())
+			if err := validateTLSSecret(ctx, r.Client, certificateNamespace, string(cert.Name)); err != nil {
+				r.logger.InfoContext(ctx, "Found an invalid TLS Secret",
+					logfields.Error, err.Error(),
+					logfields.Resource, client.ObjectKeyFromObject(gw).String())
+				conds = merge(conds, metav1.Condition{
+					Type:               string(gatewayv1.ListenerConditionResolvedRefs),
+					Status:             metav1.ConditionFalse,
+					Reason:             string(gatewayv1.ListenerReasonInvalidCertificateRef),
+					Message:            "Invalid CertificateRef",
+					LastTransitionTime: metav1.Now(),
+				})
+				invalidMessages = append(invalidMessages, "Invalid CertificateRef, "+err.Error())
+				isValid = false
+				break
+			}
 		}
 	}
 
-	return conflicted
+	return listenerValidationResult{
+		isValid:         isValid,
+		supportedKinds:  supportedKinds,
+		invalidMessages: invalidMessages,
+		conditions:      conds,
+	}
 }
 
-func listenersHaveSamePortCrossProtocolHostnameConflict(first, second *gatewayv1.Listener) bool {
+func conflictsWithinGateway(listeners []gatewayv1.Listener) map[gatewayv1.SectionName]listenerConflict {
+	conflicts := map[gatewayv1.SectionName]listenerConflict{}
+
+	for i := range listeners {
+		for j := i + 1; j < len(listeners); j++ {
+			first := &listeners[i]
+			second := &listeners[j]
+			reason, ok := listenerPairConflict(first, second)
+			if !ok {
+				continue
+			}
+
+			conflicts[first.Name] = listenerConflict{reason: reason, message: listenerConflictMessage(reason, first, second)}
+			conflicts[second.Name] = listenerConflict{reason: reason, message: listenerConflictMessage(reason, second, first)}
+		}
+	}
+
+	return conflicts
+}
+
+func listenerPairConflict(first, second *gatewayv1.Listener) (gatewayv1.ListenerConditionReason, bool) {
 	if first.Port != second.Port {
-		return false
+		return "", false
 	}
 
-	if helpers.IsHTTPSTerminatedListener(first) && helpers.IsTLSPassthroughListener(second) {
-		return helpers.SNIHostnamesIntersect(helpers.ListenerHostname(first), helpers.ListenerHostname(second))
+	firstL4 := isL4Protocol(first.Protocol)
+	secondL4 := isL4Protocol(second.Protocol)
+	if firstL4 || secondL4 {
+		if firstL4 && secondL4 && first.Protocol != second.Protocol {
+			return "", false
+		}
+		return gatewayv1.ListenerReasonProtocolConflict, true
 	}
-	if helpers.IsHTTPSTerminatedListener(second) && helpers.IsTLSPassthroughListener(first) {
-		return helpers.SNIHostnamesIntersect(helpers.ListenerHostname(first), helpers.ListenerHostname(second))
+
+	if isHTTPSAndTLSPassthroughPair(first, second) {
+		if helpers.SNIHostnamesIntersect(helpers.ListenerHostname(first), helpers.ListenerHostname(second)) {
+			return gatewayv1.ListenerReasonProtocolConflict, true
+		}
+		return "", false
 	}
-	return false
+
+	if first.Protocol == second.Protocol && normalizedListenerHostname(first) == normalizedListenerHostname(second) {
+		return gatewayv1.ListenerReasonHostnameConflict, true
+	}
+	return "", false
 }
 
-func samePortCrossProtocolConflictMessage(listenerName gatewayv1.SectionName, port gatewayv1.PortNumber) string {
-	return fmt.Sprintf("Listener conflicts with listener %q: same port %d has overlapping HTTPS and TLS passthrough hostnames.", listenerName, port)
+func isL4Protocol(protocol gatewayv1.ProtocolType) bool {
+	return protocol == gatewayv1.TCPProtocolType || protocol == gatewayv1.UDPProtocolType
+}
+
+func isHTTPSAndTLSPassthroughPair(first, second *gatewayv1.Listener) bool {
+	return (helpers.IsHTTPSTerminatedListener(first) && helpers.IsTLSPassthroughListener(second)) ||
+		(helpers.IsHTTPSTerminatedListener(second) && helpers.IsTLSPassthroughListener(first))
+}
+
+func normalizedListenerHostname(listener *gatewayv1.Listener) string {
+	if hostname := helpers.ListenerHostname(listener); hostname != "" {
+		return hostname
+	}
+	return "*"
+}
+
+func listenerConflictMessage(reason gatewayv1.ListenerConditionReason, self, other *gatewayv1.Listener) string {
+	switch {
+	case reason == gatewayv1.ListenerReasonHostnameConflict:
+		return fmt.Sprintf("Listener conflicts with listener %q: same port %d has overlapping hostnames.", other.Name, self.Port)
+	case isHTTPSAndTLSPassthroughPair(self, other):
+		return fmt.Sprintf("Listener conflicts with listener %q: same port %d has overlapping HTTPS and TLS passthrough hostnames.", other.Name, self.Port)
+	default:
+		return fmt.Sprintf("Listener conflicts with listener %q: same port %d has incompatible protocols.", other.Name, self.Port)
+	}
 }
 
 func validateTLSSecret(ctx context.Context, c client.Client, namespace, name string) error {
