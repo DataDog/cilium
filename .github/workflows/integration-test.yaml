@@ -65,7 +65,7 @@ jobs:
   echo-inputs:
     if: ${{ github.event_name == 'workflow_dispatch' }}
     name: Echo Workflow Dispatch Inputs
-    runs-on: ${{ vars.UBUNTU_2404_AMD64_4CPU_16GB }}
+    runs-on: ${{ vars.UBUNTU_2604_AMD64_4CPU_16GB }}
     steps:
       - name: Echo Workflow Dispatch Inputs
         run: |
@@ -73,7 +73,7 @@ jobs:
 
   commit-status-start:
     name: Commit Status Start
-    runs-on: ${{ vars.UBUNTU_2404_AMD64_4CPU_16GB }}
+    runs-on: ${{ vars.UBUNTU_2604_AMD64_4CPU_16GB }}
     steps:
       - name: Set initial commit status
         uses: cilium/actions/set-commit-status@687b48a0547e534dd7270d5069a5ab7967c0e907 # main
@@ -89,7 +89,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: ["${{ vars.UBUNTU_2404_AMD64_4CPU_16GB }}", "${{ vars.UBUNTU_2404_ARM64_4CPU_16GB }}"]
+        arch: ["${{ vars.UBUNTU_2604_AMD64_4CPU_16GB }}", "${{ vars.UBUNTU_2604_ARM64_2CPU_8GB }}"]
     runs-on: ${{ matrix.arch }}
     timeout-minutes: 45
     steps:
@@ -154,14 +154,14 @@ jobs:
         with:
           cache: false
           # renovate: datasource=golang-version depName=go
-          go-version: 1.26.9
+          go-version: 1.26.10
 
       # Load Golang cache build from GitHub
       - name: Load Golang cache build from GitHub
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: go-cache
         with:
-          path: /tmp/.cache/go
+          path: ${{ runner.temp }}/.cache/go
           key: ${{ runner.os }}-go-integration-test-cache-${{ runner.arch }}-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-integration-test-cache-${{ runner.arch }}-
@@ -169,8 +169,8 @@ jobs:
       - name: Create cache directories if they don't exist
         if: ${{ steps.go-cache.outputs.cache-hit != 'true' }}
         env:
-          GOCACHE: "/tmp/.cache/go/.cache/go-build"
-          GOMODCACHE: "/tmp/.cache/go/pkg"
+          GOCACHE: "${{ runner.temp }}/.cache/go/.cache/go-build"
+          GOMODCACHE: "${{ runner.temp }}/.cache/go/pkg"
         shell: bash
         run: |
           mkdir -p "${GOCACHE}"
@@ -179,8 +179,8 @@ jobs:
       - name: Prepare environment
         timeout-minutes: 15
         env:
-          GOCACHE: "/tmp/.cache/go/.cache/go-build"
-          GOMODCACHE: "/tmp/.cache/go/pkg"
+          GOCACHE: "${{ runner.temp }}/.cache/go/.cache/go-build"
+          GOMODCACHE: "${{ runner.temp }}/.cache/go/pkg"
         shell: bash
         run: |
           # renovate: datasource=github-releases depName=mfridman/tparse
@@ -192,8 +192,8 @@ jobs:
         id: run-tests
         timeout-minutes: 60
         env:
-          GOCACHE: "/tmp/.cache/go/.cache/go-build"
-          GOMODCACHE: "/tmp/.cache/go/pkg"
+          GOCACHE: "${{ runner.temp }}/.cache/go/.cache/go-build"
+          GOMODCACHE: "${{ runner.temp }}/.cache/go/pkg"
         run: |
           export V=0
           export DOCKER_BUILD_FLAGS=--quiet
@@ -219,7 +219,7 @@ jobs:
         # dispatch with a vX-Y PR-number and keep failing hard, since they are what
         # corgi reads.
         continue-on-error: ${{ github.event_name == 'workflow_dispatch' && !startsWith(github.event.inputs.PR-number, 'v') }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cilium-junits-${{ env.job_name }}
           path: cilium-junits/*.xml
@@ -238,7 +238,7 @@ jobs:
     # Merging only repackages what the legs uploaded, so a pull request is not
     # worth failing over it.
     continue-on-error: ${{ github.event_name == 'workflow_dispatch' && !startsWith(github.event.inputs.PR-number, 'v') }}
-    runs-on: ${{ vars.UBUNTU_2404_AMD64_4CPU_16GB }}
+    runs-on: ${{ vars.UBUNTU_2604_AMD64_4CPU_16GB }}
     needs: integration-test
     steps:
       - name: Checkout context ref (trusted)
@@ -258,7 +258,7 @@ jobs:
     if: ${{ always() }}
     name: Commit Status Final
     needs: integration-test
-    runs-on: ${{ vars.UBUNTU_2404_AMD64_4CPU_16GB }}
+    runs-on: ${{ vars.UBUNTU_2604_AMD64_4CPU_16GB }}
     steps:
       - name: Set final commit status
         uses: cilium/actions/set-commit-status@687b48a0547e534dd7270d5069a5ab7967c0e907 # main

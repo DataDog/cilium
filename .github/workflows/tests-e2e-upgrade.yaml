@@ -110,7 +110,7 @@ env:
 jobs:
   commit-status-start:
     name: Commit Status Start
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - name: Set initial commit status
         uses: cilium/actions/set-commit-status@687b48a0547e534dd7270d5069a5ab7967c0e907 # main
@@ -119,7 +119,7 @@ jobs:
 
   generate-matrix:
     name: Generate Matrix
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     outputs:
       matrix: ${{ steps.generate-matrix.outputs.matrix }}
       timeout: ${{ steps.generate-matrix.outputs.timeout }}
@@ -188,7 +188,7 @@ jobs:
 
   wait-for-images:
     name: Wait for images
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
       - name: Checkout context ref (trusted)
@@ -208,7 +208,7 @@ jobs:
   lvh-cache-key:
     name: LVH Cache Key
     # Same runner as the legs, so the key describes the packages they install.
-    runs-on: ${{ vars.UBUNTU_2404_4CPU_16GB || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.UBUNTU_2604_4CPU_16GB || 'ubuntu-26.04' }}
     timeout-minutes: 20
     outputs:
       dependency-list-sha: ${{ steps.key.outputs.dependency_list_sha }}
@@ -223,7 +223,7 @@ jobs:
 
   setup-and-test:
     needs: [wait-for-images, generate-matrix, lvh-cache-key]
-    runs-on: ${{ vars.UBUNTU_2404_4CPU_16GB || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.UBUNTU_2604_4CPU_16GB || 'ubuntu-26.04' }}
     name: 'Setup & Test (${{ matrix.name }}, ${{ matrix.mode }}, ${{ matrix.kernel }})'
     env:
       job_name: 'Setup & Test (${{ matrix.name }}, ${{ matrix.mode }}, ${{ matrix.kernel }})'
@@ -563,6 +563,12 @@ jobs:
             --set envoy.idleTimeoutDurationSeconds=3" # Set proxy idle timeout to a low value so that connections teardown for L7 traffic testing doesn't pollute validation during a later step.
 
           if ${{ steps.vars.outputs.skip_upgrade != 'true' }}; then
+            # Ignore the older chart restoring ads before newer agents stop on downgrade.
+            # Keep the ignore list consistent across install, upgrade and downgrade.
+            # Remove once the tested releases no longer have different xDS defaults.
+            EXTRA_INSTALL_ARGS="${EXTRA_INSTALL_ARGS} --set=configDriftDetection.ignoredKeys[0]=envoy-xds-mode"
+            # Restart cilium-envoy on the xDS mode change. Remove once the Envoy image changes.
+            EXTRA_INSTALL_ARGS="${EXTRA_INSTALL_ARGS} --set=envoy.rollOutPods=true"
             cilium install ${{ steps.cilium-stable-config.outputs.config }} ${EXTRA_INSTALL_ARGS}
           else
             cilium install ${{ steps.cilium-newest-config.outputs.config }} ${EXTRA_INSTALL_ARGS}
@@ -725,10 +731,23 @@ jobs:
         if: ${{ steps.vars.outputs.downgrade_version != '' && steps.vars.outputs.skip_upgrade != 'true' && steps.cilium-stable-config.outputs.skip != 'true' && steps.cilium-newest-config.outputs.skip != 'true' }}
         shell: bash
         run: |
+          RELEASE_IMAGE_ARGS=()
+          # Clear image overrides only for patch downgrades. Minor downgrades use
+          # the latest CI images from the previous stable branch.
+          if [ "${{ matrix.mode }}" = "patch" ]; then
+            # Clear saved CI image overrides so the target chart supplies release images.
+            RELEASE_IMAGE_ARGS=(
+              --helm-set=image=null
+              --helm-set=operator.image=null
+              --helm-set=hubble.relay.image=null
+            )
+          fi
+
           cilium upgrade \
             --helm-set=disableEnvoyVersionCheck=true \
             ${{ steps.cilium-stable-config.outputs.config }} \
-            ${{ steps.install-cilium.outputs.extra_args }}
+            ${{ steps.install-cilium.outputs.extra_args }} \
+            "${RELEASE_IMAGE_ARGS[@]}"
 
           cilium status --wait --interactive=false --wait-duration=10m
           kubectl get pods --all-namespaces -o wide

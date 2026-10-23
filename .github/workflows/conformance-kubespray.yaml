@@ -64,7 +64,7 @@ jobs:
   echo-inputs:
     if: ${{ github.event_name == 'workflow_dispatch' }}
     name: Echo Workflow Dispatch Inputs
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - name: Echo Workflow Dispatch Inputs
         run: |
@@ -72,7 +72,7 @@ jobs:
 
   commit-status-start:
     name: Commit Status Start
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - name: Set initial commit status
         uses: cilium/actions/set-commit-status@687b48a0547e534dd7270d5069a5ab7967c0e907 # main
@@ -81,7 +81,7 @@ jobs:
 
   wait-for-images:
     name: Wait for images
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
       - name: Checkout context ref (trusted)
@@ -102,7 +102,7 @@ jobs:
 
   installation-and-connectivity:
     name: Installation and Connectivity Test
-    runs-on: ${{ vars.UBUNTU_2404_4CPU_16GB || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.UBUNTU_2604_4CPU_16GB || 'ubuntu-26.04' }}
     needs: wait-for-images
     timeout-minutes: 60
     env:
@@ -193,8 +193,8 @@ jobs:
           source kubespray-venv/bin/activate
           cd kubespray/
           ansible-playbook -i inventory/mycluster/inventory.ini cluster.yml -b -v \
-            -e '{"container_manager":"docker","docker_package_info":{"pkgs":[]}}' \
-            -e '{"kube_network_plugin":"cni","kube_owner":"root"}'
+            -e '{"container_manager":"docker","docker_package_info":{"pkgs":[]},"docker_repo_key_info":{"repo_keys":[]},"docker_repo_info":{"repos":[]}}' \
+            -e '{"kube_network_plugin":"cni","kube_owner":"root","kube_resolv_conf":"/run/systemd/resolve/resolv.conf"}'
 
           mkdir -p $HOME/.kube
           sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
