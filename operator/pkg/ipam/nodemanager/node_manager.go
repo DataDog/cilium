@@ -398,7 +398,7 @@ func (n *NodeManager) Upsert(resource *v2.CiliumNode) {
 					node.logger.Load().Warn("Unable to sync instance", logfields.Error, err)
 					return
 				}
-				node.manager.Resync(ctx, syncTime)
+				node.manager.resyncSingleNode(ctx, node, syncTime)
 			},
 		})
 		if err != nil {
@@ -525,7 +525,10 @@ func (s *resyncStats) add(r nodeResyncResult) {
 
 // resyncNode recalculates a single node against the instance cache, and
 // enqueues the pool maintenance and the apiserver sync it needs. The caller
-// must hold the NodeManager mutex.
+// must hold the NodeManager mutex, at least for reading, which is also what
+// keeps two resyncs of the same node from overlapping: Resync holds it for
+// writing, and a node's own instance sync trigger never runs concurrently
+// with itself.
 func (n *NodeManager) resyncNode(ctx context.Context, node *Node, syncTime time.Time) nodeResyncResult {
 	node.updateLastResync(syncTime)
 	node.recalculate(ctx)
@@ -549,6 +552,21 @@ func (n *NodeManager) resyncNode(ctx context.Context, node *Node, syncTime time.
 		stats:            nodeStats,
 		allocationNeeded: allocationNeeded,
 	}
+}
+
+// resyncSingleNode reconciles the given node only, after an event scoped to
+// it.
+func (n *NodeManager) resyncSingleNode(ctx context.Context, node *Node, syncTime time.Time) {
+	// The read lock is held for the whole reconcile so that it cannot
+	// overlap with Resync reconciling the same node.
+	n.mutex.RLock()
+	defer n.mutex.RUnlock()
+
+	if n.nodes[node.name] != node {
+		// Deleted since the event was triggered.
+		return
+	}
+	n.resyncNode(ctx, node, syncTime)
 }
 
 // Resync will attend all nodes and resolves IP deficits. The order of
