@@ -138,6 +138,8 @@ type nodeOperationsMock struct {
 
 	attachedCIDRs []netip.Prefix
 
+	prefixedAddresses int
+
 	// resyncErr, when set, is returned by ResyncInterfacesAndIPs to simulate
 	// an instance that is no longer present in the operator's cache.
 	resyncErr error
@@ -175,6 +177,7 @@ func (n *nodeOperationsMock) ResyncInterfacesAndIPs(ctx context.Context, scopedL
 	for _, ip := range n.allocatedIPs {
 		available[iputil.AddrFrom(netip.MustParseAddr(ip))] = ipamTypes.AllocationIP{}
 	}
+	stats.NodeIPv4PrefixedAddresses = n.prefixedAddresses
 	return available, stats, nil
 }
 

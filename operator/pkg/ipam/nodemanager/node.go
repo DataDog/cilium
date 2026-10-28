@@ -748,16 +748,9 @@ func (n *Node) recalculate(ctx context.Context) {
 	}
 
 	// The AllocationMap lists the addresses available for assignment, but not
-	// the addresses of delegated prefixes, so the IPv4 prefixes reported by
-	// GetAttachedCIDRs are counted on top of it. Single attached addresses
-	// are left to the AllocationMap, since providers may report addresses
-	// that are attached but not available for assignment.
-	n.stats.IPv4.AvailableIPs = len(n.ipv4Alloc.available)
-	for _, c := range n.ops.GetAttachedCIDRs() {
-		if c.Addr().Is4() && c.Bits() < 32 {
-			n.stats.IPv4.AvailableIPs += 1 << (32 - c.Bits())
-		}
-	}
+	// the addresses of delegated prefixes, which the provider reports
+	// separately.
+	n.stats.IPv4.AvailableIPs = len(n.ipv4Alloc.available) + stats.NodeIPv4PrefixedAddresses
 	n.stats.IPv4.RemainingInterfaces = stats.RemainingAvailableInterfaceCount
 	n.stats.IPv4.Capacity = stats.NodeCapacity
 	n.stats.IPv6.AvailablePrefixes = stats.NodeIPv6Prefixes

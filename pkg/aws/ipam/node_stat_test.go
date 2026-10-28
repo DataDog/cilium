@@ -105,6 +105,65 @@ func TestENIIPAMCapacityAccounting(t *testing.T) {
 	assert.Equal(27+16-1, stats.NodeCapacity)
 }
 
+func TestENIIPAMPrefixedAddresses(t *testing.T) {
+	mockEC2API := mock.NewAPI(nil, nil, nil, nil)
+	instanceID := "i-000"
+	cn := newCiliumNode("node1", withInstanceType("m5.large"),
+		func(cn *v2.CiliumNode) {
+			cn.Spec.InstanceID = instanceID
+			cn.Spec.ENI.FirstInterfaceIndex = new(1)
+		},
+	)
+	im := ipamTypes.NewInstanceMap()
+	im.Update(instanceID, &types.ENI{
+		ID:       "eni-excluded",
+		Number:   0,
+		Prefixes: []iputil.Prefix{iputil.PrefixFrom(netip.MustParsePrefix("10.0.0.0/28"))},
+	})
+	im.Update(instanceID, &types.ENI{
+		ID:     "eni-included",
+		Number: 1,
+		Prefixes: []iputil.Prefix{
+			iputil.PrefixFrom(netip.MustParsePrefix("10.0.1.0/28")),
+			iputil.PrefixFrom(netip.MustParsePrefix("10.0.1.16/28")),
+			iputil.PrefixFrom(netip.MustParsePrefix("10.0.1.32/32")),
+			{},
+		},
+		IPv6Prefixes: []iputil.Prefix{iputil.PrefixFrom(netip.MustParsePrefix("2001:db8::/80"))},
+		Addresses:    []iputil.Addr{iputil.AddrFrom(netip.MustParseAddr("10.0.2.5"))},
+	})
+
+	ipamNode := &mockIPAMNode{instanceID: instanceID}
+	limitsGetter, err := limits.NewLimitsGetter(hivetest.Logger(t), mockEC2API, limits.TriggerMinInterval, limits.EC2apiTimeout, limits.EC2apiRetryCount)
+	require.NoError(t, err)
+
+	n := &Node{
+		node:   ipamNode,
+		k8sObj: cn,
+		manager: &InstancesManager{
+			instances:    im,
+			ec2api:       mockEC2API,
+			limitsGetter: limitsGetter,
+		},
+	}
+	ipamNode.SetOpts(n)
+
+	for _, usePrimary := range []bool{false, true} {
+		cn.Spec.ENI.UsePrimaryAddress = new(usePrimary)
+		_, stats, err := n.ResyncInterfacesAndIPs(t.Context(), hivetest.Logger(t))
+		require.NoError(t, err)
+		require.Equal(t, 32, stats.NodeIPv4PrefixedAddresses)
+
+		attached := 0
+		for _, c := range n.GetAttachedCIDRs() {
+			if c.Addr().Is4() && c.Bits() < 32 {
+				attached += 1 << (32 - c.Bits())
+			}
+		}
+		require.Equal(t, attached, stats.NodeIPv4PrefixedAddresses)
+	}
+}
+
 // mocks ipamNodeActions interface
 type mockIPAMNode struct {
 	instanceID       string

@@ -391,7 +391,16 @@ func TestRecalculateIPv6Only(t *testing.T) {
 }
 
 func TestRecalculateAvailableIPs(t *testing.T) {
-	t.Run("every IPv4 address of attached prefixes is counted", func(t *testing.T) {
+	t.Run("prefixed addresses reported by the provider are counted", func(t *testing.T) {
+		n := newPoolDemandNode(t, 8, 0)
+		n.ops.(*nodeOperationsMock).allocatedIPs = []string{"10.0.0.1"}
+		n.ops.(*nodeOperationsMock).prefixedAddresses = 16
+		n.recalculate(t.Context())
+
+		require.Equal(t, 17, n.Stats().IPv4.AvailableIPs)
+	})
+
+	t.Run("attached prefixes the provider does not report as usable are not counted", func(t *testing.T) {
 		n := newPoolDemandNode(t, 8, 0)
 		n.ops.(*nodeOperationsMock).allocatedIPs = []string{"10.0.0.1"}
 		n.ops.(*nodeOperationsMock).attachedCIDRs = []netip.Prefix{
@@ -401,7 +410,7 @@ func TestRecalculateAvailableIPs(t *testing.T) {
 		}
 		n.recalculate(t.Context())
 
-		require.Equal(t, 17, n.Stats().IPv4.AvailableIPs)
+		require.Equal(t, 1, n.Stats().IPv4.AvailableIPs)
 	})
 
 	t.Run("attached addresses missing from the allocation map are not counted", func(t *testing.T) {

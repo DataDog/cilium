@@ -61,7 +61,9 @@ type NodeOperations interface {
 	// of the functions AllocateIPs(), ReleaseIPs() and CreateInterface().
 	// It returns all available ip in node and remaining available interfaces
 	// that can either be allocated or have not yet exhausted the instance specific quota of addresses
-	// and error occurred during execution.
+	// and error occurred during execution. Addresses of delegated prefixes are
+	// not part of the AllocationMap; the stats report the usable ones in
+	// NodeIPv4PrefixedAddresses.
 	ResyncInterfacesAndIPs(ctx context.Context, scopedLog *slog.Logger) (ipamTypes.AllocationMap, ipamStats.InterfaceStats, error)
 
 	// PrepareIPAllocation is called to calculate the number of IPs that
@@ -103,10 +105,8 @@ type NodeOperations interface {
 	// network interfaces, as observed by the cloud-specific implementation.
 	// Used by multi-pool mode to reconcile the tracking map against ground
 	// truth (drop CIDRs no longer attached, seed releases that survived an
-	// operator restart), and to add the addresses of attached IPv4 prefixes
-	// to the available IPv4 count taken from the AllocationMap returned by
-	// ResyncInterfacesAndIPs. Implementations that do not support
-	// multi-pool may return nil.
+	// operator restart). Implementations that do not support multi-pool may
+	// return nil.
 	GetAttachedCIDRs() []netip.Prefix
 
 	// PrepareCIDRRelease maps released CIDRs back to their source

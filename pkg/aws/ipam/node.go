@@ -820,6 +820,11 @@ func (n *Node) ResyncInterfacesAndIPs(ctx context.Context, scopedLog *slog.Logge
 
 			stats.NodeCapacity += leftoverPrefixCapcity
 			stats.NodeIPv6Prefixes += len(e.IPv6Prefixes)
+			for _, prefix := range e.Prefixes {
+				if prefix.IsValid() && prefix.Addr().Is4() && prefix.Bits() < 32 {
+					stats.NodeIPv4PrefixedAddresses += 1 << (32 - prefix.Bits())
+				}
+			}
 
 			availableOnENI := max(effectiveLimits-assignedIPv4Count(e), 0)
 			if availableOnENI > 0 {
