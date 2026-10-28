@@ -90,6 +90,14 @@ func TestPoolAccessorFromResource(t *testing.T) {
 	})
 }
 
+func TestPoolAccessorAuthoritative(t *testing.T) {
+	node := &ciliumv2.CiliumNode{}
+	require.False(t, poolAccessor.Authoritative(node))
+
+	node.Status.Azure.Interfaces = []azureTypes.AzureInterface{{}}
+	require.True(t, poolAccessor.Authoritative(node))
+}
+
 func TestPoolAccessorToResource(t *testing.T) {
 	node := &ciliumv2.CiliumNode{}
 	spec := ipamTypes.IPAMPoolSpec{

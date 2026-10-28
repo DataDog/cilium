@@ -54,6 +54,9 @@ var poolAccessor = ipam.PoolSpecAccessors{
 
 		return pools
 	},
+	Authoritative: func(node *ciliumv2.CiliumNode) bool {
+		return len(node.Status.Azure.Interfaces) > 0
+	},
 	ToResource: func(node *ciliumv2.CiliumNode, spec ipamTypes.IPAMPoolSpec) bool {
 		if !node.Spec.IPAM.Pools.DeepEqual(&spec) {
 			node.Spec.IPAM.Pools = spec

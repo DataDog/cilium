@@ -1455,11 +1455,11 @@ func TestMultiPoolManagerUpdatesFirstLastIPSettingsBeforeAllocation(t *testing.T
 	prefix := iputil.PrefixFrom(netip.MustParsePrefix("10.20.0.0/30"))
 	lastIP := netip.MustParseAddr("10.20.0.3")
 
-	mgr.upsertPoolLocked("default", []iputil.Prefix{prefix}, false, false)
+	mgr.upsertPoolLocked("default", []iputil.Prefix{prefix}, false, false, false)
 	_, err := mgr.AllocateIP(lastIP, "pod-a", "default", IPv4, false)
 	require.Error(t, err)
 
-	mgr.upsertPoolLocked("default", []iputil.Prefix{prefix}, false, true)
+	mgr.upsertPoolLocked("default", []iputil.Prefix{prefix}, false, true, false)
 	result, err := mgr.AllocateIP(lastIP, "pod-a", "default", IPv4, false)
 	require.NoError(t, err)
 	require.Equal(t, lastIP, result.IP)
@@ -1489,7 +1489,7 @@ func TestMultiPoolManagerWaitForAllPools(t *testing.T) {
 		mgr.poolsMutex.Lock()
 		mgr.upsertPoolLocked(poolA, []iputil.Prefix{
 			iputil.PrefixFrom(netip.MustParsePrefix("10.0.0.0/30")),
-		}, false, false)
+		}, false, false, false)
 		mgr.poolsMutex.Unlock()
 
 		// wait for waitForAllPools to unblock
@@ -1661,4 +1661,87 @@ func createSkipMasqTestManager(t *testing.T, db *statedb.DB, pools statedb.Table
 	require.NoError(t, err)
 
 	return v4Alloc
+}
+
+// TestMultiPoolManagerReinstatesOnlyGrantedCIDRs checks that a CIDR removed
+// while in use is allocated from again when the operator grants it back, also
+// after it has been drained or released, but not when the agent's own report
+// of it comes back.
+func TestMultiPoolManagerReinstatesOnlyGrantedCIDRs(t *testing.T) {
+	p1 := iputil.PrefixFrom(netip.MustParsePrefix("10.0.0.0/28"))
+	p2 := iputil.PrefixFrom(netip.MustParsePrefix("10.0.1.0/32"))
+	used := netip.MustParseAddr("10.0.0.1")
+
+	nodeWith := func(cidrs ...iputil.Prefix) *ciliumv2.CiliumNode {
+		node := &ciliumv2.CiliumNode{}
+		node.Spec.IPAM.Pools.Allocated = []types.IPAMPoolAllocation{
+			{Pool: "default", AllowFirstIP: true, AllowLastIP: true, CIDRs: cidrs},
+		}
+		return node
+	}
+
+	granted := func(*ciliumv2.CiliumNode) bool { return true }
+	for _, tc := range []struct {
+		name          string
+		authoritative func(*ciliumv2.CiliumNode) bool
+		drained       bool
+		released      bool
+	}{
+		{name: "agent report"},
+		{name: "operator grant", authoritative: granted},
+		{name: "operator grant after drain", authoritative: granted, drained: true},
+		{name: "operator grant after release", authoritative: granted, released: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logger := hivetest.Logger(t)
+			accessor := MultiPoolAccessor
+			accessor.Authoritative = tc.authoritative
+			mgr := &MultiPoolManager{
+				logger:            logger,
+				ipv4Enabled:       true,
+				pools:             map[Pool]*poolPair{},
+				poolsUpdated:      make(chan struct{}, 1),
+				pendingIPsPerPool: newPendingAllocationsPerPool(logger),
+				k8sUpdater:        job.NewTrigger(),
+				poolsAccessor:     accessor,
+				skipMasqueradeForPool: func(Pool) (bool, error) {
+					return false, nil
+				},
+			}
+
+			mgr.ciliumNodeUpdated(nodeWith(p1))
+			_, err := mgr.AllocateIP(used, "pod-a", "default", IPv4, false)
+			require.NoError(t, err)
+
+			mgr.ciliumNodeUpdated(nodeWith(p2))
+			result, err := mgr.AllocateNext("pod-b", "default", IPv4, false)
+			require.NoError(t, err)
+			require.True(t, p2.Contains(result.IP))
+
+			if tc.drained {
+				require.NoError(t, mgr.ReleaseIP(used, "default", IPv4, false))
+				mgr.ciliumNodeUpdated(nodeWith(p2))
+				require.Equal(t, []iputil.Prefix{p2}, mgr.pools["default"].v4.inUseCIDRs())
+			}
+			if tc.released {
+				require.NoError(t, mgr.ReleaseIP(used, "default", IPv4, false))
+				mgr.pools["default"].v4.releaseExcessCIDRsMultiPool(0)
+				require.Contains(t, mgr.pools["default"].v4.released, p1.Prefix)
+			}
+			mgr.ciliumNodeUpdated(nodeWith(p1, p2))
+			if tc.released {
+				_, err = mgr.AllocateNext("pod-c", "default", IPv4, false)
+				require.Error(t, err)
+				mgr.pools["default"].v4.releaseExcessCIDRsMultiPool(1)
+			}
+
+			result, err = mgr.AllocateNext("pod-c", "default", IPv4, false)
+			if tc.authoritative == nil {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.True(t, p1.Contains(result.IP))
+		})
+	}
 }

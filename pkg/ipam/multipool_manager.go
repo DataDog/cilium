@@ -232,6 +232,12 @@ type PoolSpecAccessors struct {
 	// ToResource writes the IPAM Pool specs to the CiliumNode.
 	// It returns true if the pools have been updated, false otherwise.
 	ToResource func(*ciliumv2.CiliumNode, types.IPAMPoolSpec) bool
+
+	// Authoritative returns true if the CIDRs returned by FromResource were
+	// granted by the operator rather than written back by the agent. Only
+	// then may CIDRs that were removed while in use be allocated from again.
+	// If nil, they never are.
+	Authoritative func(*ciliumv2.CiliumNode) bool
 }
 
 // OperatorStatusAccessors reads and writes the OperatorStatus in the CiliumNode.
@@ -465,8 +471,9 @@ func (m *MultiPoolManager) ciliumNodeUpdated(newNode *ciliumv2.CiliumNode) {
 	m.poolsMutex.Lock()
 	defer m.poolsMutex.Unlock()
 
+	authoritative := m.poolsAccessor.Authoritative != nil && m.poolsAccessor.Authoritative(newNode)
 	for _, pool := range m.poolsAccessor.FromResource(newNode).Allocated {
-		m.upsertPoolLocked(Pool(pool.Pool), pool.CIDRs, pool.AllowFirstIP, pool.AllowLastIP)
+		m.upsertPoolLocked(Pool(pool.Pool), pool.CIDRs, pool.AllowFirstIP, pool.AllowLastIP, authoritative)
 	}
 
 	// Sync pre-allocate value from the CiliumNode spec. For cloud IPAM modes,
@@ -765,7 +772,7 @@ func (m *MultiPoolManager) updateLocalNode(ctx context.Context) error {
 	return nil
 }
 
-func (m *MultiPoolManager) upsertPoolLocked(poolName Pool, cidrs []iputil.Prefix, allowFirstIP, allowLastIP bool) {
+func (m *MultiPoolManager) upsertPoolLocked(poolName Pool, cidrs []iputil.Prefix, allowFirstIP, allowLastIP, authoritative bool) {
 	pool, ok := m.pools[poolName]
 	if !ok {
 		pool = &poolPair{
@@ -823,9 +830,15 @@ func (m *MultiPoolManager) upsertPoolLocked(poolName Pool, cidrs []iputil.Prefix
 	}
 
 	if pool.v4 != nil {
+		if authoritative {
+			pool.v4.reinstateCIDRs(ipv4Prefixes)
+		}
 		pool.v4.updatePool(ipv4Prefixes)
 	}
 	if pool.v6 != nil {
+		if authoritative {
+			pool.v6.reinstateCIDRs(ipv6Prefixes)
+		}
 		pool.v6.updatePool(ipv6Prefixes)
 	}
 

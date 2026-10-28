@@ -265,6 +265,17 @@ func (p *cidrPool) releaseExcessCIDRsMultiPool(neededIPs int) {
 	p.ipAllocators = retainedAllocators
 }
 
+// reinstateCIDRs allows allocating again from the given CIDRs if they were
+// removed from the spec while in use.
+func (p *cidrPool) reinstateCIDRs(prefixes []netip.Prefix) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	for _, prefix := range prefixes {
+		delete(p.removed, prefix)
+	}
+}
+
 func (p *cidrPool) updatePool(prefixes []netip.Prefix) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()

@@ -158,3 +158,66 @@ func TestCIDRPoolReleaseExcessPreservesOrder(t *testing.T) {
 	require.Contains(t, pool.released, p2)
 	require.Equal(t, []netip.Prefix{p1, p3}, allocatorCIDRs(pool))
 }
+
+// TestCIDRPoolReinstatesReturnedCIDR checks that a CIDR which left the spec
+// while in use can be allocated from again once it is reinstated, and only
+// then.
+func TestCIDRPoolReinstatesReturnedCIDR(t *testing.T) {
+	pool := newCIDRPool(hivetest.Logger(t), true, true)
+	p1 := netip.MustParsePrefix("10.0.0.0/28")
+
+	pool.updatePool([]netip.Prefix{p1})
+	first, err := pool.allocateNext()
+	require.NoError(t, err)
+
+	pool.updatePool(nil)
+	_, err = pool.allocateNext()
+	require.ErrorIs(t, err, errAllCIDRsExhausted)
+
+	pool.updatePool([]netip.Prefix{p1})
+	_, err = pool.allocateNext()
+	require.ErrorIs(t, err, errAllCIDRsExhausted)
+
+	pool.reinstateCIDRs([]netip.Prefix{p1})
+	for range 15 {
+		addr, err := pool.allocateNext()
+		require.NoError(t, err)
+		require.NotEqual(t, first, addr)
+	}
+	_, err = pool.allocateNext()
+	require.ErrorIs(t, err, errAllCIDRsExhausted)
+}
+
+// TestCIDRPoolReinstatesRecreatedCIDR checks that a CIDR whose allocator was
+// dropped while it was out of the spec can be allocated from once it is
+// reinstated.
+func TestCIDRPoolReinstatesRecreatedCIDR(t *testing.T) {
+	pool := newCIDRPool(hivetest.Logger(t), true, true)
+	p1 := netip.MustParsePrefix("10.0.0.0/28")
+	p2 := netip.MustParsePrefix("10.0.0.16/28")
+
+	pool.updatePool([]netip.Prefix{p1, p2})
+	addr, err := pool.allocateNext()
+	require.NoError(t, err)
+	require.True(t, p1.Contains(addr))
+
+	pool.updatePool([]netip.Prefix{p2})
+	pool.release(addr)
+	pool.updatePool([]netip.Prefix{p2})
+	pool.updatePool([]netip.Prefix{p2, p1})
+	for range 16 {
+		addr, err := pool.allocateNext()
+		require.NoError(t, err)
+		require.True(t, p2.Contains(addr))
+	}
+	_, err = pool.allocateNext()
+	require.ErrorIs(t, err, errAllCIDRsExhausted)
+
+	pool.reinstateCIDRs([]netip.Prefix{p1})
+	pool.updatePool([]netip.Prefix{p2, p1})
+	for range 16 {
+		addr, err := pool.allocateNext()
+		require.NoError(t, err)
+		require.True(t, p1.Contains(addr))
+	}
+}
