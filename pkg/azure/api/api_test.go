@@ -4,14 +4,26 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
 	"net/netip"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v9"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v12"
 	"github.com/cilium/hive/hivetest"
 	"github.com/stretchr/testify/require"
 
+	apimetrics "github.com/cilium/cilium/pkg/api/metrics/mock"
 	"github.com/cilium/cilium/pkg/azure/types"
 	iputil "github.com/cilium/cilium/pkg/ip"
 	ipamTypes "github.com/cilium/cilium/pkg/ipam/types"
@@ -613,4 +625,309 @@ func TestRemoveVMSSIPConfigurations(t *testing.T) {
 			require.Equal(t, test.wantKept, kept)
 		})
 	}
+}
+
+func vmssIPConfig(name string, primary *bool) *armcompute.VirtualMachineScaleSetIPConfiguration {
+	return &armcompute.VirtualMachineScaleSetIPConfiguration{
+		Name:       new(name),
+		Properties: &armcompute.VirtualMachineScaleSetIPConfigurationProperties{Primary: primary},
+	}
+}
+
+func vmssNetworkConfig(name string, ipConfigs ...*armcompute.VirtualMachineScaleSetIPConfiguration) *armcompute.VirtualMachineScaleSetNetworkConfiguration {
+	return &armcompute.VirtualMachineScaleSetNetworkConfiguration{
+		Name:       new(name),
+		Properties: &armcompute.VirtualMachineScaleSetNetworkConfigurationProperties{IPConfigurations: ipConfigs},
+	}
+}
+
+func ipConfigNames(config *armcompute.VirtualMachineScaleSetNetworkConfiguration) []string {
+	names := make([]string, 0, len(config.Properties.IPConfigurations))
+	for _, ipConfig := range config.Properties.IPConfigurations {
+		names = append(names, *ipConfig.Name)
+	}
+	return names
+}
+
+func TestPruneIPConfigurations(t *testing.T) {
+	tests := []struct {
+		name        string
+		configs     []*armcompute.VirtualMachineScaleSetNetworkConfiguration
+		applied     map[string][]string
+		wantNames   [][]string
+		wantDropped []string
+	}{
+		{
+			name: "unapplied dropped",
+			configs: []*armcompute.VirtualMachineScaleSetNetworkConfiguration{
+				vmssNetworkConfig("nic0", vmssIPConfig("primary", new(true)), vmssIPConfig("keep", nil), vmssIPConfig("stale28", nil), vmssIPConfig("stale32a", new(false)), vmssIPConfig("stale32b", nil)),
+			},
+			applied:     map[string][]string{"nic0": {"primary", "keep"}},
+			wantNames:   [][]string{{"primary", "keep"}},
+			wantDropped: []string{"stale28", "stale32a", "stale32b"},
+		},
+		{
+			name: "primary kept when missing from the NIC",
+			configs: []*armcompute.VirtualMachineScaleSetNetworkConfiguration{
+				vmssNetworkConfig("nic0", vmssIPConfig("primary", new(true)), vmssIPConfig("stale", nil)),
+			},
+			applied:     map[string][]string{"nic0": {}},
+			wantNames:   [][]string{{"primary"}},
+			wantDropped: []string{"stale"},
+		},
+		{
+			name: "names match case-insensitively",
+			configs: []*armcompute.VirtualMachineScaleSetNetworkConfiguration{
+				vmssNetworkConfig("Nic0", vmssIPConfig("primary", new(true)), vmssIPConfig("keep", nil), vmssIPConfig("stale", nil)),
+			},
+			applied:     map[string][]string{"nic0": {"PRIMARY", "KEEP"}},
+			wantNames:   [][]string{{"primary", "keep"}},
+			wantDropped: []string{"stale"},
+		},
+		{
+			name: "configuration without a NIC unchanged",
+			configs: []*armcompute.VirtualMachineScaleSetNetworkConfiguration{
+				vmssNetworkConfig("nic1", vmssIPConfig("primary", new(true)), vmssIPConfig("other", nil)),
+			},
+			applied:   map[string][]string{"nic0": {"primary"}},
+			wantNames: [][]string{{"primary", "other"}},
+		},
+		{
+			name: "configurations pruned independently",
+			configs: []*armcompute.VirtualMachineScaleSetNetworkConfiguration{
+				vmssNetworkConfig("nic0", vmssIPConfig("primary", new(true)), vmssIPConfig("a", nil), vmssIPConfig("b", nil)),
+				vmssNetworkConfig("nic1", vmssIPConfig("primary1", new(true)), vmssIPConfig("a", nil), vmssIPConfig("b", nil)),
+			},
+			applied:     map[string][]string{"nic0": {"primary", "a"}, "nic1": {"primary1", "b"}},
+			wantNames:   [][]string{{"primary", "a"}, {"primary1", "b"}},
+			wantDropped: []string{"b", "a"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			dropped := pruneIPConfigurations(test.configs, test.applied)
+			require.Equal(t, test.wantDropped, dropped)
+			for i, config := range test.configs {
+				require.Equal(t, test.wantNames[i], ipConfigNames(config))
+			}
+		})
+	}
+}
+
+func TestInstanceFailed(t *testing.T) {
+	vm := func(state *string) *armcompute.VirtualMachineScaleSetVM {
+		return &armcompute.VirtualMachineScaleSetVM{Properties: &armcompute.VirtualMachineScaleSetVMProperties{ProvisioningState: state}}
+	}
+	require.True(t, instanceFailed(vm(new("Failed"))))
+	require.True(t, instanceFailed(vm(new("failed"))))
+	require.False(t, instanceFailed(vm(new("Succeeded"))))
+	require.False(t, instanceFailed(vm(nil)))
+	require.False(t, instanceFailed(&armcompute.VirtualMachineScaleSetVM{}))
+	require.False(t, instanceFailed(nil))
+}
+
+func TestMarkSolePrimary(t *testing.T) {
+	sole := vmssNetworkConfig("nic0", vmssIPConfig("only", nil))
+	markSolePrimary(sole)
+	require.Equal(t, new(true), sole.Properties.IPConfigurations[0].Properties.Primary)
+
+	soleFalse := vmssNetworkConfig("nic0", vmssIPConfig("only", new(false)))
+	markSolePrimary(soleFalse)
+	require.Equal(t, new(false), soleFalse.Properties.IPConfigurations[0].Properties.Primary)
+
+	two := vmssNetworkConfig("nic0", vmssIPConfig("a", nil), vmssIPConfig("b", nil))
+	markSolePrimary(two)
+	require.Nil(t, two.Properties.IPConfigurations[0].Properties.Primary)
+	require.Nil(t, two.Properties.IPConfigurations[1].Properties.Primary)
+}
+
+type fakeCredential struct{}
+
+func (fakeCredential) GetToken(context.Context, policy.TokenRequestOptions) (azcore.AccessToken, error) {
+	return azcore.AccessToken{Token: "token", ExpiresOn: time.Now().Add(time.Hour)}, nil
+}
+
+// fakeARM serves a single VMSS instance and records the models it receives.
+type fakeARM struct {
+	vm        string
+	nics      string
+	prefixes  string
+	publicIPs string
+	puts      []armcompute.VirtualMachineScaleSetVM
+	nicLists  int
+}
+
+func (f *fakeARM) Do(req *http.Request) (*http.Response, error) {
+	path := strings.ToLower(req.URL.Path)
+	body := ""
+	switch {
+	case req.Method == http.MethodPut && strings.HasSuffix(path, "/virtualmachines/0"):
+		raw, err := io.ReadAll(req.Body)
+		if err != nil {
+			return nil, err
+		}
+		var vm armcompute.VirtualMachineScaleSetVM
+		if err := json.Unmarshal(raw, &vm); err != nil {
+			return nil, err
+		}
+		f.puts = append(f.puts, vm)
+		body = `{"properties":{"provisioningState":"Succeeded"}}`
+	case strings.HasSuffix(path, "/publicipaddresses"):
+		body = f.publicIPs
+	case strings.HasSuffix(path, "/networkinterfaces"):
+		if req.Method != http.MethodGet || path != "/subscriptions/sub/resourcegroups/rg/providers/microsoft.compute/virtualmachinescalesets/vmss/virtualmachines/0/networkinterfaces" {
+			return nil, fmt.Errorf("unexpected interface list request %s %s", req.Method, req.URL.Path)
+		}
+		f.nicLists++
+		body = f.nics
+	case strings.HasSuffix(path, "/publicipprefixes"):
+		body = f.prefixes
+	case strings.HasSuffix(path, "/virtualmachines/0"):
+		body = f.vm
+	default:
+		return &http.Response{StatusCode: http.StatusNotFound, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{}`)), Request: req}, nil
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Request:    req,
+	}, nil
+}
+
+func newFakeARMClient(t *testing.T, transport *fakeARM) *Client {
+	t.Helper()
+	c, err := newClient(hivetest.Logger(t), "sub", "rg", fakeCredential{}, &arm.ClientOptions{
+		ClientOptions: azcore.ClientOptions{
+			Cloud:     cloud.AzurePublic,
+			Transport: transport,
+			Retry:     policy.RetryOptions{MaxRetries: -1},
+		},
+	}, apimetrics.NewMockMetrics(), 1000, 100, false)
+	require.NoError(t, err)
+	return c
+}
+
+func modelIPConfigNames(t *testing.T, vm armcompute.VirtualMachineScaleSetVM) map[string]*armcompute.VirtualMachineScaleSetIPConfiguration {
+	t.Helper()
+	require.NotNil(t, vm.Properties)
+	require.NotNil(t, vm.Properties.NetworkProfileConfiguration)
+	configs := vm.Properties.NetworkProfileConfiguration.NetworkInterfaceConfigurations
+	require.Len(t, configs, 1)
+	names := map[string]*armcompute.VirtualMachineScaleSetIPConfiguration{}
+	for _, ipConfig := range configs[0].Properties.IPConfigurations {
+		names[*ipConfig.Name] = ipConfig
+	}
+	return names
+}
+
+const failedVMSSInstance = `{
+  "location": "westus2",
+  "properties": {
+    "provisioningState": "Failed",
+    "storageProfile": {"imageReference": {"id": "image"}},
+    "networkProfileConfiguration": {"networkInterfaceConfigurations": [{
+      "name": "nic0",
+      "properties": {"primary": true, "ipConfigurations": [
+        {"name": "primary", "properties": {"primary": true, "subnet": {"id": "subnet"}%s}},
+        {"name": "keep", "properties": {"subnet": {"id": "subnet"}}},
+        {"name": "release", "properties": {"subnet": {"id": "subnet"}}},
+        {"name": "stale", "properties": {"privateIPAddressPrefixLength": 28, "subnet": {"id": "subnet"}}}
+      ]}
+    }]}%s
+  }
+}`
+
+const failedVMSSInstanceNICs = `{"value": [{
+  "name": "nic0",
+  "properties": {"primary": true, "ipConfigurations": [
+    {"name": "primary", "properties": {"primary": true, "privateIPAddress": "10.0.0.4", "provisioningState": "Succeeded"}},
+    {"name": "KEEP", "properties": {"privateIPAddress": "10.0.0.5", "provisioningState": "Succeeded"}},
+    {"name": "release", "properties": {"privateIPAddress": "10.0.0.6", "provisioningState": "Succeeded"}}
+  ]}
+}]}`
+
+func TestAssignPrivateIpAddressesVMSSDropsUnappliedIPConfigurations(t *testing.T) {
+	transport := &fakeARM{vm: fmt.Sprintf(failedVMSSInstance, "", ""), nics: failedVMSSInstanceNICs}
+	c := newFakeARMClient(t, transport)
+
+	require.NoError(t, c.AssignPrivateIpAddressesVMSS(t.Context(), "0", "vmss", "subnet", "nic0", 1))
+
+	require.Len(t, transport.puts, 1)
+	require.Equal(t, 1, transport.nicLists)
+	names := modelIPConfigNames(t, transport.puts[0])
+	require.Len(t, names, 4)
+	require.Contains(t, names, "primary")
+	require.Equal(t, new(true), names["primary"].Properties.Primary)
+	require.Contains(t, names, "keep")
+	require.Contains(t, names, "release")
+	require.NotContains(t, names, "stale")
+}
+
+func TestAssignPrivateIpAddressesVMSSMarksSolePrimary(t *testing.T) {
+	transport := &fakeARM{vm: `{
+  "location": "westus2",
+  "properties": {
+    "provisioningState": "Succeeded",
+    "networkProfileConfiguration": {"networkInterfaceConfigurations": [{
+      "name": "nic0",
+      "properties": {"ipConfigurations": [{"name": "only", "properties": {"subnet": {"id": "subnet"}}}]}
+    }]}
+  }
+}`}
+	c := newFakeARMClient(t, transport)
+
+	require.NoError(t, c.AssignPrivateIpAddressesVMSS(t.Context(), "0", "vmss", "subnet", "nic0", 2))
+
+	require.Len(t, transport.puts, 1)
+	require.Equal(t, 0, transport.nicLists)
+	names := modelIPConfigNames(t, transport.puts[0])
+	require.Len(t, names, 3)
+	require.Equal(t, new(true), names["only"].Properties.Primary)
+}
+
+func TestUnassignPrivateIpAddressesVMSSDropsUnappliedIPConfigurations(t *testing.T) {
+	transport := &fakeARM{vm: fmt.Sprintf(failedVMSSInstance, "", ""), nics: failedVMSSInstanceNICs}
+	c := newFakeARMClient(t, transport)
+
+	require.NoError(t, c.UnassignPrivateIpAddressesVMSS(t.Context(), "0", "vmss", "nic0", []netip.Addr{netip.MustParseAddr("10.0.0.6")}))
+
+	require.Len(t, transport.puts, 1)
+	names := modelIPConfigNames(t, transport.puts[0])
+	require.Len(t, names, 2)
+	require.Equal(t, new(true), names["primary"].Properties.Primary)
+	require.Contains(t, names, "keep")
+	require.NotContains(t, names, "release")
+	require.NotContains(t, names, "stale")
+}
+
+func TestAssignPublicIPAddressesVMSSDropsUnappliedIPConfigurations(t *testing.T) {
+	transport := &fakeARM{
+		vm: fmt.Sprintf(failedVMSSInstance,
+			`, "publicIPAddressConfiguration": {"name": "old", "properties": {}}`,
+			`, "instanceView": {"statuses": [{"code": "ProvisioningState/failed/PublicIpPrefixOutOfIpAddressesForVMScaleSet"}]}`),
+		nics:      failedVMSSInstanceNICs,
+		prefixes:  `{"value": [{"id": "prefix", "tags": {"k": "v"}, "properties": {"provisioningState": "Succeeded", "ipPrefix": "20.0.0.0/28"}}]}`,
+		publicIPs: `{"value": [{"properties": {"ipAddress": "20.0.0.5"}}]}`,
+	}
+	c := newFakeARMClient(t, transport)
+
+	addr, err := c.AssignPublicIPAddressesVMSS(t.Context(),
+		"/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachineScaleSets/vmss/virtualMachines/0",
+		"vmss", ipamTypes.Tags{"k": "v"})
+	require.NoError(t, err)
+	require.Equal(t, netip.MustParseAddr("20.0.0.5"), addr)
+
+	require.Len(t, transport.puts, 2)
+	for i, put := range transport.puts {
+		names := modelIPConfigNames(t, put)
+		require.Len(t, names, 3, "PUT %d", i)
+		require.Equal(t, new(true), names["primary"].Properties.Primary, "PUT %d", i)
+		require.Contains(t, names, "keep", "PUT %d", i)
+		require.Contains(t, names, "release", "PUT %d", i)
+		require.NotContains(t, names, "stale", "PUT %d", i)
+	}
+	require.Nil(t, modelIPConfigNames(t, transport.puts[0])["primary"].Properties.PublicIPAddressConfiguration)
+	require.NotNil(t, modelIPConfigNames(t, transport.puts[1])["primary"].Properties.PublicIPAddressConfiguration)
 }

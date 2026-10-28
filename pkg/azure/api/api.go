@@ -130,6 +130,10 @@ func NewClient(logger *slog.Logger, cloudName, subscriptionID, resourceGroup, us
 		ClientOptions: *clientOptions,
 	}
 
+	return newClient(logger, subscriptionID, resourceGroup, credential, armClientOptions, metrics, rateLimit, burst, usePrimary)
+}
+
+func newClient(logger *slog.Logger, subscriptionID, resourceGroup string, credential azcore.TokenCredential, armClientOptions *arm.ClientOptions, metrics MetricsAPI, rateLimit float64, burst int, usePrimary bool) (*Client, error) {
 	interfacesClient, err := armnetwork.NewInterfacesClient(subscriptionID, credential, armClientOptions)
 	if err != nil {
 		return nil, err
@@ -657,6 +661,10 @@ func (c *Client) AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, v
 		return fmt.Errorf("failed to get VM %s from VMSS %s: %w", instanceID, vmssName, err)
 	}
 
+	if err := c.dropUnappliedIPConfigurations(ctx, vmssName, instanceID, &result.VirtualMachineScaleSetVM); err != nil {
+		return err
+	}
+
 	// Search for the existing network interface configuration
 	if result.Properties.NetworkProfileConfiguration != nil {
 		for _, networkInterfaceConfiguration := range result.Properties.NetworkProfileConfiguration.NetworkInterfaceConfigurations {
@@ -670,6 +678,8 @@ func (c *Client) AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, v
 	if netIfConfig == nil {
 		return fmt.Errorf("interface %s does not exist in VM %s", interfaceName, instanceID)
 	}
+
+	markSolePrimary(netIfConfig)
 
 	// All IPConfigurations on the NIC should reference the same set of Application Security Groups (ASGs).
 	// So we should first fetch the set of ASGs referenced by other IPConfigurations so that it can be
@@ -825,6 +835,102 @@ func removeVMSSIPConfigurations(configs []*armcompute.VirtualMachineScaleSetIPCo
 	return kept, nil
 }
 
+// instanceFailed reports whether the last update of a VMSS instance failed.
+func instanceFailed(vm *armcompute.VirtualMachineScaleSetVM) bool {
+	return vm != nil && vm.Properties != nil && vm.Properties.ProvisioningState != nil &&
+		strings.EqualFold(*vm.Properties.ProvisioningState, "Failed")
+}
+
+// appliedIPConfigurations maps the lower-cased name of each interface to the
+// names of the IP configurations it holds.
+func appliedIPConfigurations(nics []*armnetwork.Interface) map[string][]string {
+	applied := make(map[string][]string, len(nics))
+	for _, nic := range nics {
+		if nic == nil || nic.Name == nil || nic.Properties == nil {
+			continue
+		}
+		names := make([]string, 0, len(nic.Properties.IPConfigurations))
+		for _, ipConfig := range nic.Properties.IPConfigurations {
+			if ipConfig != nil && ipConfig.Name != nil {
+				names = append(names, *ipConfig.Name)
+			}
+		}
+		applied[strings.ToLower(*nic.Name)] = names
+	}
+	return applied
+}
+
+// pruneIPConfigurations keeps, per network interface configuration that has a
+// matching interface in applied, only the IP configurations present on it.
+// It returns the names it dropped.
+func pruneIPConfigurations(configs []*armcompute.VirtualMachineScaleSetNetworkConfiguration, applied map[string][]string) []string {
+	var dropped []string
+	for _, config := range configs {
+		if config == nil || config.Name == nil || config.Properties == nil {
+			continue
+		}
+		names, ok := applied[strings.ToLower(*config.Name)]
+		if !ok {
+			continue
+		}
+		kept := make([]*armcompute.VirtualMachineScaleSetIPConfiguration, 0, len(config.Properties.IPConfigurations))
+		for _, ipConfig := range config.Properties.IPConfigurations {
+			if ipConfig == nil || ipConfig.Name == nil ||
+				(ipConfig.Properties != nil && ipConfig.Properties.Primary != nil && *ipConfig.Properties.Primary) ||
+				slices.ContainsFunc(names, func(name string) bool { return strings.EqualFold(name, *ipConfig.Name) }) {
+				kept = append(kept, ipConfig)
+				continue
+			}
+			dropped = append(dropped, *ipConfig.Name)
+		}
+		config.Properties.IPConfigurations = kept
+	}
+	return dropped
+}
+
+// markSolePrimary marks the only IP configuration of a network interface
+// configuration as primary when Azure returned it without the flag.
+func markSolePrimary(config *armcompute.VirtualMachineScaleSetNetworkConfiguration) {
+	if config == nil || config.Properties == nil || len(config.Properties.IPConfigurations) != 1 {
+		return
+	}
+	ipConfig := config.Properties.IPConfigurations[0]
+	if ipConfig == nil || ipConfig.Properties == nil || ipConfig.Properties.Primary != nil {
+		return
+	}
+	ipConfig.Properties.Primary = new(true)
+}
+
+// dropUnappliedIPConfigurations removes IP configurations that are not on the
+// instance's network interfaces from the model of a failed VMSS instance.
+func (c *Client) dropUnappliedIPConfigurations(ctx context.Context, vmssName, instanceID string, vm *armcompute.VirtualMachineScaleSetVM) error {
+	if !instanceFailed(vm) {
+		return nil
+	}
+	nics, err := c.listVirtualMachineScaleSetVMNetworkInterfaces(ctx, vmssName, instanceID)
+	if err != nil {
+		return fmt.Errorf("failed to list interfaces of VM %s in VMSS %s: %w", instanceID, vmssName, err)
+	}
+	c.pruneFailedInstance(vmssName, instanceID, vm, nics)
+	return nil
+}
+
+// pruneFailedInstance removes IP configurations absent from nics from the
+// model of a failed VMSS instance.
+func (c *Client) pruneFailedInstance(vmssName, instanceID string, vm *armcompute.VirtualMachineScaleSetVM, nics []*armnetwork.Interface) {
+	if !instanceFailed(vm) || vm.Properties.NetworkProfileConfiguration == nil {
+		return
+	}
+	dropped := pruneIPConfigurations(vm.Properties.NetworkProfileConfiguration.NetworkInterfaceConfigurations, appliedIPConfigurations(nics))
+	if len(dropped) > 0 {
+		c.logger.Info("Dropping IP configurations of a failed update from the VMSS instance model",
+			logfields.InstanceID, instanceID,
+			logfields.Resource, vmssName,
+			logfields.Entries, dropped,
+		)
+	}
+}
+
 func (c *Client) UnassignPrivateIpAddressesVM(ctx context.Context, interfaceName string, addresses []netip.Addr) error {
 	c.limiter.Limit(ctx, interfacesGet)
 	sinceStart := spanstat.Start()
@@ -904,6 +1010,8 @@ func (c *Client) UnassignPrivateIpAddressesVMSS(ctx context.Context, instanceID,
 	if len(names) == 0 {
 		return nil
 	}
+
+	c.pruneFailedInstance(vmssName, instanceID, &result.VirtualMachineScaleSetVM, nics)
 
 	var netIfConfig *armcompute.VirtualMachineScaleSetNetworkConfiguration
 	if result.Properties != nil && result.Properties.NetworkProfileConfiguration != nil {
@@ -1059,6 +1167,10 @@ func (c *Client) AssignPublicIPAddressesVMSS(ctx context.Context, instanceID, vm
 	c.metricsAPI.ObserveAPICall(virtualMachineScaleSetVMsGet, deriveStatus(err), sinceStart.Seconds())
 	if err != nil {
 		return netip.Addr{}, fmt.Errorf("failed to get VM %s from VMSS %s: %w", instanceID, vmssName, err)
+	}
+
+	if err := c.dropUnappliedIPConfigurations(ctx, vmssName, instanceNum, &vm.VirtualMachineScaleSetVM); err != nil {
+		return netip.Addr{}, err
 	}
 
 	// Search for the primary network interface configuration
