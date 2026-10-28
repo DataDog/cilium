@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/netip"
 	"sort"
+	"sync"
 
 	"golang.org/x/sync/semaphore"
 
@@ -489,7 +490,6 @@ func (n *NodeManager) GetNodesByIPWatermarkLocked() []*Node {
 }
 
 type resyncStats struct {
-	mutex               lock.Mutex
 	interfaceCandidates int
 	emptyInterfaceSlots int
 	nodes               int
@@ -497,7 +497,36 @@ type resyncStats struct {
 	nodesInDeficit      int
 }
 
-func (n *NodeManager) resyncNode(ctx context.Context, node *Node, stats *resyncStats, syncTime time.Time) {
+// nodeResyncResult is what reconciling one node contributes to the
+// cluster-wide stats computed by Resync.
+type nodeResyncResult struct {
+	stats            Statistics
+	allocationNeeded bool
+}
+
+// add accounts the result of reconciling one node into the cluster-wide stats.
+func (s *resyncStats) add(r nodeResyncResult) {
+	// availableOnNode is the number of available IPs on the node at this
+	// current moment. It does not take into account the number of IPs that
+	// can be allocated in the future.
+	availableOnNode := r.stats.IPv4.AvailableIPs - r.stats.IPv4.UsedIPs
+	s.interfaceCandidates += r.stats.IPv4.InterfaceCandidates
+	s.emptyInterfaceSlots += r.stats.EmptyInterfaceSlots
+	s.nodes++
+
+	if r.allocationNeeded {
+		s.nodesInDeficit++
+	}
+
+	if r.stats.IPv4.RemainingInterfaces == 0 && availableOnNode == 0 {
+		s.nodesAtCapacity++
+	}
+}
+
+// resyncNode recalculates a single node against the instance cache, and
+// enqueues the pool maintenance and the apiserver sync it needs. The caller
+// must hold the NodeManager mutex.
+func (n *NodeManager) resyncNode(ctx context.Context, node *Node, syncTime time.Time) nodeResyncResult {
 	node.updateLastResync(syncTime)
 	node.recalculate(ctx)
 	allocationNeeded := node.allocationNeeded()
@@ -509,31 +538,17 @@ func (n *NodeManager) resyncNode(ctx context.Context, node *Node, stats *resyncS
 
 	nodeStats := node.Stats()
 
-	stats.mutex.Lock()
-	// availableOnNode is the number of available IPs on the node at this
-	// current moment. It does not take into account the number of IPs that
-	// can be allocated in the future.
-	availableOnNode := nodeStats.IPv4.AvailableIPs - nodeStats.IPv4.UsedIPs
-	stats.interfaceCandidates += nodeStats.IPv4.InterfaceCandidates
-	stats.emptyInterfaceSlots += nodeStats.EmptyInterfaceSlots
-	stats.nodes++
-
 	// Set per Node metrics.
 	n.metricsAPI.SetIPAvailable(node.name, nodeStats.IPv4.Capacity)
 	n.metricsAPI.SetIPUsed(node.name, nodeStats.IPv4.UsedIPs)
 	n.metricsAPI.SetIPNeeded(node.name, nodeStats.IPv4.NeededIPs)
 
-	if allocationNeeded {
-		stats.nodesInDeficit++
-	}
-
-	if nodeStats.IPv4.RemainingInterfaces == 0 && availableOnNode == 0 {
-		stats.nodesAtCapacity++
-	}
-
-	stats.mutex.Unlock()
-
 	node.k8sSync.Trigger()
+
+	return nodeResyncResult{
+		stats:            nodeStats,
+		allocationNeeded: allocationNeeded,
+	}
 }
 
 // Resync will attend all nodes and resolves IP deficits. The order of
@@ -545,23 +560,35 @@ func (n *NodeManager) Resync(ctx context.Context, syncTime time.Time) {
 	defer n.mutex.Unlock()
 	n.metricsAPI.IncResyncCount()
 
-	stats := resyncStats{}
+	nodes := n.GetNodesByIPWatermarkLocked()
+	results := make([]nodeResyncResult, len(nodes))
 	sem := semaphore.NewWeighted(n.parallelWorkers)
+	var wg sync.WaitGroup
 
-	for _, node := range n.GetNodesByIPWatermarkLocked() {
-		err := sem.Acquire(ctx, 1)
-		if err != nil {
-			continue
+	for i, node := range nodes {
+		if err := sem.Acquire(ctx, 1); err != nil {
+			break
 		}
-		go func(node *Node, stats *resyncStats) {
-			n.resyncNode(ctx, node, stats, syncTime)
-			sem.Release(1)
-		}(node, &stats)
+		wg.Go(func() {
+			defer sem.Release(1)
+			results[i] = n.resyncNode(ctx, node, syncTime)
+		})
 	}
 
-	// Acquire the full semaphore, this requires all goroutines to
-	// complete and thus blocks until all nodes are synced
-	sem.Acquire(ctx, n.parallelWorkers)
+	// Wait for all started workers so that none of them outlives n.mutex.
+	wg.Wait()
+
+	// If ctx was done before every node got a worker, or while the workers
+	// were recalculating, the results are partial, so leave the gauges at
+	// their previous values.
+	if ctx.Err() != nil {
+		return
+	}
+
+	var stats resyncStats
+	for _, r := range results {
+		stats.add(r)
+	}
 
 	n.metricsAPI.SetInterfaceCandidates(stats.interfaceCandidates)
 	n.metricsAPI.SetEmptyInterfaceSlots(stats.emptyInterfaceSlots)
