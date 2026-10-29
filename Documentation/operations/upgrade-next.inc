@@ -76,6 +76,14 @@ The following options have been introduced in this version of Cilium:
   value ``ipam.operator.excessIPReleaseDelay``) now also applies to Alibaba
   Cloud when release is enabled with ``--ipam-release-excess-ips``;
   ``--alibaba-cloud-release-excess-ips`` keeps releasing without a delay.
+* The operator option ``--azure-enable-prefix-delegation`` (Helm value
+  ``azure.enablePrefixDelegation``) assigns ``/28`` IP prefixes to Azure network
+  interfaces instead of individual addresses, and the agent option
+  ``--azure-disable-prefix-delegation`` (Helm value
+  ``azure.nodeSpec.disablePrefixDelegation``) opts a node out. The
+  ``CiliumNode`` resource gained the ``spec.azure.disable-prefix-delegation``
+  and ``status.azure.interfaces[].prefixes`` fields. See
+  :ref:`ipam_azure` for details.
 
 Changed Options
 ###############

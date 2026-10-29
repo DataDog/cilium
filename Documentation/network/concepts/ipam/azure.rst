@@ -389,6 +389,72 @@ When release is disabled, addresses that the agent removes from
 ``spec.ipam.pools.allocated`` stay on the network interface, and the agent
 can allocate them to pods again if demand grows.
 
+IP Prefix Delegation
+====================
+
+With ``--azure-enable-prefix-delegation`` (Helm value
+``azure.enablePrefixDelegation``), the operator assigns ``/28`` IPv4 prefixes
+to network interfaces instead of individual addresses. Each prefix takes one
+IP configuration slot of the interface and provides 16 addresses, so an
+interface can hold up to 255 prefixes, or 4080 addresses, next to its primary
+IP configuration. There is no VM-wide limit beyond the per-interface limit.
+Prefixes are assigned dynamically, and the instance does not need to restart.
+
+IP address prefixes on network interfaces are a preview feature of Azure.
+Before enabling prefix delegation, complete the `onboarding form
+<https://forms.office.com/r/v1ys2F1xjT>`__ referenced in `Azure's
+documentation
+<https://learn.microsoft.com/en-us/azure/virtual-network/ip-services/virtual-network-private-ip-address-blocks-portal>`__,
+register the ``Microsoft.Network/EnablePrivateIpPrefixAllocation`` feature in
+the subscription and register the ``Microsoft.Network`` resource provider
+again:
+
+.. code-block:: shell-session
+
+   $ az feature register --namespace Microsoft.Network --name EnablePrivateIpPrefixAllocation
+   $ az provider register --namespace Microsoft.Network
+
+The operator only assigns prefixes to a node if its agent advertises that it can
+use them, which agents from this release do by setting
+``spec.azure.disable-prefix-delegation``. Agents from earlier releases are
+skipped and keep receiving individual addresses, so the operator option can be
+enabled before all agents are upgraded. A node can opt out with the agent
+option ``--azure-disable-prefix-delegation`` (Helm value
+``azure.nodeSpec.disablePrefixDelegation``); prefixes already assigned to it
+keep being used.
+
+As with AWS ENI prefix delegation, the operator does not assign prefixes to a
+node if any of its interfaces has secondary addresses but no prefixes. This
+check covers all interfaces of the instance, including the ones not selected
+by ``spec.azure.interface-name``. An interface's primary address does not
+count, even with ``--azure-use-primary-address``.
+
+If the subnet has no free aligned ``/28`` left, Azure rejects the request with
+``SubnetIsFull``, and the operator allocates individual addresses instead. If
+the interface already holds prefixes, the next allocation tries a prefix again.
+If the interface held no prefixes, the individual addresses disable prefix
+delegation for the node until they are all released. The first and last
+``/28`` of a subnet can never be assigned as prefixes. On a VMSS instance, Azure
+rejects a prefix request only after accepting the instance update, so each
+fallback costs a failed update. The operator polls that update every 30
+seconds, or at the interval Azure requests, so it notices the failure only at
+the next poll.
+
+To decide how many addresses a subnet has left, the operator reads the usage
+of its virtual network, which counts every address of a prefix. This requires
+the ``Microsoft.Network/virtualNetworks/usages/read`` permission (see
+:ref:`ipam_azure_required_privileges`). Without it, the operator estimates free
+addresses from the number of IP configurations in the subnet. If a request for
+individual addresses is rejected with ``SubnetIsFull``, the operator retries it
+with half as many addresses, down to a single one.
+
+With ``--ipam-release-excess-ips``, the operator releases prefixes that the
+agent no longer uses in the same way as individual addresses (see
+`IP Release`_). Downgrading the agent in place on a node that holds prefixes
+is not supported: the older agent cannot use them, and they may not be
+released. Disable ``--azure-enable-prefix-delegation`` and replace such nodes
+instead.
+
 Node Termination
 ================
 
