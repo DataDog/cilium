@@ -441,6 +441,9 @@
     },
     "azure": {
       "properties": {
+        "enablePrefixDelegation": {
+          "type": "boolean"
+        },
         "enabled": {
           "type": "boolean"
         },
@@ -448,6 +451,9 @@
           "properties": {
             "azureInterfaceName": {
               "type": "string"
+            },
+            "disablePrefixDelegation": {
+              "type": "boolean"
             }
           },
           "type": "object"

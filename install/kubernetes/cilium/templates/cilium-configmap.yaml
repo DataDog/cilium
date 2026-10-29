@@ -679,9 +679,15 @@ data:
   azure-user-assigned-identity-id: {{ .Values.azure.userAssignedIdentityID | quote }}
 {{- end }}
   azure-use-primary-address: {{ $azureUsePrimaryAddress | quote }}
+{{- if .Values.azure.enablePrefixDelegation }}
+  azure-enable-prefix-delegation: "true"
+{{- end }}
 {{- end }}
 {{- if .Values.azure.nodeSpec.azureInterfaceName }}
   azure-interface-name: {{ .Values.azure.nodeSpec.azureInterfaceName | quote }}
+{{- end }}
+{{- if .Values.azure.nodeSpec.disablePrefixDelegation }}
+  azure-disable-prefix-delegation: "true"
 {{- end }}
 
 {{- if .Values.alibabacloud.enabled }}

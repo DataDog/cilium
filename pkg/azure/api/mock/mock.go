@@ -6,10 +6,12 @@ package mock
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/netip"
 	"slices"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v12"
 	"golang.org/x/time/rate"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -30,6 +32,7 @@ const (
 	ListVMNetworkInterfaces
 	ListAllNetworkInterfaces
 	GetSubnetsByIDs
+	AssignPrivateIpAddressesVM
 	AssignPrivateIpAddressesVMSS
 	UnassignPrivateIpAddressesVM
 	UnassignPrivateIpAddressesVMSS
@@ -42,20 +45,24 @@ type subnet struct {
 }
 
 type API struct {
-	mutex     lock.RWMutex
-	subnets   map[string]*subnet
-	instances *ipamTypes.InstanceMap
-	errors    map[Operation]error
-	delaySim  *helpers.DelaySimulator
-	limiter   *rate.Limiter
+	mutex             lock.RWMutex
+	subnets           map[string]*subnet
+	instances         *ipamTypes.InstanceMap
+	errors            map[Operation]error
+	prefixError       error
+	prefixRequests    int
+	reportedAvailable map[string]int
+	delaySim          *helpers.DelaySimulator
+	limiter           *rate.Limiter
 }
 
 func NewAPI(subnets []*ipamTypes.Subnet) *API {
 	api := &API{
-		instances: ipamTypes.NewInstanceMap(),
-		subnets:   map[string]*subnet{},
-		errors:    map[Operation]error{},
-		delaySim:  helpers.NewDelaySimulator(),
+		instances:         ipamTypes.NewInstanceMap(),
+		subnets:           map[string]*subnet{},
+		errors:            map[Operation]error{},
+		reportedAvailable: map[string]int{},
+		delaySim:          helpers.NewDelaySimulator(),
 	}
 
 	api.UpdateSubnets(subnets)
@@ -80,6 +87,33 @@ func (a *API) UpdateSubnets(subnets []*ipamTypes.Subnet) {
 func (a *API) UpdateInstances(instances *ipamTypes.InstanceMap) {
 	a.mutex.Lock()
 	a.updateInstancesLocked(instances)
+	a.mutex.Unlock()
+}
+
+// ReserveInstanceAddresses reserves the addresses and prefixes of the mock's
+// instances in their subnets, so they are not allocated again.
+func (a *API) ReserveInstanceAddresses() {
+	a.mutex.Lock()
+	a.instances.ForeachInterface("", func(_, _ string, iface ipamTypes.Interface) error {
+		intf, ok := iface.(*types.AzureInterface)
+		if !ok {
+			return nil
+		}
+		s, ok := a.subnets[intf.Subnet.ID]
+		if !ok {
+			return nil
+		}
+		s.allocator.Allocate(intf.IP.Addr)
+		for _, address := range intf.Addresses {
+			s.allocator.Allocate(address.IP.Addr)
+		}
+		for _, prefix := range intf.Prefixes {
+			for addr := prefix.CIDR.Addr(); prefix.CIDR.Contains(addr); addr = addr.Next() {
+				s.allocator.Allocate(addr)
+			}
+		}
+		return nil
+	})
 	a.mutex.Unlock()
 }
 
@@ -146,6 +180,9 @@ func (a *API) GetSubnetsByIDs(ctx context.Context, nodeSubnetIDs []string) (ipam
 		if subnetIDSet.Has(s.subnet.ID) {
 			sd := s.subnet.DeepCopy()
 			sd.AvailableAddresses = s.allocator.Free()
+			if available, ok := a.reportedAvailable[sd.ID]; ok {
+				sd.AvailableAddresses = available
+			}
 			subnets[sd.ID] = sd
 		}
 	}
@@ -153,11 +190,23 @@ func (a *API) GetSubnetsByIDs(ctx context.Context, nodeSubnetIDs []string) (ipam
 	return subnets, nil
 }
 
-func (a *API) AssignPrivateIpAddressesVM(ctx context.Context, subnetID, interfaceName string, addresses int) error {
-	return nil
+func (a *API) AssignPrivateIpAddressesVM(ctx context.Context, subnetID, interfaceName string, count int, prefixLength int32) error {
+	a.rateLimit()
+	a.delaySim.Delay(AssignPrivateIpAddressesVM)
+
+	a.mutex.Lock()
+	defer a.mutex.Unlock()
+
+	if err, ok := a.errors[AssignPrivateIpAddressesVM]; ok {
+		return err
+	}
+
+	return a.assignPrivateIpAddressesLocked(subnetID, interfaceName, count, prefixLength, func(intf *types.AzureInterface) bool {
+		return intf.Name == interfaceName && intf.GetVMScaleSetName() == ""
+	})
 }
 
-func (a *API) AssignPrivateIpAddressesVMSS(ctx context.Context, vmName, vmssName, subnetID, interfaceName string, addresses int) error {
+func (a *API) AssignPrivateIpAddressesVMSS(ctx context.Context, vmName, vmssName, subnetID, interfaceName string, count int, prefixLength int32) error {
 	a.rateLimit()
 	a.delaySim.Delay(AssignPrivateIpAddressesVMSS)
 
@@ -168,6 +217,45 @@ func (a *API) AssignPrivateIpAddressesVMSS(ctx context.Context, vmName, vmssName
 		return err
 	}
 
+	return a.assignPrivateIpAddressesLocked(subnetID, interfaceName, count, prefixLength, func(intf *types.AzureInterface) bool {
+		return intf.Name == interfaceName && intf.GetVMID() == vmName
+	})
+}
+
+// SetPrefixError makes prefix requests fail with err, or succeed again if err
+// is nil.
+func (a *API) SetPrefixError(err error) {
+	a.mutex.Lock()
+	a.prefixError = err
+	a.mutex.Unlock()
+}
+
+// PrefixRequests returns how many prefix requests reached an interface.
+func (a *API) PrefixRequests() int {
+	a.mutex.RLock()
+	defer a.mutex.RUnlock()
+	return a.prefixRequests
+}
+
+// SetReportedAvailableAddresses makes GetSubnetsByIDs report available
+// addresses for the subnet regardless of how many are actually free.
+func (a *API) SetReportedAvailableAddresses(subnetID string, available int) {
+	a.mutex.Lock()
+	a.reportedAvailable[subnetID] = available
+	a.mutex.Unlock()
+}
+
+// SubnetIsFullError returns the error Azure returns when a subnet can't
+// satisfy a request.
+func SubnetIsFullError() error {
+	return &azcore.ResponseError{ErrorCode: "SubnetIsFull", StatusCode: http.StatusBadRequest}
+}
+
+func (a *API) assignPrivateIpAddressesLocked(subnetID, interfaceName string, count int, prefixLength int32, match func(intf *types.AzureInterface) bool) error {
+	if prefixLength > 0 && prefixLength != types.PrefixLengthIPv4 {
+		return fmt.Errorf("unsupported prefix length %d", prefixLength)
+	}
+
 	foundInterface := false
 	instances := a.instances.DeepCopy()
 	err := instances.ForeachInterface("", func(id, _ string, iface ipamTypes.Interface) error {
@@ -176,11 +264,11 @@ func (a *API) AssignPrivateIpAddressesVMSS(ctx context.Context, vmName, vmssName
 			return fmt.Errorf("invalid interface object")
 		}
 
-		if intf.Name != interfaceName || intf.GetVMID() != vmName {
+		if !match(intf) {
 			return nil
 		}
 
-		if len(intf.Addresses)+addresses > types.InterfaceAddressLimit {
+		if len(intf.Addresses)+len(intf.Prefixes)+count > types.InterfaceAddressLimit {
 			return fmt.Errorf("exceeded interface limit")
 		}
 
@@ -189,15 +277,35 @@ func (a *API) AssignPrivateIpAddressesVMSS(ctx context.Context, vmName, vmssName
 			return fmt.Errorf("subnet %s does not exist", subnetID)
 		}
 
-		for range addresses {
-			ip, err := s.allocator.AllocateNext()
-			if err != nil {
-				panic("Unable to allocate IP from allocator")
+		if prefixLength > 0 {
+			a.prefixRequests++
+			if a.prefixError != nil {
+				return a.prefixError
 			}
-			intf.Addresses = append(intf.Addresses, types.AzureAddress{
-				IP:    iputil.AddrFrom(ip),
-				State: types.StateSucceeded,
-			})
+			prefixes, err := allocatePrefixes(s, count)
+			if err != nil {
+				return err
+			}
+			for _, prefix := range prefixes {
+				intf.Prefixes = append(intf.Prefixes, types.AzurePrefix{
+					CIDR:  iputil.PrefixFrom(prefix),
+					State: types.StateSucceeded,
+				})
+			}
+		} else {
+			if s.allocator.Free() < count {
+				return SubnetIsFullError()
+			}
+			for range count {
+				ip, err := s.allocator.AllocateNext()
+				if err != nil {
+					return err
+				}
+				intf.Addresses = append(intf.Addresses, types.AzureAddress{
+					IP:    iputil.AddrFrom(ip),
+					State: types.StateSucceeded,
+				})
+			}
 		}
 
 		foundInterface = true
@@ -214,6 +322,50 @@ func (a *API) AssignPrivateIpAddressesVMSS(ctx context.Context, vmName, vmssName
 	}
 
 	return nil
+}
+
+// allocatePrefixes takes count aligned /28s from the subnet, never its first
+// or last /28, or none if not enough are free.
+func allocatePrefixes(s *subnet, count int) ([]netip.Prefix, error) {
+	cidr := s.allocator.CIDR()
+	if cidr.Bits() > types.PrefixLengthIPv4 {
+		return nil, SubnetIsFullError()
+	}
+	blocks := 1 << (types.PrefixLengthIPv4 - cidr.Bits())
+
+	var prefixes []netip.Prefix
+	for block := 1; block < blocks-1 && len(prefixes) < count; block++ {
+		prefix := netip.PrefixFrom(nthAddr(cidr.Addr(), block*types.PrefixSizeIPv4), types.PrefixLengthIPv4)
+		free := true
+		for addr := prefix.Addr(); prefix.Contains(addr); addr = addr.Next() {
+			if s.allocator.Has(addr) {
+				free = false
+				break
+			}
+		}
+		if free {
+			prefixes = append(prefixes, prefix)
+		}
+	}
+	if len(prefixes) < count {
+		return nil, SubnetIsFullError()
+	}
+
+	for _, prefix := range prefixes {
+		for addr := prefix.Addr(); prefix.Contains(addr); addr = addr.Next() {
+			if err := s.allocator.Allocate(addr); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return prefixes, nil
+}
+
+func nthAddr(addr netip.Addr, n int) netip.Addr {
+	for range n {
+		addr = addr.Next()
+	}
+	return addr
 }
 
 func (a *API) UnassignPrivateIpAddressesVM(ctx context.Context, interfaceName string, addresses []netip.Addr) error {

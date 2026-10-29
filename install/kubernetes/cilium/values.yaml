@@ -471,8 +471,12 @@ azure:
   # clientID: 00000000-0000-0000-0000-000000000000
   # clientSecret: 00000000-0000-0000-0000-000000000000
   # userAssignedIdentityID: 00000000-0000-0000-0000-000000000000
+  # -- Enable Azure IP prefix delegation
+  enablePrefixDelegation: false
   nodeSpec:
     azureInterfaceName: ""
+    # -- Disable prefix delegation for IP allocation
+    disablePrefixDelegation: false
 alibabacloud:
   # -- Enable AlibabaCloud ENI integration
   enabled: false

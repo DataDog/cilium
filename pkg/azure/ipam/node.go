@@ -5,16 +5,20 @@ package ipam
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/netip"
 	"slices"
 	"strings"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+
 	"github.com/cilium/cilium/operator/pkg/ipam/nodemanager"
 	"github.com/cilium/cilium/operator/pkg/ipam/stats"
 	"github.com/cilium/cilium/pkg/azure/types"
 	"github.com/cilium/cilium/pkg/defaults"
+	iputil "github.com/cilium/cilium/pkg/ip"
 	ipamTypes "github.com/cilium/cilium/pkg/ipam/types"
 	v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 	"github.com/cilium/cilium/pkg/lock"
@@ -22,12 +26,17 @@ import (
 	cslices "github.com/cilium/cilium/pkg/slices"
 )
 
+const subnetIsFull = "SubnetIsFull"
+
 // Node represents a node representing an Azure instance
 type Node struct {
 	instanceID string
 
 	// manager is the Azure node manager responsible for this node
 	manager *InstancesManager
+
+	// node is the generic node representation
+	node *nodemanager.Node
 
 	// mutex protects members below this field
 	mutex lock.RWMutex
@@ -50,6 +59,16 @@ func (n *Node) requiredInterfaceName() string {
 	n.mutex.RLock()
 	defer n.mutex.RUnlock()
 	return n.k8sObj.Spec.Azure.InterfaceName
+}
+
+// prefixDelegationAllowed reports whether the operator and the node's agent
+// allow assigning prefixes to the node.
+func (n *Node) prefixDelegationAllowed() bool {
+	n.mutex.RLock()
+	defer n.mutex.RUnlock()
+	return n.node != nil && n.node.IsPrefixDelegationEnabled() &&
+		n.k8sObj != nil && n.k8sObj.Spec.Azure.DisablePrefixDelegation != nil &&
+		!*n.k8sObj.Spec.Azure.DisablePrefixDelegation
 }
 
 // agentUsesPrefixes reports whether the node's agent consumes prefixes.
@@ -136,13 +155,14 @@ func (n *Node) PrepareIPAllocation(scopedLog *slog.Logger) (a *nodemanager.Alloc
 	n.manager.mutex.RLock()
 	defer n.manager.mutex.RUnlock()
 	usePrimary := n.manager.usePrimary
+	perSlot := n.addressesPerSlotLocked()
 	err = n.manager.instances.ForeachInterface(n.instanceID, func(instanceID, interfaceID string, interfaceObj ipamTypes.Interface) error {
 		iface, ok := interfaceObj.(*types.AzureInterface)
 		if !ok {
 			return fmt.Errorf("invalid interface object")
 		}
 
-		availableOnInterface, available := isAvailableInterface(requiredIfaceName, iface, usePrimary, scopedLog)
+		availableOnInterface, available := isAvailableInterface(requiredIfaceName, iface, usePrimary, perSlot, scopedLog)
 		if !available {
 			return nil
 		}
@@ -181,19 +201,99 @@ func (n *Node) PrepareIPAllocation(scopedLog *slog.Logger) (a *nodemanager.Alloc
 	return
 }
 
-// AllocateIPs performs the Azure IP allocation operation
+// AllocateIPs performs the Azure IP allocation operation. With prefix
+// delegation it assigns prefixes, and falls back to individual addresses if the
+// subnet has no prefix left.
 func (n *Node) AllocateIPs(ctx context.Context, a *nodemanager.AllocationAction) error {
 	iface, ok := a.Interface.(*types.AzureInterface)
 	if !ok {
 		return fmt.Errorf("invalid interface object")
 	}
 
+	prefixDelegated, free, err := n.allocationMode(a.InterfaceID)
+	if err != nil {
+		return err
+	}
+
+	if prefixDelegated {
+		prefixes := min(iputil.PrefixCeil(a.IPv4.AvailableForAllocation, types.PrefixSizeIPv4), free)
+		err := n.assign(ctx, iface, a.PoolID, prefixes, types.PrefixLengthIPv4)
+		if err == nil {
+			a.IPv4.AvailableForAllocation = prefixes * types.PrefixSizeIPv4
+			return nil
+		}
+		if !isSubnetOutOfPrefixes(err) {
+			return err
+		}
+		n.manager.logger.Warn("Subnet might be out of prefixes, allocating individual IPs instead",
+			logfields.InstanceID, n.instanceID,
+			logfields.Error, err,
+		)
+	}
+
+	assigned, err := n.assignAddressesHalvingOnSubnetFull(ctx, iface, a.PoolID, min(a.IPv4.AvailableForAllocation, free))
+	if err != nil {
+		return err
+	}
+	a.IPv4.AvailableForAllocation = assigned
+	return nil
+}
+
+// allocationMode returns whether prefixes are assigned to the node and the
+// free IP configuration slots on its interface with the given ID.
+func (n *Node) allocationMode(interfaceID string) (prefixDelegated bool, free int, err error) {
+	n.manager.mutex.RLock()
+	defer n.manager.mutex.RUnlock()
+
+	found := false
+	n.manager.instances.ForeachInterface(n.instanceID, func(_, id string, interfaceObj ipamTypes.Interface) error {
+		iface, ok := interfaceObj.(*types.AzureInterface)
+		if ok && id == interfaceID {
+			found = true
+			free = freeSlots(iface, n.manager.usePrimary)
+		}
+		return nil
+	})
+	if !found {
+		return false, 0, fmt.Errorf("interface %s not found on instance %s", interfaceID, n.instanceID)
+	}
+	return n.isPrefixDelegatedLocked(), free, nil
+}
+
+func (n *Node) assign(ctx context.Context, iface *types.AzureInterface, poolID ipamTypes.PoolID, count int, prefixLength int32) error {
 	vmss := iface.GetVMScaleSetName()
 	if vmss == "" {
-		return n.manager.api.AssignPrivateIpAddressesVM(ctx, string(a.PoolID), iface.Name, a.IPv4.AvailableForAllocation)
-	} else {
-		return n.manager.api.AssignPrivateIpAddressesVMSS(ctx, iface.GetVMID(), vmss, string(a.PoolID), iface.Name, a.IPv4.AvailableForAllocation)
+		return n.manager.api.AssignPrivateIpAddressesVM(ctx, string(poolID), iface.Name, count, prefixLength)
 	}
+	return n.manager.api.AssignPrivateIpAddressesVMSS(ctx, iface.GetVMID(), vmss, string(poolID), iface.Name, count, prefixLength)
+}
+
+// assignAddressesHalvingOnSubnetFull assigns count individual addresses,
+// retrying with half as many while the subnet is too full, and returns how
+// many were assigned.
+func (n *Node) assignAddressesHalvingOnSubnetFull(ctx context.Context, iface *types.AzureInterface, poolID ipamTypes.PoolID, count int) (int, error) {
+	for {
+		err := n.assign(ctx, iface, poolID, count, 0)
+		if err == nil {
+			return count, nil
+		}
+		if count <= 1 || !isSubnetFull(err) {
+			return 0, err
+		}
+		count /= 2
+	}
+}
+
+func isSubnetFull(err error) bool {
+	respErr, ok := errors.AsType[*azcore.ResponseError](err)
+	return ok && respErr.ErrorCode == subnetIsFull
+}
+
+// isSubnetOutOfPrefixes reports whether a prefix request failed because the
+// subnet has no free aligned prefix. Azure returns the same error code when it
+// has too few addresses, so this only holds for prefix requests.
+func isSubnetOutOfPrefixes(err error) bool {
+	return isSubnetFull(err)
 }
 
 func (n *Node) AllocateStaticIP(ctx context.Context, staticIPTags ipamTypes.Tags) (netip.Addr, error) {
@@ -254,7 +354,7 @@ func (n *Node) ResyncInterfacesAndIPs(ctx context.Context, scopedLog *slog.Logge
 		// Cache the VMSS name from the first interface we see
 		n.cacheVMSS(iface.GetVMScaleSetName())
 
-		if _, isAvailable := isAvailableInterface(requiredIfaceName, iface, usePrimary, scopedLog); isAvailable {
+		if _, isAvailable := isAvailableInterface(requiredIfaceName, iface, usePrimary, 1, scopedLog); isAvailable {
 			stats.RemainingAvailableInterfaceCount++
 		}
 		return nil
@@ -272,6 +372,7 @@ func (n *Node) ResyncInterfacesAndIPs(ctx context.Context, scopedLog *slog.Logge
 // interfaces allocation may use. n.manager.mutex must be held.
 func (n *Node) capacityLocked(requiredIfaceName string, usePrimary bool) (prefixedAddresses, capacity int) {
 	usesPrefixes := n.agentUsesPrefixes()
+	perSlot := n.addressesPerSlotLocked()
 	n.manager.instances.ForeachInterface(n.instanceID, func(_, _ string, interfaceObj ipamTypes.Interface) error {
 		iface, ok := interfaceObj.(*types.AzureInterface)
 		if !ok {
@@ -286,7 +387,7 @@ func (n *Node) capacityLocked(requiredIfaceName string, usePrimary bool) (prefix
 			prefixedAddresses += len(iface.UsablePrefixes()) * types.PrefixSizeIPv4
 		}
 		if matchesInterfaceName(requiredIfaceName, iface) {
-			capacity += freeSlots(iface, usePrimary)
+			capacity += freeSlots(iface, usePrimary) * perSlot
 		}
 		return nil
 	})
@@ -313,8 +414,47 @@ func (n *Node) GetMinimumAllocatableIPv4() int {
 	return defaults.IPAMPreAllocation
 }
 
+// IsPrefixDelegated reports whether prefixes are assigned to the node.
 func (n *Node) IsPrefixDelegated() bool {
-	return false
+	if n == nil || n.manager == nil {
+		return false
+	}
+	n.manager.mutex.RLock()
+	defer n.manager.mutex.RUnlock()
+	return n.isPrefixDelegatedLocked()
+}
+
+// isPrefixDelegatedLocked reports whether prefixes are assigned to the node:
+// prefix delegation must be allowed, and like on AWS, no interface may have
+// secondary addresses without also having prefixes. n.manager.mutex must be
+// held.
+func (n *Node) isPrefixDelegatedLocked() bool {
+	if !n.prefixDelegationAllowed() {
+		return false
+	}
+	mixed := false
+	n.manager.instances.ForeachInterface(n.instanceID, func(_, _ string, interfaceObj ipamTypes.Interface) error {
+		iface, ok := interfaceObj.(*types.AzureInterface)
+		if !ok || len(iface.Prefixes) > 0 {
+			return nil
+		}
+		if slices.ContainsFunc(iface.Addresses, func(address types.AzureAddress) bool {
+			return address.IP.Addr != iface.IP.Addr
+		}) {
+			mixed = true
+		}
+		return nil
+	})
+	return !mixed
+}
+
+// addressesPerSlotLocked returns the number of addresses a free IP
+// configuration slot provides. n.manager.mutex must be held.
+func (n *Node) addressesPerSlotLocked() int {
+	if n.isPrefixDelegatedLocked() {
+		return types.PrefixSizeIPv4
+	}
+	return 1
 }
 
 func secondaryIPv4CIDR(iface *types.AzureInterface, address types.AzureAddress) (netip.Prefix, bool) {
@@ -423,7 +563,7 @@ func matchesInterfaceName(requiredIfaceName string, iface *types.AzureInterface)
 }
 
 // isAvailableInterface returns whether interface is available and the number of available IPs to allocate in interface
-func isAvailableInterface(requiredIfaceName string, iface *types.AzureInterface, usePrimary bool, scopedLog *slog.Logger) (availableOnInterface int, available bool) {
+func isAvailableInterface(requiredIfaceName string, iface *types.AzureInterface, usePrimary bool, perSlot int, scopedLog *slog.Logger) (availableOnInterface int, available bool) {
 	if requiredIfaceName != "" {
 		if iface.Name != requiredIfaceName {
 			scopedLog.Debug(
@@ -441,7 +581,7 @@ func isAvailableInterface(requiredIfaceName string, iface *types.AzureInterface,
 		logfields.NumAddresses, len(iface.Addresses),
 	)
 
-	availableOnInterface = freeSlots(iface, usePrimary)
+	availableOnInterface = freeSlots(iface, usePrimary) * perSlot
 	if availableOnInterface <= 0 {
 		return 0, false
 	}

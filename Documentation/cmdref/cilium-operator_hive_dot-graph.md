@@ -22,6 +22,7 @@ cilium-operator hive dot-graph [flags]
       --auto-create-cilium-resource-ip-pools stringToString        Automatically create CiliumResourceIPPool resources on startup. Specify pools in the form of <pool>=ipv4-cidrs:<cidr>,[<cidr>...];ipv4-mask-size:<size>[;allow-first-ip:<bool>][;allow-last-ip:<bool>] (multiple pools can also be passed by repeating the CLI flag) (default [])
       --aws-enable-prefix-delegation                               Allows operator to allocate prefixes to ENIs instead of individual IP addresses
       --aws-max-results-per-call int32                             Maximum results per AWS API call for DescribeNetworkInterfaces, DescribeSecurityGroups and GetSecurityGroupsForVpc. Set to 0 to let AWS determine optimal page size (default). If set to 0 and AWS returns OperationNotPermitted errors, automatically switches to 1000 for all future requests
+      --azure-enable-prefix-delegation                             Allows operator to assign IP prefixes to interfaces instead of individual IP addresses
       --azure-resource-group string                                Resource group containing the cluster nodes, defaults to cilium operator's own resource group retrieved via Azure Instance Metadata Service (IMDS)
       --azure-subscription-id string                               Subscription ID to access Azure API
       --azure-use-primary-address                                  Use Azure IP address from interface's primary IPConfigurations

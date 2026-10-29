@@ -38,6 +38,7 @@ type AzureConfig struct {
 	AzureResourceGroup          string
 	AzureUserAssignedIdentityID string
 	AzureUsePrimaryAddress      bool
+	AzureEnablePrefixDelegation bool
 }
 
 var azureDefaultConfig = AzureConfig{
@@ -45,6 +46,7 @@ var azureDefaultConfig = AzureConfig{
 	AzureResourceGroup:          "",
 	AzureUserAssignedIdentityID: "",
 	AzureUsePrimaryAddress:      false,
+	AzureEnablePrefixDelegation: false,
 }
 
 func (cfg AzureConfig) Flags(flags *pflag.FlagSet) {
@@ -52,6 +54,7 @@ func (cfg AzureConfig) Flags(flags *pflag.FlagSet) {
 	flags.String(operatorOption.AzureResourceGroup, azureDefaultConfig.AzureResourceGroup, "Resource group containing the cluster nodes, defaults to cilium operator's own resource group retrieved via Azure Instance Metadata Service (IMDS)")
 	flags.String(operatorOption.AzureUserAssignedIdentityID, azureDefaultConfig.AzureUserAssignedIdentityID, "Client ID (UUID) of the user-assigned managed identity used to auth with the Azure API")
 	flags.Bool(operatorOption.AzureUsePrimaryAddress, azureDefaultConfig.AzureUsePrimaryAddress, "Use Azure IP address from interface's primary IPConfigurations")
+	flags.Bool(operatorOption.AzureEnablePrefixDelegation, azureDefaultConfig.AzureEnablePrefixDelegation, "Allows operator to assign IP prefixes to interfaces instead of individual IP addresses")
 }
 
 type azureParams struct {
@@ -76,6 +79,7 @@ func startAzureAllocator(p azureParams) {
 		AzureResourceGroup:          p.AzureCfg.AzureResourceGroup,
 		AzureUserAssignedIdentityID: p.AzureCfg.AzureUserAssignedIdentityID,
 		AzureUsePrimaryAddress:      p.AzureCfg.AzureUsePrimaryAddress,
+		AzureEnablePrefixDelegation: p.AzureCfg.AzureEnablePrefixDelegation,
 		ReleaseExcessIPs:            p.Cfg.IPAMReleaseExcessIPs,
 		ExcessIPReleaseDelay:        p.Cfg.ExcessIPReleaseDelay,
 		ParallelAllocWorkers:        p.Cfg.ParallelAllocWorkers,

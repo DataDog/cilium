@@ -842,12 +842,16 @@ func (fakeCredential) GetToken(context.Context, policy.TokenRequestOptions) (azc
 
 // fakeARM serves a single VMSS instance and records the models it receives.
 type fakeARM struct {
-	vm        string
-	nics      string
-	prefixes  string
-	publicIPs string
-	puts      []armcompute.VirtualMachineScaleSetVM
-	nicLists  int
+	vm           string
+	nics         string
+	prefixes     string
+	publicIPs    string
+	subnet       string
+	usages       string
+	usagesStatus int
+	puts         []armcompute.VirtualMachineScaleSetVM
+	nicLists     int
+	usageLists   int
 }
 
 func (f *fakeARM) Do(req *http.Request) (*http.Response, error) {
@@ -875,6 +879,19 @@ func (f *fakeARM) Do(req *http.Request) (*http.Response, error) {
 		body = f.nics
 	case strings.HasSuffix(path, "/publicipprefixes"):
 		body = f.prefixes
+	case strings.HasSuffix(path, "/usages"):
+		f.usageLists++
+		if f.usagesStatus != 0 {
+			return &http.Response{
+				StatusCode: f.usagesStatus,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"error": {"code": "AuthorizationFailed", "message": "denied"}}`)),
+				Request:    req,
+			}, nil
+		}
+		body = f.usages
+	case strings.Contains(path, "/subnets/"):
+		body = f.subnet
 	case strings.HasSuffix(path, "/virtualmachines/0"):
 		body = f.vm
 	default:
@@ -944,7 +961,7 @@ func TestAssignPrivateIpAddressesVMSSDropsUnappliedIPConfigurations(t *testing.T
 	transport := &fakeARM{vm: fmt.Sprintf(failedVMSSInstance, "", ""), nics: failedVMSSInstanceNICs}
 	c := newFakeARMClient(t, transport)
 
-	require.NoError(t, c.AssignPrivateIpAddressesVMSS(t.Context(), "0", "vmss", "subnet", "nic0", 1))
+	require.NoError(t, c.AssignPrivateIpAddressesVMSS(t.Context(), "0", "vmss", "subnet", "nic0", 1, 0))
 
 	require.Len(t, transport.puts, 1)
 	require.Equal(t, 1, transport.nicLists)
@@ -970,7 +987,7 @@ func TestAssignPrivateIpAddressesVMSSMarksSolePrimary(t *testing.T) {
 }`}
 	c := newFakeARMClient(t, transport)
 
-	require.NoError(t, c.AssignPrivateIpAddressesVMSS(t.Context(), "0", "vmss", "subnet", "nic0", 2))
+	require.NoError(t, c.AssignPrivateIpAddressesVMSS(t.Context(), "0", "vmss", "subnet", "nic0", 2, 0))
 
 	require.Len(t, transport.puts, 1)
 	require.Equal(t, 0, transport.nicLists)
@@ -1022,4 +1039,111 @@ func TestAssignPublicIPAddressesVMSSDropsUnappliedIPConfigurations(t *testing.T)
 	}
 	require.Nil(t, modelIPConfigNames(t, transport.puts[0])["primary"].Properties.PublicIPAddressConfiguration)
 	require.NotNil(t, modelIPConfigNames(t, transport.puts[1])["primary"].Properties.PublicIPAddressConfiguration)
+}
+
+func TestIPConfigurationBuildersPrefixLength(t *testing.T) {
+	for _, tc := range []struct {
+		prefixLength int32
+		want         any
+	}{
+		{prefixLength: 0},
+		{prefixLength: types.PrefixLengthIPv4, want: float64(types.PrefixLengthIPv4)},
+	} {
+		t.Run(fmt.Sprintf("prefixLength=%d", tc.prefixLength), func(t *testing.T) {
+			for name, config := range map[string]any{
+				"vmss":      newVMSSIPConfiguration("subnet", nil, tc.prefixLength),
+				"interface": newInterfaceIPConfiguration("subnet", nil, tc.prefixLength),
+			} {
+				raw, err := json.Marshal(config)
+				require.NoError(t, err)
+				var decoded struct {
+					Properties map[string]any `json:"properties"`
+				}
+				require.NoError(t, json.Unmarshal(raw, &decoded))
+				got, ok := decoded.Properties["privateIPAddressPrefixLength"]
+				if tc.want == nil {
+					require.False(t, ok, "%s: %s", name, raw)
+				} else {
+					require.Equal(t, tc.want, got, "%s: %s", name, raw)
+				}
+			}
+		})
+	}
+	require.Equal(t, new(armnetwork.IPAllocationMethodDynamic), newInterfaceIPConfiguration("subnet", nil, types.PrefixLengthIPv4).Properties.PrivateIPAllocationMethod)
+}
+
+func TestAssignPrivateIpAddressesVMSSPrefix(t *testing.T) {
+	transport := &fakeARM{vm: `{
+  "location": "westus2",
+  "properties": {
+    "provisioningState": "Succeeded",
+    "networkProfileConfiguration": {"networkInterfaceConfigurations": [{
+      "name": "nic0",
+      "properties": {"ipConfigurations": [{"name": "primary", "properties": {"primary": true, "subnet": {"id": "subnet"}}}]}
+    }]}
+  }
+}`}
+	c := newFakeARMClient(t, transport)
+
+	require.NoError(t, c.AssignPrivateIpAddressesVMSS(t.Context(), "0", "vmss", "subnet", "nic0", 2, types.PrefixLengthIPv4))
+
+	require.Len(t, transport.puts, 1)
+	names := modelIPConfigNames(t, transport.puts[0])
+	require.Len(t, names, 3)
+	for name, config := range names {
+		if name == "primary" {
+			require.Nil(t, config.Properties.PrivateIPAddressPrefixLength)
+			continue
+		}
+		require.Equal(t, new(int32(types.PrefixLengthIPv4)), config.Properties.PrivateIPAddressPrefixLength)
+	}
+}
+
+const usagesTestSubnetID = "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/s1"
+
+const usagesTestSubnet = `{
+  "id": "` + usagesTestSubnetID + `",
+  "properties": {
+    "addressPrefix": "10.0.0.0/24",
+    "ipConfigurations": [{"id": "a"}, {"id": "b"}]
+  }
+}`
+
+func TestGetSubnetsByIDsUsages(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		usages        string
+		usagesStatus  int
+		wantAvailable int
+	}{
+		{
+			name:          "usage counts prefix addresses",
+			usages:        `{"value": [{"id": "` + strings.ToUpper(usagesTestSubnetID) + `", "currentValue": 18, "limit": 251}]}`,
+			wantAvailable: 251 - 18,
+		},
+		{
+			name:          "forbidden keeps the estimate",
+			usagesStatus:  http.StatusForbidden,
+			wantAvailable: 256 - 5 - 2,
+		},
+		{
+			name:          "missing subnet keeps the estimate",
+			usages:        `{"value": [{"id": "` + usagesTestSubnetID + `-other", "currentValue": 18, "limit": 251}]}`,
+			wantAvailable: 256 - 5 - 2,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			transport := &fakeARM{subnet: usagesTestSubnet, usages: tc.usages, usagesStatus: tc.usagesStatus}
+			c := newFakeARMClient(t, transport)
+
+			for range 2 {
+				subnets, err := c.GetSubnetsByIDs(t.Context(), []string{usagesTestSubnetID})
+				require.NoError(t, err)
+				require.Contains(t, subnets, usagesTestSubnetID)
+				require.Equal(t, netip.MustParsePrefix("10.0.0.0/24"), subnets[usagesTestSubnetID].CIDR)
+				require.Equal(t, tc.wantAvailable, subnets[usagesTestSubnetID].AvailableAddresses)
+			}
+			require.Equal(t, 2, transport.usageLists)
+		})
+	}
 }

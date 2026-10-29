@@ -47,6 +47,10 @@ const (
 	// primary IPConfiguration
 	AzureUsePrimaryAddress = "azure-use-primary-address"
 
+	// AzureEnablePrefixDelegation allows the operator to assign IP prefixes
+	// to interfaces instead of individual IP addresses
+	AzureEnablePrefixDelegation = "azure-enable-prefix-delegation"
+
 	// AlibabaCloud options
 
 	// AlibabaCloudVPCID allows user to specific vpc

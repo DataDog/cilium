@@ -33,8 +33,8 @@ import (
 // AzureAPI is the API surface used of the Azure API.
 type AzureAPI interface {
 	GetSubnetsByIDs(ctx context.Context, nodeSubnetIDs []string) (ipamTypes.SubnetMap, error)
-	AssignPrivateIpAddressesVM(ctx context.Context, subnetID, interfaceName string, addresses int) error
-	AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, subnetID, interfaceName string, addresses int) error
+	AssignPrivateIpAddressesVM(ctx context.Context, subnetID, interfaceName string, count int, prefixLength int32) error
+	AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, subnetID, interfaceName string, count int, prefixLength int32) error
 	AssignPublicIPAddressesVM(ctx context.Context, instanceID string, publicIpTags ipamTypes.Tags) (netip.Addr, error)
 	AssignPublicIPAddressesVMSS(ctx context.Context, instanceID, vmssName string, publicIpTags ipamTypes.Tags) (netip.Addr, error)
 	ListAllNetworkInterfaces(ctx context.Context) ([]*armnetwork.Interface, error)
@@ -75,8 +75,8 @@ func NewInstancesManager(logger *slog.Logger, api AzureAPI, usePrimary bool) *In
 }
 
 // CreateNode is called on discovery of a new node
-func (m *InstancesManager) CreateNode(obj *v2.CiliumNode, _ *nodemanager.Node) nodemanager.NodeOperations {
-	return &Node{manager: m, instanceID: obj.InstanceID(), k8sObj: obj}
+func (m *InstancesManager) CreateNode(obj *v2.CiliumNode, node *nodemanager.Node) nodemanager.NodeOperations {
+	return &Node{manager: m, node: node, instanceID: obj.InstanceID(), k8sObj: obj}
 }
 
 // HasInstance returns whether the instance is in instances

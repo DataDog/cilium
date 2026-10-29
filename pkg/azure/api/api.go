@@ -25,6 +25,7 @@ import (
 	"github.com/cilium/cilium/pkg/azure/types"
 	iputil "github.com/cilium/cilium/pkg/ip"
 	ipamTypes "github.com/cilium/cilium/pkg/ipam/types"
+	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/mac"
 	"github.com/cilium/cilium/pkg/spanstat"
@@ -43,6 +44,7 @@ const (
 	virtualMachineScaleSetVMsGet    = "VirtualMachineScaleSetVMs.Get"
 	virtualMachineScaleSetVMsUpdate = "VirtualMachineScaleSetVMs.Update"
 	subnetsGet                      = "Subnets.Get"
+	virtualNetworksListUsage        = "VirtualNetworks.ListUsage"
 
 	interfacesListVirtualMachineScaleSetNetworkInterfaces   = "Interfaces.ListVirtualMachineScaleSetNetworkInterfaces"
 	interfacesListVirtualMachineScaleSetVMNetworkInterfaces = "Interfaces.ListVirtualMachineScaleSetVMNetworkInterfaces"
@@ -60,9 +62,14 @@ type Client struct {
 	subnets                   *armnetwork.SubnetsClient
 	virtualMachineScaleSetVMs *armcompute.VirtualMachineScaleSetVMsClient
 	virtualMachineScaleSets   *armcompute.VirtualMachineScaleSetsClient
+	virtualNetworks           *armnetwork.VirtualNetworksClient
 	limiter                   *helpers.APILimiter
 	metricsAPI                MetricsAPI
 	usePrimary                bool
+
+	// usageFailures holds the virtual networks whose usage lookup failed,
+	// so the failure is only logged once
+	usageFailures lock.Map[string, struct{}]
 }
 
 // MetricsAPI represents the metrics maintained by the Azure API client
@@ -169,6 +176,11 @@ func newClient(logger *slog.Logger, subscriptionID, resourceGroup string, creden
 		return nil, err
 	}
 
+	virtualNetworksClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, credential, armClientOptions)
+	if err != nil {
+		return nil, err
+	}
+
 	c := &Client{
 		logger:                    logger,
 		subscriptionID:            subscriptionID,
@@ -180,6 +192,7 @@ func newClient(logger *slog.Logger, subscriptionID, resourceGroup string, creden
 		subnets:                   subnetsClient,
 		virtualMachineScaleSetVMs: virtualMachineScaleSetVMsClient,
 		virtualMachineScaleSets:   virtualMachineScaleSetsClient,
+		virtualNetworks:           virtualNetworksClient,
 		metricsAPI:                metrics,
 		limiter:                   helpers.NewAPILimiter(metrics, rateLimit, burst),
 		usePrimary:                usePrimary,
@@ -666,9 +679,34 @@ func extractVNetID(subnetID string) string {
 	return before
 }
 
+// subnetUsages returns the number of free addresses of each subnet in the
+// virtual network, keyed by lower-case subnet ID. Unlike the IP configuration
+// count, it accounts for every address of an IP prefix.
+func (c *Client) subnetUsages(ctx context.Context, resourceGroup, vnetName string) (map[string]int, error) {
+	free := map[string]int{}
+	pager := c.virtualNetworks.NewListUsagePager(resourceGroup, vnetName, nil)
+	for pager.More() {
+		c.limiter.Limit(ctx, virtualNetworksListUsage)
+		sinceStart := spanstat.Start()
+		page, err := pager.NextPage(ctx)
+		c.metricsAPI.ObserveAPICall(virtualNetworksListUsage, deriveStatus(err), sinceStart.Seconds())
+		if err != nil {
+			return nil, err
+		}
+		for _, usage := range page.Value {
+			if usage == nil || usage.ID == nil || usage.Limit == nil || usage.CurrentValue == nil {
+				continue
+			}
+			free[strings.ToLower(*usage.ID)] = max(int(*usage.Limit-*usage.CurrentValue), 0)
+		}
+	}
+	return free, nil
+}
+
 // GetSubnetsByIDs retrieves subnet information for specific subnet IDs
 func (c *Client) GetSubnetsByIDs(ctx context.Context, subnetIDs []string) (ipamTypes.SubnetMap, error) {
 	subnets := ipamTypes.SubnetMap{}
+	usages := map[string]map[string]int{}
 
 	for _, subnetID := range subnetIDs {
 		// Parse subnet ID to extract resource group, vnet and subnet names
@@ -690,9 +728,29 @@ func (c *Client) GetSubnetsByIDs(ctx context.Context, subnetIDs []string) (ipamT
 			continue
 		}
 
-		if subnet != nil {
-			subnets[subnetID] = subnet
+		if subnet == nil {
+			continue
 		}
+
+		vnetKey := strings.ToLower(resourceGroup + "/" + vnetName)
+		free, ok := usages[vnetKey]
+		if !ok {
+			free, err = c.subnetUsages(ctx, resourceGroup, vnetName)
+			if err != nil {
+				if _, logged := c.usageFailures.LoadOrStore(vnetKey, struct{}{}); !logged {
+					c.logger.Warn("Failed to get virtual network usages, estimating subnet capacity from IP configurations",
+						logfields.Error, err,
+						logfields.VPCID, subnet.VirtualNetworkID,
+					)
+				}
+			}
+			usages[vnetKey] = free
+		}
+		if available, ok := free[strings.ToLower(subnet.ID)]; ok {
+			subnet.AvailableAddresses = available
+		}
+
+		subnets[subnetID] = subnet
 	}
 
 	return subnets, nil
@@ -702,8 +760,45 @@ func generateIpConfigName() string {
 	return "Cilium-" + rand.String(8)
 }
 
-// AssignPrivateIpAddressesVMSS assign a private IP to an interface attached to a VMSS instance
-func (c *Client) AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, subnetID, interfaceName string, addresses int) error {
+// newVMSSIPConfiguration returns a VMSS IP configuration for a dynamically
+// allocated address, or a prefix if prefixLength is positive.
+func newVMSSIPConfiguration(subnetID string, asgs []*armcompute.SubResource, prefixLength int32) *armcompute.VirtualMachineScaleSetIPConfiguration {
+	config := &armcompute.VirtualMachineScaleSetIPConfiguration{
+		Name: new(generateIpConfigName()),
+		Properties: &armcompute.VirtualMachineScaleSetIPConfigurationProperties{
+			ApplicationSecurityGroups: asgs,
+			PrivateIPAddressVersion:   new(armcompute.IPVersionIPv4),
+			Subnet:                    &armcompute.APIEntityReference{ID: new(subnetID)},
+		},
+	}
+	if prefixLength > 0 {
+		config.Properties.PrivateIPAddressPrefixLength = new(prefixLength)
+	}
+	return config
+}
+
+// newInterfaceIPConfiguration returns a NIC IP configuration for a
+// dynamically allocated address, or a prefix if prefixLength is positive.
+func newInterfaceIPConfiguration(subnetID string, asgs []*armnetwork.ApplicationSecurityGroup, prefixLength int32) *armnetwork.InterfaceIPConfiguration {
+	config := &armnetwork.InterfaceIPConfiguration{
+		Name: new(generateIpConfigName()),
+		Properties: &armnetwork.InterfaceIPConfigurationPropertiesFormat{
+			ApplicationSecurityGroups: asgs,
+			PrivateIPAllocationMethod: new(armnetwork.IPAllocationMethodDynamic),
+			Subnet: &armnetwork.Subnet{
+				ID: new(subnetID),
+			},
+		},
+	}
+	if prefixLength > 0 {
+		config.Properties.PrivateIPAddressPrefixLength = new(prefixLength)
+	}
+	return config
+}
+
+// AssignPrivateIpAddressesVMSS assigns count private IPs, or IP prefixes of
+// prefixLength if it is positive, to an interface attached to a VMSS instance
+func (c *Client) AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, subnetID, interfaceName string, count int, prefixLength int32) error {
 	var netIfConfig *armcompute.VirtualMachineScaleSetNetworkConfiguration
 
 	vmssGetOptions := &armcompute.VirtualMachineScaleSetVMsClientGetOptions{
@@ -748,18 +843,9 @@ func (c *Client) AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, v
 		appSecurityGroups = ipConfigs[0].Properties.ApplicationSecurityGroups
 	}
 
-	ipConfigurations := make([]*armcompute.VirtualMachineScaleSetIPConfiguration, 0, addresses)
-	for range addresses {
-		ipConfigurations = append(ipConfigurations,
-			&armcompute.VirtualMachineScaleSetIPConfiguration{
-				Name: new(generateIpConfigName()),
-				Properties: &armcompute.VirtualMachineScaleSetIPConfigurationProperties{
-					ApplicationSecurityGroups: appSecurityGroups,
-					PrivateIPAddressVersion:   new(armcompute.IPVersionIPv4),
-					Subnet:                    &armcompute.APIEntityReference{ID: new(subnetID)},
-				},
-			},
-		)
+	ipConfigurations := make([]*armcompute.VirtualMachineScaleSetIPConfiguration, 0, count)
+	for range count {
+		ipConfigurations = append(ipConfigurations, newVMSSIPConfiguration(subnetID, appSecurityGroups, prefixLength))
 	}
 
 	ipConfigurations = append(netIfConfig.Properties.IPConfigurations, ipConfigurations...)
@@ -794,8 +880,10 @@ func (c *Client) AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, v
 	return nil
 }
 
-// AssignPrivateIpAddressesVM assign a private IP to an interface attached to a standalone instance
-func (c *Client) AssignPrivateIpAddressesVM(ctx context.Context, subnetID, interfaceName string, addresses int) error {
+// AssignPrivateIpAddressesVM assigns count private IPs, or IP prefixes of
+// prefixLength if it is positive, to an interface attached to a standalone
+// instance
+func (c *Client) AssignPrivateIpAddressesVM(ctx context.Context, subnetID, interfaceName string, count int, prefixLength int32) error {
 	c.limiter.Limit(ctx, interfacesGet)
 	sinceStart := spanstat.Start()
 
@@ -814,18 +902,9 @@ func (c *Client) AssignPrivateIpAddressesVM(ctx context.Context, subnetID, inter
 		appSecurityGroups = ipConfigs[0].Properties.ApplicationSecurityGroups
 	}
 
-	ipConfigurations := make([]*armnetwork.InterfaceIPConfiguration, 0, addresses)
-	for range addresses {
-		ipConfigurations = append(ipConfigurations, &armnetwork.InterfaceIPConfiguration{
-			Name: new(generateIpConfigName()),
-			Properties: &armnetwork.InterfaceIPConfigurationPropertiesFormat{
-				ApplicationSecurityGroups: appSecurityGroups,
-				PrivateIPAllocationMethod: new(armnetwork.IPAllocationMethodDynamic),
-				Subnet: &armnetwork.Subnet{
-					ID: new(subnetID),
-				},
-			},
-		})
+	ipConfigurations := make([]*armnetwork.InterfaceIPConfiguration, 0, count)
+	for range count {
+		ipConfigurations = append(ipConfigurations, newInterfaceIPConfiguration(subnetID, appSecurityGroups, prefixLength))
 	}
 
 	ipConfigurations = append(iface.Properties.IPConfigurations, ipConfigurations...)

@@ -468,6 +468,17 @@ When using static public IP allocation with Public IP Prefixes, add:
    Microsoft.Network/publicIPPrefixes/join/action
    Microsoft.Compute/virtualMachines/read
 
+When using IP prefix delegation (``--azure-enable-prefix-delegation``), adding
+the following is recommended:
+
+.. code-block:: text
+
+   Microsoft.Network/virtualNetworks/usages/read
+
+It lets the operator read how many addresses are left in each subnet. Without
+it, the operator estimates this from the number of IP configurations in the
+subnet, which overstates it by 15 addresses for each prefix.
+
 .. note::
 
    ``Microsoft.Compute/virtualMachineScaleSets/virtualMachines/write`` is a

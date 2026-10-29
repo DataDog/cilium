@@ -244,6 +244,10 @@
      - Enable installation of PodCIDR routes between worker nodes if worker nodes share a common L2 network segment.
      - bool
      - ``false``
+   * - :spelling:ignore:`azure.enablePrefixDelegation`
+     - Enable Azure IP prefix delegation
+     - bool
+     - ``false``
    * - :spelling:ignore:`azure.enabled`
      - Enable Azure integration. Note that this is incompatible with AKS clusters created in BYOCNI mode: use AKS BYOCNI integration (\ ``aksbyocni.enabled``\ ) instead.
      - bool
@@ -252,6 +256,10 @@
      - 
      - string
      - ``""``
+   * - :spelling:ignore:`azure.nodeSpec.disablePrefixDelegation`
+     - Disable prefix delegation for IP allocation
+     - bool
+     - ``false``
    * - :spelling:ignore:`bandwidthManager`
      - Enable bandwidth manager to optimize TCP and UDP workloads and allow for rate-limiting traffic from individual Pods with EDT (Earliest Departure Time) through the "kubernetes.io/egress-bandwidth" Pod annotation.
      - object
