@@ -34,6 +34,7 @@ func (n *NodeDiscovery) mutateAzureNodeResource(_ context.Context, nodeResource 
 	nodeResource.Spec.IPAM.PreAllocate = n.config.IPAMPreAllocate
 	nodeResource.Spec.IPAM.MaxAllocate = n.config.IPAMMaxAllocate
 	nodeResource.Spec.Azure.InterfaceName = n.config.AzureInterfaceName
+	nodeResource.Spec.Azure.DisablePrefixDelegation = new(n.config.AzureDisablePrefixDelegation)
 
 	if c := n.cniConfigManager.GetCustomNetConf(); c != nil {
 		if c.IPAM.MinAllocate != 0 {

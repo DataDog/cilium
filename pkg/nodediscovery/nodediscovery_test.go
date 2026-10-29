@@ -97,3 +97,24 @@ func TestUpdateCiliumNodeResourceTransientErrorCausesFatal(t *testing.T) {
 	require.Equal(t, maxRetryCount, updateCalls,
 		"transient errors should be retried %d times, not fataled immediately", maxRetryCount)
 }
+
+func TestMutateAzureNodeResourceAdvertisesPrefixDelegation(t *testing.T) {
+	for _, disable := range []bool{false, true} {
+		t.Run(fmt.Sprintf("disable=%t", disable), func(t *testing.T) {
+			nd := &NodeDiscovery{
+				logger:           hivetest.Logger(t),
+				cniConfigManager: &mockCNIConfigManager{},
+				daemonConfig:     &option.DaemonConfig{EnableIPv4: true},
+				config:           config{AzureDisablePrefixDelegation: disable},
+			}
+			ln := &node.LocalNode{
+				Local: &node.LocalNodeInfo{ProviderID: "azure:///subscriptions/xxx/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm1"},
+			}
+
+			nodeResource := &ciliumv2.CiliumNode{}
+			require.NoError(t, nd.mutateAzureNodeResource(t.Context(), nodeResource, ln))
+			require.NotNil(t, nodeResource.Spec.Azure.DisablePrefixDelegation)
+			require.Equal(t, disable, *nodeResource.Spec.Azure.DisablePrefixDelegation)
+		})
+	}
+}

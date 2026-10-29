@@ -49,7 +49,8 @@ var defaultConfig = config{
 	ENIDisablePrefixDelegation: defaults.ENIDisableNodeLevelPD,
 	ENIDeleteOnTermination:     defaults.ENIDeleteOnTermination,
 
-	AzureInterfaceName: "",
+	AzureInterfaceName:           "",
+	AzureDisablePrefixDelegation: false,
 
 	AlibabaCloudVSwitches:         []string{},
 	AlibabaCloudVSwitchTags:       map[string]string{},
@@ -73,7 +74,8 @@ type config struct {
 	ENIDisablePrefixDelegation bool
 	ENIDeleteOnTermination     bool
 
-	AzureInterfaceName string
+	AzureInterfaceName           string
+	AzureDisablePrefixDelegation bool
 
 	AlibabaCloudVSwitches         []string
 	AlibabaCloudVSwitchTags       map[string]string
@@ -98,6 +100,7 @@ func (c config) Flags(flags *pflag.FlagSet) {
 	flags.Bool("eni-delete-on-termination", c.ENIDeleteOnTermination, "Whether the ENI should be deleted when the associated instance is terminated at the node level")
 
 	flags.String("azure-interface-name", c.AzureInterfaceName, "InterfaceName the cilium-operator will use to allocate all the IPs on at the node level")
+	flags.Bool("azure-disable-prefix-delegation", c.AzureDisablePrefixDelegation, "Whether Azure IP prefix delegation should be disabled on this node at the node level")
 
 	flags.StringSlice("alibabacloud-vswitches", c.AlibabaCloudVSwitches, "List of VSwitches to use for ENI and IP allocation at the node level")
 	flags.StringToString("alibabacloud-vswitch-tags", c.AlibabaCloudVSwitchTags, "List of tags to use when evaluating what VSwitches to use for ENI and IP allocation at the node level")

@@ -20,6 +20,8 @@ func allocationResult(
 	for _, iface := range interfaces {
 		if !slices.ContainsFunc(iface.Addresses, func(address azureTypes.AzureAddress) bool {
 			return address.State == azureTypes.StateSucceeded && address.IP.Addr == allocatedAddr
+		}) && !slices.ContainsFunc(iface.UsablePrefixes(), func(prefix netip.Prefix) bool {
+			return prefix.Contains(allocatedAddr)
 		}) {
 			continue
 		}

@@ -20,6 +20,7 @@ cilium-agent hive [flags]
       --alibabacloud-vswitch-tags stringToString                  List of tags to use when evaluating what VSwitches to use for ENI and IP allocation at the node level (default [])
       --alibabacloud-vswitches strings                            List of VSwitches to use for ENI and IP allocation at the node level
       --api-rate-limit string                                     API rate limiting configuration (example: --api-rate-limit endpoint-create=rate-limit:10/m,rate-burst:2)
+      --azure-disable-prefix-delegation                           Whether Azure IP prefix delegation should be disabled on this node at the node level
       --azure-interface-name string                               InterfaceName the cilium-operator will use to allocate all the IPs on at the node level
       --bgp-router-id-allocation-ip-pool string                   IP pool to allocate the BGP router-id from when the mode is 'ip-pool'
       --bgp-router-id-allocation-mode string                      BGP router-id allocation mode. Currently supported values: 'default' or 'ip-pool' (default "default")

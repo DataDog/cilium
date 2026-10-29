@@ -39,6 +39,11 @@ func TestAllocationResult(t *testing.T) {
 				{IP: iputil.AddrFrom(netip.MustParseAddr("10.20.1.5")), State: azureTypes.StateSucceeded},
 				{IP: iputil.AddrFrom(netip.MustParseAddr("10.20.1.6")), State: "updating"},
 			},
+			Prefixes: []azureTypes.AzurePrefix{
+				{CIDR: iputil.PrefixFrom(netip.MustParsePrefix("10.20.1.16/28")), State: azureTypes.StateSucceeded},
+				{CIDR: iputil.PrefixFrom(netip.MustParsePrefix("10.20.1.32/28")), State: "updating"},
+				{CIDR: iputil.PrefixFrom(netip.MustParsePrefix("10.20.1.48/28")), State: "failed"},
+			},
 		},
 	}
 
@@ -54,6 +59,19 @@ func TestAllocationResult(t *testing.T) {
 	require.Equal(t, mac.MustParseMAC("00:00:5e:00:53:02"), result.PrimaryMAC)
 	require.Equal(t, netip.MustParseAddr("10.20.1.1"), result.GatewayIP)
 	require.Equal(t, "0", result.InterfaceNumber)
+
+	for _, addr := range []string{"10.20.1.16", "10.20.1.23", "10.20.1.31"} {
+		result, err := allocationResult(netip.MustParseAddr(addr), pool, interfaces)
+		require.NoError(t, err)
+		require.Equal(t, netip.MustParseAddr(addr), result.IP)
+		require.Equal(t, mac.MustParseMAC("00:00:5e:00:53:02"), result.PrimaryMAC)
+		require.Equal(t, netip.MustParseAddr("10.20.1.1"), result.GatewayIP)
+	}
+
+	for _, addr := range []string{"10.20.1.33", "10.20.1.50"} {
+		_, err = allocationResult(netip.MustParseAddr(addr), pool, interfaces)
+		require.ErrorContains(t, err, "unable to find Azure interface for IP "+addr)
+	}
 
 	_, err = allocationResult(
 		netip.MustParseAddr("10.20.1.6"),

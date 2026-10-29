@@ -4,12 +4,7 @@
 package agent
 
 import (
-	"net/netip"
-	"slices"
-
-	azureTypes "github.com/cilium/cilium/pkg/azure/types"
 	"github.com/cilium/cilium/pkg/defaults"
-	iputil "github.com/cilium/cilium/pkg/ip"
 	"github.com/cilium/cilium/pkg/ipam"
 	ipamTypes "github.com/cilium/cilium/pkg/ipam/types"
 	ciliumv2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
@@ -26,29 +21,12 @@ var poolAccessor = ipam.PoolSpecAccessors{
 			return pools
 		}
 
-		var cidrs []iputil.Prefix
-		for _, iface := range node.Status.Azure.Interfaces {
-			for _, address := range iface.Addresses {
-				if address.State != azureTypes.StateSucceeded || !address.IP.IsValid() {
-					continue
-				}
-				prefix := netip.PrefixFrom(address.IP.Addr, address.IP.BitLen())
-				cidrs = append(cidrs, iputil.PrefixFrom(prefix))
-			}
-		}
-
-		slices.SortFunc(cidrs, func(a, b iputil.Prefix) int {
-			if c := a.Addr().Compare(b.Addr()); c != 0 {
-				return c
-			}
-			return a.Bits() - b.Bits()
-		})
 		pools.Allocated = []ipamTypes.IPAMPoolAllocation{
 			{
 				Pool:         defaults.IPAMDefaultIPPool,
 				AllowFirstIP: true,
 				AllowLastIP:  true,
-				CIDRs:        cidrs,
+				CIDRs:        node.Status.Azure.PoolCIDRs(),
 			},
 		}
 

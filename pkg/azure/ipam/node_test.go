@@ -25,6 +25,18 @@ import (
 func TestGetMaximumAllocatableIPv4(t *testing.T) {
 	n := &Node{}
 	require.Equal(t, types.InterfaceAddressLimit, n.GetMaximumAllocatableIPv4())
+
+	iface := withCapacityTestPrefixes(newCapacityTestInterface(
+		"eth0", fmt.Sprintf(statusTestIDFormat, "nic1"), "10.0.0.4", "10.0.0.5",
+	), types.StateSucceeded, capacityTestPrefixes("10.0.1.0/28", 20)...)
+	n = newCapacityTestNodeWithSpec(t, []*types.AzureInterface{iface}, false, types.AzureSpec{DisablePrefixDelegation: new(false)})
+	require.Equal(t, 1+20*types.PrefixSizeIPv4+256-22, n.GetMaximumAllocatableIPv4())
+
+	full := newCapacityTestInterface("eth0", fmt.Sprintf(statusTestIDFormat, "nic1"), "10.0.0.4",
+		capacityTestAddresses("10.0.0.4", 255)...)
+	empty := newCapacityTestInterface("eth1", fmt.Sprintf(statusTestIDFormat, "nic2"), "10.0.2.4")
+	n = newCapacityTestNode(t, []*types.AzureInterface{full, empty}, false)
+	require.Equal(t, 255, n.GetMaximumAllocatableIPv4())
 }
 
 const statusTestIDFormat = "/subscriptions/xxx/resourceGroups/g1/providers/Microsoft.Compute/virtualMachineScaleSets/vmss1/virtualMachines/0/networkInterfaces/%s"
@@ -41,6 +53,11 @@ func newStatusTestInterfaces() []*types.AzureInterface {
 				{IP: iputil.AddrFrom(netip.MustParseAddr("10.0.0.2")), State: types.StateSucceeded},
 				{IP: iputil.AddrFrom(netip.MustParseAddr("10.0.0.1")), State: types.StateSucceeded},
 				{IP: iputil.AddrFrom(netip.MustParseAddr("10.0.0.3")), State: types.StateSucceeded},
+			},
+			Prefixes: []types.AzurePrefix{
+				{CIDR: iputil.PrefixFrom(netip.MustParsePrefix("10.0.1.32/28")), State: types.StateSucceeded},
+				{CIDR: iputil.PrefixFrom(netip.MustParsePrefix("10.0.1.0/28")), State: types.StateSucceeded},
+				{CIDR: iputil.PrefixFrom(netip.MustParsePrefix("10.0.1.16/28")), State: types.StateSucceeded},
 			},
 		})
 	}
@@ -89,6 +106,12 @@ func TestPopulateStatusFieldsDeterministicOrder(t *testing.T) {
 				addrs = append(addrs, addr.IP.String())
 			}
 			require.Equal(t, []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"}, addrs, "iteration %d", i)
+
+			prefixes := make([]string, 0, len(iface.Prefixes))
+			for _, prefix := range iface.Prefixes {
+				prefixes = append(prefixes, prefix.CIDR.String())
+			}
+			require.Equal(t, []string{"10.0.1.0/28", "10.0.1.16/28", "10.0.1.32/28"}, prefixes, "iteration %d", i)
 		}
 		require.Equal(t, wantIDs, ids, "iteration %d", i)
 

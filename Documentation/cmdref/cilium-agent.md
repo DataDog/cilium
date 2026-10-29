@@ -27,6 +27,7 @@ cilium-agent [flags]
       --api-rate-limit string                                     API rate limiting configuration (example: --api-rate-limit endpoint-create=rate-limit:10/m,rate-burst:2)
       --auto-create-cilium-node-resource                          Automatically create CiliumNode resource for own node on startup (default true)
       --auto-direct-node-routes                                   Enable automatic L2 routing between nodes
+      --azure-disable-prefix-delegation                           Whether Azure IP prefix delegation should be disabled on this node at the node level
       --azure-interface-name string                               InterfaceName the cilium-operator will use to allocate all the IPs on at the node level
       --bgp-router-id-allocation-ip-pool string                   IP pool to allocate the BGP router-id from when the mode is 'ip-pool'
       --bgp-router-id-allocation-mode string                      BGP router-id allocation mode. Currently supported values: 'default' or 'ip-pool' (default "default")

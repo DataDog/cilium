@@ -56,6 +56,9 @@ func TestAzureInterfaceJSONRoundTrip(t *testing.T) {
 			{IP: iputil.AddrFrom(netip.MustParseAddr("10.0.0.2")), State: "succeeded"},
 			{IP: iputil.AddrFrom(netip.MustParseAddr("10.0.0.3")), State: "succeeded"},
 		},
+		Prefixes: []types.AzurePrefix{
+			{CIDR: iputil.PrefixFrom(netip.MustParsePrefix("10.0.0.16/28")), State: "succeeded"},
+		},
 		Subnet:  types.AzureSubnet{ID: "s-1", CIDR: iputil.PrefixFrom(netip.MustParsePrefix("10.0.0.0/24"))},
 		Gateway: iputil.AddrFrom(netip.MustParseAddr("10.0.0.1")),
 	}
@@ -73,6 +76,60 @@ func TestAzureInterfaceJSONRoundTrip(t *testing.T) {
 	reordered := roundTripped.DeepCopy()
 	reordered.Addresses[0], reordered.Addresses[1] = reordered.Addresses[1], reordered.Addresses[0]
 	require.False(t, base.DeepEqual(reordered))
+}
+
+func TestUsablePrefixes(t *testing.T) {
+	iface := &types.AzureInterface{
+		Prefixes: []types.AzurePrefix{
+			{CIDR: iputil.PrefixFrom(netip.MustParsePrefix("10.0.0.32/28")), State: types.StateSucceeded},
+			{CIDR: iputil.PrefixFrom(netip.MustParsePrefix("10.0.0.48/28")), State: types.StateUpdating},
+			{CIDR: iputil.PrefixFrom(netip.MustParsePrefix("10.0.0.64/28")), State: "failed"},
+			{CIDR: iputil.PrefixFrom(netip.MustParsePrefix("10.0.0.80/28"))},
+			{CIDR: iputil.PrefixFrom(netip.MustParsePrefix("2001:db8::/124")), State: types.StateSucceeded},
+			{State: types.StateSucceeded},
+			{CIDR: iputil.PrefixFrom(netip.MustParsePrefix("10.0.0.16/28")), State: types.StateSucceeded},
+		},
+	}
+
+	require.Equal(t, []netip.Prefix{
+		netip.MustParsePrefix("10.0.0.32/28"),
+		netip.MustParsePrefix("10.0.0.16/28"),
+	}, iface.UsablePrefixes())
+	require.Empty(t, (&types.AzureInterface{}).UsablePrefixes())
+}
+
+func TestPoolCIDRs(t *testing.T) {
+	status := &types.AzureStatus{
+		Interfaces: []types.AzureInterface{
+			{
+				Addresses: []types.AzureAddress{
+					{IP: iputil.AddrFrom(netip.MustParseAddr("10.0.0.20")), State: types.StateSucceeded},
+					{IP: iputil.AddrFrom(netip.MustParseAddr("10.0.0.3")), State: types.StateUpdating},
+					{IP: iputil.AddrFrom(netip.MustParseAddr("10.0.0.2")), State: types.StateSucceeded},
+					{State: types.StateSucceeded},
+				},
+				Prefixes: []types.AzurePrefix{
+					{CIDR: iputil.PrefixFrom(netip.MustParsePrefix("10.0.0.48/28")), State: types.StateSucceeded},
+					{CIDR: iputil.PrefixFrom(netip.MustParsePrefix("10.0.0.64/28")), State: types.StateUpdating},
+				},
+			},
+			{
+				Addresses: []types.AzureAddress{
+					{IP: iputil.AddrFrom(netip.MustParseAddr("10.0.1.5")), State: types.StateSucceeded},
+				},
+				Prefixes: []types.AzurePrefix{
+					{CIDR: iputil.PrefixFrom(netip.MustParsePrefix("10.0.0.32/28")), State: types.StateSucceeded},
+				},
+			},
+		},
+	}
+
+	var got []string
+	for _, cidr := range status.PoolCIDRs() {
+		got = append(got, cidr.String())
+	}
+	require.Equal(t, []string{"10.0.0.2/32", "10.0.0.20/32", "10.0.0.32/28", "10.0.0.48/28", "10.0.1.5/32"}, got)
+	require.Empty(t, (&types.AzureStatus{}).PoolCIDRs())
 }
 
 func TestExtractIDs(t *testing.T) {

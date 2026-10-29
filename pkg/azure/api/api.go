@@ -372,7 +372,7 @@ func parseInterface(logger *slog.Logger, iface *armnetwork.Interface, subnets ip
 				}
 			}
 
-			parsedIP, err := netip.ParseAddr(*ip.Properties.PrivateIPAddress)
+			cidr, err := ipConfigCIDR(ip.Properties.PrivateIPAddress, ip.Properties.PrivateIPAddressPrefixLength)
 			if err != nil {
 				logger.Warn(
 					"Ignoring IP configuration with unparseable PrivateIPAddress",
@@ -382,7 +382,28 @@ func parseInterface(logger *slog.Logger, iface *armnetwork.Interface, subnets ip
 				)
 				continue
 			}
+			state := ""
+			if ip.Properties.ProvisioningState != nil {
+				state = strings.ToLower(string(*ip.Properties.ProvisioningState))
+			}
 			isPrimary := ip.Properties.Primary != nil && *ip.Properties.Primary
+			if !cidr.IsSingleIP() {
+				if isPrimary {
+					logger.Warn(
+						"Ignoring primary IP configuration with a prefix",
+						logfields.CIDR, cidr,
+						logfields.Interface, i.ID,
+					)
+					continue
+				}
+				i.Prefixes = append(i.Prefixes, types.AzurePrefix{
+					CIDR:  iputil.PrefixFrom(cidr),
+					State: state,
+				})
+				continue
+			}
+
+			parsedIP := cidr.Addr()
 			if isPrimary {
 				i.IP = iputil.AddrFrom(parsedIP)
 				if !usePrimary {
@@ -392,13 +413,51 @@ func parseInterface(logger *slog.Logger, iface *armnetwork.Interface, subnets ip
 
 			addr := types.AzureAddress{
 				IP:    iputil.AddrFrom(parsedIP),
-				State: strings.ToLower(string(*ip.Properties.ProvisioningState)),
+				State: state,
 			}
 			i.Addresses = append(i.Addresses, addr)
 		}
 	}
 
 	return
+}
+
+// ipConfigCIDR returns the private address or prefix of an IP configuration,
+// as a host prefix for single addresses.
+func ipConfigCIDR(address *string, prefixLength *int32) (netip.Prefix, error) {
+	if address == nil {
+		return netip.Prefix{}, errors.New("no private IP address")
+	}
+
+	var prefix netip.Prefix
+	if strings.Contains(*address, "/") {
+		p, err := netip.ParsePrefix(*address)
+		if err != nil {
+			return netip.Prefix{}, err
+		}
+		if prefixLength != nil && int(*prefixLength) != p.Bits() {
+			return netip.Prefix{}, fmt.Errorf("prefix length %d does not match %s", *prefixLength, p)
+		}
+		prefix = p
+	} else {
+		addr, err := netip.ParseAddr(*address)
+		if err != nil {
+			return netip.Prefix{}, err
+		}
+		bits := addr.BitLen()
+		if prefixLength != nil {
+			bits = int(*prefixLength)
+		}
+		prefix = netip.PrefixFrom(addr, bits)
+		if !prefix.IsValid() {
+			return netip.Prefix{}, fmt.Errorf("invalid prefix length %d for %s", bits, addr)
+		}
+	}
+
+	if prefix != prefix.Masked() {
+		return netip.Prefix{}, fmt.Errorf("%s is not a network address", prefix)
+	}
+	return prefix, nil
 }
 
 // deriveGatewayIP finds the default gateway for a given Azure subnet.

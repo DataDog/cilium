@@ -187,6 +187,98 @@ func TestParseInterface(t *testing.T) {
 	}
 }
 
+func TestIPConfigCIDR(t *testing.T) {
+	tests := []struct {
+		name         string
+		address      *string
+		prefixLength *int32
+		expected     netip.Prefix
+		wantErr      bool
+	}{
+		{name: "bare address", address: new("10.0.0.5"), expected: netip.MustParsePrefix("10.0.0.5/32")},
+		{name: "bare IPv6 address", address: new("2001:db8::5"), expected: netip.MustParsePrefix("2001:db8::5/128")},
+		{name: "CIDR without length", address: new("10.0.0.16/28"), expected: netip.MustParsePrefix("10.0.0.16/28")},
+		{name: "CIDR with matching length", address: new("10.0.0.16/28"), prefixLength: new(int32(28)), expected: netip.MustParsePrefix("10.0.0.16/28")},
+		{name: "address with length", address: new("10.0.0.16"), prefixLength: new(int32(28)), expected: netip.MustParsePrefix("10.0.0.16/28")},
+		{name: "host CIDR", address: new("10.0.0.5/32"), expected: netip.MustParsePrefix("10.0.0.5/32")},
+		{name: "address with host length", address: new("10.0.0.5"), prefixLength: new(int32(32)), expected: netip.MustParsePrefix("10.0.0.5/32")},
+		{name: "IPv6 CIDR", address: new("2001:db8::/124"), prefixLength: new(int32(124)), expected: netip.MustParsePrefix("2001:db8::/124")},
+		{name: "IPv6 address with length", address: new("2001:db8::"), prefixLength: new(int32(124)), expected: netip.MustParsePrefix("2001:db8::/124")},
+		{name: "negative length", address: new("10.0.0.16"), prefixLength: new(int32(-1)), wantErr: true},
+		{name: "mismatched length", address: new("10.0.0.16/28"), prefixLength: new(int32(27)), wantErr: true},
+		{name: "CIDR not masked", address: new("10.0.0.17/28"), wantErr: true},
+		{name: "address with length not masked", address: new("10.0.0.17"), prefixLength: new(int32(28)), wantErr: true},
+		{name: "length out of range", address: new("10.0.0.16"), prefixLength: new(int32(33)), wantErr: true},
+		{name: "nil", wantErr: true},
+		{name: "garbage", address: new("not-an-ip"), wantErr: true},
+		{name: "garbage CIDR", address: new("10.0.0.0/abc"), wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ipConfigCIDR(tt.address, tt.prefixLength)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, got)
+		})
+	}
+}
+
+func TestParseInterfacePrefixes(t *testing.T) {
+	ifaceID := "/subscriptions/xxx/resourceGroups/rg/providers/Microsoft.Network/networkInterfaces/nic1"
+	ipConfig := func(address string, primary bool, state *armnetwork.ProvisioningState) *armnetwork.InterfaceIPConfiguration {
+		return &armnetwork.InterfaceIPConfiguration{
+			Properties: &armnetwork.InterfaceIPConfigurationPropertiesFormat{
+				PrivateIPAddress:  new(address),
+				Primary:           new(primary),
+				ProvisioningState: state,
+			},
+		}
+	}
+	succeeded := new(armnetwork.ProvisioningStateSucceeded)
+	iface := &armnetwork.Interface{
+		ID: new(ifaceID),
+		Properties: &armnetwork.InterfacePropertiesFormat{
+			IPConfigurations: []*armnetwork.InterfaceIPConfiguration{
+				ipConfig("10.0.0.4", true, succeeded),
+				ipConfig("10.0.0.5", false, succeeded),
+				ipConfig("10.0.0.16/28", false, succeeded),
+				ipConfig("10.0.0.32/28", false, new(armnetwork.ProvisioningStateFailed)),
+				ipConfig("10.0.0.48/28", false, nil),
+				ipConfig("10.0.0.6", false, nil),
+			},
+		},
+	}
+
+	_, got := parseInterface(hivetest.Logger(t), iface, nil, false)
+	require.Equal(t, iputil.AddrFrom(netip.MustParseAddr("10.0.0.4")), got.IP)
+	require.Equal(t, []types.AzureAddress{
+		{IP: iputil.AddrFrom(netip.MustParseAddr("10.0.0.5")), State: types.StateSucceeded},
+		{IP: iputil.AddrFrom(netip.MustParseAddr("10.0.0.6"))},
+	}, got.Addresses)
+	require.Equal(t, []types.AzurePrefix{
+		{CIDR: iputil.PrefixFrom(netip.MustParsePrefix("10.0.0.16/28")), State: types.StateSucceeded},
+		{CIDR: iputil.PrefixFrom(netip.MustParsePrefix("10.0.0.32/28")), State: "failed"},
+		{CIDR: iputil.PrefixFrom(netip.MustParsePrefix("10.0.0.48/28"))},
+	}, got.Prefixes)
+
+	primaryPrefix := &armnetwork.Interface{
+		ID: new(ifaceID),
+		Properties: &armnetwork.InterfacePropertiesFormat{
+			IPConfigurations: []*armnetwork.InterfaceIPConfiguration{
+				ipConfig("10.0.0.16/28", true, succeeded),
+			},
+		},
+	}
+	_, got = parseInterface(hivetest.Logger(t), primaryPrefix, nil, true)
+	require.False(t, got.IP.IsValid())
+	require.Empty(t, got.Addresses)
+	require.Empty(t, got.Prefixes)
+}
+
 // newInterfaceWithMAC builds an armnetwork.Interface attached to the given VM,
 // with macAddress reported by the Azure API verbatim (empty means the API
 // returned no MAC, as happens while the interface is still provisioning).

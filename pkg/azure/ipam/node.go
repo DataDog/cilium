@@ -52,6 +52,13 @@ func (n *Node) requiredInterfaceName() string {
 	return n.k8sObj.Spec.Azure.InterfaceName
 }
 
+// agentUsesPrefixes reports whether the node's agent consumes prefixes.
+func (n *Node) agentUsesPrefixes() bool {
+	n.mutex.RLock()
+	defer n.mutex.RUnlock()
+	return n.k8sObj != nil && n.k8sObj.Spec.Azure.DisablePrefixDelegation != nil
+}
+
 func (n *Node) getVMSS() string {
 	n.mutex.RLock()
 	defer n.mutex.RUnlock()
@@ -97,6 +104,9 @@ func (n *Node) PopulateStatusFields(k8sObj *v2.CiliumNode) {
 	for i := range interfaces {
 		slices.SortFunc(interfaces[i].Addresses, func(a, b types.AzureAddress) int {
 			return a.IP.Addr.Compare(b.IP.Addr)
+		})
+		slices.SortFunc(interfaces[i].Prefixes, func(a, b types.AzurePrefix) int {
+			return a.CIDR.Addr().Compare(b.CIDR.Addr())
 		})
 	}
 	k8sObj.Status.Azure.Interfaces = interfaces
@@ -222,9 +232,6 @@ func (n *Node) ResyncInterfacesAndIPs(ctx context.Context, scopedLog *slog.Logge
 	defer n.manager.mutex.RUnlock()
 	usePrimary := n.manager.usePrimary
 
-	// Azure caps both NICs and VMs at 256 addresses; start from that ceiling
-	// and decrement per NIC below for any primary slot we can't allocate.
-	nodeCapacity := types.InterfaceAddressLimit
 	requiredIfaceName := n.requiredInterfaceName()
 	err = n.manager.instances.ForeachInterface(n.instanceID, func(instanceID, interfaceID string, interfaceObj ipamTypes.Interface) error {
 		iface, ok := interfaceObj.(*types.AzureInterface)
@@ -247,12 +254,6 @@ func (n *Node) ResyncInterfacesAndIPs(ctx context.Context, scopedLog *slog.Logge
 		// Cache the VMSS name from the first interface we see
 		n.cacheVMSS(iface.GetVMScaleSetName())
 
-		// The primary IP still consumes a NIC slot even when it is not
-		// allocatable; reserve it from the VM-wide budget.
-		if !usePrimary && iface.IP.IsValid() {
-			nodeCapacity--
-		}
-
 		if _, isAvailable := isAvailableInterface(requiredIfaceName, iface, usePrimary, scopedLog); isAvailable {
 			stats.RemainingAvailableInterfaceCount++
 		}
@@ -261,17 +262,49 @@ func (n *Node) ResyncInterfacesAndIPs(ctx context.Context, scopedLog *slog.Logge
 	if err != nil {
 		return nil, stats, err
 	}
-	stats.NodeCapacity = max(nodeCapacity, 0)
+	stats.NodeIPv4PrefixedAddresses, stats.NodeCapacity = n.capacityLocked(requiredIfaceName, usePrimary)
 
 	return available, stats, nil
+}
+
+// capacityLocked returns the number of addresses in usable prefixes and the
+// node capacity: the usable attached addresses plus the free slots on the
+// interfaces allocation may use. n.manager.mutex must be held.
+func (n *Node) capacityLocked(requiredIfaceName string, usePrimary bool) (prefixedAddresses, capacity int) {
+	usesPrefixes := n.agentUsesPrefixes()
+	n.manager.instances.ForeachInterface(n.instanceID, func(_, _ string, interfaceObj ipamTypes.Interface) error {
+		iface, ok := interfaceObj.(*types.AzureInterface)
+		if !ok {
+			return nil
+		}
+		for _, address := range iface.Addresses {
+			if address.State == types.StateSucceeded {
+				capacity++
+			}
+		}
+		if usesPrefixes {
+			prefixedAddresses += len(iface.UsablePrefixes()) * types.PrefixSizeIPv4
+		}
+		if matchesInterfaceName(requiredIfaceName, iface) {
+			capacity += freeSlots(iface, usePrimary)
+		}
+		return nil
+	})
+	return prefixedAddresses, capacity + prefixedAddresses
 }
 
 // GetMaximumAllocatableIPv4 returns the maximum amount of IPv4 addresses
 // that can be allocated to the instance
 func (n *Node) GetMaximumAllocatableIPv4() int {
-	// An Azure node can allocate up to 256 private IP addresses
-	// source: https://github.com/MicrosoftDocs/azure-docs/blob/master/includes/azure-virtual-network-limits.md#networking-limits---azure-resource-manager
-	return types.InterfaceAddressLimit
+	if n == nil || n.manager == nil {
+		return types.InterfaceAddressLimit
+	}
+
+	requiredIfaceName := n.requiredInterfaceName()
+	n.manager.mutex.RLock()
+	defer n.manager.mutex.RUnlock()
+	_, capacity := n.capacityLocked(requiredIfaceName, n.manager.usePrimary)
+	return capacity
 }
 
 // GetMinimumAllocatableIPv4 returns the minimum amount of IPv4 addresses that
@@ -308,6 +341,11 @@ func (n *Node) GetAttachedCIDRs() []netip.Prefix {
 		for _, address := range iface.Addresses {
 			if address.IP.IsValid() && address.IP.Addr.Is4() {
 				attached = append(attached, netip.PrefixFrom(address.IP.Addr, address.IP.Addr.BitLen()))
+			}
+		}
+		for _, prefix := range iface.Prefixes {
+			if prefix.CIDR.IsValid() && prefix.CIDR.Addr().Is4() {
+				attached = append(attached, prefix.CIDR.Prefix)
 			}
 		}
 		return nil
@@ -403,16 +441,25 @@ func isAvailableInterface(requiredIfaceName string, iface *types.AzureInterface,
 		logfields.NumAddresses, len(iface.Addresses),
 	)
 
-	// The 256-address NIC limit covers both the primary and any secondaries.
-	// When the primary is not exposed to the pool, its slot is consumed but
-	// not reflected in iface.Addresses, so reserve it here.
-	limit := types.InterfaceAddressLimit
-	if !usePrimary && iface.IP.IsValid() {
-		limit--
-	}
-	availableOnInterface = max(limit-len(iface.Addresses), 0)
+	availableOnInterface = freeSlots(iface, usePrimary)
 	if availableOnInterface <= 0 {
 		return 0, false
 	}
 	return availableOnInterface, true
+}
+
+// slotUsage counts the IP configuration slots used on the NIC: the primary
+// (whether or not it is exposed), secondary addresses and prefixes.
+func slotUsage(iface *types.AzureInterface, usePrimary bool) int {
+	used := len(iface.Addresses) + len(iface.Prefixes)
+	// An exposed primary is already in iface.Addresses.
+	if !usePrimary && iface.IP.IsValid() {
+		used++
+	}
+	return used
+}
+
+// freeSlots returns the IP configuration slots still free on the NIC.
+func freeSlots(iface *types.AzureInterface, usePrimary bool) int {
+	return max(types.InterfaceAddressLimit-slotUsage(iface, usePrimary), 0)
 }

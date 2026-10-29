@@ -4,6 +4,9 @@
 package types
 
 import (
+	"net/netip"
+	"slices"
+
 	iputil "github.com/cilium/cilium/pkg/ip"
 	"github.com/cilium/cilium/pkg/ipam/types"
 	"github.com/cilium/cilium/pkg/mac"
@@ -25,6 +28,13 @@ const (
 	StateSucceeded = "succeeded"
 
 	StateUpdating = "updating"
+
+	// PrefixLengthIPv4 is the length of the IPv4 prefixes assigned to
+	// interfaces
+	PrefixLengthIPv4 = 28
+
+	// PrefixSizeIPv4 is the number of addresses in an IPv4 prefix
+	PrefixSizeIPv4 = 1 << (32 - PrefixLengthIPv4)
 )
 
 // AzureSpec is the Azure specification of a node running via the Azure IPAM
@@ -40,6 +50,13 @@ type AzureSpec struct {
 	//
 	// +kubebuilder:validation:Optional
 	InterfaceName string `json:"interface-name,omitempty"`
+
+	// DisablePrefixDelegation determines whether the operator may assign IP
+	// prefixes to the node's interfaces. It is set by agents that can use
+	// prefixes; the operator assigns none to nodes where it is unset.
+	//
+	// +kubebuilder:validation:Optional
+	DisablePrefixDelegation *bool `json:"disable-prefix-delegation,omitempty"`
 }
 
 // AzureStatus is the status of Azure addressing of the node.
@@ -59,6 +76,19 @@ type AzureAddress struct {
 	IP iputil.Addr `json:"ip,omitzero"`
 
 	// State is the provisioning state of the address
+	State string `json:"state,omitempty"`
+}
+
+// AzurePrefix is an IP prefix assigned to an AzureInterface
+type AzurePrefix struct {
+	// CIDR is the IP prefix of a secondary IP configuration
+	//
+	// +optional
+	CIDR iputil.Prefix `json:"cidr,omitzero"`
+
+	// State is the provisioning state of the IP configuration
+	//
+	// +optional
 	State string `json:"state,omitempty"`
 }
 
@@ -116,6 +146,11 @@ type AzureInterface struct {
 	// +optional
 	Addresses []AzureAddress `json:"addresses,omitempty"`
 
+	// Prefixes is the list of IP prefixes associated with the interface
+	//
+	// +optional
+	Prefixes []AzurePrefix `json:"prefixes,omitempty"`
+
 	// SecurityGroup is the security group associated with the interface
 	SecurityGroup string `json:"security-group,omitempty"`
 
@@ -128,6 +163,44 @@ type AzureInterface struct {
 	//
 	// +optional
 	Gateway iputil.Addr `json:"gateway"`
+}
+
+// UsablePrefixes returns the succeeded IPv4 prefixes of the interface.
+func (a *AzureInterface) UsablePrefixes() []netip.Prefix {
+	var prefixes []netip.Prefix
+	for _, prefix := range a.Prefixes {
+		if prefix.State != StateSucceeded || !prefix.CIDR.IsValid() || !prefix.CIDR.Addr().Is4() {
+			continue
+		}
+		prefixes = append(prefixes, prefix.CIDR.Prefix)
+	}
+	return prefixes
+}
+
+// PoolCIDRs returns the CIDRs the agent serves from: succeeded secondary
+// addresses as host prefixes and succeeded prefixes.
+func (s *AzureStatus) PoolCIDRs() []iputil.Prefix {
+	var cidrs []iputil.Prefix
+	for _, iface := range s.Interfaces {
+		for _, address := range iface.Addresses {
+			if address.State != StateSucceeded || !address.IP.IsValid() {
+				continue
+			}
+			prefix := netip.PrefixFrom(address.IP.Addr, address.IP.BitLen())
+			cidrs = append(cidrs, iputil.PrefixFrom(prefix))
+		}
+		for _, prefix := range iface.UsablePrefixes() {
+			cidrs = append(cidrs, iputil.PrefixFrom(prefix))
+		}
+	}
+
+	slices.SortFunc(cidrs, func(a, b iputil.Prefix) int {
+		if c := a.Addr().Compare(b.Addr()); c != 0 {
+			return c
+		}
+		return a.Bits() - b.Bits()
+	})
+	return cidrs
 }
 
 func (a *AzureInterface) DeepCopyInterface() types.Interface {

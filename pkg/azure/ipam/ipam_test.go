@@ -397,6 +397,57 @@ func TestIpamPreAllocate8(t *testing.T) {
 	require.Equal(t, toUse, node.Stats().IPv4.UsedIPs)
 }
 
+// TestIpamPreAllocatePrefixes checks that only usable prefixes of an agent
+// that consumes them count towards the pre-allocation.
+func TestIpamPreAllocatePrefixes(t *testing.T) {
+	for _, tc := range []struct {
+		name                    string
+		prefixState             string
+		disablePrefixDelegation *bool
+		wantAvailable           int
+	}{
+		{name: "failed prefix", prefixState: "failed", disablePrefixDelegation: new(false), wantAvailable: 8},
+		{name: "succeeded prefix", prefixState: types.StateSucceeded, disablePrefixDelegation: new(false), wantAvailable: types.PrefixSizeIPv4},
+		{name: "succeeded prefix, agent without prefix support", prefixState: types.StateSucceeded, wantAvailable: 8},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			api := apimock.NewAPI([]*ipamTypes.Subnet{testSubnet})
+			instances := NewInstancesManager(hivetest.Logger(t), api, false)
+
+			m := ipamTypes.NewInstanceMap()
+			resource := &types.AzureInterface{
+				Name:          "eth0",
+				SecurityGroup: "sg1",
+				Subnet:        types.AzureSubnet{ID: "subnet-1"},
+				Prefixes: []types.AzurePrefix{
+					{CIDR: iputil.PrefixFrom(netip.MustParsePrefix("1.1.1.16/28")), State: tc.prefixState},
+				},
+				State: types.StateSucceeded,
+			}
+			resource.ID = "/subscriptions/xxx/resourceGroups/g1/providers/Microsoft.Compute/virtualMachineScaleSets/vmss11/virtualMachines/vm1/networkInterfaces/vmss11"
+			vm1ID := "/subscriptions/xxx/resourceGroups/g1/providers/Microsoft.Compute/virtualMachineScaleSets/vmss11/virtualMachines/vm1"
+			m.Update(vm1ID, resource.DeepCopy())
+			api.UpdateInstances(m)
+
+			_, err := instances.Resync(t.Context())
+			require.NoError(t, err)
+
+			k8sapi := newK8sMock()
+			mngr, err := nodemanager.NewNodeManager(hivetest.Logger(t), instances, k8sapi, metricsmock.NewMockMetrics(), 10, false, 0, false)
+			require.NoError(t, err)
+
+			cn := newCiliumNode("node1", vm1ID, 8, 0)
+			cn.Spec.Azure.DisablePrefixDelegation = tc.disablePrefixDelegation
+			mngr.Upsert(cn)
+			require.NoError(t, testutils.WaitUntil(func() bool { return reachedAddressesNeeded(mngr, "node1", 0) }, 5*time.Second))
+
+			node := mngr.Get("node1")
+			require.NotNil(t, node)
+			require.Equal(t, tc.wantAvailable, node.Stats().IPv4.AvailableIPs)
+		})
+	}
+}
+
 // TestIpamMinAllocate10 tests IPAM with pre-allocation=8, min-allocate=10
 func TestIpamMinAllocate10(t *testing.T) {
 	preAllocate := 8

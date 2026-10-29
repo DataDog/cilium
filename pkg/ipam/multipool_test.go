@@ -33,6 +33,7 @@ import (
 
 	"github.com/cilium/cilium/daemon/k8s"
 	"github.com/cilium/cilium/pkg/annotation"
+	azureTypes "github.com/cilium/cilium/pkg/azure/types"
 	"github.com/cilium/cilium/pkg/hive"
 	iputil "github.com/cilium/cilium/pkg/ip"
 	"github.com/cilium/cilium/pkg/ipam/podippool"
@@ -1744,4 +1745,151 @@ func TestMultiPoolManagerReinstatesOnlyGrantedCIDRs(t *testing.T) {
 			require.True(t, p1.Contains(result.IP))
 		})
 	}
+}
+
+var azurePrefixesTestAccessor = PoolSpecAccessors{
+	FromResource: func(node *ciliumv2.CiliumNode) types.IPAMPoolSpec {
+		pools := node.Spec.IPAM.Pools
+		if len(node.Status.Azure.Interfaces) == 0 {
+			return pools
+		}
+		pools.Allocated = []types.IPAMPoolAllocation{
+			{Pool: "default", AllowFirstIP: true, AllowLastIP: true, CIDRs: node.Status.Azure.PoolCIDRs()},
+		}
+		return pools
+	},
+	ToResource: MultiPoolAccessor.ToResource,
+	Authoritative: func(node *ciliumv2.CiliumNode) bool {
+		return len(node.Status.Azure.Interfaces) > 0
+	},
+}
+
+func newAzurePrefixesTestManager(t *testing.T, preAlloc int) (*MultiPoolManager, func() *ciliumv2.CiliumNode) {
+	logger := hivetest.Logger(t)
+	cs, _ := k8sClient.NewFakeClientset(logger)
+	var written *ciliumv2.CiliumNode
+	cs.CiliumFakeClientset.PrependReactor("update", "ciliumnodes", func(action k8sTesting.Action) (bool, runtime.Object, error) {
+		written = action.(k8sTesting.UpdateAction).GetObject().(*ciliumv2.CiliumNode).DeepCopy()
+		return true, written, nil
+	})
+
+	mgr := &MultiPoolManager{
+		logger:                 logger,
+		ipv4Enabled:            true,
+		pools:                  map[Pool]*poolPair{},
+		poolsUpdated:           make(chan struct{}, 1),
+		pendingIPsPerPool:      newPendingAllocationsPerPool(logger),
+		preallocatedIPsPerPool: preAllocatePerPool{},
+		linearPreAlloc:         true,
+		finishedRestore:        map[Family]bool{},
+		nodeSynced:             true,
+		cnClient:               cs.CiliumV2().CiliumNodes(),
+		k8sUpdater:             job.NewTrigger(),
+		poolsAccessor:          azurePrefixesTestAccessor,
+		localNodeUpdateFn:      func() {},
+		skipMasqueradeForPool: func(Pool) (bool, error) {
+			return false, nil
+		},
+	}
+	if preAlloc > 0 {
+		mgr.preallocatedIPsPerPool["default"] = preAlloc
+	}
+	return mgr, func() *ciliumv2.CiliumNode { return written }
+}
+
+func azurePrefixesTestNode(prefixes map[string]string) *ciliumv2.CiliumNode {
+	node := &ciliumv2.CiliumNode{ObjectMeta: metav1.ObjectMeta{Name: "test-node"}}
+	if prefixes == nil {
+		return node
+	}
+	iface := azureTypes.AzureInterface{ID: "nic1"}
+	for cidr, state := range prefixes {
+		iface.Prefixes = append(iface.Prefixes, azureTypes.AzurePrefix{
+			CIDR:  iputil.PrefixFrom(netip.MustParsePrefix(cidr)),
+			State: state,
+		})
+	}
+	node.Status.Azure.Interfaces = []azureTypes.AzureInterface{iface}
+	return node
+}
+
+func Test_MultiPoolManager_AzurePrefixes_Reinstate(t *testing.T) {
+	p := netip.MustParsePrefix("10.0.0.16/28")
+	mgr, _ := newAzurePrefixesTestManager(t, 0)
+
+	mgr.ciliumNodeUpdated(azurePrefixesTestNode(map[string]string{p.String(): azureTypes.StateSucceeded}))
+	result, err := mgr.AllocateNext("pod-0", "default", IPv4, false)
+	require.NoError(t, err)
+	require.True(t, p.Contains(result.IP))
+
+	mgr.ciliumNodeUpdated(azurePrefixesTestNode(map[string]string{p.String(): azureTypes.StateUpdating}))
+	mgr.ciliumNodeUpdated(azurePrefixesTestNode(map[string]string{p.String(): azureTypes.StateSucceeded}))
+	for i := range azureTypes.PrefixSizeIPv4 - 1 {
+		result, err := mgr.AllocateNext(fmt.Sprintf("pod-%d", i+1), "default", IPv4, false)
+		require.NoError(t, err)
+		require.True(t, p.Contains(result.IP))
+	}
+}
+
+func Test_MultiPoolManager_AzurePrefixes_Allocate(t *testing.T) {
+	succeeded := netip.MustParsePrefix("10.0.0.16/28")
+	failed := netip.MustParsePrefix("10.0.0.32/28")
+	mgr, _ := newAzurePrefixesTestManager(t, 0)
+
+	mgr.ciliumNodeUpdated(azurePrefixesTestNode(map[string]string{
+		succeeded.String(): azureTypes.StateSucceeded,
+		failed.String():    "failed",
+	}))
+	for i := range azureTypes.PrefixSizeIPv4 {
+		result, err := mgr.AllocateNext(fmt.Sprintf("pod-%d", i), "default", IPv4, false)
+		require.NoError(t, err)
+		require.True(t, succeeded.Contains(result.IP))
+	}
+	_, err := mgr.AllocateNext("pod-full", "default", IPv4, false)
+	require.Error(t, err)
+}
+
+func Test_MultiPoolManager_AzurePrefixes_Release(t *testing.T) {
+	p := netip.MustParsePrefix("10.0.0.16/28")
+	q := netip.MustParsePrefix("10.0.0.32/28")
+	mgr, written := newAzurePrefixesTestManager(t, 8)
+	status := azurePrefixesTestNode(map[string]string{
+		p.String(): azureTypes.StateSucceeded,
+		q.String(): azureTypes.StateSucceeded,
+	})
+
+	allocate := func(owner string, want netip.Prefix) {
+		t.Helper()
+		result, err := mgr.AllocateNext(owner, "default", IPv4, false)
+		require.NoError(t, err)
+		require.True(t, want.Contains(result.IP), "%s not in %s", result.IP, want)
+	}
+	allocated := func() []iputil.Prefix {
+		t.Helper()
+		node := written()
+		require.NotNil(t, node)
+		require.Len(t, node.Spec.IPAM.Pools.Allocated, 1)
+		return node.Spec.IPAM.Pools.Allocated[0].CIDRs
+	}
+
+	mgr.ciliumNodeUpdated(status)
+	for i := range 3 {
+		allocate(fmt.Sprintf("pod-%d", i), p)
+	}
+
+	mgr.RestoreFinished(IPv4)
+	require.NoError(t, mgr.updateLocalNode(t.Context()))
+	require.Equal(t, []iputil.Prefix{iputil.PrefixFrom(p)}, allocated())
+
+	mgr.ciliumNodeUpdated(status)
+	for i := range 9 {
+		allocate(fmt.Sprintf("pod-%d", i+3), p)
+	}
+	require.NoError(t, mgr.updateLocalNode(t.Context()))
+	require.Equal(t, []iputil.Prefix{iputil.PrefixFrom(p), iputil.PrefixFrom(q)}, allocated())
+
+	for i := range 4 {
+		allocate(fmt.Sprintf("pod-%d", i+12), p)
+	}
+	allocate("pod-16", q)
 }

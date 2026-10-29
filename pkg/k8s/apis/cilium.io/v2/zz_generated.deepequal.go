@@ -2494,7 +2494,7 @@ func (in *NodeSpec) DeepEqual(other *NodeSpec) bool {
 		return false
 	}
 
-	if in.Azure != other.Azure {
+	if !in.Azure.DeepEqual(&other.Azure) {
 		return false
 	}
 
