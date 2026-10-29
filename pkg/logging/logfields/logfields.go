@@ -1185,6 +1185,8 @@ const (
 
 	Retries = "retries"
 
+	Conflicts = "conflicts"
+
 	Gateway = "gateway"
 
 	GammaService = "gammaService"

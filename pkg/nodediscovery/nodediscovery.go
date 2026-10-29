@@ -11,10 +11,12 @@ import (
 
 	"github.com/cilium/hive/cell"
 	"github.com/cilium/stream"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/net"
 
 	"github.com/cilium/cilium/daemon/cmd/cni"
+	"github.com/cilium/cilium/pkg/backoff"
 	"github.com/cilium/cilium/pkg/controller"
 	"github.com/cilium/cilium/pkg/defaults"
 	iputil "github.com/cilium/cilium/pkg/ip"
@@ -35,8 +37,18 @@ import (
 )
 
 const (
+	// maxRetryCount is the number of non-conflict errors tolerated when
+	// creating or updating the CiliumNode resource before giving up.
 	maxRetryCount   = 10
 	backoffDuration = 500 * time.Millisecond
+
+	// maxConflictRetryCount bounds the number of optimistic concurrency
+	// conflicts tolerated when creating or updating the CiliumNode resource.
+	// With conflictBackoffMax, this allows for roughly a minute of sustained
+	// contention (e.g. with the operator) before giving up.
+	maxConflictRetryCount = 50
+	conflictBackoffMin    = 50 * time.Millisecond
+	conflictBackoffMax    = 2 * time.Second
 )
 
 var localNodeToKVStoreControllerGroup = controller.NewGroup("local-node-to-kv-store")
@@ -242,69 +254,118 @@ func (n *NodeDiscovery) updateCiliumNodeResource(ctx context.Context, ln *node.L
 		logfields.Node, nodeTypes.GetName(),
 	)
 
-	performGet := true
-	var nodeResource *ciliumv2.CiliumNode
-	var lastErr error
-	for retryCount := range maxRetryCount {
+	var (
+		nodeResource *ciliumv2.CiliumNode
+		lastErr      error
+		// bypassCache forces the CiliumNode to be fetched directly from the
+		// kube-apiserver rather than from the (possibly lagging) informer
+		// store. It is set after any failed attempt, so that a write
+		// conflict is never retried against the same stale resourceVersion.
+		bypassCache bool
+
+		failures  int
+		conflicts int
+	)
+
+	// Conflicts are expected while the operator concurrently populates the
+	// status and spec.ipam of a freshly started node. They are retried with
+	// a jittered exponential backoff and do not count against the budget
+	// reserved for other errors.
+	conflictBackoff := backoff.Exponential{
+		Logger: n.logger,
+		Name:   "ciliumnode-update-conflict",
+		Min:    conflictBackoffMin,
+		Max:    conflictBackoffMax,
+		Jitter: true,
+	}
+
+	for failures < maxRetryCount && conflicts < maxConflictRetryCount {
 		performUpdate := true
-		if performGet {
-			var err error
+
+		var err error
+		if bypassCache {
+			nodeResource, err = n.clientset.CiliumV2().CiliumNodes().Get(ctx, nodeTypes.GetName(), metav1.GetOptions{})
+		} else {
 			nodeResource, err = n.k8sGetters.GetCiliumNode(ctx, nodeTypes.GetName())
-			if err != nil {
-				n.logger.Info(
-					"Unable to get CiliumNode resource",
-					logfields.Error, err,
-					logfields.Retries, retryCount,
-				)
-				performUpdate = false
-				nodeResource = &ciliumv2.CiliumNode{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: nodeTypes.GetName(),
-					},
-				}
-			} else {
-				performGet = false
+		}
+		switch {
+		case err == nil:
+		case k8serrors.IsNotFound(err):
+			performUpdate = false
+			nodeResource = &ciliumv2.CiliumNode{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: nodeTypes.GetName(),
+				},
 			}
+		default:
+			lastErr = err
+			failures++
+			bypassCache = true
+			n.logger.Info(
+				"Unable to get CiliumNode resource, will retry",
+				logfields.Error, err,
+				logfields.Retries, failures,
+			)
+			time.Sleep(backoffDuration)
+			continue
 		}
 
 		if err := n.mutateNodeResource(ctx, nodeResource, ln); err != nil {
 			lastErr = err
+			failures++
 			n.logger.Warn(
 				"Unable to mutate nodeResource",
 				logfields.Error, err,
-				logfields.Retries, retryCount,
+				logfields.Retries, failures,
 			)
 			continue
 		}
 
-		// if we retry after this point, is due to a conflict. We will do
-		// a new GET  to ensure we have the latest information before
-		// updating.
-		performGet = true
 		if performUpdate {
-			if _, err := n.clientset.CiliumV2().CiliumNodes().Update(ctx, nodeResource, metav1.UpdateOptions{}); err != nil {
-				lastErr = err
-				n.logger.Info("Unable to update CiliumNode resource, will retry", logfields.Error, err)
-				// Backoff before retrying
-				time.Sleep(backoffDuration)
-				continue
-			} else {
-				return
-			}
+			_, err = n.clientset.CiliumV2().CiliumNodes().Update(ctx, nodeResource, metav1.UpdateOptions{})
 		} else {
-			if _, err := n.clientset.CiliumV2().CiliumNodes().Create(ctx, nodeResource, metav1.CreateOptions{}); err != nil {
-				lastErr = err
-				n.logger.Info("Unable to create CiliumNode resource, will retry", logfields.Error, err)
-				// Backoff before retrying
-				time.Sleep(backoffDuration)
-				continue
-			} else {
+			_, err = n.clientset.CiliumV2().CiliumNodes().Create(ctx, nodeResource, metav1.CreateOptions{})
+		}
+		if err == nil {
+			if !performUpdate {
 				n.logger.Info("Successfully created CiliumNode resource")
+			}
+			return
+		}
+
+		lastErr = err
+		bypassCache = true
+		// A Conflict on Update (stale resourceVersion) or AlreadyExists on
+		// Create (informer store not yet aware of the object) both mean that
+		// our view of the CiliumNode was outdated: re-read it and try again.
+		if k8serrors.IsConflict(err) || k8serrors.IsAlreadyExists(err) {
+			conflicts++
+			n.logger.Info("CiliumNode resource was modified concurrently, will retry",
+				logfields.Error, err,
+				logfields.Retries, conflicts,
+			)
+			if err := conflictBackoff.Wait(ctx); err != nil {
+				// The context was cancelled, i.e. we are shutting down.
+				n.logger.Info("Giving up creating or updating CiliumNode resource", logfields.Error, err)
 				return
 			}
+			continue
 		}
+
+		failures++
+		if performUpdate {
+			n.logger.Info("Unable to update CiliumNode resource, will retry", logfields.Error, err)
+		} else {
+			n.logger.Info("Unable to create CiliumNode resource, will retry", logfields.Error, err)
+		}
+		// Backoff before retrying
+		time.Sleep(backoffDuration)
 	}
-	logging.Fatal(n.logger, "Could not create or update CiliumNode resource", logfields.Error, lastErr, logfields.Retries, maxRetryCount)
+	logging.Fatal(n.logger, "Could not create or update CiliumNode resource",
+		logfields.Error, lastErr,
+		logfields.Retries, failures,
+		logfields.Conflicts, conflicts,
+	)
 }
 
 func (n *NodeDiscovery) mutateNodeResource(ctx context.Context, nodeResource *ciliumv2.CiliumNode, ln *node.LocalNode) error {
