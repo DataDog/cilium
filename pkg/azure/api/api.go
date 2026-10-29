@@ -929,23 +929,23 @@ func (c *Client) AssignPrivateIpAddressesVM(ctx context.Context, subnetID, inter
 	return nil
 }
 
-func removeInterfaceIPConfigurations(configs []*armnetwork.InterfaceIPConfiguration, addresses []netip.Addr) (kept []*armnetwork.InterfaceIPConfiguration, removed []string, err error) {
+func removeInterfaceIPConfigurations(configs []*armnetwork.InterfaceIPConfiguration, cidrs []netip.Prefix) (kept []*armnetwork.InterfaceIPConfiguration, removed []string, err error) {
 	kept = make([]*armnetwork.InterfaceIPConfiguration, 0, len(configs))
 	for _, config := range configs {
 		if config == nil || config.Properties == nil || config.Properties.PrivateIPAddress == nil {
 			kept = append(kept, config)
 			continue
 		}
-		addr, parseErr := netip.ParseAddr(*config.Properties.PrivateIPAddress)
-		if parseErr != nil || !slices.Contains(addresses, addr) {
+		cidr, parseErr := ipConfigCIDR(config.Properties.PrivateIPAddress, config.Properties.PrivateIPAddressPrefixLength)
+		if parseErr != nil || !slices.Contains(cidrs, cidr) {
 			kept = append(kept, config)
 			continue
 		}
 		if config.Properties.Primary != nil && *config.Properties.Primary {
-			return nil, nil, fmt.Errorf("refusing to release primary IP configuration with address %s", addr)
+			return nil, nil, fmt.Errorf("refusing to release primary IP configuration with address %s", cidr)
 		}
 		if config.Name == nil {
-			return nil, nil, fmt.Errorf("IP configuration with address %s has no name", addr)
+			return nil, nil, fmt.Errorf("IP configuration with address %s has no name", cidr)
 		}
 		removed = append(removed, *config.Name)
 	}
@@ -1069,7 +1069,7 @@ func (c *Client) pruneFailedInstance(vmssName, instanceID string, vm *armcompute
 	}
 }
 
-func (c *Client) UnassignPrivateIpAddressesVM(ctx context.Context, interfaceName string, addresses []netip.Addr) error {
+func (c *Client) UnassignPrivateIpAddressesVM(ctx context.Context, interfaceName string, cidrs []netip.Prefix) error {
 	c.limiter.Limit(ctx, interfacesGet)
 	sinceStart := spanstat.Start()
 
@@ -1083,7 +1083,7 @@ func (c *Client) UnassignPrivateIpAddressesVM(ctx context.Context, interfaceName
 		return fmt.Errorf("interface %s has no properties", interfaceName)
 	}
 
-	kept, removed, err := removeInterfaceIPConfigurations(iface.Properties.IPConfigurations, addresses)
+	kept, removed, err := removeInterfaceIPConfigurations(iface.Properties.IPConfigurations, cidrs)
 	if err != nil {
 		return fmt.Errorf("unable to release IP addresses from interface %s: %w", interfaceName, err)
 	}
@@ -1110,7 +1110,7 @@ func (c *Client) UnassignPrivateIpAddressesVM(ctx context.Context, interfaceName
 	return nil
 }
 
-func (c *Client) UnassignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, interfaceName string, addresses []netip.Addr) error {
+func (c *Client) UnassignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, interfaceName string, cidrs []netip.Prefix) error {
 	vmssGetOptions := &armcompute.VirtualMachineScaleSetVMsClientGetOptions{
 		Expand: new(armcompute.InstanceViewTypesInstanceView),
 	}
@@ -1141,7 +1141,7 @@ func (c *Client) UnassignPrivateIpAddressesVMSS(ctx context.Context, instanceID,
 		return fmt.Errorf("interface %s does not exist in VM %s", interfaceName, instanceID)
 	}
 
-	_, names, err := removeInterfaceIPConfigurations(nic.Properties.IPConfigurations, addresses)
+	_, names, err := removeInterfaceIPConfigurations(nic.Properties.IPConfigurations, cidrs)
 	if err != nil {
 		return fmt.Errorf("unable to release IP addresses from interface %s: %w", interfaceName, err)
 	}

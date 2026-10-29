@@ -6,6 +6,7 @@ package ipam
 import (
 	"fmt"
 	"net/netip"
+	"slices"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/cilium/cilium/operator/pkg/ipam/nodemanager"
 	apimock "github.com/cilium/cilium/pkg/azure/api/mock"
 	"github.com/cilium/cilium/pkg/azure/types"
+	"github.com/cilium/cilium/pkg/defaults"
 	iputil "github.com/cilium/cilium/pkg/ip"
 	ipamTypes "github.com/cilium/cilium/pkg/ipam/types"
 	"github.com/cilium/cilium/pkg/testutils"
@@ -266,9 +268,9 @@ func TestPrefixDelegationFallbackOnPrefixFreeInterface(t *testing.T) {
 
 	iface := f.iface(t, prefixTestIfaceID)
 	require.Empty(t, iface.Prefixes)
-	addrs := make([]netip.Addr, 0, len(iface.Addresses))
+	addrs := make([]netip.Prefix, 0, len(iface.Addresses))
 	for _, address := range iface.Addresses {
-		addrs = append(addrs, address.IP.Addr)
+		addrs = append(addrs, netip.PrefixFrom(address.IP.Addr, 32))
 	}
 	require.Len(t, addrs, 16)
 	require.NoError(t, f.api.UnassignPrivateIpAddressesVMSS(t.Context(), "vm1", "vmss11", "eth0", addrs))
@@ -408,4 +410,86 @@ func TestIsPrefixDelegatedWithQueuedWriter(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("deadlock with a queued writer")
 	}
+}
+
+func TestPrefixDelegationReleasesUnusedPrefix(t *testing.T) {
+	api := apimock.NewAPI([]*ipamTypes.Subnet{testSubnet})
+	m := ipamTypes.NewInstanceMap()
+	m.Update(prefixTestVMID, newPrefixTestInterface("eth0", prefixTestIfaceID, "1.1.0.4"))
+	api.UpdateInstances(m)
+	api.ReserveInstanceAddresses()
+	instances := NewInstancesManager(hivetest.Logger(t), api, false)
+	_, err := instances.Resync(t.Context())
+	require.NoError(t, err)
+
+	k8sapi := newK8sMock()
+	mngr, err := nodemanager.NewNodeManager(hivetest.Logger(t), instances, k8sapi, metricsmock.NewMockMetrics(), 10, true, 0, true)
+	require.NoError(t, err)
+
+	prefixes := func() []netip.Prefix {
+		nics, err := api.ListVMNetworkInterfaces(t.Context(), prefixTestVMID)
+		require.NoError(t, err)
+		iface := api.ParseInterfacesIntoInstance(nics, nil).Interfaces[prefixTestIfaceID].(*types.AzureInterface)
+		return iface.UsablePrefixes()
+	}
+	subnetFree := func() int {
+		subnets, err := api.GetSubnetsByIDs(t.Context(), []string{testSubnet.ID})
+		require.NoError(t, err)
+		return subnets[testSubnet.ID].AvailableAddresses
+	}
+
+	// The agent needs 17 addresses on top of the pre-allocation of 8.
+	cn := newCiliumNode("node1", prefixTestVMID, 8, 0)
+	cn.Spec.Azure.DisablePrefixDelegation = new(false)
+	cn.Spec.IPAM.Pools.Requested = []ipamTypes.IPAMPoolRequest{{
+		Pool:   defaults.IPAMDefaultIPPool,
+		Needed: ipamTypes.IPAMPoolDemand{IPv4Addrs: 25},
+	}}
+	mngr.Upsert(cn)
+	t.Cleanup(func() { mngr.Delete(cn) })
+	require.NoError(t, testutils.WaitUntil(func() bool { return len(prefixes()) == 2 }, 5*time.Second))
+	attached := prefixes()
+	slices.SortFunc(attached, func(a, b netip.Prefix) int { return a.Addr().Compare(b.Addr()) })
+	kept, released := attached[0], attached[1]
+	free := subnetFree()
+
+	// The operator only tracks a prefix for release once its cache has it.
+	node := mngr.Get("node1")
+	require.NotNil(t, node)
+	require.NoError(t, testutils.WaitUntil(func() bool {
+		return len(node.Ops().GetAttachedCIDRs()) == 2
+	}, 5*time.Second))
+
+	reported := cn.DeepCopy()
+	reported.Spec.IPAM.Pools.Allocated = []ipamTypes.IPAMPoolAllocation{{
+		Pool:  defaults.IPAMDefaultIPPool,
+		CIDRs: []iputil.Prefix{iputil.PrefixFrom(kept), iputil.PrefixFrom(released)},
+	}}
+	mngr.Upsert(reported)
+
+	// The agent now uses 1 address, from the first prefix, and stops
+	// reporting the second.
+	updated := reported.DeepCopy()
+	updated.Spec.IPAM.Pools.Requested[0].Needed.IPv4Addrs = 9
+	updated.Spec.IPAM.Pools.Allocated = []ipamTypes.IPAMPoolAllocation{{
+		Pool:  defaults.IPAMDefaultIPPool,
+		CIDRs: []iputil.Prefix{iputil.PrefixFrom(kept)},
+	}}
+	mngr.Upsert(updated)
+
+	require.NoError(t, testutils.WaitUntil(func() bool { return len(prefixes()) == 1 }, 5*time.Second))
+	require.Equal(t, []netip.Prefix{kept}, prefixes())
+	require.Equal(t, free+types.PrefixSizeIPv4, subnetFree())
+
+	require.NoError(t, testutils.WaitUntil(func() bool {
+		return !slices.Contains(node.Ops().GetAttachedCIDRs(), released)
+	}, 5*time.Second))
+	require.Equal(t, []netip.Prefix{kept}, node.Ops().GetAttachedCIDRs())
+
+	want := []types.AzurePrefix{{CIDR: iputil.PrefixFrom(kept), State: types.StateSucceeded}}
+	mngr.Resync(t.Context(), time.Now())
+	require.NoError(t, testutils.WaitUntil(func() bool {
+		cn := k8sapi.getLatestNode("node1")
+		return cn != nil && len(cn.Status.Azure.Interfaces) == 1 && slices.Equal(cn.Status.Azure.Interfaces[0].Prefixes, want)
+	}, 5*time.Second))
 }

@@ -588,6 +588,7 @@ func TestRemoveInterfaceIPConfigurations(t *testing.T) {
 	noName := &armnetwork.InterfaceIPConfiguration{
 		Properties: &armnetwork.InterfaceIPConfigurationPropertiesFormat{PrivateIPAddress: new("10.0.0.7")},
 	}
+	prefix := ipConfig("prefix", "10.0.0.16/28", false)
 	noProperties := &armnetwork.InterfaceIPConfiguration{Name: new("no-properties")}
 	noAddress := &armnetwork.InterfaceIPConfiguration{
 		Name:       new("no-address"),
@@ -597,7 +598,7 @@ func TestRemoveInterfaceIPConfigurations(t *testing.T) {
 	tests := []struct {
 		name        string
 		configs     []*armnetwork.InterfaceIPConfiguration
-		addresses   []string
+		cidrs       []string
 		wantKept    []*armnetwork.InterfaceIPConfiguration
 		wantRemoved []string
 		wantErr     bool
@@ -605,39 +606,52 @@ func TestRemoveInterfaceIPConfigurations(t *testing.T) {
 		{
 			name:        "match by address",
 			configs:     []*armnetwork.InterfaceIPConfiguration{primary, second, third},
-			addresses:   []string{"10.0.0.5"},
+			cidrs:       []string{"10.0.0.5/32"},
 			wantKept:    []*armnetwork.InterfaceIPConfiguration{primary, third},
 			wantRemoved: []string{"second"},
 		},
 		{
+			name:        "match a prefix",
+			configs:     []*armnetwork.InterfaceIPConfiguration{primary, second, prefix},
+			cidrs:       []string{"10.0.0.16/28"},
+			wantKept:    []*armnetwork.InterfaceIPConfiguration{primary, second},
+			wantRemoved: []string{"prefix"},
+		},
+		{
+			name:     "address inside a prefix does not match it",
+			configs:  []*armnetwork.InterfaceIPConfiguration{primary, prefix},
+			cidrs:    []string{"10.0.0.16/32"},
+			wantKept: []*armnetwork.InterfaceIPConfiguration{primary, prefix},
+		},
+		{
 			name:        "absent address skipped",
 			configs:     []*armnetwork.InterfaceIPConfiguration{primary, second, third},
-			addresses:   []string{"10.0.0.6", "10.0.0.99"},
+			cidrs:       []string{"10.0.0.6/32", "10.0.0.99/32"},
 			wantKept:    []*armnetwork.InterfaceIPConfiguration{primary, second},
 			wantRemoved: []string{"third"},
 		},
 		{
-			name:      "nothing to remove",
-			configs:   []*armnetwork.InterfaceIPConfiguration{primary, second},
-			addresses: []string{"10.0.0.99"},
-			wantKept:  []*armnetwork.InterfaceIPConfiguration{primary, second},
+			name:     "nothing to remove",
+			configs:  []*armnetwork.InterfaceIPConfiguration{primary, second},
+			cidrs:    []string{"10.0.0.99/32"},
+			wantKept: []*armnetwork.InterfaceIPConfiguration{primary, second},
 		},
 		{
-			name:      "primary match errors",
-			configs:   []*armnetwork.InterfaceIPConfiguration{primary, second},
-			addresses: []string{"10.0.0.4", "10.0.0.5"},
-			wantErr:   true,
+			name:    "primary match errors",
+			configs: []*armnetwork.InterfaceIPConfiguration{primary, second},
+			cidrs:   []string{"10.0.0.4/32", "10.0.0.5/32"},
+			wantErr: true,
 		},
 		{
-			name:      "nil name on match errors",
-			configs:   []*armnetwork.InterfaceIPConfiguration{primary, noName},
-			addresses: []string{"10.0.0.7"},
-			wantErr:   true,
+			name:    "nil name on match errors",
+			configs: []*armnetwork.InterfaceIPConfiguration{primary, noName},
+			cidrs:   []string{"10.0.0.7/32"},
+			wantErr: true,
 		},
 		{
 			name:        "nil entry, properties and address kept",
 			configs:     []*armnetwork.InterfaceIPConfiguration{nil, noProperties, noAddress, second},
-			addresses:   []string{"10.0.0.5"},
+			cidrs:       []string{"10.0.0.5/32"},
 			wantKept:    []*armnetwork.InterfaceIPConfiguration{nil, noProperties, noAddress},
 			wantRemoved: []string{"second"},
 		},
@@ -645,11 +659,11 @@ func TestRemoveInterfaceIPConfigurations(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			addresses := make([]netip.Addr, 0, len(test.addresses))
-			for _, a := range test.addresses {
-				addresses = append(addresses, netip.MustParseAddr(a))
+			cidrs := make([]netip.Prefix, 0, len(test.cidrs))
+			for _, c := range test.cidrs {
+				cidrs = append(cidrs, netip.MustParsePrefix(c))
 			}
-			kept, removed, err := removeInterfaceIPConfigurations(test.configs, addresses)
+			kept, removed, err := removeInterfaceIPConfigurations(test.configs, cidrs)
 			if test.wantErr {
 				require.Error(t, err)
 				return
@@ -1000,7 +1014,7 @@ func TestUnassignPrivateIpAddressesVMSSDropsUnappliedIPConfigurations(t *testing
 	transport := &fakeARM{vm: fmt.Sprintf(failedVMSSInstance, "", ""), nics: failedVMSSInstanceNICs}
 	c := newFakeARMClient(t, transport)
 
-	require.NoError(t, c.UnassignPrivateIpAddressesVMSS(t.Context(), "0", "vmss", "nic0", []netip.Addr{netip.MustParseAddr("10.0.0.6")}))
+	require.NoError(t, c.UnassignPrivateIpAddressesVMSS(t.Context(), "0", "vmss", "nic0", []netip.Prefix{netip.MustParsePrefix("10.0.0.6/32")}))
 
 	require.Len(t, transport.puts, 1)
 	names := modelIPConfigNames(t, transport.puts[0])

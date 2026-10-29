@@ -41,8 +41,8 @@ type AzureAPI interface {
 	ParseInterfacesIntoInstanceMap(networkInterfaces []*armnetwork.Interface, subnets ipamTypes.SubnetMap) *ipamTypes.InstanceMap
 	ListVMNetworkInterfaces(ctx context.Context, instanceID string) ([]*armnetwork.Interface, error)
 	ParseInterfacesIntoInstance(networkInterfaces []*armnetwork.Interface, subnets ipamTypes.SubnetMap) *ipamTypes.Instance
-	UnassignPrivateIpAddressesVM(ctx context.Context, interfaceName string, addresses []netip.Addr) error
-	UnassignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, interfaceName string, addresses []netip.Addr) error
+	UnassignPrivateIpAddressesVM(ctx context.Context, interfaceName string, cidrs []netip.Prefix) error
+	UnassignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, interfaceName string, cidrs []netip.Prefix) error
 }
 
 // InstancesManager maintains the list of instances. It must be kept up to date
@@ -247,7 +247,7 @@ func (m *InstancesManager) lockInstance(instanceID string) lock.UnlockFunc {
 	}
 }
 
-func (m *InstancesManager) removeIPsFromInterface(instanceID, interfaceID string, addresses []netip.Addr) {
+func (m *InstancesManager) removeCIDRsFromInterface(instanceID, interfaceID string, cidrs []netip.Prefix) {
 	unlock := m.lockInstance(instanceID)
 	defer unlock()
 
@@ -264,7 +264,10 @@ func (m *InstancesManager) removeIPsFromInterface(instanceID, interfaceID string
 	}
 	updated := azureIface.DeepCopy()
 	updated.Addresses = slices.DeleteFunc(updated.Addresses, func(addr types.AzureAddress) bool {
-		return slices.Contains(addresses, addr.IP.Addr)
+		return slices.Contains(cidrs, netip.PrefixFrom(addr.IP.Addr, addr.IP.Addr.BitLen()))
+	})
+	updated.Prefixes = slices.DeleteFunc(updated.Prefixes, func(prefix types.AzurePrefix) bool {
+		return slices.Contains(cidrs, prefix.CIDR.Prefix)
 	})
 	m.instances.Update(instanceID, updated)
 }

@@ -251,6 +251,25 @@ func TestPrepareCIDRRelease(t *testing.T) {
 			},
 		},
 		{
+			name: "address and prefix released",
+			ifaces: []*types.AzureInterface{
+				withCapacityTestPrefixes(withCapacityTestPrefixes(
+					newReleaseTestInterface(releaseTestVMSSNIC, "nic-vmss", "subnet-1", "10.0.0.4",
+						releaseTestAddress("10.0.0.5", types.StateSucceeded)),
+					types.StateSucceeded, "10.0.0.16/28", "10.0.0.32/28"),
+					"failed", "10.0.0.48/28"),
+				withCapacityTestPrefixes(
+					newReleaseTestInterface(releaseTestStandaloneNIC, "nic-vm", "subnet-2", "10.1.0.4"),
+					types.StateSucceeded, "10.1.0.16/28"),
+			},
+			interfaceName: "nic-vmss",
+			released:      []string{"10.0.0.5/32", "10.0.0.16/28", "10.0.0.48/28", "10.1.0.16/28"},
+			wantAttached:  []string{"10.0.0.5/32", "10.0.0.16/28", "10.0.0.32/28", "10.0.0.48/28", "10.1.0.16/28"},
+			wantActions: map[string]nodemanager.ReleaseAction{
+				releaseTestVMSSNIC: {InterfaceID: releaseTestVMSSNIC, PoolID: "subnet-1", CIDRsToRelease: releaseTestPrefixes("10.0.0.5/32", "10.0.0.16/28")},
+			},
+		},
+		{
 			name: "nothing releasable",
 			ifaces: []*types.AzureInterface{
 				newReleaseTestInterface(releaseTestVMSSNIC, "nic-vmss", "subnet-1", "10.0.0.4",
@@ -308,14 +327,16 @@ func TestReleaseCIDRs(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			ifaces := []*types.AzureInterface{
-				newReleaseTestInterface(releaseTestVMSSNIC, "nic-vmss", "subnet-1", "10.0.0.4",
+				withCapacityTestPrefixes(newReleaseTestInterface(releaseTestVMSSNIC, "nic-vmss", "subnet-1", "10.0.0.4",
 					releaseTestAddress("10.0.0.5", types.StateSucceeded),
 					releaseTestAddress("10.0.0.6", types.StateSucceeded),
 					releaseTestAddress("10.0.0.7", types.StateSucceeded)),
-				newReleaseTestInterface(releaseTestStandaloneNIC, "nic-vm", "subnet-1", "10.0.0.8",
+					types.StateSucceeded, "10.0.1.16/28", "10.0.1.32/28"),
+				withCapacityTestPrefixes(newReleaseTestInterface(releaseTestStandaloneNIC, "nic-vm", "subnet-1", "10.0.0.8",
 					releaseTestAddress("10.0.0.5", types.StateSucceeded),
 					releaseTestAddress("10.0.0.6", types.StateSucceeded),
 					releaseTestAddress("10.0.0.7", types.StateSucceeded)),
+					types.StateSucceeded, "10.0.1.16/28", "10.0.1.32/28"),
 			}
 			node := newCapacityTestNode(t, ifaces, false)
 			api := apimock.NewAPI(nil)
@@ -325,7 +346,7 @@ func TestReleaseCIDRs(t *testing.T) {
 			}
 			node.manager.api = api
 
-			cidrs := releaseTestPrefixes("10.0.0.5/32", "10.0.0.6/32")
+			cidrs := releaseTestPrefixes("10.0.0.5/32", "10.0.0.6/32", "10.0.1.16/28")
 			released, err := node.ReleaseCIDRs(t.Context(), &nodemanager.ReleaseAction{
 				InterfaceID:    test.interfaceID,
 				PoolID:         "subnet-1",
@@ -333,8 +354,8 @@ func TestReleaseCIDRs(t *testing.T) {
 			})
 
 			want := map[string][]string{
-				releaseTestVMSSNIC:       {"10.0.0.5", "10.0.0.6", "10.0.0.7"},
-				releaseTestStandaloneNIC: {"10.0.0.5", "10.0.0.6", "10.0.0.7"},
+				releaseTestVMSSNIC:       {"10.0.0.5", "10.0.0.6", "10.0.0.7", "10.0.1.16/28", "10.0.1.32/28"},
+				releaseTestStandaloneNIC: {"10.0.0.5", "10.0.0.6", "10.0.0.7", "10.0.1.16/28", "10.0.1.32/28"},
 			}
 			if test.wantErr {
 				require.Error(t, err)
@@ -342,13 +363,16 @@ func TestReleaseCIDRs(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, cidrs, released)
-				want[test.interfaceID] = []string{"10.0.0.7"}
+				want[test.interfaceID] = []string{"10.0.0.7", "10.0.1.32/28"}
 			}
 
 			got := map[string][]string{}
 			node.manager.instances.ForeachInterface("vm1", func(_, id string, obj ipamTypes.Interface) error {
 				for _, addr := range obj.(*types.AzureInterface).Addresses {
 					got[id] = append(got[id], addr.IP.String())
+				}
+				for _, prefix := range obj.(*types.AzureInterface).Prefixes {
+					got[id] = append(got[id], prefix.CIDR.String())
 				}
 				return nil
 			})

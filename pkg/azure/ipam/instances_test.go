@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v12"
@@ -384,11 +385,15 @@ func (a *gatedResyncAPI) ParseInterfacesIntoInstance(networkInterfaces []*armnet
 	return instance
 }
 
-func TestRemoveIPsFromInterfaceDuringResync(t *testing.T) {
-	newInterface := func(id string, addresses ...string) *types.AzureInterface {
+func TestRemoveCIDRsFromInterfaceDuringResync(t *testing.T) {
+	newInterface := func(id string, cidrs ...string) *types.AzureInterface {
 		iface := &types.AzureInterface{ID: id, Name: id, Subnet: types.AzureSubnet{ID: "subnet-1"}, State: types.StateSucceeded}
-		for _, a := range addresses {
-			iface.Addresses = append(iface.Addresses, types.AzureAddress{IP: iputil.AddrFrom(netip.MustParseAddr(a)), State: types.StateSucceeded})
+		for _, c := range cidrs {
+			if strings.Contains(c, "/") {
+				iface.Prefixes = append(iface.Prefixes, types.AzurePrefix{CIDR: iputil.PrefixFrom(netip.MustParsePrefix(c)), State: types.StateSucceeded})
+				continue
+			}
+			iface.Addresses = append(iface.Addresses, types.AzureAddress{IP: iputil.AddrFrom(netip.MustParseAddr(c)), State: types.StateSucceeded})
 		}
 		return iface
 	}
@@ -408,12 +413,15 @@ func TestRemoveIPsFromInterfaceDuringResync(t *testing.T) {
 			for _, address := range iface.(*types.AzureInterface).Addresses {
 				out[interfaceID] = append(out[interfaceID], address.IP.String())
 			}
+			for _, prefix := range iface.(*types.AzureInterface).Prefixes {
+				out[interfaceID] = append(out[interfaceID], prefix.CIDR.String())
+			}
 			slices.Sort(out[interfaceID])
 			return nil
 		})
 		return out
 	}
-	released := []netip.Addr{netip.MustParseAddr("1.1.1.3")}
+	released := []netip.Prefix{netip.MustParsePrefix("1.1.1.3/32"), netip.MustParsePrefix("1.1.2.16/28")}
 
 	for name, sync := range map[string]func(context.Context, *InstancesManager) error{
 		"full resync": func(ctx context.Context, mngr *InstancesManager) error {
@@ -431,7 +439,7 @@ func TestRemoveIPsFromInterfaceDuringResync(t *testing.T) {
 				gates:    make(chan *resyncGate, 1),
 				captures: map[string]*ipamTypes.InstanceMap{},
 			}
-			setCloud(api, newInterface("nic-a", "1.1.1.2", "1.1.1.3"))
+			setCloud(api, newInterface("nic-a", "1.1.1.2", "1.1.1.3", "1.1.2.16/28", "1.1.2.32/28"))
 			mngr := NewInstancesManager(hivetest.Logger(t), api, false)
 			api.gates <- openResyncGate()
 			_, err := mngr.Resync(t.Context())
@@ -449,10 +457,10 @@ func TestRemoveIPsFromInterfaceDuringResync(t *testing.T) {
 				t.Fatal("timed out waiting for fetch")
 			}
 
-			setCloud(api, newInterface("nic-a", "1.1.1.2"))
+			setCloud(api, newInterface("nic-a", "1.1.1.2", "1.1.2.32/28"))
 			removeDone := make(chan struct{})
 			go func() {
-				mngr.removeIPsFromInterface("vm-1", "nic-a", released)
+				mngr.removeCIDRsFromInterface("vm-1", "nic-a", released)
 				close(removeDone)
 			}()
 			select {
@@ -464,12 +472,12 @@ func TestRemoveIPsFromInterfaceDuringResync(t *testing.T) {
 			close(g.proceed)
 			require.NoError(t, <-syncDone)
 			<-removeDone
-			require.Equal(t, map[string][]string{"nic-a": {"1.1.1.2"}}, cached(mngr))
+			require.Equal(t, map[string][]string{"nic-a": {"1.1.1.2", "1.1.2.32/28"}}, cached(mngr))
 
-			setCloud(api, newInterface("nic-a", "1.1.1.2", "1.1.1.9"))
+			setCloud(api, newInterface("nic-a", "1.1.1.2", "1.1.1.9", "1.1.2.32/28"))
 			api.gates <- openResyncGate()
 			require.NoError(t, sync(t.Context(), mngr))
-			require.Equal(t, map[string][]string{"nic-a": {"1.1.1.2", "1.1.1.9"}}, cached(mngr))
+			require.Equal(t, map[string][]string{"nic-a": {"1.1.1.2", "1.1.1.9", "1.1.2.32/28"}}, cached(mngr))
 		})
 	}
 }

@@ -23,7 +23,6 @@ import (
 	v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/logging/logfields"
-	cslices "github.com/cilium/cilium/pkg/slices"
 )
 
 const subnetIsFull = "SubnetIsFull"
@@ -517,6 +516,11 @@ func (n *Node) PrepareCIDRRelease(released []netip.Prefix) []*nodemanager.Releas
 				cidrs = append(cidrs, prefix)
 			}
 		}
+		for _, prefix := range iface.UsablePrefixes() {
+			if slices.Contains(released, prefix) {
+				cidrs = append(cidrs, prefix)
+			}
+		}
 		if len(cidrs) > 0 {
 			actions = append(actions, &nodemanager.ReleaseAction{
 				InterfaceID:    interfaceID,
@@ -541,20 +545,18 @@ func (n *Node) ReleaseCIDRs(ctx context.Context, r *nodemanager.ReleaseAction) (
 		return nil, fmt.Errorf("invalid interface object")
 	}
 
-	addrs := cslices.Map(r.CIDRsToRelease, netip.Prefix.Addr)
-
 	var err error
 	vmss := iface.GetVMScaleSetName()
 	if vmss == "" {
-		err = n.manager.api.UnassignPrivateIpAddressesVM(ctx, iface.Name, addrs)
+		err = n.manager.api.UnassignPrivateIpAddressesVM(ctx, iface.Name, r.CIDRsToRelease)
 	} else {
-		err = n.manager.api.UnassignPrivateIpAddressesVMSS(ctx, iface.GetVMID(), vmss, iface.Name, addrs)
+		err = n.manager.api.UnassignPrivateIpAddressesVMSS(ctx, iface.GetVMID(), vmss, iface.Name, r.CIDRsToRelease)
 	}
 	if err != nil {
 		return nil, err
 	}
 
-	n.manager.removeIPsFromInterface(n.instanceID, r.InterfaceID, addrs)
+	n.manager.removeCIDRsFromInterface(n.instanceID, r.InterfaceID, r.CIDRsToRelease)
 	return r.CIDRsToRelease, nil
 }
 
