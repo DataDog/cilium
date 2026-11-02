@@ -250,35 +250,6 @@ func validateENIConfig(node *ciliumv2.CiliumNode) error {
 			}
 		}
 	}
-
-	// Check if all pool resource IPs are present in the status
-	eniIPMap := map[string][]string{}
-	for k, v := range node.Spec.IPAM.Pool {
-		eniIPMap[v.Resource] = append(eniIPMap[v.Resource], k)
-	}
-
-	for eni, addresses := range eniIPMap {
-		eniFound := false
-		for _, sENI := range node.Status.ENI.ENIs {
-			if eni == sENI.ID {
-				for _, addr := range addresses {
-					parsed, err := netip.ParseAddr(addr)
-					if err != nil {
-						return fmt.Errorf("invalid address %q in pool for ENI %s: %w", addr, eni, err)
-					}
-					if !slices.ContainsFunc(sENI.Addresses, func(a iputil.Addr) bool { return a.Addr == parsed }) {
-						return fmt.Errorf("ENI %s does not have address %s", eni, addr)
-					}
-				}
-				eniFound = true
-			}
-		}
-
-		if !eniFound {
-			return fmt.Errorf("ENI %s not found in status", eni)
-		}
-	}
-
 	return nil
 }
 
