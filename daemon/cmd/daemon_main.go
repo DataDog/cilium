@@ -562,6 +562,9 @@ func InitGlobalFlags(logger *slog.Logger, cmd *cobra.Command, vp *viper.Viper) {
 	flags.Bool(option.EnableTCX, true, "Attach endpoint programs using tcx if supported by the kernel")
 	option.BindEnv(vp, option.EnableTCX)
 
+	flags.Bool(option.EnableHostTCXNext, false, "Return TCX_NEXT instead of TCX_PASS from host device programs attached with tcx, so that later tcx programs and legacy tc filters also see packets passed up the stack")
+	option.BindEnv(vp, option.EnableHostTCXNext)
+
 	flags.Bool(option.PreAllocateMapsName, defaults.PreAllocateMaps, "Enable BPF map pre-allocation")
 	option.BindEnv(vp, option.PreAllocateMapsName)
 
