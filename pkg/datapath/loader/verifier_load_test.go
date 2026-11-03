@@ -71,6 +71,7 @@ func baseHostPermutations() *loadPermutationBuilder {
 			}
 		}),
 		Increment(func(t *config.BPFHost, v bool) { t.HybridRoutingEnabled = v }),
+		Increment(func(t *config.BPFHost, v bool) { t.EnableHostTcxNext = v }),
 	)
 	return b
 }

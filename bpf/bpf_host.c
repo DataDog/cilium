@@ -436,9 +436,7 @@ tail_handle_ipv6_cont(struct __ctx_buff *ctx, __u32 src_sec_identity,
 	return ret;
 }
 
-__declare_tail(CILIUM_CALL_IPV6_CONT_FROM_HOST)
-static __always_inline
-int tail_handle_ipv6_cont_from_host(struct __ctx_buff *ctx)
+__declare_tail_verdict(CILIUM_CALL_IPV6_CONT_FROM_HOST, tail_handle_ipv6_cont_from_host)
 {
 	__u32 src_sec_identity = ctx_load_and_clear_meta(ctx, CB_SRC_LABEL);
 	__s8 ext_err = 0;
@@ -453,9 +451,7 @@ int tail_handle_ipv6_cont_from_host(struct __ctx_buff *ctx)
 	return ret;
 }
 
-__declare_tail(CILIUM_CALL_IPV6_CONT_FROM_NETDEV)
-static __always_inline
-int tail_handle_ipv6_cont_from_netdev(struct __ctx_buff *ctx)
+__declare_tail_verdict(CILIUM_CALL_IPV6_CONT_FROM_NETDEV, tail_handle_ipv6_cont_from_netdev)
 {
 	__u32 src_sec_identity = ctx_load_and_clear_meta(ctx, CB_SRC_LABEL);
 	__s8 ext_err = 0;
@@ -513,8 +509,7 @@ tail_handle_ipv6(struct __ctx_buff *ctx, __u32 ipcache_srcid, const bool from_ho
 	return ret;
 }
 
-__declare_tail(CILIUM_CALL_IPV6_FROM_HOST)
-int tail_handle_ipv6_from_host(struct __ctx_buff *ctx)
+__declare_tail_verdict(CILIUM_CALL_IPV6_FROM_HOST, tail_handle_ipv6_from_host)
 {
 	__u32 ipcache_srcid = 0;
 
@@ -525,8 +520,7 @@ int tail_handle_ipv6_from_host(struct __ctx_buff *ctx)
 	return tail_handle_ipv6(ctx, ipcache_srcid, true);
 }
 
-__declare_tail(CILIUM_CALL_IPV6_FROM_NETDEV)
-int tail_handle_ipv6_from_netdev(struct __ctx_buff *ctx)
+__declare_tail_verdict(CILIUM_CALL_IPV6_FROM_NETDEV, tail_handle_ipv6_from_netdev)
 {
 	return tail_handle_ipv6(ctx, 0, false);
 }
@@ -921,9 +915,7 @@ tail_handle_ipv4_cont(struct __ctx_buff *ctx, __u32 src_sec_identity,
 	return ret;
 }
 
-__declare_tail(CILIUM_CALL_IPV4_CONT_FROM_HOST)
-static __always_inline
-int tail_handle_ipv4_cont_from_host(struct __ctx_buff *ctx)
+__declare_tail_verdict(CILIUM_CALL_IPV4_CONT_FROM_HOST, tail_handle_ipv4_cont_from_host)
 {
 	__u32 src_sec_identity = ctx_load_and_clear_meta(ctx, CB_SRC_LABEL);
 	__s8 ext_err = 0;
@@ -938,9 +930,7 @@ int tail_handle_ipv4_cont_from_host(struct __ctx_buff *ctx)
 	return ret;
 }
 
-__declare_tail(CILIUM_CALL_IPV4_CONT_FROM_NETDEV)
-static __always_inline
-int tail_handle_ipv4_cont_from_netdev(struct __ctx_buff *ctx)
+__declare_tail_verdict(CILIUM_CALL_IPV4_CONT_FROM_NETDEV, tail_handle_ipv4_cont_from_netdev)
 {
 	__u32 src_sec_identity = ctx_load_and_clear_meta(ctx, CB_SRC_LABEL);
 	__s8 ext_err = 0;
@@ -998,8 +988,7 @@ tail_handle_ipv4(struct __ctx_buff *ctx, __u32 ipcache_srcid, const bool from_ho
 	return ret;
 }
 
-__declare_tail(CILIUM_CALL_IPV4_FROM_HOST)
-int tail_handle_ipv4_from_host(struct __ctx_buff *ctx)
+__declare_tail_verdict(CILIUM_CALL_IPV4_FROM_HOST, tail_handle_ipv4_from_host)
 {
 	__u32 ipcache_srcid = 0;
 
@@ -1010,8 +999,7 @@ int tail_handle_ipv4_from_host(struct __ctx_buff *ctx)
 	return tail_handle_ipv4(ctx, ipcache_srcid, true);
 }
 
-__declare_tail(CILIUM_CALL_IPV4_FROM_NETDEV)
-int tail_handle_ipv4_from_netdev(struct __ctx_buff *ctx)
+__declare_tail_verdict(CILIUM_CALL_IPV4_FROM_NETDEV, tail_handle_ipv4_from_netdev)
 {
 	return tail_handle_ipv4(ctx, 0, false);
 }
@@ -1301,8 +1289,7 @@ drop_err_ingress: __maybe_unused
  * from-netdev is attached as a tc ingress filter to one or more physical devices
  * managed by Cilium (e.g., eth0).
  */
-__section_entry
-int cil_from_netdev(struct __ctx_buff *ctx)
+__section_entry_verdict(cil_from_netdev)
 {
 	__u32 src_id = UNKNOWN_ID;
 	__be16 proto = 0;
@@ -1384,8 +1371,7 @@ drop_err:
  * from-host is attached as a tc egress filter to the node's 'cilium_host'
  * interface if present.
  */
-__section_entry
-int cil_from_host(struct __ctx_buff *ctx)
+__section_entry_verdict(cil_from_host)
 {
 	enum trace_point obs_point = TRACE_FROM_HOST;
 	__u32 identity = UNKNOWN_ID;
@@ -1440,8 +1426,7 @@ int cil_from_host(struct __ctx_buff *ctx)
  * to-netdev is attached as a tc egress filter to one or more physical devices
  * managed by Cilium (e.g., eth0).
  */
-__section_entry
-int cil_to_netdev(struct __ctx_buff *ctx)
+__section_entry_verdict(cil_to_netdev)
 {
 	__u32 magic = ctx->mark & MARK_MAGIC_HOST_MASK;
 	__u32 dst_sec_identity = UNKNOWN_ID;
@@ -1663,9 +1648,7 @@ drop_err:
 
 #if defined(ENABLE_HOST_FIREWALL)
 #ifdef ENABLE_IPV6
-__declare_tail(CILIUM_CALL_IPV6_TO_HOST_POLICY_ONLY)
-static __always_inline
-int tail_ipv6_host_policy_ingress(struct __ctx_buff *ctx)
+__declare_tail_verdict(CILIUM_CALL_IPV6_TO_HOST_POLICY_ONLY, tail_ipv6_host_policy_ingress)
 {
 	struct trace_ctx trace = {
 		.reason = TRACE_REASON_UNKNOWN,
@@ -1691,9 +1674,7 @@ int tail_ipv6_host_policy_ingress(struct __ctx_buff *ctx)
 #endif /* ENABLE_IPV6 */
 
 #ifdef ENABLE_IPV4
-__declare_tail(CILIUM_CALL_IPV4_TO_HOST_POLICY_ONLY)
-static __always_inline
-int tail_ipv4_host_policy_ingress(struct __ctx_buff *ctx)
+__declare_tail_verdict(CILIUM_CALL_IPV4_TO_HOST_POLICY_ONLY, tail_ipv4_host_policy_ingress)
 {
 	struct trace_ctx trace = {
 		.reason = TRACE_REASON_UNKNOWN,
@@ -1786,8 +1767,7 @@ int host_ingress_policy(struct __ctx_buff *ctx, __be16 proto,
  * to-host is attached as a tc ingress filter to both the 'cilium_host' and
  * 'cilium_net' devices if present.
  */
-__section_entry
-int cil_to_host(struct __ctx_buff *ctx)
+__section_entry_verdict(cil_to_host)
 {
 	__u32 magic = ctx_load_meta(ctx, CB_PROXY_MAGIC);
 	__be16 proto = 0;
@@ -1988,8 +1968,7 @@ from_host_to_lxc(struct __ctx_buff *ctx, __be16 proto, __s8 *ext_err)
  * marked as a tail call since those programs are inserted automatically in
  * random order.
  */
-__section_entry
-int cil_host_policy(struct __ctx_buff *ctx __maybe_unused)
+__section_entry_verdict(cil_host_policy)
 {
 #ifdef ENABLE_HOST_FIREWALL
 	bool from_host = ctx_load_meta(ctx, CB_FROM_HOST);

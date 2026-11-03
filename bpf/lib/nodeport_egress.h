@@ -123,8 +123,7 @@ out:
 	return ret;
 }
 
-__declare_tail(CILIUM_CALL_IPV6_NODEPORT_SNAT_FWD)
-int tail_handle_snat_fwd_ipv6(struct __ctx_buff *ctx)
+__declare_tail_verdict(CILIUM_CALL_IPV6_NODEPORT_SNAT_FWD, tail_handle_snat_fwd_ipv6)
 {
 	__u32 src_id = ctx_load_and_clear_meta(ctx, CB_SRC_LABEL);
 	union v6addr saddr __align_stack_8 = {};
@@ -262,9 +261,7 @@ handle_nat_fwd_ipv6(struct __ctx_buff *ctx, __u32 cb_nat_flags,
 	return __handle_nat_fwd_ipv6(ctx, src_id, revdnat_only, trace, ext_err);
 }
 
-__declare_tail(CILIUM_CALL_IPV6_NODEPORT_NAT_FWD)
-static __always_inline
-int tail_handle_nat_fwd_ipv6(struct __ctx_buff *ctx)
+__declare_tail_verdict(CILIUM_CALL_IPV6_NODEPORT_NAT_FWD, tail_handle_nat_fwd_ipv6)
 {
 	__u32 cb_nat_flags = ctx_load_and_clear_meta(ctx, CB_NAT_FLAGS);
 	__u32 src_id = ctx_load_and_clear_meta(ctx, CB_SRC_LABEL);
@@ -442,8 +439,7 @@ out:
 	return ret;
 }
 
-__declare_tail(CILIUM_CALL_IPV4_NODEPORT_SNAT_FWD)
-int tail_handle_snat_fwd_ipv4(struct __ctx_buff *ctx)
+__declare_tail_verdict(CILIUM_CALL_IPV4_NODEPORT_SNAT_FWD, tail_handle_snat_fwd_ipv4)
 {
 	__u32 src_id = ctx_load_and_clear_meta(ctx, CB_SRC_LABEL);
 	__u32 cluster_id = ctx_load_and_clear_meta(ctx, CB_CLUSTER_ID_EGRESS);
@@ -586,9 +582,7 @@ handle_nat_fwd_ipv4(struct __ctx_buff *ctx, __u32 cb_nat_flags, __u32 cluster_id
 	return __handle_nat_fwd_ipv4(ctx, cluster_id, src_id, revdnat_only, trace, ext_err);
 }
 
-__declare_tail(CILIUM_CALL_IPV4_NODEPORT_NAT_FWD)
-static __always_inline
-int tail_handle_nat_fwd_ipv4(struct __ctx_buff *ctx)
+__declare_tail_verdict(CILIUM_CALL_IPV4_NODEPORT_NAT_FWD, tail_handle_nat_fwd_ipv4)
 {
 	__u32 cb_nat_flags = ctx_load_and_clear_meta(ctx, CB_NAT_FLAGS);
 	__u32 cluster_id = ctx_load_and_clear_meta(ctx, CB_CLUSTER_ID_EGRESS);

@@ -2456,8 +2456,7 @@ lb4_dnat_request(struct __ctx_buff *ctx, const struct lb4_backend *backend,
 #ifdef SERVICE_NO_BACKEND_RESPONSE
 
 #ifdef ENABLE_IPV4
-__declare_tail(CILIUM_CALL_IPV4_NO_SERVICE)
-int tail_no_service_ipv4(struct __ctx_buff *ctx)
+__declare_tail_verdict(CILIUM_CALL_IPV4_NO_SERVICE, tail_no_service_ipv4)
 {
 	__u32 src_sec_identity = ctx_load_meta(ctx, CB_SRC_LABEL);
 	int ret;
@@ -2479,8 +2478,7 @@ int tail_no_service_ipv4(struct __ctx_buff *ctx)
 #endif /* ENABLE_IPV4 */
 
 #ifdef ENABLE_IPV6
-__declare_tail(CILIUM_CALL_IPV6_NO_SERVICE)
-int tail_no_service_ipv6(struct __ctx_buff *ctx)
+__declare_tail_verdict(CILIUM_CALL_IPV6_NO_SERVICE, tail_no_service_ipv6)
 {
 	__u32 src_sec_identity = ctx_load_meta(ctx, CB_SRC_LABEL);
 	struct ratelimit_key rkey = {
