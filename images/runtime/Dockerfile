@@ -68,3 +68,6 @@ COPY --from=bpftool-dist /usr/local/bin/bpftool /usr/local/bin/bpftool
 FROM scratch
 LABEL maintainer="maintainer@cilium.io"
 COPY --from=rootfs / /
+# FROM scratch drops the USER of the rootfs image, so set it explicitly.
+ARG IMAGE_USER=0
+USER ${IMAGE_USER}
