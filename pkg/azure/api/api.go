@@ -702,7 +702,7 @@ func (c *Client) GetSubnetsByIDs(ctx context.Context, subnetIDs []string) (ipamT
 		if !ok {
 			free, err = c.subnetFreeAddresses(ctx, resourceGroup, vnetName)
 			if err != nil {
-				c.logger.Warn("Failed to get virtual network usage, estimating subnet capacity from IP configurations",
+				c.logger.Warn("Failed to get virtual network usage, estimating subnet capacity from IP configurations, which counts each prefix as one address",
 					logfields.Error, err,
 					logfields.SubnetID, subnetID,
 				)
@@ -710,7 +710,7 @@ func (c *Client) GetSubnetsByIDs(ctx context.Context, subnetIDs []string) (ipamT
 			usages[vnetKey] = free
 		}
 		if available, ok := free[strings.ToLower(subnet.ID)]; ok {
-			subnet.AvailableAddresses = min(subnet.AvailableAddresses, available)
+			subnet.AvailableAddresses = available
 		}
 		subnets[subnetID] = subnet
 	}
