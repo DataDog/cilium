@@ -445,6 +445,15 @@ func TestPrefixDelegation(t *testing.T) {
 	require.NoError(t, node.AllocateIPs(t.Context(), a))
 	require.Equal(t, 96, api.addresses)
 
+	api.prefixes, api.addresses, api.prefixErr = 0, 0, nil
+	node.manager.subnets["subnet-1"].AvailableAddresses = 10
+	a, err = node.PrepareIPAllocation(hivetest.Logger(t))
+	require.NoError(t, err)
+	require.Equal(t, 10, a.IPv4.AvailableForAllocation)
+	require.NoError(t, node.AllocateIPs(t.Context(), a))
+	require.Zero(t, api.prefixes)
+	require.Equal(t, 10, api.addresses)
+
 	actions := node.PrepareCIDRRelease([]netip.Prefix{prefix})
 	require.Len(t, actions, 1)
 	released, err := node.ReleaseCIDRs(t.Context(), actions[0])
