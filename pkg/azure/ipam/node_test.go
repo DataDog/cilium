@@ -8,10 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/netip"
 	"sync"
 	"testing"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/cilium/hive/hivetest"
 	"github.com/stretchr/testify/require"
 
@@ -396,11 +398,18 @@ func TestNodeConcurrentUpdatedNode(t *testing.T) {
 
 type prefixRecordingAPI struct {
 	*apimock.API
-	prefixes int
+	prefixes  int
+	addresses int
+	prefixErr error
 }
 
 func (a *prefixRecordingAPI) AssignPrivateIpPrefixesVMSS(ctx context.Context, instanceID, vmssName, subnetID, interfaceName string, prefixes int) error {
 	a.prefixes = prefixes
+	return a.prefixErr
+}
+
+func (a *prefixRecordingAPI) AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, subnetID, interfaceName string, addresses int) error {
+	a.addresses = addresses
 	return nil
 }
 
@@ -411,6 +420,7 @@ func TestPrefixDelegation(t *testing.T) {
 
 	node := newCapacityTestNode(t, []*types.AzureInterface{iface}, false)
 	node.manager.prefixDelegation = true
+	node.manager.logger = hivetest.Logger(t)
 	node.manager.subnets = ipamTypes.SubnetMap{"subnet-1": {ID: "subnet-1", AvailableAddresses: 100}}
 	api := &prefixRecordingAPI{API: apimock.NewAPI(nil)}
 	api.UpdateInstances(node.manager.instances.DeepCopy())
@@ -429,6 +439,11 @@ func TestPrefixDelegation(t *testing.T) {
 	require.Equal(t, 96, a.IPv4.AvailableForAllocation)
 	require.NoError(t, node.AllocateIPs(t.Context(), a))
 	require.Equal(t, 6, api.prefixes)
+	require.Zero(t, api.addresses)
+
+	api.prefixErr = &azcore.ResponseError{StatusCode: http.StatusBadRequest, ErrorCode: "SubnetIsFull"}
+	require.NoError(t, node.AllocateIPs(t.Context(), a))
+	require.Equal(t, 96, api.addresses)
 
 	actions := node.PrepareCIDRRelease([]netip.Prefix{prefix})
 	require.Len(t, actions, 1)

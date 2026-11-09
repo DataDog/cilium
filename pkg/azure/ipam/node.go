@@ -5,11 +5,15 @@ package ipam
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/netip"
 	"slices"
 	"strings"
+
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 
 	"github.com/cilium/cilium/operator/pkg/ipam/nodemanager"
 	"github.com/cilium/cilium/operator/pkg/ipam/stats"
@@ -188,10 +192,25 @@ func (n *Node) AllocateIPs(ctx context.Context, a *nodemanager.AllocationAction)
 	vmss := iface.GetVMScaleSetName()
 	if n.IsPrefixDelegated() {
 		prefixes := iputil.PrefixCeil(a.IPv4.AvailableForAllocation, types.PrefixSizeIPv4)
+		var err error
 		if vmss == "" {
-			return n.manager.api.AssignPrivateIpPrefixesVM(ctx, string(a.PoolID), iface.Name, prefixes)
+			err = n.manager.api.AssignPrivateIpPrefixesVM(ctx, string(a.PoolID), iface.Name, prefixes)
+		} else {
+			err = n.manager.api.AssignPrivateIpPrefixesVMSS(ctx, iface.GetVMID(), vmss, string(a.PoolID), iface.Name, prefixes)
 		}
-		return n.manager.api.AssignPrivateIpPrefixesVMSS(ctx, iface.GetVMID(), vmss, string(a.PoolID), iface.Name, prefixes)
+		if !isPrefixAllocationRejected(err) {
+			return err
+		}
+		slots, _ := isAvailableInterface("", iface, n.manager.usePrimary, false, n.manager.logger)
+		if slots == 0 {
+			return err
+		}
+		n.manager.logger.Warn(
+			"Unable to allocate prefixes, allocating individual addresses instead",
+			logfields.Error, err,
+			logfields.InstanceID, n.instanceID,
+		)
+		a.IPv4.AvailableForAllocation = min(a.IPv4.AvailableForAllocation, slots)
 	}
 	if vmss == "" {
 		return n.manager.api.AssignPrivateIpAddressesVM(ctx, string(a.PoolID), iface.Name, a.IPv4.AvailableForAllocation)
@@ -433,6 +452,11 @@ func (n *Node) ReleaseCIDRs(ctx context.Context, r *nodemanager.ReleaseAction) (
 
 	n.manager.removeCIDRsFromInterface(n.instanceID, r.InterfaceID, r.CIDRsToRelease)
 	return r.CIDRsToRelease, nil
+}
+
+func isPrefixAllocationRejected(err error) bool {
+	respErr, ok := errors.AsType[*azcore.ResponseError](err)
+	return ok && respErr.StatusCode == http.StatusBadRequest
 }
 
 func matchesInterfaceName(requiredIfaceName string, iface *types.AzureInterface) bool {
