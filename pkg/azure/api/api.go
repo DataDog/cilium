@@ -379,10 +379,11 @@ func parseInterface(logger *slog.Logger, iface *armnetwork.Interface, subnets ip
 				continue
 			}
 			if !cidr.IsSingleIP() {
-				i.Prefixes = append(i.Prefixes, types.AzurePrefix{
-					CIDR:  iputil.PrefixFrom(cidr),
-					State: strings.ToLower(string(*ip.Properties.ProvisioningState)),
-				})
+				prefix := types.AzurePrefix{CIDR: iputil.PrefixFrom(cidr)}
+				if ip.Properties.ProvisioningState != nil {
+					prefix.State = strings.ToLower(string(*ip.Properties.ProvisioningState))
+				}
+				i.Prefixes = append(i.Prefixes, prefix)
 				continue
 			}
 			parsedIP := cidr.Addr()

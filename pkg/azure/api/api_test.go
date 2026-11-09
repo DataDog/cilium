@@ -209,6 +209,24 @@ func TestParseInterface(t *testing.T) {
 	}
 }
 
+func TestParseInterfacePrefixWithoutProvisioningState(t *testing.T) {
+	iface := &armnetwork.Interface{
+		ID: new("nic1"),
+		Properties: &armnetwork.InterfacePropertiesFormat{
+			IPConfigurations: []*armnetwork.InterfaceIPConfiguration{{
+				Properties: &armnetwork.InterfaceIPConfigurationPropertiesFormat{
+					PrivateIPAddress: new("10.0.0.16/28"),
+				},
+			}},
+		},
+	}
+
+	_, got := parseInterface(hivetest.Logger(t), iface, nil, false)
+	require.Len(t, got.Prefixes, 1)
+	require.Equal(t, iputil.PrefixFrom(netip.MustParsePrefix("10.0.0.16/28")), got.Prefixes[0].CIDR)
+	require.Empty(t, got.Prefixes[0].State)
+}
+
 // newInterfaceWithMAC builds an armnetwork.Interface attached to the given VM,
 // with macAddress reported by the Azure API verbatim (empty means the API
 // returned no MAC, as happens while the interface is still provisioning).
