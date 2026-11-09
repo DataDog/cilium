@@ -5,6 +5,7 @@ package api
 
 import (
 	"net/netip"
+	"strings"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v9"
@@ -678,7 +679,21 @@ func TestFreeAddressesFromUsages(t *testing.T) {
 
 func TestIPConfigurationAddressCount(t *testing.T) {
 	nic := "/subscriptions/xxx/resourceGroups/rg/providers/Microsoft.Network/networkInterfaces/nic/ipConfigurations/"
-	require.Equal(t, 1, ipConfigurationAddressCount(&armnetwork.IPConfiguration{ID: new(nic + generateIpConfigName(nil))}))
-	require.Equal(t, types.PrefixSizeIPv4, ipConfigurationAddressCount(&armnetwork.IPConfiguration{ID: new(nic + generateIpConfigName(new(int32(types.PrefixLengthIPv4))))}))
-	require.Equal(t, 1, ipConfigurationAddressCount(&armnetwork.IPConfiguration{}))
+	c := &Client{logger: hivetest.Logger(t)}
+	c.recordPrefixSizesLocked([]*armnetwork.Interface{{
+		Properties: &armnetwork.InterfacePropertiesFormat{
+			IPConfigurations: []*armnetwork.InterfaceIPConfiguration{
+				{ID: new(nic + "ipconfig1"), Properties: &armnetwork.InterfaceIPConfigurationPropertiesFormat{PrivateIPAddress: new("10.0.0.4")}},
+				{ID: new(nic + "Custom-A"), Properties: &armnetwork.InterfaceIPConfigurationPropertiesFormat{PrivateIPAddress: new("10.0.0.16"), PrivateIPAddressPrefixLength: new(int32(28))}},
+				{ID: new(nic + "custom-b"), Properties: &armnetwork.InterfaceIPConfigurationPropertiesFormat{PrivateIPAddress: new("10.0.0.32/28")}},
+			},
+		},
+	}})
+
+	require.Equal(t, 1, c.ipConfigurationAddressCount(&armnetwork.IPConfiguration{ID: new(nic + "ipconfig1")}))
+	require.Equal(t, types.PrefixSizeIPv4, c.ipConfigurationAddressCount(&armnetwork.IPConfiguration{ID: new(strings.ToUpper(nic) + "custom-a")}))
+	require.Equal(t, types.PrefixSizeIPv4, c.ipConfigurationAddressCount(&armnetwork.IPConfiguration{ID: new(nic + "custom-b")}))
+	require.Equal(t, types.PrefixSizeIPv4, c.ipConfigurationAddressCount(&armnetwork.IPConfiguration{ID: new(nic + "other"), Properties: &armnetwork.IPConfigurationPropertiesFormat{PrivateIPAddress: new("10.0.0.48/28")}}))
+	require.Equal(t, 1, c.ipConfigurationAddressCount(&armnetwork.IPConfiguration{ID: new(nic + "unknown")}))
+	require.Equal(t, 1, c.ipConfigurationAddressCount(&armnetwork.IPConfiguration{}))
 }
