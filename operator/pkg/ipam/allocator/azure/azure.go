@@ -22,6 +22,7 @@ type AllocatorAzure struct {
 	AzureResourceGroup          string
 	AzureUserAssignedIdentityID string
 	AzureUsePrimaryAddress      bool
+	AzureEnablePrefixDelegation bool
 	ReleaseExcessIPs            bool
 	ExcessIPReleaseDelay        int
 	ParallelAllocWorkers        int64
@@ -76,8 +77,8 @@ func (a *AllocatorAzure) Start(ctx context.Context, getterUpdater allocator.Cili
 	if err != nil {
 		return nil, fmt.Errorf("unable to create Azure client: %w", err)
 	}
-	instances := ipam.NewInstancesManager(a.rootLogger, azureClient, a.AzureUsePrimaryAddress)
-	nodeManager, err := nodemanager.NewNodeManager(a.logger, instances, getterUpdater, iMetrics, a.ParallelAllocWorkers, a.ReleaseExcessIPs, a.ExcessIPReleaseDelay, false)
+	instances := ipam.NewInstancesManager(a.rootLogger, azureClient, a.AzureUsePrimaryAddress, a.AzureEnablePrefixDelegation)
+	nodeManager, err := nodemanager.NewNodeManager(a.logger, instances, getterUpdater, iMetrics, a.ParallelAllocWorkers, a.ReleaseExcessIPs, a.ExcessIPReleaseDelay, a.AzureEnablePrefixDelegation)
 	if err != nil {
 		return nil, fmt.Errorf("unable to initialize Azure node manager: %w", err)
 	}

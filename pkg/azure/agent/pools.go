@@ -35,6 +35,11 @@ var poolAccessor = ipam.PoolSpecAccessors{
 				prefix := netip.PrefixFrom(address.IP.Addr, address.IP.BitLen())
 				cidrs = append(cidrs, iputil.PrefixFrom(prefix))
 			}
+			for _, prefix := range iface.Prefixes {
+				if prefix.State == azureTypes.StateSucceeded && prefix.CIDR.IsValid() {
+					cidrs = append(cidrs, prefix.CIDR)
+				}
+			}
 		}
 
 		slices.SortFunc(cidrs, func(a, b iputil.Prefix) int {
