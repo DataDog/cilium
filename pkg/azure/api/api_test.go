@@ -662,3 +662,16 @@ func TestRemoveVMSSIPConfigurations(t *testing.T) {
 		})
 	}
 }
+
+func TestFreeAddressesFromUsages(t *testing.T) {
+	usages := []*armnetwork.VirtualNetworkUsage{
+		{ID: new("/Subscriptions/xxx/Subnets/A"), Limit: new(251.0), CurrentValue: new(37.0)},
+		{ID: new("/subscriptions/xxx/subnets/full"), Limit: new(11.0), CurrentValue: new(16.0)},
+		{ID: new("/subscriptions/xxx/subnets/no-limit"), CurrentValue: new(1.0)},
+		nil,
+	}
+	require.Equal(t, map[string]int{
+		"/subscriptions/xxx/subnets/a":    214,
+		"/subscriptions/xxx/subnets/full": 0,
+	}, freeAddressesFromUsages(usages))
+}

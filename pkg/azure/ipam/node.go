@@ -166,6 +166,9 @@ func (n *Node) PrepareIPAllocation(scopedLog *slog.Logger) (a *nodemanager.Alloc
 				a.InterfaceID = iface.ID
 				a.Interface = interfaceObj
 				a.PoolID = poolID
+				if prefixDelegated {
+					available -= available % types.PrefixSizeIPv4
+				}
 				a.IPv4.AvailableForAllocation = min(available, availableOnInterface)
 			}
 		}

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/netip"
 	"slices"
@@ -43,6 +44,7 @@ const (
 	virtualMachineScaleSetVMsGet    = "VirtualMachineScaleSetVMs.Get"
 	virtualMachineScaleSetVMsUpdate = "VirtualMachineScaleSetVMs.Update"
 	subnetsGet                      = "Subnets.Get"
+	virtualNetworksListUsage        = "VirtualNetworks.ListUsage"
 
 	interfacesListVirtualMachineScaleSetNetworkInterfaces   = "Interfaces.ListVirtualMachineScaleSetNetworkInterfaces"
 	interfacesListVirtualMachineScaleSetVMNetworkInterfaces = "Interfaces.ListVirtualMachineScaleSetVMNetworkInterfaces"
@@ -58,6 +60,7 @@ type Client struct {
 	publicIPAddresses         *armnetwork.PublicIPAddressesClient
 	virtualMachines           *armcompute.VirtualMachinesClient
 	subnets                   *armnetwork.SubnetsClient
+	virtualNetworks           *armnetwork.VirtualNetworksClient
 	virtualMachineScaleSetVMs *armcompute.VirtualMachineScaleSetVMsClient
 	virtualMachineScaleSets   *armcompute.VirtualMachineScaleSetsClient
 	limiter                   *helpers.APILimiter
@@ -145,6 +148,11 @@ func NewClient(logger *slog.Logger, cloudName, subscriptionID, resourceGroup, us
 		return nil, err
 	}
 
+	virtualNetworksClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, credential, armClientOptions)
+	if err != nil {
+		return nil, err
+	}
+
 	virtualMachineScaleSetVMsClient, err := armcompute.NewVirtualMachineScaleSetVMsClient(subscriptionID, credential, armClientOptions)
 	if err != nil {
 		return nil, err
@@ -174,6 +182,7 @@ func NewClient(logger *slog.Logger, cloudName, subscriptionID, resourceGroup, us
 		publicIPAddresses:         publicIPAddressesClient,
 		virtualMachines:           virtualMachinesClient,
 		subnets:                   subnetsClient,
+		virtualNetworks:           virtualNetworksClient,
 		virtualMachineScaleSetVMs: virtualMachineScaleSetVMsClient,
 		virtualMachineScaleSets:   virtualMachineScaleSetsClient,
 		metricsAPI:                metrics,
@@ -632,9 +641,37 @@ func extractVNetID(subnetID string) string {
 	return before
 }
 
+func (c *Client) subnetFreeAddresses(ctx context.Context, resourceGroup, vnetName string) (map[string]int, error) {
+	free := map[string]int{}
+	pager := c.virtualNetworks.NewListUsagePager(resourceGroup, vnetName, nil)
+	for pager.More() {
+		c.limiter.Limit(ctx, virtualNetworksListUsage)
+		sinceStart := spanstat.Start()
+		page, err := pager.NextPage(ctx)
+		c.metricsAPI.ObserveAPICall(virtualNetworksListUsage, deriveStatus(err), sinceStart.Seconds())
+		if err != nil {
+			return nil, err
+		}
+		maps.Copy(free, freeAddressesFromUsages(page.Value))
+	}
+	return free, nil
+}
+
+func freeAddressesFromUsages(usages []*armnetwork.VirtualNetworkUsage) map[string]int {
+	free := make(map[string]int, len(usages))
+	for _, usage := range usages {
+		if usage == nil || usage.ID == nil || usage.Limit == nil || usage.CurrentValue == nil {
+			continue
+		}
+		free[strings.ToLower(*usage.ID)] = max(int(*usage.Limit-*usage.CurrentValue), 0)
+	}
+	return free
+}
+
 // GetSubnetsByIDs retrieves subnet information for specific subnet IDs
 func (c *Client) GetSubnetsByIDs(ctx context.Context, subnetIDs []string) (ipamTypes.SubnetMap, error) {
 	subnets := ipamTypes.SubnetMap{}
+	usages := map[string]map[string]int{}
 
 	for _, subnetID := range subnetIDs {
 		// Parse subnet ID to extract resource group, vnet and subnet names
@@ -656,9 +693,26 @@ func (c *Client) GetSubnetsByIDs(ctx context.Context, subnetIDs []string) (ipamT
 			continue
 		}
 
-		if subnet != nil {
-			subnets[subnetID] = subnet
+		if subnet == nil {
+			continue
 		}
+
+		vnetKey := strings.ToLower(resourceGroup + "/" + vnetName)
+		free, ok := usages[vnetKey]
+		if !ok {
+			free, err = c.subnetFreeAddresses(ctx, resourceGroup, vnetName)
+			if err != nil {
+				c.logger.Warn("Failed to get virtual network usage, estimating subnet capacity from IP configurations",
+					logfields.Error, err,
+					logfields.SubnetID, subnetID,
+				)
+			}
+			usages[vnetKey] = free
+		}
+		if available, ok := free[strings.ToLower(subnet.ID)]; ok {
+			subnet.AvailableAddresses = min(subnet.AvailableAddresses, available)
+		}
+		subnets[subnetID] = subnet
 	}
 
 	return subnets, nil
