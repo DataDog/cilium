@@ -675,3 +675,10 @@ func TestFreeAddressesFromUsages(t *testing.T) {
 		"/subscriptions/xxx/subnets/full": 0,
 	}, freeAddressesFromUsages(usages))
 }
+
+func TestIPConfigurationAddressCount(t *testing.T) {
+	nic := "/subscriptions/xxx/resourceGroups/rg/providers/Microsoft.Network/networkInterfaces/nic/ipConfigurations/"
+	require.Equal(t, 1, ipConfigurationAddressCount(&armnetwork.IPConfiguration{ID: new(nic + generateIpConfigName(nil))}))
+	require.Equal(t, types.PrefixSizeIPv4, ipConfigurationAddressCount(&armnetwork.IPConfiguration{ID: new(nic + generateIpConfigName(new(int32(types.PrefixLengthIPv4))))}))
+	require.Equal(t, 1, ipConfigurationAddressCount(&armnetwork.IPConfiguration{}))
+}

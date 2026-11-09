@@ -606,9 +606,10 @@ func (c *Client) getSubnetWithPagination(ctx context.Context, subscriptionID, re
 		// Reserve some addresses for Azure (typically 5 per subnet)
 		availableAddresses = (1 << availableAddresses) - 5
 
-		// Count used IP configurations if present
-		if subnet.Properties != nil && subnet.Properties.IPConfigurations != nil {
-			availableAddresses -= len(subnet.Properties.IPConfigurations)
+		if subnet.Properties != nil {
+			for _, ipConfig := range subnet.Properties.IPConfigurations {
+				availableAddresses -= ipConfigurationAddressCount(ipConfig)
+			}
 		}
 
 		if availableAddresses < 0 {
@@ -702,7 +703,7 @@ func (c *Client) GetSubnetsByIDs(ctx context.Context, subnetIDs []string) (ipamT
 		if !ok {
 			free, err = c.subnetFreeAddresses(ctx, resourceGroup, vnetName)
 			if err != nil {
-				c.logger.Warn("Failed to get virtual network usage, estimating subnet capacity from IP configurations, which counts each prefix as one address",
+				c.logger.Warn("Failed to get virtual network usage, estimating subnet capacity from IP configurations",
 					logfields.Error, err,
 					logfields.SubnetID, subnetID,
 				)
@@ -718,8 +719,23 @@ func (c *Client) GetSubnetsByIDs(ctx context.Context, subnetIDs []string) (ipamT
 	return subnets, nil
 }
 
-func generateIpConfigName() string {
+const prefixIPConfigNamePrefix = "cilium-prefix-"
+
+func generateIpConfigName(prefixLength *int32) string {
+	if prefixLength != nil {
+		return prefixIPConfigNamePrefix + rand.String(8)
+	}
 	return "Cilium-" + rand.String(8)
+}
+
+func ipConfigurationAddressCount(ipConfig *armnetwork.IPConfiguration) int {
+	if ipConfig != nil && ipConfig.ID != nil {
+		_, name, _ := strings.CutLast(*ipConfig.ID, "/")
+		if strings.HasPrefix(strings.ToLower(name), prefixIPConfigNamePrefix) {
+			return types.PrefixSizeIPv4
+		}
+	}
+	return 1
 }
 
 // AssignPrivateIpAddressesVMSS assign a private IP to an interface attached to a VMSS instance
@@ -774,7 +790,7 @@ func (c *Client) assignIPConfigurationsVMSS(ctx context.Context, instanceID, vms
 	for range count {
 		ipConfigurations = append(ipConfigurations,
 			&armcompute.VirtualMachineScaleSetIPConfiguration{
-				Name: new(generateIpConfigName()),
+				Name: new(generateIpConfigName(prefixLength)),
 				Properties: &armcompute.VirtualMachineScaleSetIPConfigurationProperties{
 					ApplicationSecurityGroups:    appSecurityGroups,
 					PrivateIPAddressPrefixLength: prefixLength,
@@ -848,7 +864,7 @@ func (c *Client) assignIPConfigurationsVM(ctx context.Context, subnetID, interfa
 	ipConfigurations := make([]*armnetwork.InterfaceIPConfiguration, 0, count)
 	for range count {
 		ipConfigurations = append(ipConfigurations, &armnetwork.InterfaceIPConfiguration{
-			Name: new(generateIpConfigName()),
+			Name: new(generateIpConfigName(prefixLength)),
 			Properties: &armnetwork.InterfaceIPConfigurationPropertiesFormat{
 				ApplicationSecurityGroups:    appSecurityGroups,
 				PrivateIPAddressPrefixLength: prefixLength,
