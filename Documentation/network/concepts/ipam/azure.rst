@@ -445,7 +445,6 @@ Common to every deployment:
    Microsoft.Network/virtualNetworks/read
    Microsoft.Network/virtualNetworks/subnets/read
    Microsoft.Network/virtualNetworks/subnets/join/action
-   Microsoft.Network/virtualNetworks/usages/read
    Microsoft.Compute/virtualMachineScaleSets/read
 
 For VMSS-based clusters, add:

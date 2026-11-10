@@ -8,12 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"net/netip"
 	"sync"
 	"testing"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/cilium/hive/hivetest"
 	"github.com/stretchr/testify/require"
 
@@ -436,23 +434,14 @@ func TestPrefixDelegation(t *testing.T) {
 
 	a, err := node.PrepareIPAllocation(hivetest.Logger(t))
 	require.NoError(t, err)
-	require.Equal(t, 96, a.IPv4.AvailableForAllocation)
+	require.Equal(t, 100, a.IPv4.AvailableForAllocation)
 	require.NoError(t, node.AllocateIPs(t.Context(), a))
-	require.Equal(t, 6, api.prefixes)
+	require.Equal(t, 7, api.prefixes)
 	require.Zero(t, api.addresses)
 
-	api.prefixErr = &azcore.ResponseError{StatusCode: http.StatusBadRequest, ErrorCode: "SubnetIsFull"}
+	api.prefixErr = errors.New("prefix allocation failed")
 	require.NoError(t, node.AllocateIPs(t.Context(), a))
-	require.Equal(t, 96, api.addresses)
-
-	api.prefixes, api.addresses, api.prefixErr = 0, 0, nil
-	node.manager.subnets["subnet-1"].AvailableAddresses = 10
-	a, err = node.PrepareIPAllocation(hivetest.Logger(t))
-	require.NoError(t, err)
-	require.Equal(t, 10, a.IPv4.AvailableForAllocation)
-	require.NoError(t, node.AllocateIPs(t.Context(), a))
-	require.Zero(t, api.prefixes)
-	require.Equal(t, 10, api.addresses)
+	require.Equal(t, 100, api.addresses)
 
 	actions := node.PrepareCIDRRelease([]netip.Prefix{prefix})
 	require.Len(t, actions, 1)

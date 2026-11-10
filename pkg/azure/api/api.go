@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"net/http"
 	"net/netip"
 	"slices"
@@ -26,7 +25,6 @@ import (
 	"github.com/cilium/cilium/pkg/azure/types"
 	iputil "github.com/cilium/cilium/pkg/ip"
 	ipamTypes "github.com/cilium/cilium/pkg/ipam/types"
-	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/mac"
 	"github.com/cilium/cilium/pkg/spanstat"
@@ -45,7 +43,6 @@ const (
 	virtualMachineScaleSetVMsGet    = "VirtualMachineScaleSetVMs.Get"
 	virtualMachineScaleSetVMsUpdate = "VirtualMachineScaleSetVMs.Update"
 	subnetsGet                      = "Subnets.Get"
-	virtualNetworksListUsage        = "VirtualNetworks.ListUsage"
 
 	interfacesListVirtualMachineScaleSetNetworkInterfaces   = "Interfaces.ListVirtualMachineScaleSetNetworkInterfaces"
 	interfacesListVirtualMachineScaleSetVMNetworkInterfaces = "Interfaces.ListVirtualMachineScaleSetVMNetworkInterfaces"
@@ -61,15 +58,11 @@ type Client struct {
 	publicIPAddresses         *armnetwork.PublicIPAddressesClient
 	virtualMachines           *armcompute.VirtualMachinesClient
 	subnets                   *armnetwork.SubnetsClient
-	virtualNetworks           *armnetwork.VirtualNetworksClient
 	virtualMachineScaleSetVMs *armcompute.VirtualMachineScaleSetVMsClient
 	virtualMachineScaleSets   *armcompute.VirtualMachineScaleSetsClient
 	limiter                   *helpers.APILimiter
 	metricsAPI                MetricsAPI
 	usePrimary                bool
-
-	prefixSizesMutex lock.Mutex
-	prefixSizes      map[string]int
 }
 
 // MetricsAPI represents the metrics maintained by the Azure API client
@@ -152,11 +145,6 @@ func NewClient(logger *slog.Logger, cloudName, subscriptionID, resourceGroup, us
 		return nil, err
 	}
 
-	virtualNetworksClient, err := armnetwork.NewVirtualNetworksClient(subscriptionID, credential, armClientOptions)
-	if err != nil {
-		return nil, err
-	}
-
 	virtualMachineScaleSetVMsClient, err := armcompute.NewVirtualMachineScaleSetVMsClient(subscriptionID, credential, armClientOptions)
 	if err != nil {
 		return nil, err
@@ -186,7 +174,6 @@ func NewClient(logger *slog.Logger, cloudName, subscriptionID, resourceGroup, us
 		publicIPAddresses:         publicIPAddressesClient,
 		virtualMachines:           virtualMachinesClient,
 		subnets:                   subnetsClient,
-		virtualNetworks:           virtualNetworksClient,
 		virtualMachineScaleSetVMs: virtualMachineScaleSetVMsClient,
 		virtualMachineScaleSets:   virtualMachineScaleSetsClient,
 		metricsAPI:                metrics,
@@ -459,31 +446,7 @@ func (c *Client) ListAllNetworkInterfaces(ctx context.Context) ([]*armnetwork.In
 		return nil, err
 	}
 
-	networkInterfaces = append(networkInterfaces, vmInterfaces...)
-	c.prefixSizesMutex.Lock()
-	c.prefixSizes = map[string]int{}
-	c.recordPrefixSizesLocked(networkInterfaces)
-	c.prefixSizesMutex.Unlock()
-	return networkInterfaces, nil
-}
-
-func (c *Client) recordPrefixSizesLocked(networkInterfaces []*armnetwork.Interface) {
-	if c.prefixSizes == nil {
-		c.prefixSizes = map[string]int{}
-	}
-	for _, iface := range networkInterfaces {
-		if iface == nil || iface.Properties == nil {
-			continue
-		}
-		for _, ip := range iface.Properties.IPConfigurations {
-			if ip == nil || ip.ID == nil || ip.Properties == nil || ip.Properties.PrivateIPAddress == nil {
-				continue
-			}
-			if cidr, err := parseIPConfigurationCIDR(ip.Properties); err == nil && !cidr.IsSingleIP() {
-				c.prefixSizes[strings.ToLower(*ip.ID)] = availableIPs(cidr)
-			}
-		}
-	}
+	return append(networkInterfaces, vmInterfaces...), nil
 }
 
 // isMacValid reports whether a parsed interface has a valid MAC.
@@ -531,14 +494,7 @@ func (c *Client) ListVMNetworkInterfaces(ctx context.Context, instanceID string)
 		return nil, fmt.Errorf("instance %q is not a virtual machine scale set instance", instanceID)
 	}
 
-	networkInterfaces, err := c.listVirtualMachineScaleSetVMNetworkInterfaces(ctx, resourceID.Parent.Name, resourceID.Name)
-	if err != nil {
-		return nil, err
-	}
-	c.prefixSizesMutex.Lock()
-	c.recordPrefixSizesLocked(networkInterfaces)
-	c.prefixSizesMutex.Unlock()
-	return networkInterfaces, nil
+	return c.listVirtualMachineScaleSetVMNetworkInterfaces(ctx, resourceID.Parent.Name, resourceID.Name)
 }
 
 // ParseInterfacesIntoInstance parses network interfaces into an Instance
@@ -641,10 +597,9 @@ func (c *Client) getSubnetWithPagination(ctx context.Context, subscriptionID, re
 		// Reserve some addresses for Azure (typically 5 per subnet)
 		availableAddresses = (1 << availableAddresses) - 5
 
-		if subnet.Properties != nil {
-			for _, ipConfig := range subnet.Properties.IPConfigurations {
-				availableAddresses -= c.ipConfigurationAddressCount(ipConfig)
-			}
+		// Count used IP configurations if present
+		if subnet.Properties != nil && subnet.Properties.IPConfigurations != nil {
+			availableAddresses -= len(subnet.Properties.IPConfigurations)
 		}
 
 		if availableAddresses < 0 {
@@ -677,37 +632,9 @@ func extractVNetID(subnetID string) string {
 	return before
 }
 
-func (c *Client) subnetFreeAddresses(ctx context.Context, resourceGroup, vnetName string) (map[string]int, error) {
-	free := map[string]int{}
-	pager := c.virtualNetworks.NewListUsagePager(resourceGroup, vnetName, nil)
-	for pager.More() {
-		c.limiter.Limit(ctx, virtualNetworksListUsage)
-		sinceStart := spanstat.Start()
-		page, err := pager.NextPage(ctx)
-		c.metricsAPI.ObserveAPICall(virtualNetworksListUsage, deriveStatus(err), sinceStart.Seconds())
-		if err != nil {
-			return nil, err
-		}
-		maps.Copy(free, freeAddressesFromUsages(page.Value))
-	}
-	return free, nil
-}
-
-func freeAddressesFromUsages(usages []*armnetwork.VirtualNetworkUsage) map[string]int {
-	free := make(map[string]int, len(usages))
-	for _, usage := range usages {
-		if usage == nil || usage.ID == nil || usage.Limit == nil || usage.CurrentValue == nil {
-			continue
-		}
-		free[strings.ToLower(*usage.ID)] = max(int(*usage.Limit-*usage.CurrentValue), 0)
-	}
-	return free
-}
-
 // GetSubnetsByIDs retrieves subnet information for specific subnet IDs
 func (c *Client) GetSubnetsByIDs(ctx context.Context, subnetIDs []string) (ipamTypes.SubnetMap, error) {
 	subnets := ipamTypes.SubnetMap{}
-	usages := map[string]map[string]int{}
 
 	for _, subnetID := range subnetIDs {
 		// Parse subnet ID to extract resource group, vnet and subnet names
@@ -729,58 +656,16 @@ func (c *Client) GetSubnetsByIDs(ctx context.Context, subnetIDs []string) (ipamT
 			continue
 		}
 
-		if subnet == nil {
-			continue
+		if subnet != nil {
+			subnets[subnetID] = subnet
 		}
-
-		vnetKey := strings.ToLower(resourceGroup + "/" + vnetName)
-		free, ok := usages[vnetKey]
-		if !ok {
-			free, err = c.subnetFreeAddresses(ctx, resourceGroup, vnetName)
-			if err != nil {
-				c.logger.Warn("Failed to get virtual network usage, estimating subnet capacity from IP configurations",
-					logfields.Error, err,
-					logfields.SubnetID, subnetID,
-				)
-			}
-			usages[vnetKey] = free
-		}
-		if available, ok := free[strings.ToLower(subnet.ID)]; ok {
-			subnet.AvailableAddresses = available
-		}
-		subnets[subnetID] = subnet
 	}
 
 	return subnets, nil
 }
 
-const prefixIPConfigNamePrefix = "cilium-prefix-"
-
-func generateIpConfigName(prefixLength *int32) string {
-	if prefixLength != nil {
-		return prefixIPConfigNamePrefix + rand.String(8)
-	}
+func generateIpConfigName() string {
 	return "Cilium-" + rand.String(8)
-}
-
-func (c *Client) ipConfigurationAddressCount(ipConfig *armnetwork.IPConfiguration) int {
-	if ipConfig == nil {
-		return 1
-	}
-	if ipConfig.Properties != nil && ipConfig.Properties.PrivateIPAddress != nil {
-		if prefix, err := netip.ParsePrefix(*ipConfig.Properties.PrivateIPAddress); err == nil {
-			return availableIPs(prefix.Masked())
-		}
-	}
-	if ipConfig.ID != nil {
-		c.prefixSizesMutex.Lock()
-		size, ok := c.prefixSizes[strings.ToLower(*ipConfig.ID)]
-		c.prefixSizesMutex.Unlock()
-		if ok {
-			return size
-		}
-	}
-	return 1
 }
 
 // AssignPrivateIpAddressesVMSS assign a private IP to an interface attached to a VMSS instance
@@ -835,7 +720,7 @@ func (c *Client) assignIPConfigurationsVMSS(ctx context.Context, instanceID, vms
 	for range count {
 		ipConfigurations = append(ipConfigurations,
 			&armcompute.VirtualMachineScaleSetIPConfiguration{
-				Name: new(generateIpConfigName(prefixLength)),
+				Name: new(generateIpConfigName()),
 				Properties: &armcompute.VirtualMachineScaleSetIPConfigurationProperties{
 					ApplicationSecurityGroups:    appSecurityGroups,
 					PrivateIPAddressPrefixLength: prefixLength,
@@ -909,7 +794,7 @@ func (c *Client) assignIPConfigurationsVM(ctx context.Context, subnetID, interfa
 	ipConfigurations := make([]*armnetwork.InterfaceIPConfiguration, 0, count)
 	for range count {
 		ipConfigurations = append(ipConfigurations, &armnetwork.InterfaceIPConfiguration{
-			Name: new(generateIpConfigName(prefixLength)),
+			Name: new(generateIpConfigName()),
 			Properties: &armnetwork.InterfaceIPConfigurationPropertiesFormat{
 				ApplicationSecurityGroups:    appSecurityGroups,
 				PrivateIPAddressPrefixLength: prefixLength,

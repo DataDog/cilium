@@ -5,15 +5,11 @@ package ipam
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"net/netip"
 	"slices"
 	"strings"
-
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 
 	"github.com/cilium/cilium/operator/pkg/ipam/nodemanager"
 	"github.com/cilium/cilium/operator/pkg/ipam/stats"
@@ -170,13 +166,6 @@ func (n *Node) PrepareIPAllocation(scopedLog *slog.Logger) (a *nodemanager.Alloc
 				a.InterfaceID = iface.ID
 				a.Interface = interfaceObj
 				a.PoolID = poolID
-				if prefixDelegated {
-					if available >= types.PrefixSizeIPv4 {
-						available -= available % types.PrefixSizeIPv4
-					} else {
-						availableOnInterface /= types.PrefixSizeIPv4
-					}
-				}
 				a.IPv4.AvailableForAllocation = min(available, availableOnInterface)
 			}
 		}
@@ -195,24 +184,22 @@ func (n *Node) AllocateIPs(ctx context.Context, a *nodemanager.AllocationAction)
 
 	vmss := iface.GetVMScaleSetName()
 	if n.IsPrefixDelegated() {
-		slots, _ := isAvailableInterface("", iface, n.manager.usePrimary, false, n.manager.logger)
-		if n.subnetFitsPrefix(a.PoolID) {
-			prefixes := iputil.PrefixCeil(a.IPv4.AvailableForAllocation, types.PrefixSizeIPv4)
-			var err error
-			if vmss == "" {
-				err = n.manager.api.AssignPrivateIpPrefixesVM(ctx, string(a.PoolID), iface.Name, prefixes)
-			} else {
-				err = n.manager.api.AssignPrivateIpPrefixesVMSS(ctx, iface.GetVMID(), vmss, string(a.PoolID), iface.Name, prefixes)
-			}
-			if !isPrefixAllocationRejected(err) || slots == 0 {
-				return err
-			}
-			n.manager.logger.Warn(
-				"Unable to allocate prefixes, allocating individual addresses instead",
-				logfields.Error, err,
-				logfields.InstanceID, n.instanceID,
-			)
+		prefixes := iputil.PrefixCeil(a.IPv4.AvailableForAllocation, types.PrefixSizeIPv4)
+		var err error
+		if vmss == "" {
+			err = n.manager.api.AssignPrivateIpPrefixesVM(ctx, string(a.PoolID), iface.Name, prefixes)
+		} else {
+			err = n.manager.api.AssignPrivateIpPrefixesVMSS(ctx, iface.GetVMID(), vmss, string(a.PoolID), iface.Name, prefixes)
 		}
+		slots, _ := isAvailableInterface("", iface, n.manager.usePrimary, false, n.manager.logger)
+		if err == nil || slots == 0 {
+			return err
+		}
+		n.manager.logger.Warn(
+			"Unable to allocate prefixes, allocating individual addresses instead",
+			logfields.Error, err,
+			logfields.InstanceID, n.instanceID,
+		)
 		a.IPv4.AvailableForAllocation = min(a.IPv4.AvailableForAllocation, slots)
 	}
 	if vmss == "" {
@@ -220,13 +207,6 @@ func (n *Node) AllocateIPs(ctx context.Context, a *nodemanager.AllocationAction)
 	} else {
 		return n.manager.api.AssignPrivateIpAddressesVMSS(ctx, iface.GetVMID(), vmss, string(a.PoolID), iface.Name, a.IPv4.AvailableForAllocation)
 	}
-}
-
-func (n *Node) subnetFitsPrefix(poolID ipamTypes.PoolID) bool {
-	n.manager.mutex.RLock()
-	defer n.manager.mutex.RUnlock()
-	subnet, ok := n.manager.subnets[string(poolID)]
-	return ok && subnet.AvailableAddresses >= types.PrefixSizeIPv4
 }
 
 func (n *Node) AllocateStaticIP(ctx context.Context, staticIPTags ipamTypes.Tags) (netip.Addr, error) {
@@ -462,11 +442,6 @@ func (n *Node) ReleaseCIDRs(ctx context.Context, r *nodemanager.ReleaseAction) (
 
 	n.manager.removeCIDRsFromInterface(n.instanceID, r.InterfaceID, r.CIDRsToRelease)
 	return r.CIDRsToRelease, nil
-}
-
-func isPrefixAllocationRejected(err error) bool {
-	respErr, ok := errors.AsType[*azcore.ResponseError](err)
-	return ok && respErr.StatusCode == http.StatusBadRequest
 }
 
 func matchesInterfaceName(requiredIfaceName string, iface *types.AzureInterface) bool {
