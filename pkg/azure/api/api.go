@@ -368,7 +368,7 @@ func parseInterface(logger *slog.Logger, iface *armnetwork.Interface, subnets ip
 				}
 			}
 
-			parsedIP, err := netip.ParseAddr(*ip.Properties.PrivateIPAddress)
+			cidr, err := parseIPConfigurationCIDR(ip.Properties)
 			if err != nil {
 				logger.Warn(
 					"Ignoring IP configuration with unparseable PrivateIPAddress",
@@ -378,6 +378,15 @@ func parseInterface(logger *slog.Logger, iface *armnetwork.Interface, subnets ip
 				)
 				continue
 			}
+			if !cidr.IsSingleIP() {
+				prefix := types.AzurePrefix{CIDR: iputil.PrefixFrom(cidr)}
+				if ip.Properties.ProvisioningState != nil {
+					prefix.State = strings.ToLower(string(*ip.Properties.ProvisioningState))
+				}
+				i.Prefixes = append(i.Prefixes, prefix)
+				continue
+			}
+			parsedIP := cidr.Addr()
 			isPrimary := ip.Properties.Primary != nil && *ip.Properties.Primary
 			if isPrimary {
 				i.IP = iputil.AddrFrom(parsedIP)
@@ -395,6 +404,26 @@ func parseInterface(logger *slog.Logger, iface *armnetwork.Interface, subnets ip
 	}
 
 	return
+}
+
+func parseIPConfigurationCIDR(props *armnetwork.InterfaceIPConfigurationPropertiesFormat) (netip.Prefix, error) {
+	if strings.Contains(*props.PrivateIPAddress, "/") {
+		prefix, err := netip.ParsePrefix(*props.PrivateIPAddress)
+		return prefix.Masked(), err
+	}
+	addr, err := netip.ParseAddr(*props.PrivateIPAddress)
+	if err != nil {
+		return netip.Prefix{}, err
+	}
+	bits := addr.BitLen()
+	if props.PrivateIPAddressPrefixLength != nil {
+		bits = int(*props.PrivateIPAddressPrefixLength)
+	}
+	prefix := netip.PrefixFrom(addr, bits)
+	if !prefix.IsValid() {
+		return netip.Prefix{}, fmt.Errorf("invalid prefix length %d for %s", bits, addr)
+	}
+	return prefix.Masked(), nil
 }
 
 // deriveGatewayIP finds the default gateway for a given Azure subnet.
@@ -641,6 +670,14 @@ func generateIpConfigName() string {
 
 // AssignPrivateIpAddressesVMSS assign a private IP to an interface attached to a VMSS instance
 func (c *Client) AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, subnetID, interfaceName string, addresses int) error {
+	return c.assignIPConfigurationsVMSS(ctx, instanceID, vmssName, subnetID, interfaceName, addresses, nil)
+}
+
+func (c *Client) AssignPrivateIpPrefixesVMSS(ctx context.Context, instanceID, vmssName, subnetID, interfaceName string, prefixes int) error {
+	return c.assignIPConfigurationsVMSS(ctx, instanceID, vmssName, subnetID, interfaceName, prefixes, new(int32(types.PrefixLengthIPv4)))
+}
+
+func (c *Client) assignIPConfigurationsVMSS(ctx context.Context, instanceID, vmssName, subnetID, interfaceName string, count int, prefixLength *int32) error {
 	var netIfConfig *armcompute.VirtualMachineScaleSetNetworkConfiguration
 
 	vmssGetOptions := &armcompute.VirtualMachineScaleSetVMsClientGetOptions{
@@ -679,15 +716,16 @@ func (c *Client) AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, v
 		appSecurityGroups = ipConfigs[0].Properties.ApplicationSecurityGroups
 	}
 
-	ipConfigurations := make([]*armcompute.VirtualMachineScaleSetIPConfiguration, 0, addresses)
-	for range addresses {
+	ipConfigurations := make([]*armcompute.VirtualMachineScaleSetIPConfiguration, 0, count)
+	for range count {
 		ipConfigurations = append(ipConfigurations,
 			&armcompute.VirtualMachineScaleSetIPConfiguration{
 				Name: new(generateIpConfigName()),
 				Properties: &armcompute.VirtualMachineScaleSetIPConfigurationProperties{
-					ApplicationSecurityGroups: appSecurityGroups,
-					PrivateIPAddressVersion:   new(armcompute.IPVersionIPv4),
-					Subnet:                    &armcompute.APIEntityReference{ID: new(subnetID)},
+					ApplicationSecurityGroups:    appSecurityGroups,
+					PrivateIPAddressPrefixLength: prefixLength,
+					PrivateIPAddressVersion:      new(armcompute.IPVersionIPv4),
+					Subnet:                       &armcompute.APIEntityReference{ID: new(subnetID)},
 				},
 			},
 		)
@@ -727,6 +765,14 @@ func (c *Client) AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, v
 
 // AssignPrivateIpAddressesVM assign a private IP to an interface attached to a standalone instance
 func (c *Client) AssignPrivateIpAddressesVM(ctx context.Context, subnetID, interfaceName string, addresses int) error {
+	return c.assignIPConfigurationsVM(ctx, subnetID, interfaceName, addresses, nil)
+}
+
+func (c *Client) AssignPrivateIpPrefixesVM(ctx context.Context, subnetID, interfaceName string, prefixes int) error {
+	return c.assignIPConfigurationsVM(ctx, subnetID, interfaceName, prefixes, new(int32(types.PrefixLengthIPv4)))
+}
+
+func (c *Client) assignIPConfigurationsVM(ctx context.Context, subnetID, interfaceName string, count int, prefixLength *int32) error {
 	c.limiter.Limit(ctx, interfacesGet)
 	sinceStart := spanstat.Start()
 
@@ -745,13 +791,14 @@ func (c *Client) AssignPrivateIpAddressesVM(ctx context.Context, subnetID, inter
 		appSecurityGroups = ipConfigs[0].Properties.ApplicationSecurityGroups
 	}
 
-	ipConfigurations := make([]*armnetwork.InterfaceIPConfiguration, 0, addresses)
-	for range addresses {
+	ipConfigurations := make([]*armnetwork.InterfaceIPConfiguration, 0, count)
+	for range count {
 		ipConfigurations = append(ipConfigurations, &armnetwork.InterfaceIPConfiguration{
 			Name: new(generateIpConfigName()),
 			Properties: &armnetwork.InterfaceIPConfigurationPropertiesFormat{
-				ApplicationSecurityGroups: appSecurityGroups,
-				PrivateIPAllocationMethod: new(armnetwork.IPAllocationMethodDynamic),
+				ApplicationSecurityGroups:    appSecurityGroups,
+				PrivateIPAddressPrefixLength: prefixLength,
+				PrivateIPAllocationMethod:    new(armnetwork.IPAllocationMethodDynamic),
 				Subnet: &armnetwork.Subnet{
 					ID: new(subnetID),
 				},
@@ -781,20 +828,20 @@ func (c *Client) AssignPrivateIpAddressesVM(ctx context.Context, subnetID, inter
 	return nil
 }
 
-func removeInterfaceIPConfigurations(configs []*armnetwork.InterfaceIPConfiguration, addresses []netip.Addr) (kept []*armnetwork.InterfaceIPConfiguration, removed []string, err error) {
+func removeInterfaceIPConfigurations(configs []*armnetwork.InterfaceIPConfiguration, cidrs []netip.Prefix) (kept []*armnetwork.InterfaceIPConfiguration, removed []string, err error) {
 	kept = make([]*armnetwork.InterfaceIPConfiguration, 0, len(configs))
 	for _, config := range configs {
 		if config == nil || config.Properties == nil || config.Properties.PrivateIPAddress == nil {
 			kept = append(kept, config)
 			continue
 		}
-		addr, parseErr := netip.ParseAddr(*config.Properties.PrivateIPAddress)
-		if parseErr != nil || !slices.Contains(addresses, addr) {
+		cidr, parseErr := parseIPConfigurationCIDR(config.Properties)
+		if parseErr != nil || !slices.Contains(cidrs, cidr) {
 			kept = append(kept, config)
 			continue
 		}
 		if config.Name == nil {
-			return nil, nil, fmt.Errorf("IP configuration with address %s has no name", addr)
+			return nil, nil, fmt.Errorf("IP configuration with address %s has no name", cidr)
 		}
 		removed = append(removed, *config.Name)
 	}
@@ -819,7 +866,7 @@ func removeVMSSIPConfigurations(configs []*armcompute.VirtualMachineScaleSetIPCo
 	return kept, nil
 }
 
-func (c *Client) UnassignPrivateIpAddressesVM(ctx context.Context, interfaceName string, addresses []netip.Addr) error {
+func (c *Client) UnassignPrivateIpAddressesVM(ctx context.Context, interfaceName string, cidrs []netip.Prefix) error {
 	c.limiter.Limit(ctx, interfacesGet)
 	sinceStart := spanstat.Start()
 
@@ -833,7 +880,7 @@ func (c *Client) UnassignPrivateIpAddressesVM(ctx context.Context, interfaceName
 		return fmt.Errorf("interface %s has no properties", interfaceName)
 	}
 
-	kept, removed, err := removeInterfaceIPConfigurations(iface.Properties.IPConfigurations, addresses)
+	kept, removed, err := removeInterfaceIPConfigurations(iface.Properties.IPConfigurations, cidrs)
 	if err != nil {
 		return fmt.Errorf("unable to release IP addresses from interface %s: %w", interfaceName, err)
 	}
@@ -860,7 +907,7 @@ func (c *Client) UnassignPrivateIpAddressesVM(ctx context.Context, interfaceName
 	return nil
 }
 
-func (c *Client) UnassignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, interfaceName string, addresses []netip.Addr) error {
+func (c *Client) UnassignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, interfaceName string, cidrs []netip.Prefix) error {
 	vmssGetOptions := &armcompute.VirtualMachineScaleSetVMsClientGetOptions{
 		Expand: new(armcompute.InstanceViewTypesInstanceView),
 	}
@@ -891,7 +938,7 @@ func (c *Client) UnassignPrivateIpAddressesVMSS(ctx context.Context, instanceID,
 		return fmt.Errorf("interface %s does not exist in VM %s", interfaceName, instanceID)
 	}
 
-	_, names, err := removeInterfaceIPConfigurations(nic.Properties.IPConfigurations, addresses)
+	_, names, err := removeInterfaceIPConfigurations(nic.Properties.IPConfigurations, cidrs)
 	if err != nil {
 		return fmt.Errorf("unable to release IP addresses from interface %s: %w", interfaceName, err)
 	}

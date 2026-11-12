@@ -15,11 +15,11 @@ import (
 	"github.com/cilium/cilium/operator/pkg/ipam/stats"
 	"github.com/cilium/cilium/pkg/azure/types"
 	"github.com/cilium/cilium/pkg/defaults"
+	iputil "github.com/cilium/cilium/pkg/ip"
 	ipamTypes "github.com/cilium/cilium/pkg/ipam/types"
 	v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/logging/logfields"
-	cslices "github.com/cilium/cilium/pkg/slices"
 )
 
 // Node represents a node representing an Azure instance
@@ -98,6 +98,9 @@ func (n *Node) PopulateStatusFields(k8sObj *v2.CiliumNode) {
 		slices.SortFunc(interfaces[i].Addresses, func(a, b types.AzureAddress) int {
 			return a.IP.Addr.Compare(b.IP.Addr)
 		})
+		slices.SortFunc(interfaces[i].Prefixes, func(a, b types.AzurePrefix) int {
+			return a.CIDR.Addr().Compare(b.CIDR.Addr())
+		})
 	}
 	k8sObj.Status.Azure.Interfaces = interfaces
 }
@@ -107,8 +110,8 @@ func (n *Node) PrepareIPRelease(excessIPs int, scopedLog *slog.Logger) *nodemana
 	return &nodemanager.ReleaseAction{}
 }
 
-// ReleaseIPPrefixes is a no-op on Azure since Azure ENIs don't
-// support prefix delegation.
+// ReleaseIPPrefixes is a no-op since Azure agents use the multi-pool
+// allocator, whose IP release mechanism uses ReleaseCIDRs instead.
 func (n *Node) ReleaseIPPrefixes(ctx context.Context, r *nodemanager.ReleaseAction) error {
 	// nothing to do
 	return nil
@@ -126,13 +129,14 @@ func (n *Node) PrepareIPAllocation(scopedLog *slog.Logger) (a *nodemanager.Alloc
 	n.manager.mutex.RLock()
 	defer n.manager.mutex.RUnlock()
 	usePrimary := n.manager.usePrimary
+	prefixDelegated := n.isPrefixDelegatedLocked()
 	err = n.manager.instances.ForeachInterface(n.instanceID, func(instanceID, interfaceID string, interfaceObj ipamTypes.Interface) error {
 		iface, ok := interfaceObj.(*types.AzureInterface)
 		if !ok {
 			return fmt.Errorf("invalid interface object")
 		}
 
-		availableOnInterface, available := isAvailableInterface(requiredIfaceName, iface, usePrimary, scopedLog)
+		availableOnInterface, available := isAvailableInterface(requiredIfaceName, iface, usePrimary, prefixDelegated, scopedLog)
 		if !available {
 			return nil
 		}
@@ -179,6 +183,25 @@ func (n *Node) AllocateIPs(ctx context.Context, a *nodemanager.AllocationAction)
 	}
 
 	vmss := iface.GetVMScaleSetName()
+	if n.IsPrefixDelegated() {
+		prefixes := iputil.PrefixCeil(a.IPv4.AvailableForAllocation, types.PrefixSizeIPv4)
+		var err error
+		if vmss == "" {
+			err = n.manager.api.AssignPrivateIpPrefixesVM(ctx, string(a.PoolID), iface.Name, prefixes)
+		} else {
+			err = n.manager.api.AssignPrivateIpPrefixesVMSS(ctx, iface.GetVMID(), vmss, string(a.PoolID), iface.Name, prefixes)
+		}
+		slots, _ := isAvailableInterface("", iface, n.manager.usePrimary, false, n.manager.logger)
+		if err == nil || slots == 0 {
+			return err
+		}
+		n.manager.logger.Warn(
+			"Unable to allocate prefixes, allocating individual addresses instead",
+			logfields.Error, err,
+			logfields.InstanceID, n.instanceID,
+		)
+		a.IPv4.AvailableForAllocation = min(a.IPv4.AvailableForAllocation, slots)
+	}
 	if vmss == "" {
 		return n.manager.api.AssignPrivateIpAddressesVM(ctx, string(a.PoolID), iface.Name, a.IPv4.AvailableForAllocation)
 	} else {
@@ -221,10 +244,12 @@ func (n *Node) ResyncInterfacesAndIPs(ctx context.Context, scopedLog *slog.Logge
 	n.manager.mutex.RLock()
 	defer n.manager.mutex.RUnlock()
 	usePrimary := n.manager.usePrimary
+	prefixDelegated := n.isPrefixDelegatedLocked()
 
 	// Azure caps both NICs and VMs at 256 addresses; start from that ceiling
 	// and decrement per NIC below for any primary slot we can't allocate.
 	nodeCapacity := types.InterfaceAddressLimit
+	addresses, prefixes := 0, 0
 	requiredIfaceName := n.requiredInterfaceName()
 	err = n.manager.instances.ForeachInterface(n.instanceID, func(instanceID, interfaceID string, interfaceObj ipamTypes.Interface) error {
 		iface, ok := interfaceObj.(*types.AzureInterface)
@@ -232,6 +257,8 @@ func (n *Node) ResyncInterfacesAndIPs(ctx context.Context, scopedLog *slog.Logge
 			return fmt.Errorf("invalid interface object")
 		}
 
+		addresses += len(iface.Addresses)
+		prefixes += len(iface.Prefixes)
 		for _, address := range iface.Addresses {
 			if address.State == types.StateSucceeded {
 				available[address.IP] = ipamTypes.AllocationIP{Resource: interfaceID}
@@ -253,7 +280,7 @@ func (n *Node) ResyncInterfacesAndIPs(ctx context.Context, scopedLog *slog.Logge
 			nodeCapacity--
 		}
 
-		if _, isAvailable := isAvailableInterface(requiredIfaceName, iface, usePrimary, scopedLog); isAvailable {
+		if _, isAvailable := isAvailableInterface(requiredIfaceName, iface, usePrimary, prefixDelegated, scopedLog); isAvailable {
 			stats.RemainingAvailableInterfaceCount++
 		}
 		return nil
@@ -261,7 +288,11 @@ func (n *Node) ResyncInterfacesAndIPs(ctx context.Context, scopedLog *slog.Logge
 	if err != nil {
 		return nil, stats, err
 	}
-	stats.NodeCapacity = max(nodeCapacity, 0)
+	nodeCapacity -= prefixes
+	if prefixDelegated {
+		nodeCapacity = (nodeCapacity-addresses)*types.PrefixSizeIPv4 + addresses
+	}
+	stats.NodeCapacity = max(nodeCapacity, 0) + prefixes*types.PrefixSizeIPv4
 
 	return available, stats, nil
 }
@@ -269,6 +300,9 @@ func (n *Node) ResyncInterfacesAndIPs(ctx context.Context, scopedLog *slog.Logge
 // GetMaximumAllocatableIPv4 returns the maximum amount of IPv4 addresses
 // that can be allocated to the instance
 func (n *Node) GetMaximumAllocatableIPv4() int {
+	if n.IsPrefixDelegated() {
+		return (types.InterfaceAddressLimit - 1) * types.PrefixSizeIPv4
+	}
 	// An Azure node can allocate up to 256 private IP addresses
 	// source: https://github.com/MicrosoftDocs/azure-docs/blob/master/includes/azure-virtual-network-limits.md#networking-limits---azure-resource-manager
 	return types.InterfaceAddressLimit
@@ -281,7 +315,29 @@ func (n *Node) GetMinimumAllocatableIPv4() int {
 }
 
 func (n *Node) IsPrefixDelegated() bool {
-	return false
+	if n.manager == nil || !n.manager.prefixDelegation {
+		return false
+	}
+	n.manager.mutex.RLock()
+	defer n.manager.mutex.RUnlock()
+	return n.isPrefixDelegatedLocked()
+}
+
+func (n *Node) isPrefixDelegatedLocked() bool {
+	if !n.manager.prefixDelegation {
+		return false
+	}
+	delegated := true
+	n.manager.instances.ForeachInterface(n.instanceID, func(_, _ string, interfaceObj ipamTypes.Interface) error {
+		iface, ok := interfaceObj.(*types.AzureInterface)
+		if ok && len(iface.Prefixes) == 0 && slices.ContainsFunc(iface.Addresses, func(a types.AzureAddress) bool {
+			return a.IP.Addr != iface.IP.Addr
+		}) {
+			delegated = false
+		}
+		return nil
+	})
+	return delegated
 }
 
 func secondaryIPv4CIDR(iface *types.AzureInterface, address types.AzureAddress) (netip.Prefix, bool) {
@@ -308,6 +364,11 @@ func (n *Node) GetAttachedCIDRs() []netip.Prefix {
 		for _, address := range iface.Addresses {
 			if address.IP.IsValid() && address.IP.Addr.Is4() {
 				attached = append(attached, netip.PrefixFrom(address.IP.Addr, address.IP.Addr.BitLen()))
+			}
+		}
+		for _, prefix := range iface.Prefixes {
+			if prefix.State == types.StateSucceeded && prefix.CIDR.IsValid() {
+				attached = append(attached, prefix.CIDR.Prefix)
 			}
 		}
 		return nil
@@ -339,6 +400,11 @@ func (n *Node) PrepareCIDRRelease(released []netip.Prefix) []*nodemanager.Releas
 				cidrs = append(cidrs, prefix)
 			}
 		}
+		for _, prefix := range iface.Prefixes {
+			if prefix.State == types.StateSucceeded && slices.Contains(released, prefix.CIDR.Prefix) {
+				cidrs = append(cidrs, prefix.CIDR.Prefix)
+			}
+		}
 		if len(cidrs) > 0 {
 			actions = append(actions, &nodemanager.ReleaseAction{
 				InterfaceID:    interfaceID,
@@ -363,20 +429,18 @@ func (n *Node) ReleaseCIDRs(ctx context.Context, r *nodemanager.ReleaseAction) (
 		return nil, fmt.Errorf("invalid interface object")
 	}
 
-	addrs := cslices.Map(r.CIDRsToRelease, netip.Prefix.Addr)
-
 	var err error
 	vmss := iface.GetVMScaleSetName()
 	if vmss == "" {
-		err = n.manager.api.UnassignPrivateIpAddressesVM(ctx, iface.Name, addrs)
+		err = n.manager.api.UnassignPrivateIpAddressesVM(ctx, iface.Name, r.CIDRsToRelease)
 	} else {
-		err = n.manager.api.UnassignPrivateIpAddressesVMSS(ctx, iface.GetVMID(), vmss, iface.Name, addrs)
+		err = n.manager.api.UnassignPrivateIpAddressesVMSS(ctx, iface.GetVMID(), vmss, iface.Name, r.CIDRsToRelease)
 	}
 	if err != nil {
 		return nil, err
 	}
 
-	n.manager.removeIPsFromInterface(n.instanceID, r.InterfaceID, addrs)
+	n.manager.removeCIDRsFromInterface(n.instanceID, r.InterfaceID, r.CIDRsToRelease)
 	return r.CIDRsToRelease, nil
 }
 
@@ -385,7 +449,7 @@ func matchesInterfaceName(requiredIfaceName string, iface *types.AzureInterface)
 }
 
 // isAvailableInterface returns whether interface is available and the number of available IPs to allocate in interface
-func isAvailableInterface(requiredIfaceName string, iface *types.AzureInterface, usePrimary bool, scopedLog *slog.Logger) (availableOnInterface int, available bool) {
+func isAvailableInterface(requiredIfaceName string, iface *types.AzureInterface, usePrimary, prefixDelegated bool, scopedLog *slog.Logger) (availableOnInterface int, available bool) {
 	if requiredIfaceName != "" {
 		if iface.Name != requiredIfaceName {
 			scopedLog.Debug(
@@ -410,9 +474,12 @@ func isAvailableInterface(requiredIfaceName string, iface *types.AzureInterface,
 	if !usePrimary && iface.IP.IsValid() {
 		limit--
 	}
-	availableOnInterface = max(limit-len(iface.Addresses), 0)
+	availableOnInterface = max(limit-len(iface.Addresses)-len(iface.Prefixes), 0)
 	if availableOnInterface <= 0 {
 		return 0, false
+	}
+	if prefixDelegated {
+		availableOnInterface *= types.PrefixSizeIPv4
 	}
 	return availableOnInterface, true
 }

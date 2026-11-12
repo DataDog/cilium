@@ -39,6 +39,9 @@ func TestAllocationResult(t *testing.T) {
 				{IP: iputil.AddrFrom(netip.MustParseAddr("10.20.1.5")), State: azureTypes.StateSucceeded},
 				{IP: iputil.AddrFrom(netip.MustParseAddr("10.20.1.6")), State: "updating"},
 			},
+			Prefixes: []azureTypes.AzurePrefix{
+				{CIDR: iputil.PrefixFrom(netip.MustParsePrefix("10.20.1.16/28")), State: azureTypes.StateSucceeded},
+			},
 		},
 	}
 
@@ -54,6 +57,15 @@ func TestAllocationResult(t *testing.T) {
 	require.Equal(t, mac.MustParseMAC("00:00:5e:00:53:02"), result.PrimaryMAC)
 	require.Equal(t, netip.MustParseAddr("10.20.1.1"), result.GatewayIP)
 	require.Equal(t, "0", result.InterfaceNumber)
+
+	result, err = allocationResult(
+		netip.MustParseAddr("10.20.1.20"),
+		pool,
+		interfaces,
+	)
+	require.NoError(t, err)
+	require.Equal(t, netip.MustParseAddr("10.20.1.20"), result.IP)
+	require.Equal(t, mac.MustParseMAC("00:00:5e:00:53:02"), result.PrimaryMAC)
 
 	_, err = allocationResult(
 		netip.MustParseAddr("10.20.1.6"),
