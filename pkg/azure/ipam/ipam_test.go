@@ -182,7 +182,7 @@ func TestMultiPoolIPRelease(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			api := apimock.NewAPI([]*ipamTypes.Subnet{testSubnet})
-			instances := NewInstancesManager(hivetest.Logger(t), api, true)
+			instances := NewInstancesManager(hivetest.Logger(t), api, true, false)
 
 			iface := &types.AzureInterface{
 				ID:     test.interfaceID,
@@ -293,7 +293,7 @@ func TestMultiPoolIPReleaseAfterIneligibleState(t *testing.T) {
 	}
 
 	api := apimock.NewAPI([]*ipamTypes.Subnet{testSubnet})
-	instances := NewInstancesManager(hivetest.Logger(t), api, true)
+	instances := NewInstancesManager(hivetest.Logger(t), api, true, false)
 	api.UpdateInstances(instanceMap(types.StateSucceeded))
 	_, err := instances.Resync(t.Context())
 	require.NoError(t, err)
@@ -342,7 +342,7 @@ func TestIpamPreAllocate8(t *testing.T) {
 	toUse := 7
 
 	api := apimock.NewAPI([]*ipamTypes.Subnet{testSubnet})
-	instances := NewInstancesManager(hivetest.Logger(t), api, false)
+	instances := NewInstancesManager(hivetest.Logger(t), api, false, false)
 	require.NotNil(t, instances)
 
 	m := ipamTypes.NewInstanceMap()
@@ -404,7 +404,7 @@ func TestIpamMinAllocate10(t *testing.T) {
 	toUse := 7
 
 	api := apimock.NewAPI([]*ipamTypes.Subnet{testSubnet})
-	instances := NewInstancesManager(hivetest.Logger(t), api, false)
+	instances := NewInstancesManager(hivetest.Logger(t), api, false, false)
 	require.NotNil(t, instances)
 
 	m := ipamTypes.NewInstanceMap()
@@ -488,7 +488,7 @@ func TestIpamManyNodes(t *testing.T) {
 				minAllocate = 1
 			)
 			api := apimock.NewAPI(testSubnets)
-			instances := NewInstancesManager(hivetest.Logger(t), api, false)
+			instances := NewInstancesManager(hivetest.Logger(t), api, false, false)
 			require.NotNil(t, instances)
 
 			k8sapi := newK8sMock()
@@ -563,7 +563,7 @@ func benchmarkAllocWorker(b *testing.B, workers int64, delay time.Duration, rate
 	api.SetDelay(apimock.AllOperations, delay)
 	api.SetLimiter(rateLimit, burst)
 
-	instances := NewInstancesManager(hivetest.Logger(b), api, false)
+	instances := NewInstancesManager(hivetest.Logger(b), api, false, false)
 	require.NotNil(b, instances)
 
 	k8sapi := newK8sMock()

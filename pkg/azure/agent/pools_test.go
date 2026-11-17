@@ -74,6 +74,10 @@ func TestPoolAccessorFromResource(t *testing.T) {
 					{IP: iputil.AddrFrom(netip.MustParseAddr("10.0.0.2")), State: azureTypes.StateSucceeded},
 					{State: azureTypes.StateSucceeded},
 				},
+				Prefixes: []azureTypes.AzurePrefix{
+					{CIDR: iputil.PrefixFrom(netip.MustParsePrefix("10.0.0.32/28")), State: "updating"},
+					{CIDR: iputil.PrefixFrom(netip.MustParsePrefix("10.0.0.16/28")), State: azureTypes.StateSucceeded},
+				},
 			},
 		}
 
@@ -85,6 +89,7 @@ func TestPoolAccessorFromResource(t *testing.T) {
 		require.True(t, result.Allocated[0].AllowLastIP)
 		require.Equal(t, []iputil.Prefix{
 			iputil.PrefixFrom(netip.MustParsePrefix("10.0.0.2/32")),
+			iputil.PrefixFrom(netip.MustParsePrefix("10.0.0.16/28")),
 			iputil.PrefixFrom(netip.MustParsePrefix("2001:db8::2/128")),
 		}, result.Allocated[0].CIDRs)
 	})

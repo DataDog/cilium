@@ -42,7 +42,7 @@ func TestFullResync(t *testing.T) {
 		t.Parallel()
 		api := apimock.NewAPI(subnets)
 		hooked := &hookedAPI{AzureAPI: api}
-		mngr := NewInstancesManager(hivetest.Logger(t), hooked, false)
+		mngr := NewInstancesManager(hivetest.Logger(t), hooked, false, false)
 		iteration1(t, api, mngr)
 		resynctest.InstanceDelete(t, mngr, hooked.setHook, "i-1")
 	})
@@ -110,7 +110,7 @@ func TestInstanceSyncPreservesConcurrentCacheChanges(t *testing.T) {
 			initial.Update(instanceID, initialInterface)
 			cloud.UpdateInstances(initial)
 			hooked := &hookedInstanceAPI{AzureAPI: cloud}
-			manager := NewInstancesManager(hivetest.Logger(t), hooked, false)
+			manager := NewInstancesManager(hivetest.Logger(t), hooked, false, false)
 			_, err := manager.Resync(t.Context())
 			require.NoError(t, err)
 			require.True(t, manager.HasInstance(instanceID))

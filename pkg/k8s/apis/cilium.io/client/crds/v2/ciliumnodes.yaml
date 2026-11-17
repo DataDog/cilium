@@ -650,6 +650,23 @@ spec:
                         name:
                           description: Name is the name of the interface
                           type: string
+                        prefixes:
+                          description: Prefixes is the list of IP prefixes associated
+                            with the interface
+                          items:
+                            description: AzurePrefix is an IP prefix assigned to an
+                              AzureInterface
+                            properties:
+                              cidr:
+                                description: CIDR is the IP prefix
+                                format: cidr
+                                type: string
+                              state:
+                                description: State is the provisioning state of the
+                                  prefix
+                                type: string
+                            type: object
+                          type: array
                         security-group:
                           description: SecurityGroup is the security group associated
                             with the interface

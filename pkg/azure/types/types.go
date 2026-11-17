@@ -25,6 +25,9 @@ const (
 	StateSucceeded = "succeeded"
 
 	StateUpdating = "updating"
+
+	PrefixLengthIPv4 = 28
+	PrefixSizeIPv4   = 1 << (32 - PrefixLengthIPv4)
 )
 
 // AzureSpec is the Azure specification of a node running via the Azure IPAM
@@ -59,6 +62,17 @@ type AzureAddress struct {
 	IP iputil.Addr `json:"ip,omitzero"`
 
 	// State is the provisioning state of the address
+	State string `json:"state,omitempty"`
+}
+
+// AzurePrefix is an IP prefix assigned to an AzureInterface
+type AzurePrefix struct {
+	// CIDR is the IP prefix
+	//
+	// +optional
+	CIDR iputil.Prefix `json:"cidr,omitzero"`
+
+	// State is the provisioning state of the prefix
 	State string `json:"state,omitempty"`
 }
 
@@ -115,6 +129,11 @@ type AzureInterface struct {
 	//
 	// +optional
 	Addresses []AzureAddress `json:"addresses,omitempty"`
+
+	// Prefixes is the list of IP prefixes associated with the interface
+	//
+	// +optional
+	Prefixes []AzurePrefix `json:"prefixes,omitempty"`
 
 	// SecurityGroup is the security group associated with the interface
 	SecurityGroup string `json:"security-group,omitempty"`

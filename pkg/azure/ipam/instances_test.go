@@ -163,7 +163,7 @@ func TestSubnetDiscovery(t *testing.T) {
 	api := apimock.NewAPI(subnets)
 	require.NotNil(t, api)
 
-	mngr := NewInstancesManager(hivetest.Logger(t), api, false)
+	mngr := NewInstancesManager(hivetest.Logger(t), api, false, false)
 	require.NotNil(t, mngr)
 
 	require.Nil(t, mngr.subnets["subnet-1"])
@@ -198,7 +198,7 @@ func TestResyncInstancePreservesOtherNodesSubnets(t *testing.T) {
 	api := apimock.NewAPI(subnets2)
 	require.NotNil(t, api)
 
-	mngr := NewInstancesManager(hivetest.Logger(t), api, false)
+	mngr := NewInstancesManager(hivetest.Logger(t), api, false, false)
 	require.NotNil(t, mngr)
 
 	// Two instances using DIFFERENT subnets:
@@ -255,7 +255,7 @@ func TestExtractSubnetIDs(t *testing.T) {
 	api := apimock.NewAPI(subnets)
 	require.NotNil(t, api)
 
-	mngr := NewInstancesManager(hivetest.Logger(t), api, false)
+	mngr := NewInstancesManager(hivetest.Logger(t), api, false, false)
 	require.NotNil(t, mngr)
 
 	// Create 100 instances across only 2 different subnets to test deduplication
@@ -413,7 +413,7 @@ func TestRemoveIPsFromInterfaceDuringResync(t *testing.T) {
 		})
 		return out
 	}
-	released := []netip.Addr{netip.MustParseAddr("1.1.1.3")}
+	released := []netip.Prefix{netip.MustParsePrefix("1.1.1.3/32")}
 
 	for name, sync := range map[string]func(context.Context, *InstancesManager) error{
 		"full resync": func(ctx context.Context, mngr *InstancesManager) error {
@@ -432,7 +432,7 @@ func TestRemoveIPsFromInterfaceDuringResync(t *testing.T) {
 				captures: map[string]*ipamTypes.InstanceMap{},
 			}
 			setCloud(api, newInterface("nic-a", "1.1.1.2", "1.1.1.3"))
-			mngr := NewInstancesManager(hivetest.Logger(t), api, false)
+			mngr := NewInstancesManager(hivetest.Logger(t), api, false, false)
 			api.gates <- openResyncGate()
 			_, err := mngr.Resync(t.Context())
 			require.NoError(t, err)
@@ -452,7 +452,7 @@ func TestRemoveIPsFromInterfaceDuringResync(t *testing.T) {
 			setCloud(api, newInterface("nic-a", "1.1.1.2"))
 			removeDone := make(chan struct{})
 			go func() {
-				mngr.removeIPsFromInterface("vm-1", "nic-a", released)
+				mngr.removeCIDRsFromInterface("vm-1", "nic-a", released)
 				close(removeDone)
 			}()
 			select {

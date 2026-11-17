@@ -4,6 +4,7 @@
 package ipam
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -391,4 +392,68 @@ func TestNodeConcurrentUpdatedNode(t *testing.T) {
 		require.NoError(t, err)
 	}
 	wg.Wait()
+}
+
+type prefixRecordingAPI struct {
+	*apimock.API
+	prefixes  int
+	addresses int
+	prefixErr error
+}
+
+func (a *prefixRecordingAPI) AssignPrivateIpPrefixesVMSS(ctx context.Context, instanceID, vmssName, subnetID, interfaceName string, prefixes int) error {
+	a.prefixes = prefixes
+	return a.prefixErr
+}
+
+func (a *prefixRecordingAPI) AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, subnetID, interfaceName string, addresses int) error {
+	a.addresses = addresses
+	return nil
+}
+
+func TestPrefixDelegation(t *testing.T) {
+	prefix := netip.MustParsePrefix("10.0.0.16/28")
+	iface := newReleaseTestInterface(releaseTestVMSSNIC, "eth0", "subnet-1", "10.0.0.4")
+	iface.Prefixes = []types.AzurePrefix{{CIDR: iputil.PrefixFrom(prefix), State: types.StateSucceeded}}
+
+	node := newCapacityTestNode(t, []*types.AzureInterface{iface}, false)
+	node.manager.prefixDelegation = true
+	node.manager.logger = hivetest.Logger(t)
+	node.manager.subnets = ipamTypes.SubnetMap{"subnet-1": {ID: "subnet-1", AvailableAddresses: 100}}
+	api := &prefixRecordingAPI{API: apimock.NewAPI(nil)}
+	api.UpdateInstances(node.manager.instances.DeepCopy())
+	node.manager.api = api
+
+	require.True(t, node.IsPrefixDelegated())
+	require.Equal(t, 255*16, node.GetMaximumAllocatableIPv4())
+	require.Equal(t, []netip.Prefix{prefix}, node.GetAttachedCIDRs())
+
+	_, stats, err := node.ResyncInterfacesAndIPs(t.Context(), hivetest.Logger(t))
+	require.NoError(t, err)
+	require.Equal(t, 255*16, stats.NodeCapacity)
+
+	a, err := node.PrepareIPAllocation(hivetest.Logger(t))
+	require.NoError(t, err)
+	require.Equal(t, 100, a.IPv4.AvailableForAllocation)
+	require.NoError(t, node.AllocateIPs(t.Context(), a))
+	require.Equal(t, 7, api.prefixes)
+	require.Zero(t, api.addresses)
+
+	api.prefixErr = errors.New("prefix allocation failed")
+	require.NoError(t, node.AllocateIPs(t.Context(), a))
+	require.Equal(t, 100, api.addresses)
+
+	actions := node.PrepareCIDRRelease([]netip.Prefix{prefix})
+	require.Len(t, actions, 1)
+	released, err := node.ReleaseCIDRs(t.Context(), actions[0])
+	require.NoError(t, err)
+	require.Equal(t, []netip.Prefix{prefix}, released)
+	require.Empty(t, node.GetAttachedCIDRs())
+
+	mixed := newCapacityTestNode(t, []*types.AzureInterface{
+		newReleaseTestInterface(releaseTestVMSSNIC, "eth0", "subnet-1", "10.0.0.4",
+			releaseTestAddress("10.0.0.5", types.StateSucceeded)),
+	}, false)
+	mixed.manager.prefixDelegation = true
+	require.False(t, mixed.IsPrefixDelegated())
 }

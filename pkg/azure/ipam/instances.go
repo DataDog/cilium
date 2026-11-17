@@ -35,14 +35,16 @@ type AzureAPI interface {
 	GetSubnetsByIDs(ctx context.Context, nodeSubnetIDs []string) (ipamTypes.SubnetMap, error)
 	AssignPrivateIpAddressesVM(ctx context.Context, subnetID, interfaceName string, addresses int) error
 	AssignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, subnetID, interfaceName string, addresses int) error
+	AssignPrivateIpPrefixesVM(ctx context.Context, subnetID, interfaceName string, prefixes int) error
+	AssignPrivateIpPrefixesVMSS(ctx context.Context, instanceID, vmssName, subnetID, interfaceName string, prefixes int) error
 	AssignPublicIPAddressesVM(ctx context.Context, instanceID string, publicIpTags ipamTypes.Tags) (netip.Addr, error)
 	AssignPublicIPAddressesVMSS(ctx context.Context, instanceID, vmssName string, publicIpTags ipamTypes.Tags) (netip.Addr, error)
 	ListAllNetworkInterfaces(ctx context.Context) ([]*armnetwork.Interface, error)
 	ParseInterfacesIntoInstanceMap(networkInterfaces []*armnetwork.Interface, subnets ipamTypes.SubnetMap) *ipamTypes.InstanceMap
 	ListVMNetworkInterfaces(ctx context.Context, instanceID string) ([]*armnetwork.Interface, error)
 	ParseInterfacesIntoInstance(networkInterfaces []*armnetwork.Interface, subnets ipamTypes.SubnetMap) *ipamTypes.Instance
-	UnassignPrivateIpAddressesVM(ctx context.Context, interfaceName string, addresses []netip.Addr) error
-	UnassignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, interfaceName string, addresses []netip.Addr) error
+	UnassignPrivateIpAddressesVM(ctx context.Context, interfaceName string, cidrs []netip.Prefix) error
+	UnassignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, interfaceName string, cidrs []netip.Prefix) error
 }
 
 // InstancesManager maintains the list of instances. It must be kept up to date
@@ -57,6 +59,8 @@ type InstancesManager struct {
 	// true, each NIC's primary IP is exposed to the allocatable pool.
 	usePrimary bool
 
+	prefixDelegation bool
+
 	// mutex protects the fields below
 	mutex     lock.RWMutex
 	instances *ipamTypes.InstanceMap
@@ -65,12 +69,13 @@ type InstancesManager struct {
 }
 
 // NewInstancesManager returns a new instances manager
-func NewInstancesManager(logger *slog.Logger, api AzureAPI, usePrimary bool) *InstancesManager {
+func NewInstancesManager(logger *slog.Logger, api AzureAPI, usePrimary, prefixDelegation bool) *InstancesManager {
 	return &InstancesManager{
-		logger:     logger.With(subsysLogAttr...),
-		instances:  ipamTypes.NewInstanceMap(),
-		api:        api,
-		usePrimary: usePrimary,
+		logger:           logger.With(subsysLogAttr...),
+		instances:        ipamTypes.NewInstanceMap(),
+		api:              api,
+		usePrimary:       usePrimary,
+		prefixDelegation: prefixDelegation,
 	}
 }
 
@@ -247,7 +252,7 @@ func (m *InstancesManager) lockInstance(instanceID string) lock.UnlockFunc {
 	}
 }
 
-func (m *InstancesManager) removeIPsFromInterface(instanceID, interfaceID string, addresses []netip.Addr) {
+func (m *InstancesManager) removeCIDRsFromInterface(instanceID, interfaceID string, cidrs []netip.Prefix) {
 	unlock := m.lockInstance(instanceID)
 	defer unlock()
 
@@ -264,7 +269,10 @@ func (m *InstancesManager) removeIPsFromInterface(instanceID, interfaceID string
 	}
 	updated := azureIface.DeepCopy()
 	updated.Addresses = slices.DeleteFunc(updated.Addresses, func(addr types.AzureAddress) bool {
-		return slices.Contains(addresses, addr.IP.Addr)
+		return slices.Contains(cidrs, netip.PrefixFrom(addr.IP.Addr, addr.IP.BitLen()))
+	})
+	updated.Prefixes = slices.DeleteFunc(updated.Prefixes, func(prefix types.AzurePrefix) bool {
+		return slices.Contains(cidrs, prefix.CIDR.Prefix)
 	})
 	m.instances.Update(instanceID, updated)
 }

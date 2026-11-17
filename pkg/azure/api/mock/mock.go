@@ -216,7 +216,15 @@ func (a *API) AssignPrivateIpAddressesVMSS(ctx context.Context, vmName, vmssName
 	return nil
 }
 
-func (a *API) UnassignPrivateIpAddressesVM(ctx context.Context, interfaceName string, addresses []netip.Addr) error {
+func (a *API) AssignPrivateIpPrefixesVM(ctx context.Context, subnetID, interfaceName string, prefixes int) error {
+	return nil
+}
+
+func (a *API) AssignPrivateIpPrefixesVMSS(ctx context.Context, vmName, vmssName, subnetID, interfaceName string, prefixes int) error {
+	return nil
+}
+
+func (a *API) UnassignPrivateIpAddressesVM(ctx context.Context, interfaceName string, cidrs []netip.Prefix) error {
 	a.rateLimit()
 	a.delaySim.Delay(UnassignPrivateIpAddressesVM)
 
@@ -227,12 +235,12 @@ func (a *API) UnassignPrivateIpAddressesVM(ctx context.Context, interfaceName st
 		return err
 	}
 
-	return a.unassignPrivateIpAddressesLocked(interfaceName, addresses, func(intf *types.AzureInterface) bool {
+	return a.unassignPrivateIpAddressesLocked(interfaceName, cidrs, func(intf *types.AzureInterface) bool {
 		return intf.Name == interfaceName && intf.GetVMScaleSetName() == ""
 	})
 }
 
-func (a *API) UnassignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, interfaceName string, addresses []netip.Addr) error {
+func (a *API) UnassignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vmssName, interfaceName string, cidrs []netip.Prefix) error {
 	a.rateLimit()
 	a.delaySim.Delay(UnassignPrivateIpAddressesVMSS)
 
@@ -243,12 +251,12 @@ func (a *API) UnassignPrivateIpAddressesVMSS(ctx context.Context, instanceID, vm
 		return err
 	}
 
-	return a.unassignPrivateIpAddressesLocked(interfaceName, addresses, func(intf *types.AzureInterface) bool {
+	return a.unassignPrivateIpAddressesLocked(interfaceName, cidrs, func(intf *types.AzureInterface) bool {
 		return intf.Name == interfaceName && intf.GetVMID() == instanceID && intf.GetVMScaleSetName() == vmssName
 	})
 }
 
-func (a *API) unassignPrivateIpAddressesLocked(interfaceName string, addresses []netip.Addr, match func(intf *types.AzureInterface) bool) error {
+func (a *API) unassignPrivateIpAddressesLocked(interfaceName string, cidrs []netip.Prefix, match func(intf *types.AzureInterface) bool) error {
 	foundInterface := false
 	instances := a.instances.DeepCopy()
 	err := instances.ForeachInterface("", func(id, _ string, iface ipamTypes.Interface) error {
@@ -262,13 +270,16 @@ func (a *API) unassignPrivateIpAddressesLocked(interfaceName string, addresses [
 		}
 
 		intf.Addresses = slices.DeleteFunc(intf.Addresses, func(addr types.AzureAddress) bool {
-			if !slices.Contains(addresses, addr.IP.Addr) {
+			if !slices.Contains(cidrs, netip.PrefixFrom(addr.IP.Addr, addr.IP.BitLen())) {
 				return false
 			}
 			if s, ok := a.subnets[intf.Subnet.ID]; ok {
 				s.allocator.Release(addr.IP.Addr)
 			}
 			return true
+		})
+		intf.Prefixes = slices.DeleteFunc(intf.Prefixes, func(prefix types.AzurePrefix) bool {
+			return slices.Contains(cidrs, prefix.CIDR.Prefix)
 		})
 
 		foundInterface = true
