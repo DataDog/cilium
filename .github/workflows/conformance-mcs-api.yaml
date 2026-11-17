@@ -198,7 +198,7 @@ jobs:
           sudo sysctl -w fs.inotify.max_user_instances=1280 fs.inotify.max_user_watches=655360
 
       - name: Create Kind cluster 1
-        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+        uses: helm/kind-action@ea822c7bf1874f08e5a491df991c228edffc3376 # v1.15.2
         with:
           cluster_name: ${{ env.clusterName1 }}
           version: ${{ env.KIND_VERSION }}
@@ -208,7 +208,7 @@ jobs:
           wait: 0 # The control-plane never becomes ready, since no CNI is present
 
       - name: Create Kind cluster 2
-        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+        uses: helm/kind-action@ea822c7bf1874f08e5a491df991c228edffc3376 # v1.15.2
         with:
           cluster_name: ${{ env.clusterName2 }}
           version: ${{ env.KIND_VERSION }}
@@ -229,7 +229,7 @@ jobs:
           done
 
       - name: Install Cilium CLI
-        uses: cilium/cilium-cli@d9302835ae0d3cb6148178d4590240622289e193 # v0.20.1
+        uses: cilium/cilium-cli@506c6d8cd165e56a36ce97ed31f67c92d4ae72e1 # v0.20.3
         with:
           skip-build: ${{ env.CILIUM_CLI_SKIP_BUILD }}
           image-repo: ${{ env.CILIUM_CLI_IMAGE_REPO }}
@@ -241,7 +241,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           # renovate: datasource=golang-version depName=go
-          go-version: 1.26.10
+          go-version: 1.26.11
 
       - name: Install go-junit-report
         timeout-minutes: 15

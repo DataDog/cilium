@@ -30,6 +30,10 @@ import (
 	"github.com/cilium/cilium/pkg/testutils"
 )
 
+const (
+	MAX_GLOBAL_FUNC_PER_PROG = 10
+)
+
 var (
 	flagCiliumBasePath = flag.String("cilium-base-path", "", "Cilium checkout base path")
 	flagKernelName     = flag.String("kernel-name", "netnext", "Name of the kernel under test")
@@ -321,27 +325,16 @@ func loadAndRecordComplexity(
 		defer coll.Close()
 
 		for _, n := range slices.Sorted(maps.Keys(coll.Programs)) {
+			fullLogFile := path.Join(*flagResultDir, fmt.Sprintf("%s_%d_%d_%s_verifier.log", collection, build, load, n))
 			p := coll.Programs[n]
 			s := spec.Programs[n]
 
-			if *flagFullLog {
-				fullLogFile := path.Join(*flagResultDir, fmt.Sprintf("%s_%d_%d_%s_verifier.log", collection, build, load, n))
-				f, err := os.Create(fullLogFile)
-				if err != nil {
-					t.Fatalf("Failed to create full verifier log file: %v", err)
-				}
-				if _, err := io.Copy(f, strings.NewReader(p.VerifierLog)); err != nil {
-					t.Fatalf("Failed to write full verifier log: %v", err)
-				}
-				if err := f.Close(); err != nil {
-					t.Fatalf("Failed to close full verifier log file: %v", err)
-				}
-			}
-
 			// The part of the log we are interested in is at the end. And looks like this:
 			//   verification time 355643 usec
-			//   stack depth 144+280+120
-			//   insns processed 12591+75421+455  <-- only on newer kernels
+			//   stack depth 144+280+120 [max 430] <-- only on newer kernels
+			//   ... |
+			//   ... | <-- only on newer kernels
+			//   ... |
 			//   processed 88467 insns (limit 1000000) max_states_per_insn 44 total_states 4141 peak_states 1137 mark_read 56
 
 			// Remove trailing newline so strings.LastIndex finds the newline ahead of the last log line.
@@ -363,22 +356,19 @@ func loadAndRecordComplexity(
 			_, err := fmt.Sscanf(p.VerifierLog[lastOff:], "processed %d insns (limit %d) max_states_per_insn %d total_states %d peak_states %d mark_read %d",
 				&r.InsnsProcessed, &r.InsnsLimit, &r.MaxStatesPerInsn, &r.TotalStates, &r.PeakStates, &r.MarkRead)
 			if err != nil {
+				t.Logf("Verifier log line: %s", strings.TrimSpace(p.VerifierLog[lastOff:]))
+				dumpVerifierLogs(t, fullLogFile, p.VerifierLog)
 				t.Fatalf("Failed to parse verifier log for program %s: %v", n, err)
 			}
 
 			stackDepthIndex := strings.LastIndex(p.VerifierLog[:lastLineIndex], "\n")
-			// On older kernels, the max field is missing in verifier logs so
-			// we can't easily retrieve the max stack size. We'll just return
-			// it for bpf-next, where it's likely already the highest value
-			// anyway.
-			if kv == kernelVersionNetNext {
-				var stackDepth int
-				stackDepth, stackDepthIndex, err = parseStackDepth(s, p.VerifierLog, lastLineIndex, lastOff)
-				if err != nil {
-					t.Fatalf("Failed to parse stack depth for program %s: %v", n, err)
-				}
+
+			var stackDepth, parsedStackDepthIndex int
+			stackDepth, parsedStackDepthIndex, err = parseStackDepth(t, s, p.VerifierLog, lastLineIndex, lastOff)
+			if err == nil {
 				r.StackDepth = stackDepth
 				r.HasStackDepth = true
+				stackDepthIndex = parsedStackDepthIndex
 			}
 
 			// Extract the third to last line, which looks like:
@@ -386,7 +376,13 @@ func loadAndRecordComplexity(
 			verificationTimeIndex := strings.LastIndex(p.VerifierLog[:stackDepthIndex], "\n")
 			_, err = fmt.Sscanf(p.VerifierLog[verificationTimeIndex+1:stackDepthIndex], "verification time %d usec", &r.VerificationTimeMicroseconds)
 			if err != nil {
+				t.Logf("Verifier log line: %s", strings.TrimSpace(p.VerifierLog[verificationTimeIndex+1:stackDepthIndex]))
+				dumpVerifierLogs(t, fullLogFile, p.VerifierLog)
 				t.Fatalf("Failed to parse verification time for program %s: %v", n, err)
+			}
+
+			if *flagFullLog {
+				dumpVerifierLogs(t, fullLogFile, p.VerifierLog)
 			}
 
 			progInfo, err := p.Info()
@@ -401,33 +397,62 @@ func loadAndRecordComplexity(
 	}
 }
 
+func dumpVerifierLogs(t *testing.T, fullLogFile, verifierLogs string) {
+	f, err := os.Create(fullLogFile)
+	if err != nil {
+		t.Fatalf("Failed to create full verifier log file: %v", err)
+	}
+	if _, err := io.Copy(f, strings.NewReader(verifierLogs)); err != nil {
+		t.Fatalf("Failed to write full verifier log: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("Failed to close full verifier log file: %v", err)
+	}
+}
+
 // Extract the second to last line, which looks like:
 //
-//	stack depth 144+280+120
-func parseStackDepth(s *ebpf.ProgramSpec, verifierLogs string, lastLineIndex, lastOff int) (int, int, error) {
+//	stack depth 144+280+120 max 430
+//
+// or:
+//
+//	stack depth max 430
+//
+// and may be preceded by multiple lines we don't care about for now.
+func parseStackDepth(t *testing.T, s *ebpf.ProgramSpec, verifierLogs string, lastLineIndex, lastOff int) (int, int, error) {
 	stackDepthIndex := strings.LastIndex(verifierLogs[:lastLineIndex], "\n")
-	stackDepthLine := verifierLogs[stackDepthIndex+1 : lastOff]
-	if !strings.Contains(stackDepthLine, "stack depth ") {
+	stackDepthLine := strings.TrimSpace(verifierLogs[stackDepthIndex+1 : lastOff])
+
+	// On newer kernels, there may be multiple lines with the per-global function complexity
+	// between the "stack depth" line and the "processed insns" line. This loop skips over up to
+	// MAX_GLOBAL_FUNC_PER_PROG lines.
+	i := 0
+	for ; i < MAX_GLOBAL_FUNC_PER_PROG && !strings.Contains(stackDepthLine, "stack depth "); i++ {
 		lastOff = stackDepthIndex + 1
 		stackDepthIndex = strings.LastIndex(verifierLogs[:stackDepthIndex], "\n")
-		stackDepthLine = verifierLogs[stackDepthIndex+1 : lastOff]
-		if !strings.Contains(stackDepthLine, "stack depth ") {
-			return 0, stackDepthIndex, fmt.Errorf("Couldn't find stack depths line in verifier logs")
-		}
+		stackDepthLine = strings.TrimSpace(verifierLogs[stackDepthIndex+1 : lastOff])
 	}
+	if i == MAX_GLOBAL_FUNC_PER_PROG+1 && !strings.Contains(stackDepthLine, "stack depth ") {
+		t.Logf("Verifier log line: %s", stackDepthLine)
+		return 0, stackDepthIndex, fmt.Errorf("Couldn't find stack depths line in verifier logs")
+	}
+
 	stackDepthLine = strings.TrimPrefix(strings.TrimSpace(stackDepthLine), "stack depth ")
-	// On newer kernels, the stack depth line may look as follows, so we need
-	// to remove the max info at the end.
+	// On newer kernels, the stack depth line may look as one of the following options and we need
+	// to extract the max info at the end.
 	//   stack depth 144+255 max 400
-	stackDepthInfo := strings.Split(stackDepthLine, " max ")
+	//   stack depth max 400
+	stackDepthInfo := strings.Split(stackDepthLine, "max ")
 
 	// The max field isn't reported on older kernels.
 	if len(stackDepthInfo) != 2 {
+		t.Logf("Verifier log line: %s", stackDepthLine)
 		return 0, stackDepthIndex, fmt.Errorf("Couldn't find max stack depth value in verifier logs")
 	}
 
 	maxDepth, err := strconv.Atoi(stackDepthInfo[1])
 	if err != nil {
+		t.Logf("Verifier log line: %s", stackDepthLine)
 		return 0, stackDepthIndex, err
 	}
 	return maxDepth, stackDepthIndex, nil

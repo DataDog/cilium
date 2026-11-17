@@ -106,7 +106,7 @@ env:
   clusterName: ${{ github.event.repository.name }}-${{ github.run_id }}-${{ inputs.UID }}-${{ github.run_attempt }}
   USE_GKE_GCLOUD_AUTH_PLUGIN: True
   # renovate: datasource=docker depName=google/cloud-sdk
-  gcloud_version: 590.0.0
+  gcloud_version: 593.0.0
 
 jobs:
   echo-inputs:
@@ -459,7 +459,7 @@ jobs:
             --docker-password="${{ secrets.DOCKER_READ_PASSWORD }}"
 
       - name: Install Cilium CLI
-        uses: cilium/cilium-cli@d9302835ae0d3cb6148178d4590240622289e193 # v0.20.1
+        uses: cilium/cilium-cli@506c6d8cd165e56a36ce97ed31f67c92d4ae72e1 # v0.20.3
         with:
           skip-build: ${{ env.CILIUM_CLI_SKIP_BUILD }}
           image-repo: ${{ env.CILIUM_CLI_IMAGE_REPO }}

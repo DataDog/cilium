@@ -22,7 +22,7 @@ runs:
         echo "BGP_CONTROL_PLANE_HELM_VALUES=--helm-set=bgpControlPlane.enabled=true" >> $GITHUB_ENV
         echo "CILIUM_CLI_RELEASE_REPO=cilium/cilium-cli" >> $GITHUB_ENV
         # renovate: datasource=github-releases depName=cilium/cilium-cli
-        CILIUM_CLI_VERSION="v0.20.1"
+        CILIUM_CLI_VERSION="v0.20.3"
         echo "CILIUM_CLI_VERSION=$CILIUM_CLI_VERSION" >> $GITHUB_ENV
         echo "CILIUM_CLI_IMAGE_REPO=${REGISTRY_DEV}/cilium/cilium-cli-ci" >> $GITHUB_ENV
         echo "CILIUM_CLI_SKIP_BUILD=true" >> $GITHUB_ENV
@@ -40,7 +40,7 @@ runs:
         echo "CILIUM_RUNTIME_IMAGE_PREFIX=quay.io/cilium/" >> $GITHUB_ENV
 
         # renovate: datasource=docker
-        KIND_FAKE_EXTERNAL_TARGET_IMAGE="docker.io/library/nginx:1.31.8-alpine-slim@sha256:b899b0ef5345e14c01720a5ff83e716bacda65c7077a7363602ff7e7970bf88a"
+        KIND_FAKE_EXTERNAL_TARGET_IMAGE="docker.io/library/nginx:1.31.8-alpine-slim@sha256:4c734d33ee731135dc9f2349914a34551c920f4451fca8bb05bf5880eb9079e8"
         echo "KIND_FAKE_EXTERNAL_TARGET_IMAGE=$KIND_FAKE_EXTERNAL_TARGET_IMAGE" >> $GITHUB_ENV
 
         # renovate: datasource=github-releases depName=kubernetes-sigs/kind

@@ -5,6 +5,7 @@ package ciliumendpointslice
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strconv"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"k8s.io/client-go/util/workqueue"
 
 	op_k8s "github.com/cilium/cilium/operator/k8s"
+	"github.com/cilium/cilium/operator/pkg/ciliumidentity"
 	"github.com/cilium/cilium/pkg/k8s"
 	cilium_api_v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 	capi_v2a1 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2alpha1"
@@ -472,7 +474,19 @@ func (c *SlimController) onPodUpdate(pod *slim_corev1.Pod) error {
 		return nil
 	}
 
-	cidKey, err := getPodCIDKey(pod, c.logger, c.reconciler.namespaceStore)
+	var existingCID *cilium_api_v2.CiliumIdentity
+	if cidName, exists := c.manager.getCIDForCEP(GetCEPNameFromPod(pod)); exists {
+		cid, cidExists, cidErr := c.reconciler.cidStore.GetByKey(resource.Key{Name: string(cidName)})
+		if cidErr != nil {
+			return cidErr
+		}
+		if !cidExists {
+			return fmt.Errorf("CID name %q exists for pod %s/%s, but the CiliumIdentity was not found", cidName, pod.Namespace, pod.Name)
+		}
+		existingCID = cid
+	}
+
+	cidKey, err := ciliumidentity.GetCIDKeyForPod(c.logger, pod, c.reconciler.namespaceStore, existingCID)
 	if err != nil {
 		c.logger.Debug("could not get labels for pod",
 			logfields.K8sPodName, pod.Name,
@@ -533,7 +547,10 @@ cesLoop:
 			stale := false
 			for _, cep := range ces.Endpoints {
 				cepKey := NewCEPName(cep.Name, ces.Namespace).key()
-				if _, exists := livecep[cepKey]; exists {
+				// A recreated pod (e.g. StatefulSet) keeps its name but gets
+				// a new UID, so compare the UID too.
+				liveCEP, exists := livecep[cepKey]
+				if exists && cep.PodUID == k8s.ConvertCEPToCoreCEP(liveCEP).PodUID {
 					c.manager.initializeMappingCEPtoCES(&cep, ces.Namespace, cesName)
 					delete(livecep, cepKey)
 				} else {

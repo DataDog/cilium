@@ -407,7 +407,7 @@ For large clusters, consider disabling high-cardinality metrics like
 
       .. parsed-literal::
 
-         helm install cilium cilium/cilium |CHART_VERSION| \\
+         helm install cilium cilium/cilium --version |CHART_VERSION| \\
              --namespace kube-system \\
              --set prometheus.enabled=true \\
              --set prometheus.metrics="{-cilium_node_health_connectivity_status,-cilium_node_health_connectivity_latency_seconds}"
@@ -493,6 +493,19 @@ Name                                       Labels                               
 ``services_events_total``                   ``action``                                         Enabled    Number of services events labeled by action type
 ``service_implementation_delay``           ``action``                                         Enabled    Duration in seconds to propagate the data plane programming of a service, its network and endpoints from the time the service or the service pod was changed excluding the event queue latency
 ========================================== ================================================== ========== ========================================================
+
+Load-balancer
+~~~~~~~~~~~~~
+
+============================================== =============================== =========== ===================================================================
+Name                                           Labels                          Default     Description
+============================================== =============================== =========== ===================================================================
+``loadbalancer_id_capacity``                   ``type``                        Enabled     Number of loadbalancer IDs in the allocation range
+``loadbalancer_id_allocations``                ``type``                        Enabled     Number of loadbalancer IDs currently allocated
+``loadbalancer_id_allocation_attempts_total``  ``type``                        Enabled     Total number of loadbalancer ID allocation attempts
+``loadbalancer_id_allocation_failures_total``  ``type``                        Enabled     Total number of loadbalancer ID allocation failures
+``loadbalancer_id_mappings_pending_restore``   ``type``                        Enabled     Number of loadbalancer address-to-ID mappings pending restoration
+============================================== =============================== =========== ===================================================================
 
 Cluster health
 ~~~~~~~~~~~~~~

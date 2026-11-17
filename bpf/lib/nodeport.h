@@ -797,6 +797,11 @@ nodeport_rev_dnat_get_info_ipv6(struct __ctx_buff *ctx,
 		return false;
 
 	if (entry->node_port) {
+		/* A direct connection to the backend reuses this tuple: */
+		if (!ct_entry_alive(entry) &&
+		    ct_has_live_ingress_entry6(get_ct_map6(tuple), tuple))
+			return false;
+
 		if (entry->rev_nat_index) {
 			__u16 rev_nat_index = entry->rev_nat_index;
 			const struct lb6_reverse_nat *tmp;
@@ -1405,6 +1410,7 @@ static __always_inline int nodeport_svc_lb6(struct __ctx_buff *ctx,
 				return handle_nonroutable_endpoints_v6(svc);
 #ifdef SERVICE_NO_BACKEND_RESPONSE
 			edt_set_aggregate(ctx, 0);
+			ctx_store_meta(ctx, CB_SRC_LABEL, src_sec_identity);
 			ret = tail_call_internal(ctx, CILIUM_CALL_IPV6_NO_SERVICE,
 									 ext_err);
 			return ret;
@@ -2111,6 +2117,11 @@ nodeport_rev_dnat_get_info_ipv4(struct __ctx_buff *ctx,
 		return false;
 
 	if (entry->node_port) {
+		/* A direct connection to the backend reuses this tuple: */
+		if (!ct_entry_alive(entry) &&
+		    ct_has_live_ingress_entry4(get_ct_map4(tuple), tuple))
+			return false;
+
 		if (entry->rev_nat_index) {
 			__u16 rev_nat_index = entry->rev_nat_index;
 			const struct lb4_reverse_nat *tmp;
@@ -2689,6 +2700,7 @@ static __always_inline int nodeport_svc_lb4(struct __ctx_buff *ctx,
 #ifdef SERVICE_NO_BACKEND_RESPONSE
 				/* Packet is TX'ed back out, avoid EDT false-positives: */
 				edt_set_aggregate(ctx, 0);
+				ctx_store_meta(ctx, CB_SRC_LABEL, src_sec_identity);
 				ret = tail_call_internal(ctx, CILIUM_CALL_IPV4_NO_SERVICE,
 							 ext_err);
 				return ret;

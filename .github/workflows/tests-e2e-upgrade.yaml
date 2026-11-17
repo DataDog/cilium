@@ -217,7 +217,7 @@ jobs:
         id: key
         timeout-minutes: 10
         continue-on-error: true
-        uses: cilium/little-vm-helper@f86d344aca812dda5aef167867a9a0a90ca6cca5 # v0.0.31
+        uses: cilium/little-vm-helper@c8b0bfbae3bdda7bc69fb9cd370e4b74ce84986d # v0.0.33
         with:
           derive-dependency-list-sha: 'true'
 
@@ -489,7 +489,7 @@ jobs:
 
       - name: Setup bootid file
         if: ${{ steps.vars.outputs.downgrade_version != '' && steps.cilium-stable-config.outputs.skip != 'true' && steps.cilium-newest-config.outputs.skip != 'true' }}
-        uses: cilium/little-vm-helper@f86d344aca812dda5aef167867a9a0a90ca6cca5 # v0.0.31
+        uses: cilium/little-vm-helper@c8b0bfbae3bdda7bc69fb9cd370e4b74ce84986d # v0.0.33
         with:
           provision: 'false'
           cmd: |
@@ -513,7 +513,7 @@ jobs:
 
       - name: Install Cilium CLI
         if: ${{ steps.vars.outputs.downgrade_version != '' && steps.cilium-stable-config.outputs.skip != 'true' && steps.cilium-newest-config.outputs.skip != 'true' }}
-        uses: cilium/cilium-cli@d9302835ae0d3cb6148178d4590240622289e193 # v0.20.1
+        uses: cilium/cilium-cli@506c6d8cd165e56a36ce97ed31f67c92d4ae72e1 # v0.20.3
         with:
           skip-build: ${{ env.CILIUM_CLI_SKIP_BUILD }}
           image-repo: ${{ env.CILIUM_CLI_IMAGE_REPO }}
@@ -567,8 +567,6 @@ jobs:
             # Keep the ignore list consistent across install, upgrade and downgrade.
             # Remove once the tested releases no longer have different xDS defaults.
             EXTRA_INSTALL_ARGS="${EXTRA_INSTALL_ARGS} --set=configDriftDetection.ignoredKeys[0]=envoy-xds-mode"
-            # Restart cilium-envoy on the xDS mode change. Remove once the Envoy image changes.
-            EXTRA_INSTALL_ARGS="${EXTRA_INSTALL_ARGS} --set=envoy.rollOutPods=true"
             cilium install ${{ steps.cilium-stable-config.outputs.config }} ${EXTRA_INSTALL_ARGS}
           else
             cilium install ${{ steps.cilium-newest-config.outputs.config }} ${EXTRA_INSTALL_ARGS}

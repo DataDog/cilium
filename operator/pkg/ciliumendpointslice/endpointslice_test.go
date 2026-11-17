@@ -13,6 +13,7 @@ import (
 	"github.com/cilium/hive/cell"
 	"github.com/cilium/hive/hivetest"
 	"github.com/stretchr/testify/assert"
+	"k8s.io/client-go/util/workqueue"
 
 	"github.com/cilium/cilium/operator/k8s"
 	tu "github.com/cilium/cilium/operator/pkg/ciliumendpointslice/testutils"
@@ -100,12 +101,23 @@ func TestFCFSModeSyncCESsInLocalCacheDefault(t *testing.T) {
 	ces2 := tu.CreateStoreEndpointSlice("ces2", "ns", []cilium_v2a1.CoreCiliumEndpoint{cep5, cep6, cep7})
 	cesStore.CacheStore().Add(ces2)
 
+	// cep8 was recreated with a new UID while ces3 still records the old one.
+	cep8 := tu.CreateManagerEndpoint("cep8", 1, "node1")
+	ces3 := tu.CreateStoreEndpointSlice("ces3", "ns", []cilium_v2a1.CoreCiliumEndpoint{cep8})
+	cesStore.CacheStore().Add(ces3)
+	recreatedCEP8 := tu.CreateStoreEndpoint("cep8", "ns", 1)
+	recreatedCEP8.OwnerReferences[0].UID = "cep8-new-uid"
+	cepStore.CacheStore().Add(recreatedCEP8)
+
 	// Subscribe after seeding so the replay picks up the objects we injected.
 	cepEvents := ciliumEndpoint.Events(t.Context())
 	cesEvents := ciliumEndpointSlice.Events(t.Context())
 	cesController.syncCESsInLocalCache(cepEvents, cesEvents)
 
 	mapping := m.mapping
+
+	// ces2 (stale cep7) and ces3 (stale cep8) must be enqueued for pruning.
+	assertEnqueued(t, cesController.Controller, NewCESKey("ces2", "ns"), NewCESKey("ces3", "ns"))
 
 	for _, ces := range []*cilium_v2a1.CiliumEndpointSlice{ces1, ces2} {
 		for _, cep := range ces.Endpoints {
@@ -123,6 +135,24 @@ func TestFCFSModeSyncCESsInLocalCacheDefault(t *testing.T) {
 	cesController.fastQueue.ShutDown()
 	cesController.standardQueue.ShutDown()
 	hive.Stop(log, t.Context())
+}
+
+// assertEnqueued waits until all the given keys are queued.
+// Note: keys are drained from the queue, as nothing else consumes it in tests.
+func assertEnqueued(t *testing.T, c *Controller, want ...CESKey) {
+	t.Helper()
+
+	var got []CESKey
+	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		for _, q := range []workqueue.TypedRateLimitingInterface[CESKey]{c.fastQueue, c.standardQueue} {
+			for q.Len() > 0 {
+				key, _ := q.Get()
+				q.Done(key)
+				got = append(got, key)
+			}
+		}
+		assert.Subset(ct, got, want)
+	}, time.Second, 10*time.Millisecond)
 }
 
 func TestDifferentSpeedQueuesDefault(t *testing.T) {

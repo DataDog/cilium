@@ -5,11 +5,13 @@ package nodemanager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/netip"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -27,6 +29,7 @@ import (
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/testutils"
 	testipam "github.com/cilium/cilium/pkg/testutils/ipam"
+	"github.com/cilium/cilium/pkg/trigger"
 )
 
 var (
@@ -44,14 +47,32 @@ type allocationImplementationMock struct {
 	poolSize     int
 	allocatedIPs int
 	ipGenerator  int
+
+	// deleteInstanceHook, when set, runs inside DeleteInstance.
+	deleteInstanceHook func()
+
+	// nodeResyncErr, when set before a node is created, pre-populates
+	// resyncErr on the node operations returned by CreateNode.
+	nodeResyncErr error
+
+	// instanceSyncErr, when set, is returned by InstanceSync to simulate a
+	// transient API failure.
+	instanceSyncErr error
+
+	// instanceSyncCalls counts the InstanceSync invocations.
+	instanceSyncCalls int
+
+	// hasInstance is returned by HasInstance to simulate an instance being
+	// present in or dropped from the instance cache.
+	hasInstance bool
 }
 
 func newAllocationImplementationMock() *allocationImplementationMock {
-	return &allocationImplementationMock{poolSize: 2048}
+	return &allocationImplementationMock{poolSize: 2048, hasInstance: true}
 }
 
 func (a *allocationImplementationMock) CreateNode(obj *v2.CiliumNode, node *Node) NodeOperations {
-	return &nodeOperationsMock{allocator: a}
+	return &nodeOperationsMock{allocator: a, resyncErr: a.nodeResyncErr}
 }
 
 func (a *allocationImplementationMock) GetPoolQuota() ipamTypes.PoolQuotaMap {
@@ -67,14 +88,44 @@ func (a *allocationImplementationMock) Resync(ctx context.Context) (time.Time, e
 }
 
 func (a *allocationImplementationMock) InstanceSync(ctx context.Context, instanceID string) (time.Time, error) {
+	a.mutex.Lock()
+	a.instanceSyncCalls++
+	err := a.instanceSyncErr
+	a.mutex.Unlock()
+	if err != nil {
+		return time.Time{}, err
+	}
 	return time.Now(), nil
 }
 
+func (a *allocationImplementationMock) setInstanceSyncError(err error) {
+	a.mutex.Lock()
+	a.instanceSyncErr = err
+	a.mutex.Unlock()
+}
+
+func (a *allocationImplementationMock) instanceSyncCallCount() int {
+	a.mutex.RLock()
+	defer a.mutex.RUnlock()
+	return a.instanceSyncCalls
+}
+
 func (a *allocationImplementationMock) HasInstance(instanceID string) bool {
-	return true
+	a.mutex.RLock()
+	defer a.mutex.RUnlock()
+	return a.hasInstance
+}
+
+func (a *allocationImplementationMock) setHasInstance(hasInstance bool) {
+	a.mutex.Lock()
+	a.hasInstance = hasInstance
+	a.mutex.Unlock()
 }
 
 func (a *allocationImplementationMock) DeleteInstance(instanceID string) {
+	if a.deleteInstanceHook != nil {
+		a.deleteInstanceHook()
+	}
 }
 
 type nodeOperationsMock struct {
@@ -85,6 +136,16 @@ type nodeOperationsMock struct {
 	allocatedIPs []string
 
 	attachedCIDRs []netip.Prefix
+
+	// resyncErr, when set, is returned by ResyncInterfacesAndIPs to simulate
+	// an instance that is no longer present in the operator's cache.
+	resyncErr error
+}
+
+func (n *nodeOperationsMock) setResyncError(err error) {
+	n.mutex.Lock()
+	n.resyncErr = err
+	n.mutex.Unlock()
 }
 
 func (n *nodeOperationsMock) GetUsedIPWithPrefixes() int {
@@ -106,10 +167,13 @@ func (n *nodeOperationsMock) ResyncInterfacesAndIPs(ctx context.Context, scopedL
 	var stats ipamStats.InterfaceStats
 	available := ipamTypes.AllocationMap{}
 	n.mutex.RLock()
+	defer n.mutex.RUnlock()
+	if n.resyncErr != nil {
+		return nil, stats, n.resyncErr
+	}
 	for _, ip := range n.allocatedIPs {
 		available[ip] = ipamTypes.AllocationIP{}
 	}
-	n.mutex.RUnlock()
 	return available, stats, nil
 }
 
@@ -233,6 +297,225 @@ func TestGetNodeNames(t *testing.T) {
 	require.Equal(t, "node2", names[0])
 }
 
+// poolMaintainerMock replaces a node's pool maintainer in tests that count
+// instanceSync invocations: pool maintenance also triggers the instance sync
+// (after interface mutations or on errors), which would pollute the counts.
+type poolMaintainerMock struct{}
+
+func (p *poolMaintainerMock) Trigger()  {}
+func (p *poolMaintainerMock) Shutdown() {}
+
+// newNodeMissingFromCache creates a node and then drops its instance from the
+// instance cache, simulating a full resync evicting a node whose interfaces
+// are not attached yet. The instance is dropped only after the node exists so
+// that Upsert does not run its own instance sync, which would interfere with
+// the tests. The resync error is injected before the node is created so that
+// no recalculation can start pool maintenance before the pool maintainer is
+// swapped out (pool maintenance also triggers the instance sync).
+func newNodeMissingFromCache(t *testing.T, mngr *NodeManager, am *allocationImplementationMock, name string) *Node {
+	t.Helper()
+
+	am.nodeResyncErr = errors.New("instance not found")
+	mngr.Upsert(newCiliumNode(name, 0, 0, 0))
+	node := mngr.Get(name)
+	require.NotNil(t, node)
+
+	node.mutex.Lock()
+	node.poolMaintainer.Shutdown()
+	node.poolMaintainer = &poolMaintainerMock{}
+	node.mutex.Unlock()
+
+	am.setHasInstance(false)
+
+	return node
+}
+
+// newNodeWithCountingSync additionally replaces the node's instanceSync
+// trigger with one that counts how many times it fires.
+func newNodeWithCountingSync(t *testing.T, mngr *NodeManager, am *allocationImplementationMock, name string, count *atomic.Int32) *Node {
+	t.Helper()
+
+	node := newNodeMissingFromCache(t, mngr, am, name)
+
+	countingSync, err := trigger.NewTrigger(trigger.Parameters{
+		Name:        "test-instance-sync-" + name,
+		MinInterval: time.Millisecond,
+		TriggerFunc: func([]string) { count.Add(1) },
+	})
+	require.NoError(t, err)
+	t.Cleanup(countingSync.Shutdown)
+
+	node.mutex.Lock()
+	node.instanceSync.Shutdown()
+	node.instanceSync = countingSync
+	node.mutex.Unlock()
+
+	return node
+}
+
+// runWithTimeout fails the test if fn does not return within the timeout,
+// which indicates that the NodeManager deadlocked.
+func runWithTimeout(t *testing.T, name string, fn func()) {
+	t.Helper()
+
+	done := make(chan struct{})
+	go func() {
+		fn()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("%s did not complete, possible deadlock", name)
+	}
+}
+
+// TestNodeManagerInstanceNotFoundRecovery verifies that a node whose
+// instance was dropped from the instance cache has its per-instance sync
+// re-triggered so the operator recovers without a restart. The scenarios run
+// through Resync and Upsert, which hold the NodeManager mutex while
+// recalculating: the timeout guards protect against re-introducing a
+// deadlock on that mutex.
+func TestNodeManagerInstanceNotFoundRecovery(t *testing.T) {
+	setup := func(t *testing.T) (*NodeManager, *allocationImplementationMock, *Node, *atomic.Int32) {
+		am := newAllocationImplementationMock()
+		mngr, err := NewNodeManager(hivetest.Logger(t), am, k8sapi, metricsmock.NewMockMetrics(), 10, false, 0, false)
+		require.NoError(t, err)
+		t.Cleanup(mngr.Stop)
+
+		var count atomic.Int32
+		node := newNodeWithCountingSync(t, mngr, am, "node-cache-drop", &count)
+		return mngr, am, node, &count
+	}
+
+	t.Run("Resync re-triggers the instance sync", func(t *testing.T) {
+		mngr, _, _, count := setup(t)
+		mngr.SetInstancesAPIReadiness(true)
+
+		runWithTimeout(t, "Resync", func() { mngr.Resync(context.Background(), time.Now()) })
+		require.Eventually(t, func() bool {
+			return count.Load() == 1
+		}, time.Second, time.Millisecond, "expected the instance sync to be re-triggered")
+	})
+
+	t.Run("Resync re-triggers at most once while the instance stays missing", func(t *testing.T) {
+		mngr, _, _, count := setup(t)
+		mngr.SetInstancesAPIReadiness(true)
+
+		runWithTimeout(t, "Resync", func() { mngr.Resync(context.Background(), time.Now()) })
+		runWithTimeout(t, "Resync", func() { mngr.Resync(context.Background(), time.Now()) })
+		require.Eventually(t, func() bool {
+			return count.Load() == 1
+		}, time.Second, time.Millisecond, "expected the instance sync to be re-triggered")
+		require.Never(t, func() bool {
+			return count.Load() > 1
+		}, 100*time.Millisecond, 10*time.Millisecond, "the instance sync must be re-triggered at most once per missing-episode")
+	})
+
+	t.Run("re-trigger re-arms after the instance is found again", func(t *testing.T) {
+		mngr, am, node, count := setup(t)
+		mngr.SetInstancesAPIReadiness(true)
+
+		runWithTimeout(t, "Resync", func() { mngr.Resync(context.Background(), time.Now()) })
+		require.Eventually(t, func() bool {
+			return count.Load() == 1
+		}, time.Second, time.Millisecond, "expected the instance sync to be re-triggered")
+
+		// The instance is back in the cache: re-arms the recovery sync.
+		node.ops.(*nodeOperationsMock).setResyncError(nil)
+		am.setHasInstance(true)
+		runWithTimeout(t, "Resync", func() { mngr.Resync(context.Background(), time.Now()) })
+
+		// The instance is dropped a second time.
+		node.ops.(*nodeOperationsMock).setResyncError(errors.New("instance not found"))
+		am.setHasInstance(false)
+		runWithTimeout(t, "Resync", func() { mngr.Resync(context.Background(), time.Now()) })
+		require.Eventually(t, func() bool {
+			return count.Load() == 2
+		}, time.Second, time.Millisecond, "expected the instance sync to be re-triggered again after recovery")
+	})
+
+	t.Run("transient instance sync failure re-arms the re-trigger", func(t *testing.T) {
+		am := newAllocationImplementationMock()
+		mngr, err := NewNodeManager(hivetest.Logger(t), am, k8sapi, metricsmock.NewMockMetrics(), 10, false, 0, false)
+		require.NoError(t, err)
+		t.Cleanup(mngr.Stop)
+
+		// The node keeps its real instanceSync trigger so the sync
+		// failure exercises the re-arm in the trigger function.
+		am.setInstanceSyncError(errors.New("EC2 throttled"))
+		node := newNodeMissingFromCache(t, mngr, am, "node-transient")
+		mngr.SetInstancesAPIReadiness(true)
+
+		runWithTimeout(t, "Resync", func() { mngr.Resync(context.Background(), time.Now()) })
+		require.Eventually(t, func() bool {
+			return am.instanceSyncCallCount() == 1
+		}, time.Second, time.Millisecond, "expected the recovery sync to run")
+		require.Eventually(t, func() bool {
+			node.mutex.RLock()
+			defer node.mutex.RUnlock()
+			return !node.instanceSyncRetriggered
+		}, time.Second, time.Millisecond, "expected the sync failure to re-arm the re-trigger")
+
+		// With the re-trigger re-armed, the next resync must retry the
+		// recovery sync.
+		runWithTimeout(t, "Resync", func() { mngr.Resync(context.Background(), time.Now()) })
+		require.Eventually(t, func() bool {
+			return am.instanceSyncCallCount() == 2
+		}, time.Second, time.Millisecond, "expected the recovery sync to be retried")
+	})
+
+	t.Run("authoritative instance not found does not re-arm the re-trigger", func(t *testing.T) {
+		am := newAllocationImplementationMock()
+		mngr, err := NewNodeManager(hivetest.Logger(t), am, k8sapi, metricsmock.NewMockMetrics(), 10, false, 0, false)
+		require.NoError(t, err)
+		t.Cleanup(mngr.Stop)
+
+		// A provider that authoritatively reports the instance as gone
+		// consumes the one-shot recovery attempt.
+		am.setInstanceSyncError(fmt.Errorf("provider response: %w", ErrInstanceNotFound))
+		node := newNodeMissingFromCache(t, mngr, am, "node-gone")
+		mngr.SetInstancesAPIReadiness(true)
+
+		runWithTimeout(t, "Resync", func() { mngr.Resync(context.Background(), time.Now()) })
+		require.Eventually(t, func() bool {
+			return am.instanceSyncCallCount() == 1
+		}, time.Second, time.Millisecond, "expected the recovery sync to run")
+		require.Never(t, func() bool {
+			node.mutex.RLock()
+			defer node.mutex.RUnlock()
+			return !node.instanceSyncRetriggered
+		}, 100*time.Millisecond, 10*time.Millisecond, "an authoritative not-found response must leave the re-trigger consumed")
+
+		runWithTimeout(t, "Resync", func() { mngr.Resync(context.Background(), time.Now()) })
+		require.Never(t, func() bool {
+			return am.instanceSyncCallCount() > 1
+		}, 100*time.Millisecond, 10*time.Millisecond, "the recovery sync must not retry an instance known to be gone")
+	})
+
+	t.Run("no re-trigger while the instances API is unstable", func(t *testing.T) {
+		mngr, _, _, count := setup(t)
+		mngr.SetInstancesAPIReadiness(false)
+
+		runWithTimeout(t, "Resync", func() { mngr.Resync(context.Background(), time.Now()) })
+		require.Never(t, func() bool {
+			return count.Load() > 0
+		}, 100*time.Millisecond, 10*time.Millisecond, "the instance sync must not be re-triggered while the API is unstable")
+	})
+
+	t.Run("Upsert with a missing instance does not deadlock", func(t *testing.T) {
+		mngr, _, _, count := setup(t)
+		mngr.SetInstancesAPIReadiness(true)
+
+		runWithTimeout(t, "Upsert", func() { mngr.Upsert(newCiliumNode("node-cache-drop", 0, 0, 0)) })
+		// The Upsert path does not re-trigger the sync itself, recovery
+		// is handled by the periodic resync path.
+		require.Never(t, func() bool {
+			return count.Load() > 0
+		}, 100*time.Millisecond, 10*time.Millisecond, "the Upsert path must not re-trigger the instance sync")
+	})
+}
+
 func TestNodeManagerGet(t *testing.T) {
 	am := newAllocationImplementationMock()
 	require.NotNil(t, am)
@@ -297,6 +580,63 @@ func (k *k8sMock) Get(node string) (*v2.CiliumNode, error) {
 
 func (k *k8sMock) Create(*v2.CiliumNode) (*v2.CiliumNode, error) {
 	return &v2.CiliumNode{}, nil
+}
+
+// TestNodeManagerDeleteInstanceWithoutMutex blocks DeleteInstance, as an in-flight
+// full resync does, and checks that Delete has already released the NodeManager mutex.
+func TestNodeManagerDeleteInstanceWithoutMutex(t *testing.T) {
+	am := newAllocationImplementationMock()
+	mngr, err := NewNodeManager(hivetest.Logger(t), am, k8sapi, metricsmock.NewMockMetrics(), 10, false, 0, false)
+	require.NoError(t, err)
+
+	node1 := newCiliumNode("node-foo", 0, 0, 0)
+	node1.Spec.InstanceID = "i-testNodeManagerDeleteInstanceWithoutMutex"
+	mngr.Upsert(node1)
+	require.NotNil(t, mngr.Get("node-foo"))
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	am.deleteInstanceHook = func() {
+		close(entered)
+		<-release
+	}
+	deleted := make(chan struct{})
+	go func() {
+		defer close(deleted)
+		mngr.Delete(node1)
+	}()
+	var releaseOnce sync.Once
+	releaseDelete := func() {
+		releaseOnce.Do(func() {
+			close(release)
+			select {
+			case <-deleted:
+			case <-time.After(10 * time.Second):
+				t.Fatal("Delete did not return within 10s of DeleteInstance returning")
+			}
+		})
+	}
+	t.Cleanup(releaseDelete)
+
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Delete did not reach DeleteInstance within 10s")
+	}
+
+	got := make(chan bool, 1)
+	go func() {
+		mngr.InstancesAPIIsReady()
+		got <- mngr.Get("node-foo") == nil
+	}()
+	select {
+	case ok := <-got:
+		require.True(t, ok, "node-foo is still known while its instance is being deleted")
+	case <-time.After(10 * time.Second):
+		t.Fatal("the NodeManager mutex is held while DeleteInstance waits")
+	}
+
+	releaseDelete()
 }
 
 func newCiliumNode(node string, preAllocate, minAllocate, used int) *v2.CiliumNode {
