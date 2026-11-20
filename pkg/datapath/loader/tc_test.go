@@ -11,6 +11,7 @@ import (
 	"github.com/cilium/ebpf/asm"
 	"github.com/cilium/hive/hivetest"
 	"github.com/stretchr/testify/require"
+	"github.com/vishvananda/netlink"
 
 	"github.com/cilium/cilium/pkg/datapath/linux/safenetlink"
 	"github.com/cilium/cilium/pkg/testutils"
@@ -215,6 +216,49 @@ func TestPrivilegedCleanupStaleTCFilters(t *testing.T) {
 		require.Len(t, filters, 1)
 
 		require.EqualValues(t, 2, filters[0].Attrs().Priority)
+
+		return nil
+	})
+}
+
+func TestPrivilegedRemoveTCFiltersKeepsForeignFilters(t *testing.T) {
+	testutils.PrivilegedTest(t)
+	logger := hivetest.Logger(t)
+
+	netns.NewNetNS(t).Do(func() error {
+		prog := mustTCProgram(t)
+
+		require.NoError(t, upsertTCProgram(logger, lo, prog, "foreign_test", directionToParent(dirEgress), 2))
+		require.NoError(t, upsertTCProgram(logger, lo, prog, "cil_test", directionToParent(dirEgress), 1))
+
+		require.NoError(t, removeTCFilters(lo, directionToParent(dirEgress)))
+
+		filters, err := safenetlink.FilterList(lo, directionToParent(dirEgress))
+		require.NoError(t, err)
+		require.Len(t, filters, 1)
+		require.Equal(t, "foreign_test-lo", filters[0].(*netlink.BpfFilter).Name)
+
+		return nil
+	})
+}
+
+func TestPrivilegedAttachSKBKeepsForeignTCFilters(t *testing.T) {
+	testutils.PrivilegedTest(t)
+	logger := hivetest.Logger(t)
+
+	skipTCXUnsupported(t)
+
+	netns.NewNetNS(t).Do(func() error {
+		prog := mustTCProgramWithName(t, "cil_test")
+		linkDir := testutils.TempBPFFS(t)
+
+		require.NoError(t, upsertTCProgram(logger, lo, prog, "foreign_test", directionToParent(dirEgress), 2))
+		require.NoError(t, attachSKBProgram(logger, lo, prog, "cil_test", linkDir, directionToParent(dirEgress), true))
+
+		filters, err := safenetlink.FilterList(lo, directionToParent(dirEgress))
+		require.NoError(t, err)
+		require.Len(t, filters, 1)
+		require.Equal(t, "foreign_test-lo", filters[0].(*netlink.BpfFilter).Name)
 
 		return nil
 	})

@@ -44,7 +44,7 @@ func attachSKBProgram(logger *slog.Logger, device netlink.Link, prog *ebpf.Progr
 		// existing tc programs since attaching tcx disables legacy tc evaluation.
 		err := upsertTCXProgram(logger, device, prog, progName, bpffsDir, parent)
 		if err == nil {
-			// Created tcx link, clean up any leftover legacy tc attachments.
+			// Created tcx link, clean up Cilium's leftover legacy tc attachments.
 			if err := removeTCFilters(device, parent); err != nil {
 				logger.Warn(
 					"Cleaning up legacy tc after attaching tcx program",
@@ -196,7 +196,7 @@ func removeStaleTCFilters(logger *slog.Logger, device netlink.Link, parent uint3
 	return nil
 }
 
-// removeTCFilters removes all tc filters from the given interface.
+// removeTCFilters removes all Cilium tc bpf filters from the given interface.
 // Direction is passed as netlink.HANDLE_MIN_{INGRESS,EGRESS} via parent.
 func removeTCFilters(device netlink.Link, parent uint32) error {
 	filters, err := safenetlink.FilterList(device, parent)
@@ -205,6 +205,11 @@ func removeTCFilters(device netlink.Link, parent uint32) error {
 	}
 
 	for _, f := range filters {
+		// Don't touch filters belonging to other programs.
+		if bpfFilter, ok := f.(*netlink.BpfFilter); !ok || !isCiliumFilter(bpfFilter) {
+			continue
+		}
+
 		if err := netlink.FilterDel(f); err != nil {
 			return err
 		}
