@@ -1455,7 +1455,7 @@ func (ct *ConnectivityTest) deploy(ctx context.Context) error {
 	}
 
 	if ct.params.MultiCluster == "" && !ct.params.SingleNode {
-		// 3rd client colocated with echo-other-node, hence never on the client node
+		// 3rd client scheduled on a different node than the first 2 clients
 		_, err = ct.clients.src.GetDeployment(ctx, ct.params.TestNamespace, client3DeploymentName, metav1.GetOptions{})
 		if err != nil {
 			ct.Logf("✨ [%s] Deploying %s deployment...", ct.clients.src.ClusterName(), client3DeploymentName)
@@ -1467,12 +1467,12 @@ func (ct *ConnectivityTest) deploy(ctx context.Context) error {
 				Labels:      map[string]string{"other": "client-other-node"},
 				Annotations: ct.params.DeploymentAnnotations.Match(client3DeploymentName),
 				Affinity: &corev1.Affinity{
-					PodAffinity: &corev1.PodAffinity{
+					PodAntiAffinity: &corev1.PodAntiAffinity{
 						RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{
 							{
 								LabelSelector: &metav1.LabelSelector{
 									MatchExpressions: []metav1.LabelSelectorRequirement{
-										{Key: "name", Operator: metav1.LabelSelectorOpIn, Values: []string{echoOtherNodeDeploymentName}},
+										{Key: "name", Operator: metav1.LabelSelectorOpIn, Values: []string{clientDeploymentName}},
 									},
 								},
 								TopologyKey: corev1.LabelHostname,
