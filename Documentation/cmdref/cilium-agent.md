@@ -146,6 +146,7 @@ cilium-agent [flags]
       --enable-health-checking                                    Enable connectivity health checking (default true)
       --enable-host-firewall                                      Enable host network policies
       --enable-host-legacy-routing                                Enable the legacy host forwarding model which does not bypass upper stack in host namespace
+      --enable-host-tcx-next                                      Return TCX_NEXT instead of TCX_PASS from host device programs attached with tcx, so that later tcx programs and legacy tc filters also see packets passed up the stack
       --enable-hubble                                             Enable hubble server
       --enable-hubble-open-metrics                                Enable exporting hubble metrics in OpenMetrics format.
       --enable-identity-mark                                      Enable setting identity mark for local traffic (default true)

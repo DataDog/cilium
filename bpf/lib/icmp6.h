@@ -314,8 +314,7 @@ static __always_inline int __icmp6_send_time_exceeded(struct __ctx_buff *ctx,
 }
 
 #ifndef SKIP_ICMPV6_HOPLIMIT_HANDLING
-__declare_tail(CILIUM_CALL_SEND_ICMP6_TIME_EXCEEDED)
-int tail_icmp6_send_time_exceeded(struct __ctx_buff *ctx __maybe_unused)
+__declare_tail_verdict(CILIUM_CALL_SEND_ICMP6_TIME_EXCEEDED, tail_icmp6_send_time_exceeded)
 {
 	int ret, nh_off = ctx_load_and_clear_meta(ctx, 0);
 	enum metric_dir direction  = (enum metric_dir)ctx_load_meta(ctx, 1);
@@ -398,8 +397,7 @@ static __always_inline int __icmp6_handle_ns(struct __ctx_buff *ctx, int nh_off)
 }
 
 #ifndef SKIP_ICMPV6_NS_HANDLING
-__declare_tail(CILIUM_CALL_HANDLE_ICMP6_NS)
-int tail_icmp6_handle_ns(struct __ctx_buff *ctx)
+__declare_tail_verdict(CILIUM_CALL_HANDLE_ICMP6_NS, tail_icmp6_handle_ns)
 {
 	int ret, nh_off = ctx_load_and_clear_meta(ctx, 0);
 	enum metric_dir direction  = (enum metric_dir)ctx_load_meta(ctx, 1);

@@ -21,6 +21,9 @@ type BPFHost struct {
 	EnableARPResponder bool `config:"enable_arp_responder"`
 	// Pass traffic with extended IP protocols.
 	EnableExtendedIPProtocols bool `config:"enable_extended_ip_protocols"`
+	// Hand packets passed up the stack on to later tcx programs and legacy tc
+	// filters (TCX_NEXT instead of TCX_PASS).
+	EnableHostTcxNext bool `config:"enable_host_tcx_next"`
 	// Apply Network Policy for ICMP packets.
 	EnableICMPRule bool `config:"enable_icmp_rule"`
 	// Enable IPv4 fragments tracking.
@@ -76,7 +79,7 @@ type BPFHost struct {
 
 func NewBPFHost(node Node) *BPFHost {
 	return &BPFHost{false, 0x0, false, false, false, false, false, false, false, false,
-		false, false, 0x0, 0xe, 0x0, false, 0x0,
+		false, false, false, 0x0, 0xe, 0x0, false, 0x0,
 		cast[types.MACAddr]([]byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}),
 		0x0, cast[types.V4Addr]([]byte{0x0, 0x0, 0x0, 0x0}),
 		cast[types.V6Addr]([]byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}),

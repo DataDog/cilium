@@ -7,6 +7,9 @@
 #include "config.h"
 
 #include "bpf/compiler.h"
+#ifdef IS_BPF_HOST
+#include "bpf/config/global.h"
+#endif
 
 #define __eval(x, ...) x ## __VA_ARGS__
 
@@ -126,6 +129,46 @@ struct {
 #define __declare_tail(index) \
 	__section(PROG_TYPE "/tail") \
 	__attribute__((btf_decl_tag("tail:cilium_calls/" __stringify(index))))
+
+#ifdef IS_BPF_HOST
+DECLARE_CONFIG(bool, enable_host_tcx_next, "Hand packets passed up the stack on to later tcx programs and legacy tc filters (TCX_NEXT instead of TCX_PASS).")
+
+static __always_inline int
+ctx_verdict(struct __ctx_buff *ctx, int ret)
+{
+	/* TCX_PASS ends the tcx hook, so later tcx programs and legacy tc
+	 * filters never see the packet. Only on the device this program is
+	 * attached to, as cil_host_policy is also tail called from pods' hooks.
+	 */
+	if (CONFIG(enable_host_tcx_next) && ret == CTX_ACT_OK &&
+	    ctx_get_ifindex(ctx) == CONFIG(interface_ifindex)) {
+		/* TCX_PASS would have set tc_index from tc_classid. */
+		ctx->tc_index = ctx->tc_classid;
+		return TCX_NEXT;
+	}
+	return ret;
+}
+
+/* In bpf_host, the program body runs as fn##_body() and its verdict goes
+ * through ctx_verdict(). Other programs are declared as usual.
+ */
+# define __program_with_verdict(attrs, fn)				\
+	static __always_inline int fn##_body(struct __ctx_buff *ctx);	\
+	attrs int fn(struct __ctx_buff *ctx)				\
+	{								\
+		return ctx_verdict(ctx, fn##_body(ctx));		\
+	}								\
+	static __always_inline int fn##_body(struct __ctx_buff *ctx __maybe_unused)
+#else
+# define __program_with_verdict(attrs, fn)				\
+	attrs int fn(struct __ctx_buff *ctx __maybe_unused)
+#endif
+
+/* Declare a tail call or entry program, followed by its body. */
+#define __declare_tail_verdict(index, fn) \
+	__program_with_verdict(__declare_tail(index), fn)
+#define __section_entry_verdict(fn) \
+	__program_with_verdict(__section_entry, fn)
 
 static __always_inline __must_check int
 tail_call_internal(struct __ctx_buff *ctx, const __u32 index, __s8 *ext_err)

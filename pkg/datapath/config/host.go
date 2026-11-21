@@ -10,11 +10,18 @@ import (
 	"github.com/vishvananda/netlink"
 
 	"github.com/cilium/cilium/pkg/byteorder"
+	"github.com/cilium/cilium/pkg/datapath/linux/probes"
 	endpoint "github.com/cilium/cilium/pkg/endpoint/types"
 	"github.com/cilium/cilium/pkg/mac"
 	"github.com/cilium/cilium/pkg/option"
 	wgtypes "github.com/cilium/cilium/pkg/wireguard/types"
 )
+
+// hostTCXNext reports whether bpf_host should hand packets passed up the stack
+// on with TCX_NEXT. Legacy tc attachments keep returning TC_ACT_OK.
+func hostTCXNext() bool {
+	return option.Config.EnableHostTCXNext && option.Config.EnableTCX && probes.HaveTCX() == nil
+}
 
 // CiliumHost returns a [BPFHost] for attaching bpf_host.c to cilium_host.
 func CiliumHost(ep endpoint.Config, lnc *Config) any {
@@ -33,6 +40,7 @@ func CiliumHost(ep endpoint.Config, lnc *Config) any {
 
 	cfg.HostEPID = uint16(lnc.HostEndpointID)
 	cfg.EnableNetkit = lnc.DatapathIsNetkit
+	cfg.EnableHostTcxNext = hostTCXNext()
 
 	if lnc.EnableWireguard {
 		cfg.WGIfIndex = lnc.WireguardIfIndex
@@ -79,6 +87,7 @@ func CiliumNet(ep endpoint.Config, lnc *Config, link netlink.Link) any {
 	cfg.EnableExtendedIPProtocols = option.Config.EnableExtendedIPProtocols
 	cfg.EnableNoServiceEndpointsRoutable = lnc.SvcRouteConfig.EnableNoServiceEndpointsRoutable
 	cfg.EnableNetkit = lnc.DatapathIsNetkit
+	cfg.EnableHostTcxNext = hostTCXNext()
 
 	ifindex := link.Attrs().Index
 	cfg.InterfaceIfIndex = uint32(ifindex)
@@ -147,6 +156,7 @@ func Netdev(ep endpoint.Config, lnc *Config, link netlink.Link, masq4, masq6 net
 	cfg.HostEPID = uint16(lnc.HostEndpointID)
 	cfg.EnableNoServiceEndpointsRoutable = lnc.SvcRouteConfig.EnableNoServiceEndpointsRoutable
 	cfg.EnableNetkit = lnc.DatapathIsNetkit
+	cfg.EnableHostTcxNext = hostTCXNext()
 
 	if lnc.EnableWireguard {
 		cfg.WGIfIndex = lnc.WireguardIfIndex
